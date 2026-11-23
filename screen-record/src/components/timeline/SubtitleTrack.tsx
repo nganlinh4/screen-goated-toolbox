@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Scissors } from '@/components/ui/MaterialIcon';
 import { ImportedAudioSegment, SubtitleSegment, SubtitleSourceGroup, VideoSegment } from '@/types/video';
 import type {
@@ -16,27 +16,27 @@ import {
   getSubtitleSourceGroup,
   getSubtitleSourceGroupColor,
   getSubtitleSourceGroupId,
-  makeSubtitleSourceGroup,
 } from '@/lib/subtitleSourceGroups';
 import {
   getTimelineTimingConflictIds,
   TIMELINE_TIMING_CONFLICT_COLOR,
 } from '@/lib/subtitleTimingConflicts';
 import { countFrontendRender } from '@/lib/frontendPerfDiagnostics';
+import { useSettings } from '@/hooks/useSettings';
+import { timelineRangeKeyProps } from './timelineKeyboard';
+import { laneNudge, type TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 import {
   SegmentBlocksCanvas,
   type TimelineVisibleRange,
 } from './SegmentBlocksCanvas';
 import { buildTimelineRenderWindow } from './timelineSegmentIndex';
+import { SubtitleSourceMenu } from './SubtitleSourceMenu';
 import {
-  buildContentMaskStyle,
   DENSE_SUBTITLE_COUNT,
-  getOverlapRange,
-  isSegmentStackedAbove,
   MIN_INTERACTIVE_SUBTITLE_PX,
-  rangesOverlap,
   TRANSLATION_CHUNK_COLORS,
 } from './subtitleTrackLayout';
+import { computeSegmentStackOverlaps } from './segmentStackOverlaps';
 
 interface SubtitleTrackProps {
   segment: VideoSegment;
@@ -46,6 +46,7 @@ interface SubtitleTrackProps {
   onSubtitleSplit?: (id: string, splitTime: number) => void;
   onSubtitleDuplicate?: (id: string) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddSubtitle?: (atTime?: number) => void;
   onDeleteSubtitleSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
@@ -73,6 +74,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   onSubtitleSplit,
   onSubtitleDuplicate,
   onHandleDragStart,
+  keyboardEdits,
   onAddSubtitle,
   onDeleteSubtitleSegments,
   onSelectionChange,
@@ -89,6 +91,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
   visibleTimeRange,
 }) => {
   countFrontendRender('SubtitleTrack');
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: SubtitleSegment; preview: { leftText: string; rightText: string } | null }
     | { type: 'add'; x: number }
@@ -242,6 +245,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
     ? `${(Math.max(generationIndicator.range.endTime, generationIndicator.range.startTime) - Math.min(generationIndicator.range.startTime, generationIndicator.range.endTime)) / safeDuration * 100}%`
     : '100%';
   const rangePillClassName = "pointer-events-none absolute inset-y-0 overflow-hidden rounded-md border border-[color:color-mix(in_srgb,var(--primary-color)_58%,transparent)] bg-[color:color-mix(in_srgb,var(--primary-color)_18%,transparent)]";
+  const closeSourceMenu = useCallback(() => setSourceMenu(null), []);
   const assignSourceGroup = (sourceGroup: SubtitleSourceGroup) => {
     if (!sourceMenu || !onAssignSubtitleSourceGroup) return;
     const targetIds = selectedIds.has(sourceMenu.subtitleId) && selectedIds.size > 1
@@ -250,6 +254,15 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
     onAssignSubtitleSourceGroup(targetIds, sourceGroup);
     setSourceMenu(null);
   };
+
+  // One sweep per render window instead of an O(N^2) scan inside each segment.
+  const stackOverlaps = useMemo(
+    () => computeSegmentStackOverlaps(renderWindow.domSegments, (index) => {
+      const other = renderWindow.domSegments[index];
+      return (frontSubtitleId === other.id || editingSubtitleId === other.id) ? 3 : selectedIds.has(other.id) ? 2 : 1;
+    }),
+    [editingSubtitleId, frontSubtitleId, renderWindow.domSegments, selectedIds],
+  );
 
   return (
     <div
@@ -307,24 +320,22 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
         const hasTimingConflict = timingConflictIds.has(subtitle.id);
         const accentColor = hasTimingConflict ? TIMELINE_TIMING_CONFLICT_COLOR : chunkColor ?? sourceColor;
         const isFront = frontSubtitleId === subtitle.id || isActive;
-        const stackRank = isFront ? 3 : isSelected ? 2 : 1;
-        const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
-          if (other.id === subtitle.id || !rangesOverlap(subtitle, other)) return false;
-          const otherIsFront = frontSubtitleId === other.id || editingSubtitleId === other.id;
-          const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
-          return !isSegmentStackedAbove(subtitleIndex, stackRank, otherIndex, otherRank);
-        });
-        const overlapRanges = renderWindow.domSegments
-          .map((other, otherIndex) => {
-            if (other.id === subtitle.id) return null;
-            const otherIsFront = frontSubtitleId === other.id || editingSubtitleId === other.id;
-            const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
-            if (!isSegmentStackedAbove(subtitleIndex, stackRank, otherIndex, otherRank)) return null;
-            return getOverlapRange(subtitle, other);
-          })
-          .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
-        const contentMaskStyle = buildContentMaskStyle(overlapRanges);
+        const { hasCoveredSegmentUnderneath, contentMaskStyle } = stackOverlaps[subtitleIndex];
         const fillStrength = hasCoveredSegmentUnderneath ? 34 : isSelected ? 22 : 28;
+        const keys = timelineRangeKeyProps({
+          name: `${t.timelineSubtitleSegment} "${subtitle.text}"`,
+          startLabel: t.timelineSegmentStart,
+          endLabel: t.timelineSegmentEnd,
+          range: subtitle,
+          duration,
+          nudge: laneNudge(keyboardEdits, "subtitle", subtitle.id),
+          onActivate: () => { setFrontSubtitleId(subtitle.id); onSubtitleClick(subtitle.id); },
+          onDelete: onDeleteSubtitleSegments
+            && (() => onDeleteSubtitleSegments(isSelected ? [...selectedIds] : [subtitle.id])),
+          onSplit: onSubtitleSplit && ((time) => onSubtitleSplit(subtitle.id, time)),
+          onAdd: onAddSubtitle,
+          getPlayheadTime: keyboardEdits?.getPlayheadTime,
+        });
         return (
         <div
           key={subtitle.id}
@@ -379,6 +390,7 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
             }
             onSubtitleClick(subtitle.id);
           }}
+          {...keys.body}
           className="subtitle-segment timeline-block absolute h-full cursor-move overflow-hidden group"
           data-tone={hasTimingConflict ? 'warning' : 'accent'}
           data-active={isActive ? 'true' : 'false'}
@@ -420,7 +432,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
               {subtitle.text}
             </span>
           </div>
-          <div className="subtitle-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="subtitle-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.start}
             onPointerDown={(e) => {
               if (e.ctrlKey) return;
               e.stopPropagation();
@@ -428,7 +441,8 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
             }}>
             <div className="subtitle-handle-bar timeline-handle-pill" />
           </div>
-          <div className="subtitle-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="subtitle-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.end}
             onPointerDown={(e) => {
               if (e.ctrlKey) return;
               e.stopPropagation();
@@ -441,52 +455,15 @@ export const SubtitleTrack: React.FC<SubtitleTrackProps> = ({
       })}
 
       {sourceMenu && (
-        <div
-          className="subtitle-source-menu ui-surface-elevated fixed z-[110] min-w-[190px] rounded-lg p-1.5 text-[11px]"
-          style={{ left: sourceMenu.x, top: sourceMenu.y }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onMouseLeave={() => setSourceMenu(null)}
-        >
-          <button
-            type="button"
-            className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
-            onClick={() => assignSourceGroup({ kind: 'unassigned', assignment: 'manual' })}
-          >
-            Unassigned
-          </button>
-          {isDeviceAudioAvailable && (
-            <button
-              type="button"
-              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
-              onClick={() => assignSourceGroup({ kind: 'video', assignment: 'manual' })}
-            >
-              Device audio
-            </button>
-          )}
-          {isMicAudioAvailable && (
-            <button
-              type="button"
-              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
-              onClick={() => assignSourceGroup({ kind: 'mic', assignment: 'manual' })}
-            >
-              Microphone
-            </button>
-          )}
-          {audioSegments.map((audioSegment) => (
-            <button
-              key={audioSegment.id}
-              type="button"
-              className="subtitle-source-menu-item flex w-full items-center rounded-md px-2 py-1.5 text-left text-[var(--on-surface-variant)] hover:bg-[var(--ui-surface-3)] hover:text-[var(--on-surface)]"
-              onClick={() => assignSourceGroup(makeSubtitleSourceGroup({
-                kind: 'audio',
-                assignment: 'manual',
-                audioSegment,
-              }))}
-            >
-              {audioSegment.name || 'Audio'}
-            </button>
-          ))}
-        </div>
+        <SubtitleSourceMenu
+          x={sourceMenu.x}
+          y={sourceMenu.y}
+          isDeviceAudioAvailable={isDeviceAudioAvailable}
+          isMicAudioAvailable={isMicAudioAvailable}
+          audioSegments={audioSegments}
+          onAssign={assignSourceGroup}
+          onClose={closeSourceMenu}
+        />
       )}
 
       {rangeSelect && rangeWidth > 2 && activeDragMode === 'ctrl-range' && (

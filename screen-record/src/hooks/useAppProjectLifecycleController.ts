@@ -50,7 +50,6 @@ export interface AppProjectLifecycleControllerArgs {
   flashRawSavedButton: LifecycleArg<"flashRawSavedButton">;
   generateThumbnail: LifecycleArg<"generateThumbnail">;
   getMonitors: LifecycleArg<"getMonitors">;
-  getWindows: LifecycleArg<"getWindows">;
   handleProjectRawVideoPathChange: (path: string) => void;
   handleStopRecording: LifecycleArg<"handleStopRecording">;
   isPlaying: boolean;
@@ -79,6 +78,7 @@ export interface AppProjectLifecycleControllerArgs {
   seek: (time: number) => void;
   segment: VideoSegment | null;
   setComposition: LifecycleArg<"setComposition">;
+  setCompositionSilently: LifecycleArg<"setCompositionSilently">;
   setCurrentAudio: Dispatch<SetStateAction<string | null>>;
   setCurrentMicAudio: Dispatch<SetStateAction<string | null>>;
   setCurrentProjectData: LifecycleArg<"setCurrentProjectData">;
@@ -96,10 +96,8 @@ export interface AppProjectLifecycleControllerArgs {
   setPreviewDuration: (duration: number) => void;
   setRawButtonSavedFlash: LifecycleArg<"setRawButtonSavedFlash">;
   setShowRawVideoDialog: LifecycleArg<"setShowRawVideoDialog">;
-  setShowWindowSelect: LifecycleArg<"setShowWindowSelect">;
   setSpreadFromClipId: LifecycleArg<"setSpreadFromClipId">;
   setWebcamConfig: LifecycleArg<"setWebcamConfig">;
-  showWindowSelect: boolean;
   spreadAnimationTimerRef: LifecycleArg<"spreadAnimationTimerRef">;
   startNewRecording: LifecycleArg<"startNewRecording">;
   videoControllerRef: MutableRefObject<
@@ -139,7 +137,6 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     flashRawSavedButton,
     generateThumbnail,
     getMonitors,
-    getWindows,
     handleProjectRawVideoPathChange,
     handleStopRecording,
     isPlaying,
@@ -167,6 +164,7 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     seek,
     segment,
     setComposition,
+    setCompositionSilently,
     setCurrentAudio,
     setCurrentMicAudio,
     setCurrentProjectData,
@@ -181,10 +179,8 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     setPreviewAudioResetKey,
     setRawButtonSavedFlash,
     setShowRawVideoDialog,
-    setShowWindowSelect,
     setSpreadFromClipId,
     setWebcamConfig,
-    showWindowSelect,
     spreadAnimationTimerRef,
     startNewRecording,
     videoControllerRef,
@@ -204,6 +200,7 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     projects: {
       projects: projects.projects,
       loadProjects: projects.loadProjects,
+      refreshProjectEntry: projects.refreshProjectEntry,
       setCurrentProjectId: projects.setCurrentProjectId,
     },
     currentVideo,
@@ -226,15 +223,13 @@ export function useAppProjectLifecycleController(args: AppProjectLifecycleContro
     webcamConfig,
     loadClipAssets,
     setComposition,
+    setCompositionSilently,
     setCurrentProjectData,
     monitors,
     getMonitors,
-    getWindows,
     isRecording,
     startNewRecording,
     setError,
-    showWindowSelect,
-    setShowWindowSelect,
     setCurrentRecordingMode: rawSetCurrentRecordingMode,
     setCurrentRawVideoPath: handleProjectRawVideoPathChange,
     setCurrentRawMicAudioPath: rawSetCurrentRawMicAudioPath,

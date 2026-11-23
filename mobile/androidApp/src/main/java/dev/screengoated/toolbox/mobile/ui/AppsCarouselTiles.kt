@@ -40,8 +40,6 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
-import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
@@ -50,21 +48,16 @@ private val AppCardPortraitIconSize = 44.dp
 
 @Composable
 internal fun LiveTranslateCarouselTile(
-    state: LiveSessionState,
+    isRunning: Boolean,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
 ) {
-    val isRunning = state.phase in setOf(
-        SessionPhase.STARTING, SessionPhase.LISTENING, SessionPhase.TRANSLATING,
-    )
     SessionAppCarouselTile(
         slot = appSlots[0],
         title = locale.shellLiveTitle,
         drawableRes = LiveTranslateVisuals.icon,
         isRunning = isRunning,
         onSessionToggle = onSessionToggle,
-        canToggle = canToggle,
         turnOnLabel = locale.turnOn,
         turnOffLabel = locale.turnOff,
         toggleTag = "live-translate-toggle",
@@ -78,7 +71,6 @@ internal fun SessionAppCarouselTile(
     @DrawableRes drawableRes: Int,
     isRunning: Boolean,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
     turnOnLabel: String,
     turnOffLabel: String,
     toggleTag: String,
@@ -138,7 +130,6 @@ internal fun SessionAppCarouselTile(
                 }
                 Button(
                     onClick = onSessionToggle,
-                    enabled = canToggle,
                     shape = CircleShape,
                     colors = if (isRunning) {
                         ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -200,7 +191,6 @@ internal fun SessionAppCarouselTile(
                 ) {
                     Button(
                         onClick = onSessionToggle,
-                        enabled = canToggle,
                         shape = CircleShape,
                         colors = if (isRunning) {
                             ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

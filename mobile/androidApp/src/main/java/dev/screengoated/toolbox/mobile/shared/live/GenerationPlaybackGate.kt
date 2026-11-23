@@ -17,6 +17,19 @@ internal class GenerationPlaybackGate {
         GenerationPlaybackChunk(epoch = epoch, bytes = bytes)
     }
 
+    fun isCurrent(chunk: GenerationPlaybackChunk): Boolean = synchronized(lock) { chunk.epoch == epoch }
+
+    fun dispatch(chunk: GenerationPlaybackChunk, effect: () -> Unit): Boolean = synchronized(lock) {
+        if (chunk.epoch != epoch) return@synchronized false
+        effect()
+        true
+    }
+
+    fun invalidate(): Long = synchronized(lock) {
+        epoch = if (epoch == Long.MAX_VALUE) 0L else epoch + 1L
+        epoch
+    }
+
     fun playIfCurrent(
         chunk: GenerationPlaybackChunk,
         play: (ByteArray) -> Unit,

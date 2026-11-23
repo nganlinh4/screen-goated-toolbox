@@ -5,8 +5,8 @@ import {
   buildFlatDeviceAudioPoints,
   clampDeviceAudioVolume,
   getDeviceAudioVolumeAtTime,
-  getImplicitAudioEdgeFadeMultiplier,
 } from "./deviceAudio";
+import { getAudioFootprintEdgeFadeMultiplier } from "./audioEdgeFade";
 import {
   buildFlatMicAudioPoints,
   clampMicAudioVolume,
@@ -34,8 +34,7 @@ import {
 
 import {
   loadMediaElement,
-  fetchVideoSource,
-  performVideoSourceChange,
+  VideoSourceLoader,
 } from "./videoControllerMediaLoading";
 
 import {
@@ -87,6 +86,8 @@ export class VideoController {
   private state: VideoState;
   private renderOptions?: RenderOptions;
   private isChangingSource = false;
+  private videoLoader: VideoSourceLoader;
+  private sourceFailed = false;
   private isGeneratingThumbnail = false;
   private pendingSeekTime: number | null = null;
   private lastRequestedSeekTime: number | null = null;
@@ -112,6 +113,18 @@ export class VideoController {
     this.canvas = options.canvasRef;
     this.tempCanvas = options.tempCanvasRef;
     this.options = options;
+    this.videoLoader = new VideoSourceLoader(this.video, this.canvas, this.webcamVideo, this.deviceAudio, this.micAudio, {
+      start: (label) => {
+        this.isChangingSource = true;
+        this.sourceFailed = false;
+        this.pendingSourceChangeLabel = label ?? null;
+        this.setReady(false);
+        this.resetTransientPlaybackState();
+      },
+      success: () => this.setReady(true),
+      failure: () => { this.sourceFailed = true; },
+      finish: () => { this.isChangingSource = false; this.pendingSourceChangeLabel = null; },
+    });
 
     this.state = {
       isPlaying: false, isReady: false, isSeeking: false,
@@ -129,6 +142,8 @@ export class VideoController {
   // -------------------------------------------------------------------
 
   private get internals(): ControllerInternals {
+    const readPlayRequestSeq = () => this.playRequestSeq;
+    const writePlayRequestSeq = (value: number) => { this.playRequestSeq = value; };
     return {
       video: this.video, webcamVideo: this.webcamVideo,
       deviceAudio: this.deviceAudio, micAudio: this.micAudio,
@@ -139,7 +154,9 @@ export class VideoController {
       pendingSeekTime: this.pendingSeekTime,
       lastRequestedSeekTime: this.lastRequestedSeekTime,
       SEGMENT_EPS: this.SEGMENT_EPS,
-      playRequestSeq: this.playRequestSeq,
+      // Live accessor: a cancellation through any snapshot must be seen by every other snapshot.
+      get playRequestSeq() { return readPlayRequestSeq(); },
+      set playRequestSeq(value: number) { writePlayRequestSeq(value); },
       webcamVideoPlayPromise: this.webcamVideoPlayPromise,
       deviceAudioPlayPromise: this.deviceAudioPlayPromise,
       micAudioPlayPromise: this.micAudioPlayPromise,
@@ -173,7 +190,6 @@ export class VideoController {
   private syncBackFromInternals(ci: ControllerInternals) {
     this.pendingSeekTime = ci.pendingSeekTime;
     this.lastRequestedSeekTime = ci.lastRequestedSeekTime;
-    this.playRequestSeq = ci.playRequestSeq;
     this.webcamVideoPlayPromise = ci.webcamVideoPlayPromise;
     this.deviceAudioPlayPromise = ci.deviceAudioPlayPromise;
     this.micAudioPlayPromise = ci.micAudioPlayPromise;
@@ -257,17 +273,23 @@ export class VideoController {
   }
 
   private applyAudioTrackVolumes(time: number = this.video.currentTime) {
-    const segmentDuration = Math.max(
-      0.001,
-      this.renderOptions?.segment?.trimEnd ?? this.video.duration ?? 0,
-    );
+    const segment = this.renderOptions?.segment;
+    const mediaDuration = this.getEffectiveDuration(time);
+    // Fade over the same trimmed, speed-mapped footprint the export mixer uses.
+    const trimSegments = segment
+      ? getTrimSegments(segment, mediaDuration)
+      : [{ id: "media", startTime: 0, endTime: mediaDuration }];
+    const speedPoints = segment?.speedPoints;
     const deviceVol = clampDeviceAudioVolume(
-      getDeviceAudioVolumeAtTime(time, this.renderOptions?.segment?.deviceAudioPoints),
-    ) * getImplicitAudioEdgeFadeMultiplier(time, segmentDuration);
-    const micLocalTime = time - this.getMicAudioOffsetSec();
+      getDeviceAudioVolumeAtTime(time, segment?.deviceAudioPoints),
+    ) * getAudioFootprintEdgeFadeMultiplier(time, {
+      trimSegments, speedPoints, sourceStartSec: this.getDeviceAudioOffsetSec(),
+    });
     const micVol = clampMicAudioVolume(
-      getMicAudioVolumeAtTime(time, this.renderOptions?.segment?.micAudioPoints),
-    ) * getImplicitAudioEdgeFadeMultiplier(micLocalTime, segmentDuration);
+      getMicAudioVolumeAtTime(time, segment?.micAudioPoints),
+    ) * getAudioFootprintEdgeFadeMultiplier(time, {
+      trimSegments, speedPoints, sourceStartSec: this.getMicAudioOffsetSec(),
+    });
     if (this.hasValidDeviceAudio && this.deviceAudio) this.deviceAudio.volume = deviceVol;
     if (this.hasValidMicAudio && this.micAudio) this.micAudio.volume = micVol;
     if (this.hasExternalAudio) { this.video.muted = true; return; }
@@ -280,7 +302,7 @@ export class VideoController {
   // -------------------------------------------------------------------
 
   private handleLoadedData = () => {
-    if (this.isChangingSource) return;
+    if (this.isChangingSource || this.sourceFailed) return;
     this.applyAudioTrackVolumes(this.video.currentTime);
     this.doRenderFrame();
     this.setReady(true);
@@ -314,23 +336,18 @@ export class VideoController {
     }
   };
 
+  // The editor's segment is React-owned: playback clamps trims to the media
+  // duration where it reads them (getTrimSegments), never by writing back.
   private handleDurationChange = () => {
     if (this.video.duration !== Infinity) {
       this.setDuration(this.video.duration);
-      if (this.renderOptions?.segment) {
-        if (
-          this.renderOptions.segment.trimEnd === 0 ||
-          this.renderOptions.segment.trimEnd > this.video.duration
-        ) {
-          this.renderOptions.segment.trimEnd = this.video.duration;
-        }
-      }
     }
   };
 
   private handleError = (e: Event) => {
     const video = e.target as HTMLVideoElement;
     const mediaError = video.error;
+    if (!mediaError) return;
     const srcAttr = video.getAttribute("src");
     const isIntentionalResetError =
       mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED &&
@@ -492,6 +509,9 @@ export class VideoController {
   public togglePlayPause() { if (this.video.paused) this.play(); else this.pause(); }
 
   public destroy() {
+    this.videoLoader.destroy();
+    this.isChangingSource = false;
+    this.pendingSourceChangeLabel = null;
     if (this.renderTimeout !== null) { cancelAnimationFrame(this.renderTimeout); this.renderTimeout = null; }
     if (this.seekSafetyTimer !== null) { clearTimeout(this.seekSafetyTimer); this.seekSafetyTimer = null; }
     this.stopPlaybackMonitor();
@@ -518,19 +538,14 @@ export class VideoController {
   public get isSeeking() { return this.state.isSeeking; }
   public get currentTime() { return this.state.currentTime; }
   public get duration() { return this.state.duration; }
-
-  // -------------------------------------------------------------------
-  // Media loading
-  // -------------------------------------------------------------------
+  public get videoLoadVersion() { return this.videoLoader.version; }
 
   public async loadVideo(args: {
     videoBlob?: Blob; videoUrl?: string;
     initialTime?: number;
     onLoadingProgress?: (p: number) => void; debugLabel?: string;
   }): Promise<string> {
-    return fetchVideoSource(args, this.webcamVideo, this.deviceAudio, this.micAudio,
-      (url, initialTime, label) =>
-        this.handleVideoSourceChange(url, initialTime, label));
+    return this.videoLoader.load(args);
   }
 
   public async loadDeviceAudio(args: {
@@ -547,22 +562,6 @@ export class VideoController {
     return loadMediaElement(this.webcamVideo, "WebcamVideoLoad", {
       audioBlob: args.videoBlob, audioUrl: args.videoUrl, onLoadingProgress: args.onLoadingProgress,
     });
-  }
-
-  private async handleVideoSourceChange(
-    videoUrl: string,
-    initialTime?: number,
-    debugLabel?: string,
-  ): Promise<void> {
-    if (!this.video || !this.canvas) return;
-    this.isChangingSource = true;
-    this.pendingSourceChangeLabel = debugLabel ?? null;
-    this.setReady(false);
-    this.resetTransientPlaybackState();
-    await performVideoSourceChange(this.video, this.canvas, videoUrl, initialTime,
-      () => {},
-      () => { this.isChangingSource = false; this.pendingSourceChangeLabel = null; this.setReady(true); },
-    );
   }
 
   // -------------------------------------------------------------------

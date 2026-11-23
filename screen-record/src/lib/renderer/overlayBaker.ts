@@ -23,6 +23,11 @@ import {
   drawTextOverlay,
   getTextHitArea,
 } from "./overlayTextRenderer";
+import {
+  type RenderReference,
+  resolveRenderScale,
+  scaleTextSegmentForRender,
+} from "./renderScale";
 
 export const MAX_OVERLAY_ATLAS_SIZE = 4096;
 const ATLAS_GAP = 2;
@@ -111,11 +116,14 @@ export function getKeystrokeBakePadding(
   return Math.max(28, Math.round(layout.fontSize * 1.35));
 }
 
-function getOverlayTextSegments(segment: VideoSegment): TextSegment[] {
+function getOverlayTextSegments(
+  segment: VideoSegment,
+  renderScale: number,
+): TextSegment[] {
   return [
     ...getVisibleSubtitleSegments(segment),
     ...(segment.textSegments ?? []),
-  ];
+  ].map((text) => scaleTextSegmentForRender(text, renderScale));
 }
 
 function drawKeystrokeAtlasItem(
@@ -165,10 +173,13 @@ export async function bakeOverlayAtlasAndPaths(
   segment: VideoSegment,
   outputWidth: number,
   outputHeight: number,
+  reference: RenderReference,
   _fps: number,
   keystrokeState: KeystrokeState,
 ): Promise<BakedOverlayPayload | undefined> {
   keystrokeState.keystrokeLanguage = segment.keystrokeLanguage ?? "en";
+  // Styles are authored on the preview canvas; bake them at output pixels.
+  const renderScale = resolveRenderScale(outputHeight, reference);
   const duration = Math.max(
     segment.trimEnd,
     ...(segment.trimSegments ?? []).map((trim) => trim.endTime),
@@ -181,7 +192,10 @@ export async function bakeOverlayAtlasAndPaths(
   }
 
   const textPad = 24;
-  const textItems: TextAtlasItem[] = getOverlayTextSegments(segment).map(
+  const textItems: TextAtlasItem[] = getOverlayTextSegments(
+    segment,
+    renderScale,
+  ).map(
     (text) => {
       const hitArea = getTextHitArea(
         measurementContext,
@@ -216,8 +230,9 @@ export async function bakeOverlayAtlasAndPaths(
       keystrokeState,
       measurementContext,
       event,
-      outputHeight,
+      reference.height,
       overlayTransform.scale,
+      renderScale,
     );
     const uniqueKey = [
       event.type,
@@ -335,6 +350,8 @@ export async function bakeOverlayAtlasAndPaths(
     keystrokeEntries,
     keystrokeMode: cache?.mode ?? "off",
     keystrokeDelaySec: segment.keystrokeDelaySec ?? 0,
+    // The native exporter scales its fixed layout floors and animation offsets by this.
+    renderScale,
     overlayX: cache ? overlayConfig.x : DEFAULT_KEYSTROKE_OVERLAY_X,
     overlayY: cache ? overlayConfig.y : DEFAULT_KEYSTROKE_OVERLAY_Y,
     overlayScale: cache
@@ -365,8 +382,9 @@ export async function bakeOverlayAtlasAndPaths(
           keystrokeState,
           atlasContext,
           event,
-          outputHeight,
+          reference.height,
           overlayConfig.scale,
+          renderScale,
         ).width;
       }),
     mouseSlotRepresentativeWidths: (cache?.mouseSlotRepresentatives ?? [])
@@ -377,8 +395,9 @@ export async function bakeOverlayAtlasAndPaths(
           keystrokeState,
           atlasContext,
           event,
-          outputHeight,
+          reference.height,
           overlayConfig.scale,
+          renderScale,
         ).width;
       }),
   };

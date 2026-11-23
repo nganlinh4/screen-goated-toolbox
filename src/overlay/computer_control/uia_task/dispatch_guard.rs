@@ -37,20 +37,7 @@ fn interactive_candidates(elements: &[UiElement], rect: (i32, i32, i32, i32)) ->
         .filter(|element| {
             element.enabled
                 && !element.name.trim().is_empty()
-                && matches!(
-                    element.control_type,
-                    "Button"
-                        | "CheckBox"
-                        | "ComboBox"
-                        | "Edit"
-                        | "Hyperlink"
-                        | "ListItem"
-                        | "MenuItem"
-                        | "RadioButton"
-                        | "SplitButton"
-                        | "TabItem"
-                        | "TreeItem"
-                )
+                && uia::control_types::role_for_name(element.control_type).is_some()
                 && element.right > rect.0
                 && element.left < rect.2
                 && element.bottom > rect.1
@@ -79,8 +66,9 @@ mod tests {
             right,
             bottom: 150,
             enabled: true,
+            protected: false,
             state: None,
-            value: None,
+            value: None.into(),
             required: false,
         }
     }
@@ -93,5 +81,18 @@ mod tests {
             ["one", "two"]
         );
         assert!(interactive_candidates(&elements, (200, 0, 300, 200)).is_empty());
+    }
+
+    #[test]
+    fn value_controls_block_coarse_clicks_but_containers_do_not() {
+        let elements = ["Document", "Slider", "Tab", "Pane", "Other"].map(|control_type| {
+            let mut item = element(control_type, 10, 80);
+            item.control_type = control_type;
+            item
+        });
+        assert_eq!(
+            interactive_candidates(&elements, (0, 0, 100, 200)),
+            ["Document", "Slider"]
+        );
     }
 }

@@ -1,0 +1,17 @@
+/* Keep the titlebar fixed while a narrow workspace can reveal every rail. */
+.window-actions { flex-shrink: 0; }
+.identity > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .app-shell > .workspace {
+    grid-template-columns: 78px minmax(240px, 1fr) 244px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .stage-status { min-width: 0; }
+}
+
+@media (max-width: 440px) {
+  .readiness { display: none; }
+}

@@ -42,6 +42,10 @@ pub(super) fn run_job(
         finish(&job_id, Err("Creation engine is unavailable.".to_string()));
         return;
     };
+    let Ok(component_lease) = crate::component_registry::acquire("creation-windows") else {
+        finish(&job_id, Err("The creation engine is being removed.".into()));
+        return;
+    };
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -58,7 +62,8 @@ pub(super) fn run_job(
         {
             return;
         }
-        let child = command.spawn();
+        let child =
+            crate::overlay::creation_process::CreationProcess::spawn(&mut command, component_lease);
         if let Ok(child) = &child {
             state.pids.insert(job_id.clone(), child.id());
         }
@@ -68,12 +73,12 @@ pub(super) fn run_job(
         finish(&job_id, Err("Creation engine could not start.".to_string()));
         return;
     };
-    let Some(mut stdin) = child.stdin.take() else {
+    let Some(mut stdin) = child.take_stdin() else {
         crate::overlay::creation_recovery::terminate_process_tree(child.id());
         finish(&job_id, Err("Creation engine could not start.".to_string()));
         return;
     };
-    let Some(stdout) = child.stdout.take() else {
+    let Some(stdout) = child.take_stdout() else {
         crate::overlay::creation_recovery::terminate_process_tree(child.id());
         finish(&job_id, Err("Creation engine could not start.".to_string()));
         return;
@@ -91,6 +96,11 @@ pub(super) fn run_job(
         );
         return;
     };
+    if child.resume().is_err() {
+        crate::overlay::creation_recovery::terminate_process_tree(child.id());
+        finish(&job_id, Err("Creation engine could not start.".into()));
+        return;
+    }
     let (message, mut accepted) = if recovered {
         match recovery_message(
             &job_id,
@@ -103,7 +113,7 @@ pub(super) fn run_job(
             Ok(message) => message,
             Err(error) => {
                 crate::overlay::creation_recovery::terminate_process_tree(child.id());
-                let _ = child.wait();
+                let _ = events.finish(&mut child);
                 finish_retaining_intent(&job_id, Err(error));
                 return;
             }
@@ -116,7 +126,7 @@ pub(super) fn run_job(
     };
     if writeln!(stdin, "{message}").is_err() {
         crate::overlay::creation_recovery::terminate_process_tree(child.id());
-        let _ = child.wait();
+        let _ = events.finish(&mut child);
         let result = Err("Creation could not start.".to_string());
         if accepted {
             finish_retaining_intent(&job_id, result);
@@ -148,12 +158,14 @@ pub(super) fn run_job(
                             .ok_or_else(|| "Creation returned an invalid vector.".to_string()),
                     );
                     proven_terminal = true;
+                    break;
                 } else if value.get("ok").and_then(Value::as_bool) == Some(false) {
                     let recovery_not_found = value.get("error").and_then(Value::as_str)
                         == Some("creation.recovery_not_found");
                     final_result =
                         Some(Err(crate::overlay::creation_recovery::public_error(&value)));
                     proven_terminal = !recovery_not_found;
+                    break;
                 }
             }
             Ok(None) => break,
@@ -163,7 +175,7 @@ pub(super) fn run_job(
             }
         }
     }
-    let _ = child.wait();
+    let _ = events.finish(&mut child);
     let result = final_result
         .unwrap_or_else(|| Err("Creation ended before returning a vector.".to_string()))
         .and_then(|value| {

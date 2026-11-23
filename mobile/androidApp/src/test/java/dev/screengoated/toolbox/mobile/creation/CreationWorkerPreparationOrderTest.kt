@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.creation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CreationWorkerPreparationOrderTest {
@@ -188,15 +189,15 @@ class CreationWorkerPreparationOrderTest {
         assertEquals(
             null,
             activeCreationPreparationAfterFailure(
-                CreationTool.IMAGE_CREATOR,
-                CreationTool.IMAGE_CREATOR,
+                CreationTool.IMAGE_TO_SVG,
+                CreationTool.IMAGE_TO_SVG,
             ),
         )
         assertEquals(
             CreationTool.IMAGE_TO_3D,
             activeCreationPreparationAfterFailure(
                 CreationTool.IMAGE_TO_3D,
-                CreationTool.IMAGE_CREATOR,
+                CreationTool.IMAGE_TO_SVG,
             ),
         )
     }
@@ -205,16 +206,16 @@ class CreationWorkerPreparationOrderTest {
     fun `exhausted preparation remains failed until explicit restart`() {
         val failures = CreationPreparationFailureRegistry()
 
-        assertEquals(true, failures.markFailed(CreationTool.IMAGE_CREATOR))
-        assertEquals(true, failures.isFailed(CreationTool.IMAGE_CREATOR))
+        assertEquals(true, failures.markFailed(CreationTool.IMAGE_TO_SVG))
+        assertEquals(true, failures.isFailed(CreationTool.IMAGE_TO_SVG))
         assertEquals(
             setOf(CreationTool.IMAGE_TO_3D),
             failures.available(
-                setOf(CreationTool.IMAGE_TO_3D, CreationTool.IMAGE_CREATOR),
+                setOf(CreationTool.IMAGE_TO_3D, CreationTool.IMAGE_TO_SVG),
             ),
         )
-        assertEquals(true, failures.restart(CreationTool.IMAGE_CREATOR))
-        assertEquals(false, failures.isFailed(CreationTool.IMAGE_CREATOR))
+        assertEquals(true, failures.restart(CreationTool.IMAGE_TO_SVG))
+        assertEquals(false, failures.isFailed(CreationTool.IMAGE_TO_SVG))
     }
 
     @Test
@@ -226,7 +227,7 @@ class CreationWorkerPreparationOrderTest {
 
         assertEquals(true, failures.isFailed(CreationTool.IMAGE_TO_3D))
         assertEquals(true, failures.isFailed(CreationTool.IMAGE_TO_SVG))
-        assertEquals(false, failures.isFailed(CreationTool.IMAGE_CREATOR))
+        assertTrue(failures.available(CreationTool.entries.toSet()).isEmpty())
     }
 
     private fun emptySlot() = CreationPreparationSlotState(

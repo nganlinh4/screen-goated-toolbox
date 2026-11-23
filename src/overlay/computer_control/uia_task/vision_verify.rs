@@ -16,8 +16,8 @@ pub(super) fn verify_located(
     }
     let crop = crosshair_crop(fresh_jpeg, loc.x, loc.y)?;
     let (description, ctx) = (description.to_string(), ctx.to_string());
-    let verification = run_cancellable(cancel, move || {
-        super::super::vision_reader::verify_target(&crop, &description, &ctx)
+    let verification = run_grounding(cancel, move |child| {
+        super::super::vision_reader::verify_target(&crop, &description, &ctx, child)
     })?;
     if !verification.matches || verification.confidence < MIN_VERIFICATION_CONFIDENCE {
         anyhow::bail!(

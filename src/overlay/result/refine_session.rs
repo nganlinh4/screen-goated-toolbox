@@ -1,3 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_EDIT_SESSION: AtomicU64 = AtomicU64::new(1);
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RefinePhase {
     #[default]
@@ -10,6 +14,7 @@ pub(crate) enum RefinePhase {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RefineSession {
     phase: RefinePhase,
+    edit_id: Option<u64>,
     draft: String,
     original_text: Option<String>,
 }
@@ -25,6 +30,7 @@ impl RefineSession {
         if editing {
             Self {
                 phase: RefinePhase::Editing,
+                edit_id: Some(NEXT_EDIT_SESSION.fetch_add(1, Ordering::Relaxed)),
                 draft,
                 original_text: None,
             }
@@ -37,8 +43,13 @@ impl RefineSession {
         self.phase == RefinePhase::Editing
     }
 
+    pub fn edit_id(&self) -> Option<u64> {
+        self.is_editing().then_some(self.edit_id).flatten()
+    }
+
     pub fn begin_edit(&mut self) {
         self.phase = RefinePhase::Editing;
+        self.edit_id = Some(NEXT_EDIT_SESSION.fetch_add(1, Ordering::Relaxed));
         self.draft.clear();
         self.original_text = None;
     }
@@ -82,6 +93,13 @@ impl RefineSession {
         })
     }
 
+    /// The text a submitted refinement started from, while it is in flight.
+    pub fn submitted_original(&self) -> Option<&str> {
+        matches!(self.phase, RefinePhase::Submitting | RefinePhase::Streaming)
+            .then_some(self.original_text.as_deref())
+            .flatten()
+    }
+
     pub fn mark_streaming(&mut self) {
         if self.phase == RefinePhase::Submitting {
             self.phase = RefinePhase::Streaming;
@@ -90,6 +108,7 @@ impl RefineSession {
 
     pub fn finish(&mut self) {
         self.phase = RefinePhase::Idle;
+        self.edit_id = None;
         self.draft.clear();
         self.original_text = None;
     }
@@ -126,5 +145,16 @@ mod tests {
         session.cancel_edit();
         assert!(!session.set_draft("late input"));
         assert_eq!(session.draft(), "");
+    }
+
+    #[test]
+    fn reopened_editor_has_a_distinct_session_identity() {
+        let mut session = RefineSession::default();
+        session.begin_edit();
+        let first = session.edit_id().unwrap();
+        session.cancel_edit();
+        assert_eq!(session.edit_id(), None);
+        session.begin_edit();
+        assert_ne!(session.edit_id(), Some(first));
     }
 }

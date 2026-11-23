@@ -1,9 +1,11 @@
 package dev.screengoated.toolbox.mobile.componentupdate
 
+import android.content.Context
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import org.json.JSONArray
 
 internal object ComponentUpdateNetwork {
     private val client = OkHttpClient.Builder()
@@ -11,21 +13,14 @@ internal object ComponentUpdateNetwork {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    fun fetchHighest(minimumSequence: Long, hostVersion: String): ComponentCatalogCandidate? {
-        val release = downloadJson(RELEASE_API, MAXIMUM_RELEASE_BYTES)
-        val assetsJson = release.getJSONArray("assets")
-        require(assetsJson.length() <= 256) { "Component catalog release has too many assets" }
-        val assets = buildList {
-            for (index in 0 until assetsJson.length()) {
-                val value = assetsJson.getJSONObject(index)
-                add(
-                    RemoteAsset(
-                        name = value.getString("name"),
-                        size = value.getLong("size"),
-                        url = value.getString("browser_download_url"),
-                    ),
-                )
-            }
+    fun fetchHighest(context: Context, minimumSequence: Long, hostVersion: String): ComponentCatalogCandidate? {
+        val deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(2)
+        val release = JSONObject(download(RELEASE_API, MAXIMUM_RELEASE_BYTES, null, deadline).toString(Charsets.UTF_8))
+        val releaseId = release.getLong("id")
+        require(releaseId > 0)
+        val assets = collectReleaseAssets { page ->
+            val url = "$RELEASE_ASSETS_API/$releaseId/assets?per_page=100&page=$page"
+            JSONArray(download(url, MAXIMUM_RELEASE_BYTES, null, deadline).toString(Charsets.UTF_8))
         }
         val signatures = assets.associateBy(RemoteAsset::name)
         return assets.mapNotNull { asset ->
@@ -37,11 +32,11 @@ internal object ComponentUpdateNetwork {
             runCatching {
                 val signatureAsset = signatures[asset.name.removeSuffix(".json") + ".sig"]
                     ?.takeIf { it.size == 64L } ?: error("Catalog signature is missing")
-                val catalog = downloadExact(asset, MAXIMUM_CATALOG_BYTES.toLong())
+                val catalog = downloadExact(asset, MAXIMUM_CATALOG_BYTES.toLong(), deadline)
                 require(sha256(catalog).startsWith(digestPrefix))
-                val signature = downloadExact(signatureAsset, 64L)
+                val signature = downloadExact(signatureAsset, 64L, deadline)
                 val verified = verifyComponentCatalog(
-                    ComponentUpdateRuntime.context(),
+                    context,
                     catalog,
                     signature,
                     hostVersion,
@@ -52,20 +47,19 @@ internal object ComponentUpdateNetwork {
         }
     }
 
-    private fun downloadJson(url: String, maximum: Long): JSONObject =
-        JSONObject(download(url, maximum, null).toString(Charsets.UTF_8))
-
-    private fun downloadExact(asset: RemoteAsset, maximum: Long): ByteArray {
+    private fun downloadExact(asset: RemoteAsset, maximum: Long, deadline: Long): ByteArray {
         require(asset.size in 1..maximum) { "Component catalog asset size is invalid" }
-        return download(asset.url, asset.size, asset.size)
+        return download(asset.url, asset.size, asset.size, deadline)
     }
 
-    private fun download(url: String, maximum: Long, expected: Long?): ByteArray {
+    private fun download(url: String, maximum: Long, expected: Long?, deadline: Long): ByteArray {
+        val remaining = deadline - System.nanoTime()
+        check(remaining > 0) { "Component catalog discovery timed out" }
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "ScreenGoatedToolbox-ComponentCatalog")
             .build()
-        client.newCall(request).execute().use { response ->
+        client.newBuilder().callTimeout(remaining, TimeUnit.NANOSECONDS).build().newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Component catalog HTTP ${response.code}" }
             val declared = response.body.contentLength()
             check(declared < 0L || declared <= maximum)
@@ -87,11 +81,32 @@ internal object ComponentUpdateNetwork {
     }
 }
 
-private data class RemoteAsset(val name: String, val size: Long, val url: String)
+internal data class RemoteAsset(val name: String, val size: Long, val url: String)
+
+internal fun collectReleaseAssets(fetchPage: (Int) -> JSONArray): List<RemoteAsset> {
+    val assets = mutableListOf<RemoteAsset>()
+    var page = 1
+    while (true) {
+        val entries = fetchPage(page)
+        require(entries.length() <= 100) { "Component catalog asset page is too large" }
+        for (index in 0 until entries.length()) {
+            val value = entries.getJSONObject(index)
+            val name = value.getString("name")
+            if (CATALOG_NAME.matches(name) || SIGNATURE_NAME.matches(name)) {
+                assets.add(RemoteAsset(name, value.getLong("size"), value.getString("browser_download_url")))
+            }
+        }
+        if (entries.length() < 100) return assets
+        page = Math.addExact(page, 1)
+    }
+}
 
 private val CATALOG_NAME =
     Regex("^sgt-component-catalog-v(\\d{6})-([0-9a-fA-F]{16})\\.json$")
-private const val MAXIMUM_RELEASE_BYTES = 2L * 1024L * 1024L
+private val SIGNATURE_NAME = Regex("^sgt-component-catalog-v\\d{6}-[0-9a-fA-F]{16}\\.sig$")
+private const val MAXIMUM_RELEASE_BYTES = 8L * 1024L * 1024L
+private const val RELEASE_ASSETS_API =
+    "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases"
 private const val RELEASE_API =
     "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases/" +
         "tags/sgt-runtime-bundles"

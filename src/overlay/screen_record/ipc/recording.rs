@@ -3,7 +3,7 @@
 // encoding wait, and result construction.
 
 use super::super::engine::{
-    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
+    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler,
     ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
     MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS, MOUSE_POSITIONS,
     SHOULD_STOP, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
@@ -283,8 +283,17 @@ pub(super) fn handle_start_recording(
 }
 
 pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
+    if let Some(error) = super::super::engine::FINALIZATION_ERROR.lock().clone() {
+        return Err(error);
+    }
     if super::super::compatibility_capture::is_active() {
         return super::super::compatibility_capture::stop();
+    }
+    // A recording stays claimed until its result is handed out, including one
+    // whose capture ended on its own or whose earlier stop failed, so an
+    // unclaimed stop has nothing to finish and must not touch shared state.
+    if !IS_RECORDING.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("No active recording to stop".to_string());
     }
 
     let stop_total = std::time::Instant::now();
@@ -319,25 +328,18 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         eprintln!("[CaptureBackend][Stop] external-control-stop initial=true skipped reason=none");
     }
     let input_drain_start = std::time::Instant::now();
-    let raw_input_events = input_capture::stop_capture_and_drain();
+    input_capture::stop_capture();
     eprintln!(
-        "[CaptureBackend][Stop] input-drain elapsed_ms={} events={}",
-        input_drain_start.elapsed().as_millis(),
-        raw_input_events.len()
+        "[CaptureBackend][Stop] input-stopped elapsed_ms={}",
+        input_drain_start.elapsed().as_millis()
     );
 
     // Check if capture failed to start (error stored by the capture thread).
     // Give the capture thread a brief moment to report failure.
     std::thread::sleep(std::time::Duration::from_millis(200));
     if let Some(err_msg) = CAPTURE_ERROR.lock().take() {
-        // Clean up all recording state so nothing keeps running.
-        IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
-        ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+        *super::super::engine::FINALIZATION_ERROR.lock() = Some(err_msg.clone());
         super::super::engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
-        ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-        AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-        MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-        WEBCAM_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
         return Err(err_msg);
     }
 
@@ -437,29 +439,14 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         );
 
         if !retry_done {
-            IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
-            ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
-            super::super::engine::SHOULD_STOP_AUDIO
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-            ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-            AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-            MIC_AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-            WEBCAM_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-
-            if let Some(ref path) = *VIDEO_PATH.lock().unwrap() {
-                let _ = std::fs::remove_file(path);
-            }
-            if let Some(ref path) = *MIC_AUDIO_PATH.lock().unwrap() {
-                let _ = std::fs::remove_file(path);
-            }
-            if let Some(ref path) = *WEBCAM_VIDEO_PATH.lock().unwrap() {
-                let _ = std::fs::remove_file(path);
-            }
-
             return Err("Recording failed: encoding did not complete in time. \
-                 Please try again."
+                 The recording files were retained; please try again."
                 .to_string());
         }
+    }
+
+    if let Some(error) = super::super::engine::FINALIZATION_ERROR.lock().clone() {
+        return Err(error);
     }
 
     // Clean up the capture thread now that encoding is done.
@@ -467,7 +454,13 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         let _ = control.stop();
     }
 
-    let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
+    // Taking the path hands this recording out exactly once: a repeated stop
+    // must not rebuild a result from the previous recording's statics.
+    let video_path = VIDEO_PATH
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("No active recording to stop")?;
     let video_file_path = video_path.clone();
     let mic_audio_path = MIC_AUDIO_PATH.lock().unwrap().clone();
     let webcam_video_path = WEBCAM_VIDEO_PATH.lock().unwrap().clone();
@@ -528,6 +521,7 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
                 port, encoded, encoded_token
             )
         });
+    let raw_input_events = input_capture::drain_captured_events();
     IS_RECORDING.store(false, std::sync::atomic::Ordering::SeqCst);
     eprintln!(
         "[CaptureBackend][Stop] complete elapsed_ms={} video_path={} audio_path={} mic_path={} webcam_path={}",
@@ -556,4 +550,33 @@ pub(super) fn handle_stop_recording() -> Result<serde_json::Value, String> {
         "inputEvents": raw_input_events,
         "capturedFps": last_recording_fps
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_stop_without_a_claimed_recording_does_not_replay_the_last_result() {
+        let _claims = super::super::recording_state::CLAIM_TEST_LOCK
+            .lock()
+            .unwrap();
+        // The statics a finished recording leaves behind.
+        IS_RECORDING.store(false, Ordering::SeqCst);
+        for finished in [
+            &ENCODING_FINISHED,
+            &AUDIO_ENCODING_FINISHED,
+            &MIC_AUDIO_ENCODING_FINISHED,
+            &WEBCAM_ENCODING_FINISHED,
+        ] {
+            finished.store(true, Ordering::SeqCst);
+        }
+        *VIDEO_PATH.lock().unwrap() = Some("previous-recording.mp4".to_string());
+
+        let stopped = handle_stop_recording();
+        let retained = VIDEO_PATH.lock().unwrap().take();
+        assert_eq!(stopped, Err("No active recording to stop".to_string()));
+        assert_eq!(retained.as_deref(), Some("previous-recording.mp4"));
+    }
 }

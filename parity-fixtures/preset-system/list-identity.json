@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "cases": [
+    {"name":"delete_after_selection","length":5,"selected":1,"deleted":4,"expected_selected":1},
+    {"name":"delete_before_selection","length":5,"selected":3,"deleted":1,"expected_selected":2},
+    {"name":"delete_selected_middle","length":5,"selected":2,"deleted":2,"expected_selected":1},
+    {"name":"delete_selected_first","length":3,"selected":0,"deleted":0,"expected_selected":0},
+    {"name":"delete_only_row","length":1,"selected":0,"deleted":0,"expected_selected":null},
+    {"name":"delete_with_no_selection","length":3,"selected":null,"deleted":1,"expected_selected":null}
+  ]
+}

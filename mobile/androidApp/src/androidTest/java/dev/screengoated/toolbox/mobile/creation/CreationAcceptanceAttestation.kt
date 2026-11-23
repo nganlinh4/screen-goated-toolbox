@@ -55,9 +55,7 @@ internal object CreationAcceptanceAttestation {
         check(files.restoredRequestIsValid(request)) {
             "Accepted request is not a restorable immutable native request"
         }
-        val sourcePaths = request.imagePaths.ifEmpty {
-            request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
-        }
+        val sourcePaths = request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
         assertEquals(
             "Accepted request paths differ from their descriptors",
             request.sourceDescriptors.map(CreationSourceDescriptor::path),

@@ -31,7 +31,6 @@ import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
-import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -111,12 +110,12 @@ class CreationRealUiAcceptanceTest {
     }
 
     @Test
-    fun imageTo3dFastGeneratesValidatedGlb() {
+    fun imageTo3dQualityWithoutAutomaticSeparationGeneratesValidatedGlb() {
         runImageCase(
-            "3d-fast",
+            "3d-quality-base",
             CreationTool.IMAGE_TO_3D,
-            "creation-mode-fast",
-            CreationGenerationMode.FAST,
+            "creation-mode-quality",
+            CreationGenerationMode.QUALITY,
         ) {
             CreationArtifactValidator.validateGlb(it)
         }
@@ -139,67 +138,6 @@ class CreationRealUiAcceptanceTest {
     fun imageToSvgSimpleGeneratesValidatedSvg() {
         runImageCase("svg", CreationTool.IMAGE_TO_SVG, "creation-svg-simple", null) {
             CreationArtifactValidator.validateSvg(it)
-        }
-    }
-
-    @Test
-    fun imageCreatorTextOnlyGeneratesValidatedPng() {
-        assumeTrue(
-            "Image creation restoration case is not released",
-            creationToolReleased(CreationTool.IMAGE_CREATOR),
-        )
-        runSurface(CreationTool.IMAGE_CREATOR) { startedAt, ownerId ->
-            compose.onNodeWithTag("creation-image-prompt")
-                .assertExists()
-                .performTextInput("Create a cobalt circle on a warm neutral background")
-            compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
-            submitAndValidate(
-                "image-text",
-                CreationTool.IMAGE_CREATOR,
-                ownerId,
-                startedAt,
-                null,
-                emptyList(),
-            ) {
-                CreationArtifactValidator.validatePng(it, null, null)
-            }
-        }
-    }
-
-    @Test
-    fun imageCreatorReferenceEditGeneratesValidatedPng() {
-        assumeTrue(
-            "Image creation restoration case is not released",
-            creationToolReleased(CreationTool.IMAGE_CREATOR),
-        )
-        sourceUri = createInputImage()
-        runSurface(CreationTool.IMAGE_CREATOR) { startedAt, ownerId ->
-            compose.onNodeWithTag("creation-image-add-references")
-                .assertExists()
-                .performScrollTo()
-                .assertIsDisplayed()
-                .assertIsEnabled()
-                .performClick()
-            selectInputFromSystemPicker(requireNotNull(sourceUri))
-            compose.waitUntil(timeoutMillis = 30_000) {
-                compose.onAllNodesWithTag("creation-image-reference-0")
-                    .fetchSemanticsNodes(atLeastOneRootRequired = false)
-                    .isNotEmpty()
-            }
-            compose.onNodeWithTag("creation-image-prompt")
-                .assertExists()
-                .performTextInput("Turn this into a crisp coral and cobalt poster")
-            compose.onNodeWithTag("creation-primary-action").assertIsEnabled()
-            submitAndValidate(
-                "image-reference-edit",
-                CreationTool.IMAGE_CREATOR,
-                ownerId,
-                startedAt,
-                null,
-                listOf(sha256(requireNotNull(sourceUri))),
-            ) {
-                CreationArtifactValidator.validatePng(it, null, null)
-            }
         }
     }
 
@@ -499,13 +437,13 @@ class CreationRealUiAcceptanceTest {
         sha256(requireNotNull(it).readBytes())
     }
 
-    private fun outputExists(path: String): Boolean = path.creationContentUri()?.let { uri ->
+    private fun outputExists(path: String): Boolean = path.creationUriOrNull()?.let { uri ->
         runCatching {
             context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
         }.getOrDefault(false)
     } ?: File(path).isFile
 
-    private fun outputSize(path: String): Long = path.creationContentUri()?.let { uri ->
+    private fun outputSize(path: String): Long = path.creationUriOrNull()?.let { uri ->
         context.contentResolver.query(
             uri,
             arrayOf(OpenableColumns.SIZE),
@@ -515,7 +453,7 @@ class CreationRealUiAcceptanceTest {
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else -1L } ?: -1L
     } ?: File(path).length()
 
-    private fun outputDisplayName(path: String): String = path.creationContentUri()?.let { uri ->
+    private fun outputDisplayName(path: String): String = path.creationUriOrNull()?.let { uri ->
         context.contentResolver.query(
             uri,
             arrayOf(OpenableColumns.DISPLAY_NAME),
@@ -525,11 +463,11 @@ class CreationRealUiAcceptanceTest {
         )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
     } ?: File(path).name
 
-    private fun outputSha256(path: String): String = path.creationContentUri()?.let(::sha256)
+    private fun outputSha256(path: String): String = path.creationUriOrNull()?.let(::sha256)
         ?: sha256(File(path))
 
     private fun snapshotOutput(path: String): File {
-        val uri = path.creationContentUri() ?: return File(path)
+        val uri = path.creationUriOrNull() ?: return File(path)
         val directory = File(context.cacheDir, "creation/acceptance").apply(File::mkdirs)
         val target = File(directory, safeCreationOutputName(outputDisplayName(path)))
         context.contentResolver.openInputStream(uri).use { input ->

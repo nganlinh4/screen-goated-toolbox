@@ -91,17 +91,18 @@ pub fn set_control_scope_opacity(hwnd: HWND, value: u8) {
     }
 }
 
-pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
+pub fn set_refine_text(hwnd: HWND, session: u64, text: &str, is_insert: bool) {
     send_command(HostCommand::RefineText {
         id: hwnd.0 as isize,
         text: text.to_string(),
         is_insert,
+        edit_session: Some(session.to_string()),
     });
 }
 
-pub fn update_cached_refine_draft(hwnd: HWND, text: &str) {
+pub fn update_cached_refine_draft(hwnd: HWND, session: u64, text: &str) {
     if let Some(card) = SCENES.lock().unwrap().get_mut(&(hwnd.0 as isize))
-        && card.controls.is_editing
+        && card.controls.edit_session.as_deref() == Some(session.to_string().as_str())
     {
         card.controls.input_text = text.to_string();
     }
@@ -127,20 +128,10 @@ pub fn is_dragging() -> bool {
 }
 
 pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
-    let virtual_x = unsafe {
-        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-            windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
-        )
-    };
-    let virtual_y = unsafe {
-        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-            windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
-        )
-    };
     SCENES.lock().unwrap().values().any(|card| {
         let padding = 60;
-        let left = virtual_x + card.control_rect.x;
-        let top = virtual_y + card.control_rect.y;
+        let left = card.control_rect.x;
+        let top = card.control_rect.y;
         card.visible
             && !card.controls.hidden
             && x >= left - padding
@@ -216,6 +207,7 @@ fn from_state(
         tts_speaking: state.tts_request_id != 0 && !state.tts_loading,
         is_browsing: state.is_browsing,
         is_editing: state.refine_session.is_editing(),
+        edit_session: state.refine_session.edit_id().map(|id| id.to_string()),
         input_text: state.refine_session.draft().to_string(),
         opacity_percent: state.opacity_percent,
         model_label: model_label(&state.model_name, &state.provider),
@@ -234,7 +226,7 @@ fn model_label(name: &str, provider: &str) -> String {
     }
     format!(
         "{} · {name}",
-        crate::model_config::provider_display_name(provider)
+        crate::model_config::provider_full_name(provider)
     )
 }
 
@@ -295,6 +287,7 @@ mod tests {
             bg_color: 0,
             linked_windows,
             cancellation_token: None,
+            refine_cancel_token: None,
             chain_id: None,
             latency_trace_id: None,
             is_browsing: false,
@@ -348,6 +341,118 @@ mod tests {
         let label = super::model_label(model_id, "request-provider");
         assert!(label.starts_with("request-provider · "), "{label}");
         assert_eq!(super::model_label("", "request-provider"), "");
+    }
+
+    fn in_flight_refinement(
+        window: &mut WindowState,
+    ) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        window.full_text = "original result".into();
+        window.refine_session.begin_edit();
+        window
+            .refine_session
+            .begin_submit("original result".into(), "shorter")
+            .unwrap();
+        window.text_history = vec!["older".into(), "original result".into()];
+        window.full_text = "partial stre".into();
+        window.is_refining = true;
+        window.is_streaming_active = true;
+        window.refine_cancel_token = Some(token.clone());
+        token
+    }
+
+    #[test]
+    fn cancelling_a_refinement_restores_its_original_text_immediately() {
+        use std::sync::atomic::Ordering;
+        let mut window = state(Vec::new());
+        let token = in_flight_refinement(&mut window);
+        assert!(crate::overlay::result::refine::retire_in_flight(
+            &mut window
+        ));
+        assert!(token.load(Ordering::SeqCst));
+        assert_eq!(window.full_text, "original result");
+        assert_eq!(window.text_history, vec!["older".to_string()]);
+        assert!(!window.is_refining && !window.is_streaming_active);
+        assert!(window.refine_cancel_token.is_none());
+        assert!(!crate::overlay::result::refine::apply_refine_text(
+            &mut window,
+            &token,
+            "late provider output",
+            false
+        ));
+        assert_eq!(window.full_text, "original result");
+        assert!(!crate::overlay::result::refine::retire_in_flight(
+            &mut window
+        ));
+    }
+
+    #[test]
+    fn reopening_the_editor_mid_stream_starts_from_the_original_text() {
+        let id = -8_230_452_isize;
+        let mut window = state(Vec::new());
+        let token = in_flight_refinement(&mut window);
+        WINDOW_STATES.lock().unwrap().insert(id, window);
+        crate::overlay::result::refine::trigger_edit(HWND(id as *mut _));
+        let window = WINDOW_STATES.lock().unwrap().remove(&id).unwrap();
+        assert!(token.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(window.full_text, "original result");
+        assert!(window.refine_session.is_editing());
+    }
+
+    #[test]
+    fn ancestor_cancellation_retires_the_refinement_without_waiting_for_the_worker() {
+        let id = -8_230_453_isize;
+        let chain = crate::overlay::result::state::ChainCancelToken::new();
+        let mut window = state(Vec::new());
+        let token = in_flight_refinement(&mut window);
+        chain.register_cancel_flag(&token);
+        window.cancellation_token = Some(chain.clone());
+        WINDOW_STATES.lock().unwrap().insert(id, window);
+        // The worker owns this guard while its provider call is still blocked.
+        let _worker_guard = crate::overlay::result::refine::retire_on_ancestor_cancel(
+            HWND(id as *mut _),
+            Some(&chain),
+            &token,
+        );
+        chain.cancel();
+        let window = WINDOW_STATES.lock().unwrap().remove(&id).unwrap();
+        assert_eq!(window.full_text, "original result");
+        assert!(window.refine_cancel_token.is_none());
+        assert!(!window.is_refining);
+    }
+
+    #[test]
+    fn superseded_refinement_cannot_change_newer_result() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let old = Arc::new(AtomicBool::new(false));
+        let current = Arc::new(AtomicBool::new(false));
+        let mut window = state(Vec::new());
+        window.full_text = "new draft".into();
+        window.refine_cancel_token = Some(current.clone());
+        assert!(!crate::overlay::result::refine::apply_refine_text(
+            &mut window,
+            &old,
+            "stale",
+            true
+        ));
+        assert_eq!(window.full_text, "new draft");
+        assert!(crate::overlay::result::refine::apply_refine_text(
+            &mut window,
+            &current,
+            "current",
+            true
+        ));
+        current.store(true, Ordering::SeqCst);
+        assert!(!crate::overlay::result::refine::apply_refine_text(
+            &mut window,
+            &current,
+            "late",
+            false
+        ));
+        assert_eq!(window.full_text, "current");
     }
 
     #[test]

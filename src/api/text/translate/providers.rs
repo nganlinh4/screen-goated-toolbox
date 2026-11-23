@@ -35,17 +35,18 @@ where
             map_auth_errors: true,
             request_timeout: transport.request_timeout,
             response_schema,
+            audio_transcription_config: None,
             media_resolution: None,
             enable_google_search: transport.search_enabled,
             retry_observer: None,
         },
         on_chunk,
     );
-    let result = match result {
+    match result {
         Err(error)
-            if response_schema.is_some()
-                && error.to_string().contains("HTTP 400")
-                && error.to_string().contains("INVALID_ARGUMENT") =>
+            if error
+                .to_string()
+                .contains("STRUCTURED_OUTPUT_REJECTED:google") =>
         {
             let Some(schema) = response_schema else {
                 return Err(error);
@@ -63,6 +64,7 @@ where
                     map_auth_errors: true,
                     request_timeout: transport.request_timeout,
                     response_schema: Some(&compact_schema),
+                    audio_transcription_config: None,
                     media_resolution: None,
                     enable_google_search: transport.search_enabled,
                     retry_observer: None,
@@ -71,31 +73,20 @@ where
             )
         }
         other => other,
-    };
-    result.map_err(|error| {
-        let message = error.to_string();
-        if response_schema.is_some()
-            && message.contains("HTTP 400")
-            && message.contains("INVALID_ARGUMENT")
-        {
-            anyhow::anyhow!("STRUCTURED_OUTPUT_REJECTED:google:{message}")
-        } else {
-            error
-        }
-    })
+    }
 }
 
 // --- TAALAS API ---
 pub(super) fn translate_taalas<F>(
     prompt: &str,
-    _cancel_token: &Option<Arc<AtomicBool>>,
+    cancel_token: &Option<Arc<AtomicBool>>,
+    timeout: Option<crate::api::client::RequestTimeouts>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
-    let text = crate::api::taalas::generate(prompt)
-        .ok_or_else(|| anyhow::anyhow!("Taalas API Error: empty or failed response"))?;
+    let text = crate::api::taalas::generate(prompt, cancel_token, timeout)?;
     on_chunk(&text);
     Ok(text)
 }
@@ -154,10 +145,8 @@ where
         transport.cancel_token,
         transport.request_timeout,
         "NVIDIA API Error",
-        true,
-        false,
+        Some("nvidia"),
         |headers| crate::api::client::record_usage_headers("nvidia", model, headers),
-        |_| {},
         on_chunk,
     )
 }
@@ -208,10 +197,8 @@ where
         transport.cancel_token,
         transport.request_timeout,
         "OpenRouter API Error",
-        true,
-        false,
+        Some("openrouter"),
         |headers| crate::api::client::record_usage_headers("openrouter", model, headers),
-        |_| {},
         on_chunk,
     )
 }

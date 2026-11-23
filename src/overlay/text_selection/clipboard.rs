@@ -34,7 +34,11 @@ pub unsafe fn get_clipboard_text() -> String {
 }
 
 /// Process selected text with the given preset
-pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
+pub fn process_selected_text(
+    preset_idx: usize,
+    clipboard_text: String,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
+) {
     unsafe {
         let is_master = {
             let Ok(app) = APP.lock() else {
@@ -101,6 +105,7 @@ pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
             preset,
             localized_name,
             cancel_hotkey,
+            destination,
         );
     }
 }
@@ -129,6 +134,7 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
 
     // Update timestamp now that we're committed to processing
     LAST_INSTANT_PROCESS_TIME.store(now, Ordering::SeqCst);
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_foreground();
 
     unsafe {
         // Step 1: Save clipboard
@@ -242,7 +248,7 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
             }
         }
 
-        process_selected_text(final_preset_idx, clipboard_text);
+        process_selected_text(final_preset_idx, clipboard_text, destination);
         true
     }
 }
@@ -270,11 +276,12 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                     return LRESULT(1);
                 }
                 // Track trigger key held state
-                if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
+                let trigger = TRIGGER_VK_CODE.load(Ordering::SeqCst);
+                if trigger != 0 && kbd_struct.vkCode == trigger {
                     IS_HOTKEY_HELD.store(true, Ordering::SeqCst);
                 }
             } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
-                && kbd_struct.vkCode == TRIGGER_VK_CODE
+                && kbd_struct.vkCode == TRIGGER_VK_CODE.load(Ordering::SeqCst)
             {
                 IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }

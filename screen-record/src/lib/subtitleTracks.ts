@@ -9,6 +9,8 @@ import { getSubtitleLanguageLabel } from '@/lib/subtitleLanguageOptions';
 import { cloneSubtitleSegment, cloneSubtitleSegments } from '@/lib/subtitleTrackFragments';
 
 export const ORIGINAL_SUBTITLE_TRACK_ID = 'subtitle-track-original';
+/** Prefix of the non-active tracks that keep captions recovered from older saved projects. */
+export const RECOVERED_SUBTITLE_TRACK_PREFIX = 'subtitle-track-recovered:';
 
 export function buildSubtitleTrackLabel(index: number): string {
   let value = Math.max(0, Math.floor(index));
@@ -306,6 +308,28 @@ export function upsertSubtitleTrack(segment: VideoSegment, nextTrack: SubtitleTr
   });
 }
 
+/**
+ * Removes a track's items from a custom chain together with the separator that
+ * joined each one to a neighbouring track. A chain left without any track
+ * would show only delimiters, so it falls back to the default chain.
+ */
+function removeTrackFromCustomChain(
+  chain: readonly SubtitleChainItem[],
+  trackId: string,
+): SubtitleChainItem[] {
+  const items = [...chain];
+  const isTrack = (item: SubtitleChainItem | undefined) => item?.type === 'track';
+  const indexOfRemoved = () => items.findIndex((item) => item.type === 'track' && item.trackId === trackId);
+  for (let index = indexOfRemoved(); index !== -1; index = indexOfRemoved()) {
+    const separatorAfter = items[index + 1]?.type === 'delimiter' && items.slice(index + 2).some(isTrack);
+    const separatorBefore = items[index - 1]?.type === 'delimiter' && items.slice(0, index - 1).some(isTrack);
+    if (separatorAfter) items.splice(index, 2);
+    else if (separatorBefore) items.splice(index - 1, 2);
+    else items.splice(index, 1);
+  }
+  return items.some(isTrack) ? items : buildDefaultSubtitleCustomChain();
+}
+
 export function removeSubtitleTrack(segment: VideoSegment, trackId: string): VideoSegment {
   if (trackId === ORIGINAL_SUBTITLE_TRACK_ID) {
     return normalizeSubtitleTrackState(segment);
@@ -314,6 +338,7 @@ export function removeSubtitleTrack(segment: VideoSegment, trackId: string): Vid
   return normalizeSubtitleTrackState({
     ...normalized,
     subtitleTracks: (normalized.subtitleTracks ?? []).filter((track) => track.id !== trackId),
+    subtitleCustomChain: removeTrackFromCustomChain(normalized.subtitleCustomChain ?? [], trackId),
   });
 }
 
@@ -325,11 +350,6 @@ export function setSubtitleCustomChain(
     ...segment,
     subtitleCustomChain,
   });
-}
-
-export function getNextTranslationSlotLabel(segment: VideoSegment | null | undefined): string {
-  const translationCount = getSubtitleTracks(segment).filter((track) => track.kind === 'translation').length;
-  return buildSubtitleTrackLabel(translationCount);
 }
 
 export function createTranslationTrack(
@@ -349,6 +369,7 @@ export function createTranslationTrack(
 
 export function getSubtitleTrackLabel(track: SubtitleTrack): string {
   if (track.kind === 'original') return 'Original';
+  if (track.id.startsWith(RECOVERED_SUBTITLE_TRACK_PREFIX)) return track.slotLabel || 'Recovered';
   if (track.targetLanguage) {
     return getSubtitleLanguageLabel(track.targetLanguage);
   }

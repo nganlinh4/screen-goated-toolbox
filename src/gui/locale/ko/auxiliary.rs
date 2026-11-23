@@ -5,6 +5,8 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         download: super::download::get(),
         managed_tools: super::managed_tools::get(),
         continuous_mode_activated: "연속 모드로 실행됩니다. {hotkey}를 눌러 종료",
+        continuous_mode_title_suffix: "연속 모드",
+        continuous_mode_right_mouse_hint: ", 오른쪽 마우스 사용.",
         win_select_title: "녹화할 창 선택",
         win_select_subtitle: "Escape 또는 바깥 클릭으로 취소",
         win_select_count: "창 {}개",

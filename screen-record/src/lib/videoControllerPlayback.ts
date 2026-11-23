@@ -373,6 +373,9 @@ function doStartPendingSeek(c: ControllerInternals): void {
     : t;
   c.setCurrentTime(clamped);
   c.video.currentTime = clamped;
+  // Webcam and external audio only follow seeks that sync them; while paused
+  // nothing else would move them off the first scrub position.
+  c.syncAllMediaToTime(clamped);
 }
 
 // ---------------------------------------------------------------------------

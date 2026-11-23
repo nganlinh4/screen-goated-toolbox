@@ -3,6 +3,8 @@
 
 mod processing;
 mod spring;
+use super::super::embedded_assets::CURSOR_PACKS;
+pub(super) use spring::normalize_angle;
 mod visibility;
 
 use super::config::{BackgroundConfig, BakedCursorFrame, MousePosition, VideoSegment};
@@ -15,22 +17,6 @@ use visibility::{
     has_mousedown_events, normalize_mouse_positions_to_source_frame, squish_ease_down,
     squish_ease_up,
 };
-
-// Non-default cursor packs that map to their own atlas slots. "screenstudio" is
-// the implicit default and is handled separately at each use site.
-const KNOWN_CURSOR_PACKS: [&str; 11] = [
-    "macos26",
-    "sgtcute",
-    "sgtcool",
-    "sgtai",
-    "sgtpixel",
-    "jepriwin11",
-    "sgtwatermelon",
-    "sgtfastfood",
-    "sgtveggie",
-    "sgtvietnam",
-    "sgtkorea",
-];
 
 // --- Cursor physics defaults (mirror videoRenderer.ts) ---
 const DEFAULT_CURSOR_OFFSET_SEC: f64 = 0.0;
@@ -107,7 +93,7 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
     .into_iter()
     .flatten()
     {
-        if v == "screenstudio" || KNOWN_CURSOR_PACKS.contains(&v) {
+        if CURSOR_PACKS.contains(&v) {
             return v;
         }
     }
@@ -143,7 +129,7 @@ fn build_cursor_type(semantic: &str, pack: &str, is_clicked: bool) -> String {
         semantic
     };
 
-    let suffix = if KNOWN_CURSOR_PACKS.contains(&pack) {
+    let suffix = if CURSOR_PACKS.contains(&pack) {
         pack
     } else {
         "screenstudio"

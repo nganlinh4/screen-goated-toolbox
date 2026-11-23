@@ -27,6 +27,11 @@ const model = {{transcription:null,translation:null}};
 const source = {{transcription:{transcription},translation:{translation}}};
 let loaded = 0;
 let activeInteractionRole = null;
+let activeInteractionSession = '0';
+let activeTextRole = null;
+let activeTextSession = '0';
+let sessionId = '0';
+window.realtimeSession = () => sessionId;
 
 function physicalScale() {{ return window.devicePixelRatio || 1; }}
 function applyCard(role) {{
@@ -79,20 +84,39 @@ function applyLocalDelta(role, body) {{
   }}
 }}
 window.realtimePostMessage = function(role, body) {{
-  if (body === 'interactionStart') activeInteractionRole = role;
-  if (body === 'interactionEnd') activeInteractionRole = null;
+  let eventSession = sessionId;
+  if (body === 'interactionStart') {{
+    activeInteractionRole = role; activeInteractionSession = sessionId;
+  }} else if (body === 'interactionEnd' || body === 'saveResize' ||
+      body.startsWith('cardDragMove:') || body.startsWith('groupDragMove:') || body.startsWith('resize:')) {{
+    if (activeInteractionRole !== role) return;
+    eventSession = activeInteractionSession;
+    if (body === 'interactionEnd') activeInteractionRole = null;
+  }} else if (body === 'textInputStart') {{
+    activeTextRole = role; activeTextSession = sessionId;
+  }} else if (body === 'textInputEnd') {{
+    if (activeTextRole !== role) return;
+    eventSession = activeTextSession; activeTextRole = null;
+  }}
+  if (eventSession === '0' || eventSession !== sessionId) return;
   applyLocalDelta(role, body);
-  window.ipc.postMessage(JSON.stringify({{role,body,scale:physicalScale()}}));
+  window.ipc.postMessage(JSON.stringify({{role,body,scale:physicalScale(),session_id:eventSession}}));
 }};
 function endActiveInteraction() {{
+  for (const frame of Object.values(cards)) frame.contentWindow?.__SGT_CANCEL_REALTIME_POINTERS__?.();
   if (!activeInteractionRole) return;
   const role = activeInteractionRole;
   activeInteractionRole = null;
-  window.ipc.postMessage(JSON.stringify({{role,body:'interactionEnd',scale:physicalScale()}}));
+  if (activeInteractionSession !== sessionId || sessionId === '0') return;
+  window.ipc.postMessage(JSON.stringify({{role,body:'interactionEnd',scale:physicalScale(),session_id:sessionId}}));
 }}
 window.addEventListener('mouseup', endActiveInteraction);
 window.addEventListener('blur', endActiveInteraction);
-window.applyRealtimeLayout = function(next, paintRequest) {{
+window.applyRealtimeLayout = function(next, paintRequest, nextSession) {{
+  if (typeof nextSession === 'string' && nextSession !== sessionId) {{
+    sessionId = nextSession;
+    for (const frame of Object.values(cards)) frame.contentWindow?.__SGT_REALTIME_SESSION_CHANGED__?.();
+  }}
   model.transcription = next.transcription;
   model.translation = next.translation;
   applyCard('transcription');
@@ -124,9 +148,9 @@ for (const role of Object.keys(cards)) {{
 }
 
 fn script_string(value: &str) -> String {
-    serde_json::to_string(value)
-        .unwrap_or_else(|_| "\"\"".into())
-        .replace("</script", "<\\/script")
+    crate::overlay::utils::inline_script_json(
+        &serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into()),
+    )
 }
 
 #[cfg(test)]

@@ -85,17 +85,6 @@ pub(crate) fn assert_candidate_asset_url(
     assert_owned_asset_url(channel, asset, url, label);
 }
 
-pub(crate) fn copy_selected_manifest(manifest_dir: &Path, default_relative: &str, output: &Path) {
-    let selected = select(manifest_dir, default_relative);
-    std::fs::copy(&selected.path, output).unwrap_or_else(|error| {
-        panic!(
-            "failed to copy selected delivery {} to {}: {error}",
-            selected.path.display(),
-            output.display()
-        )
-    });
-}
-
 fn requested_channel() -> DeliveryChannel {
     match std::env::var("SGT_COMPONENT_DELIVERY_CHANNEL") {
         Ok(value) if value == "staging" => DeliveryChannel::Staging,

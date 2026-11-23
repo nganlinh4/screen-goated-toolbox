@@ -22,8 +22,6 @@ export interface UseEditorToolsParams {
   // useEditorOverlayTools-only
   isVideoReady: boolean;
   mousePositions: MousePosition[];
-  currentProjectId: string | null;
-  loadProjects: () => Promise<void>;
   renderFrame: () => void;
   // useEditorSetup-only
   setBackgroundConfig: (
@@ -53,8 +51,6 @@ export function useEditorTools({
   videoRef,
   isVideoReady,
   mousePositions,
-  currentProjectId,
-  loadProjects,
   renderFrame,
   setBackgroundConfig,
   composition,
@@ -78,8 +74,6 @@ export function useEditorTools({
     videoRef,
     mousePositions,
     backgroundConfig,
-    currentProjectId,
-    loadProjects,
     activePanel,
     setActivePanel,
     renderFrame,

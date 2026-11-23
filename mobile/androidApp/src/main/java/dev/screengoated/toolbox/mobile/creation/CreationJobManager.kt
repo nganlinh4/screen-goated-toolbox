@@ -98,7 +98,10 @@ internal class CreationJobManager internal constructor(context: Context) {
         scope.launch {
             runCatching {
                 if (durableStateReadable) {
-                    restoreJournal()
+                    restoreCreationManagerJournal(
+                        journal, files, cancellations, memory, recoveryLeases,
+                        CONTINUATION_LIFETIME_MS, MAXIMUM_TERMINAL_JOBS,
+                    )
                     ownerCloseCoordinator.reconcileAll()
                     historyCoordinator.reconcileAtStartup()
                     deliveryCoordinator.reconcileAtStartup().forEach(recoveryLeases::release)
@@ -183,9 +186,6 @@ internal class CreationJobManager internal constructor(context: Context) {
         val jobId = nextJobId(tool)
         val dispatchId = nextDispatchId(tool)
         val destination = files.outputDestinationSnapshot(tool)
-        val requestedMode = CreationGenerationMode.fromWireName(
-            args["generationMode"]?.toString()?.trim('"'),
-        )
         val draft = CreationJobFactory.create(
             tool,
             args,
@@ -195,11 +195,11 @@ internal class CreationJobManager internal constructor(context: Context) {
             dispatchId,
             destination,
             optionalInstructionAllowed = tool == CreationTool.IMAGE_TO_3D &&
-                supportsOptionalInstruction(requestedMode.wireName),
+                supportsOptionalInstruction(CreationGenerationMode.QUALITY.wireName),
         )
         val request = draft.request
         reservedOutputPath = request.outputPath
-        reservedInputs = request.imagePaths
+        reservedInputs = listOf(request.imagePath)
         val status = draft.status
         val accepted = synchronized(mutationLock) {
             var rollback: (() -> Unit)? = null
@@ -228,7 +228,7 @@ internal class CreationJobManager internal constructor(context: Context) {
         }
         if (!accepted) {
             files.deleteReservedStagingFile(tool, request.outputPath)
-            files.releaseJobInputs(request.imagePaths)
+            files.releaseJobInputs(listOf(request.imagePath))
             reservedOutputPath = null
             reservedInputs = emptyList()
             return@runCatching CreationSubmissionOutcome.Rejected(
@@ -339,7 +339,7 @@ internal class CreationJobManager internal constructor(context: Context) {
             }
         } catch (failure: Throwable) {
             files.deleteReservedStagingFile(CreationTool.IMAGE_TO_3D, draft.request.outputPath)
-            files.releaseJobInputs(draft.request.imagePaths)
+            files.releaseJobInputs(listOf(draft.request.imagePath))
             throw failure
         }
         files.releaseJobInputs(retiredContinuationInputs)
@@ -358,22 +358,9 @@ internal class CreationJobManager internal constructor(context: Context) {
         return draft.status
     }
     fun status(ownerId: String, tool: CreationTool, jobId: String?): CreationJobStatus =
-        synchronized(lock) {
-        val current = jobId?.takeIf { owners[it] == ownerId }?.let(jobs::get)
-            ?: jobs.values.lastOrNull {
-                requestTool(it.jobId) == tool && owners[it.jobId] == ownerId
-            }
-            ?: CreationJobFactory.idleStatus(tool)
-        current.withCreationElapsed(current.jobId?.let(startedAt::get), System.currentTimeMillis())
-    }
-
-    fun statuses(ownerId: String, tool: CreationTool): List<CreationJobStatus> = synchronized(lock) {
-        jobs.values.filter {
-            requestTool(it.jobId) == tool && owners[it.jobId] == ownerId
-        }.map {
-            it.withCreationElapsed(it.jobId?.let(startedAt::get), System.currentTimeMillis())
-        }
-    }
+        synchronized(lock) { creationManagerStatus(memory, ownerId, tool, jobId, System.currentTimeMillis()) }
+    fun statuses(ownerId: String, tool: CreationTool): List<CreationJobStatus> =
+        synchronized(lock) { creationManagerStatuses(memory, ownerId, tool, System.currentTimeMillis()) }
 
     fun cancel(ownerId: String, tool: CreationTool, jobId: String?): List<CreationJobStatus> {
         val (targets, cancelledRequests) = synchronized(mutationLock) {
@@ -596,13 +583,6 @@ internal class CreationJobManager internal constructor(context: Context) {
             failureCategory = transition.record.category,
         )
         dispatcher.signal()
-    }
-
-    private fun restoreJournal() {
-        restoreCreationManagerJournal(
-            journal, files, cancellations, memory, recoveryLeases,
-            CONTINUATION_LIFETIME_MS, MAXIMUM_TERMINAL_JOBS,
-        )
     }
 
     private fun schedulePersistLocked() = journalWriter.schedule(journalWriter.snapshot(memory))

@@ -1,13 +1,20 @@
 //! Shared state for realtime transcription and translation
 
+#[path = "state/display.rs"]
+mod display;
 #[path = "state/impls.rs"]
 mod impls;
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+impl Default for RealtimeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Timeout for User Silence (Wait for user to finish thought)
-/// Reduced from 2000ms to 800ms for snappier response with Parakeet
 pub const USER_SILENCE_TIMEOUT_MS: u64 = 800;
 /// Timeout for AI Silence (Wait if AI stops generating)
 pub const AI_SILENCE_TIMEOUT_MS: u64 = 1000;
@@ -15,70 +22,12 @@ pub const AI_SILENCE_TIMEOUT_MS: u64 = 1000;
 /// Minimum characters required to trigger a force-commit on silence
 const MIN_FORCE_COMMIT_CHARS: usize = 10;
 
-// ============================================
-// PARAKEET-SPECIFIC TIMEOUT CONSTANTS
-// ============================================
-
-pub const PARAKEET_BASE_TIMEOUT_MS: u64 = 800;
-pub const PARAKEET_SHORT_TIMEOUT_MS: u64 = 1200;
-pub const PARAKEET_MIN_WORDS: usize = 2;
-pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 350;
-pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 2.5;
-
-// ============================================
-// CENTRALIZED DRAFT COMMIT (smooth formula)
-// ============================================
-
-/// Smooth commit threshold: longer drafts need shorter silence to commit.
-/// Returns the silence duration (ms) needed before appending a period.
-///
-/// Formula: threshold = BASE / (1 + words * DECAY), clamped to [MIN, BASE].
-///   - 0 words:  never commit (returns u64::MAX)
-///   - 1 word:   ~800ms
-///   - 3 words:  ~650ms
-///   - 5 words:  ~550ms
-///   - 8 words:  ~470ms
-///   - Threshold decays toward 0 as word count grows — no floor.
-///   - CJK characters each count as one word (no spaces in Chinese/Japanese).
-///   - Long drafts commit on any brief pause.
-const DRAFT_COMMIT_BASE_MS: f64 = 1200.0;
-const DRAFT_COMMIT_DECAY: f64 = 0.5;
-
-pub fn draft_commit_threshold_ms(draft: &str) -> u64 {
-    // Count CJK characters individually as words (each char is a semantic unit)
-    let cjk_count = draft.chars().filter(|&c| c as u32 > 0x2E80).count();
-    let word_count = draft.split_whitespace().count() + cjk_count;
-    if word_count == 0 {
-        return u64::MAX;
-    }
-    let threshold = DRAFT_COMMIT_BASE_MS / (1.0 + word_count as f64 * DRAFT_COMMIT_DECAY);
-    threshold as u64
-}
-
-/// Check if draft should be committed (stale silence exceeded smooth threshold).
-/// Returns `Some(text)` if should commit, `None` otherwise.
-pub fn check_draft_commit(draft: &str, silence_ms: u64) -> Option<String> {
-    if draft.is_empty() {
-        return None;
-    }
-    let threshold = draft_commit_threshold_ms(draft);
-    if silence_ms >= threshold {
-        let trimmed = draft.trim_end();
-        Some(trimmed.to_string())
-    } else {
-        None
-    }
-}
-
 /// Transcription method being used
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TranscriptionMethod {
     #[default]
     GeminiLive,
     GeminiTranscribe,
-    Parakeet,
-    Qwen3Local,
-    SherpaZipformer,
     GeminiLiveS2s,
 }
 
@@ -88,6 +37,9 @@ pub struct RealtimeState {
 
     pub full_transcript: String,
     pub display_transcript: String,
+    /// Byte offset of `full_transcript` inside `display_transcript` while the
+    /// display holds the frozen prefix followed by the live transcript.
+    display_full_start: Option<usize>,
     pub transcript_committed_pos: usize,
 
     /// Position after the last FULLY FINISHED sentence that was translated
@@ -96,6 +48,8 @@ pub struct RealtimeState {
     pub last_processed_len: usize,
 
     pub committed_translation: String,
+    /// Changes whenever committed translation is cleared for a new source segment.
+    pub translation_revision: u64,
     pub uncommitted_translation: String,
     pub uncommitted_source_start: usize,
     pub uncommitted_source_end: usize,
@@ -112,7 +66,33 @@ pub struct RealtimeState {
     pub download_progress: f32,
 
     pub transcription_method: TranscriptionMethod,
-    pub parakeet_segment_start_time: Instant,
+}
+
+impl RealtimeState {
+    pub(super) fn invalidate_advanced_finality(&mut self, previous: usize, current: usize) {
+        if self.transcription_method == TranscriptionMethod::GeminiTranscribe
+            && current > previous
+            && current > self.last_committed_pos
+            && self.last_processed_len > self.last_committed_pos
+        {
+            self.last_processed_len = 0;
+        }
+    }
+
+    pub(crate) fn request_finality_is_current(&self, request: &TranslationRequest) -> bool {
+        self.transcription_method != TranscriptionMethod::GeminiTranscribe
+            || self.transcript_committed_pos.min(request.source_end) <= request.finalized_source_end
+    }
+
+    pub(super) fn invalidate_processed_correction(
+        &mut self,
+        shared_prefix: usize,
+        previous_len: usize,
+    ) {
+        if shared_prefix < previous_len && shared_prefix < self.last_processed_len {
+            self.last_processed_len = 0;
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +107,12 @@ pub struct TranslationRequest {
 }
 
 impl TranslationRequest {
+    pub fn matches_source(&self, transcript: &str, last_committed_pos: usize) -> bool {
+        self.source_start == last_committed_pos
+            && transcript.get(self.source_start..self.source_end)
+                == Some(self.pending_source.as_str())
+    }
+
     pub fn bytes_to_commit(&self) -> usize {
         self.finalized_source_end.saturating_sub(self.source_start)
     }

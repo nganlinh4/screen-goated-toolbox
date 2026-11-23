@@ -89,7 +89,6 @@ class PhoneControlProviderRegistryTest {
     ) = ProviderSnapshot(
         providerId = id,
         state = state,
-        supportedCapabilities = emptyMap(),
         evidenceTimestampMs = 1,
         requiredUserStep = requiredUserStep,
     )

@@ -1,0 +1,6 @@
+{
+  "unselectedClipboard": "Unselected",
+  "selectedText": "Lantern",
+  "unrelatedButtonText": "Copy",
+  "expectedUnrelatedButtonInvocations": 0
+}

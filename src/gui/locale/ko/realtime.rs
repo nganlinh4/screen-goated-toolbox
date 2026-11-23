@@ -2,6 +2,7 @@ use crate::gui::locale::RealtimeLocaleText;
 
 pub(super) fn get() -> RealtimeLocaleText {
     RealtimeLocaleText {
+        realtime_audio_gap: "연결이 끊겨 일부 오디오가 누락되었을 수 있습니다.",
         listening: "듣고 있는 중...",
         device: "장치 오디오",
         waiting: "말하기 대기 중...",

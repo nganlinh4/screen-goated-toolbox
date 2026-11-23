@@ -110,14 +110,12 @@ mod tests {
             include_str!("overlay/translation_gummy/runtime/mod.rs"),
             include_str!("overlay/tts_playground/runtime_sources.rs"),
             include_str!("api/realtime_audio/transcription.rs"),
-            include_str!("api/realtime_audio/parakeet.rs"),
-            include_str!("api/realtime_audio/qwen3/mod.rs"),
-            include_str!("api/realtime_audio/sherpa_onnx/streaming.rs"),
-            include_str!("api/realtime_audio/s2s/live/mod.rs"),
+            include_str!("api/realtime_audio/s2s/live/capture_owner.rs"),
         ] {
             assert!(source.contains("start_mic_capture"));
             assert!(!source.contains(".default_input_device()"));
             assert!(!source.contains(".build_input_stream("));
         }
+        assert!(include_str!("api/realtime_audio/s2s/live/mod.rs").contains("S2sCapture"));
     }
 }

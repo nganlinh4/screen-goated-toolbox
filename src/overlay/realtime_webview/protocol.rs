@@ -9,6 +9,16 @@ pub struct CardText {
     pub draft: String,
 }
 
+/// A change to a card's text: drop `remove_utf16` UTF-16 code units from the
+/// end of the committed text, append `append`, and replace the draft.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEdit {
+    pub remove_utf16: usize,
+    pub append: String,
+    pub draft: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardSettings {
@@ -32,6 +42,8 @@ pub struct DownloadState {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RealtimeScene {
+    #[serde(default)]
+    pub session_id: u64,
     pub active: bool,
     pub layout: CompositorLayout,
     pub transcription: CardText,
@@ -57,6 +69,10 @@ pub enum HostCommand {
     Text {
         role: CardRole,
         text: CardText,
+    },
+    TextEdit {
+        role: CardRole,
+        edit: TextEdit,
     },
     Settings {
         settings: CardSettings,
@@ -85,27 +101,7 @@ pub enum HostCommand {
     Shutdown,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RendererFailureKind {
-    BrowserProcessExited,
-    RenderProcessExited,
-    RenderProcessUnresponsive,
-    FrameRenderProcessExited,
-    GpuProcessExited,
-}
-
-impl RendererFailureKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::BrowserProcessExited => "browser process exited",
-            Self::RenderProcessExited => "render process exited",
-            Self::RenderProcessUnresponsive => "render process unresponsive",
-            Self::FrameRenderProcessExited => "frame render process exited",
-            Self::GpuProcessExited => "GPU process exited",
-        }
-    }
-}
+pub use crate::overlay::compositor_renderer::RendererFailureKind;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -117,14 +113,18 @@ pub enum ChildEvent {
         kind: RendererFailureKind,
     },
     LayoutChanged {
+        session_id: u64,
         layout: CompositorLayout,
     },
     Input {
+        session_id: u64,
         role: CardRole,
         body: String,
         scale: f64,
     },
-    Close,
+    Close {
+        session_id: u64,
+    },
     RendererError {
         source: String,
         error: String,

@@ -52,6 +52,22 @@
       }
     },
     {
+      "name": "zero slider preserves latest nonzero restore target",
+      "initial": { "percent": 100, "restorePercent": 100 },
+      "steps": [
+        { "type": "setVolume", "value": 65 },
+        { "type": "setVolume", "value": 0 },
+        { "type": "toggleMute" }
+      ],
+      "expected": { "percent": 65, "restorePercent": 65 }
+    },
+    {
+      "name": "new controls restore a remembered muted volume",
+      "initial": { "percent": 0, "restorePercent": 65 },
+      "steps": [{ "type": "toggleMute" }],
+      "expected": { "percent": 65, "restorePercent": 65 }
+    },
+    {
       "name": "mute restore falls back to default",
       "initial": {
         "percent": 0,

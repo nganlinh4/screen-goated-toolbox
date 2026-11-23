@@ -56,8 +56,17 @@ pub(crate) fn ensure_ready(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<RecorderComponents> {
-    let _mutation = super::acquire_mutation_guard()?;
     let deliveries = delivery_group()?;
+    // Transfers hold only per-component transfer guards; the registry guard
+    // below covers verification, extraction and publication.
+    if install::needs_transfer(&deliveries) {
+        let progress_guard = crate::install_progress::begin(BUNDLE_ID);
+        install::prefetch_group(&deliveries, cancelled, &|done, total| {
+            progress_guard.report(done as f32 / total.max(1) as f32 * 100.0);
+            on_progress(done, total);
+        })?;
+    }
+    let _mutation = super::acquire_mutation_guard()?;
 
     // A healthy install is the normal case, and acquisition already proves every
     // owned byte. Probing it first keeps the open path to a single pass over the
@@ -66,7 +75,11 @@ pub(crate) fn ensure_ready(
         return Ok(components);
     }
 
-    install::ensure_group(&deliveries, cancelled, on_progress)?;
+    let progress_guard = crate::install_progress::begin(BUNDLE_ID);
+    install::ensure_group(&deliveries, cancelled, |done, total| {
+        progress_guard.report(done as f32 / total.max(1) as f32 * 100.0);
+        on_progress(done, total);
+    })?;
     match acquire_verified_components(&deliveries) {
         Ok(components) => Ok(components),
         Err(first_error) => {
@@ -246,36 +259,8 @@ pub(crate) fn purge_all_recorded_recoveries() -> Result<Vec<recovery::CleanupOut
     recovery::purge_all_recorded()
 }
 
-pub(crate) fn remove_from_manager() -> Result<()> {
-    let name = component_name();
-    let locale = crate::overlay::auto_copy_badge::locale_text();
-    let removing = crate::overlay::auto_copy_badge::format_locale(
-        locale.removing_component_fmt,
-        &[("name", &name)],
-    );
-    crate::overlay::auto_copy_badge::show_detailed_notification(
-        &removing,
-        "",
-        crate::overlay::auto_copy_badge::NotificationType::Info,
-    );
-
-    let result = remove_all();
-    let locale = crate::overlay::auto_copy_badge::locale_text();
-    let (template, kind, detail) = match &result {
-        Ok(()) => (
-            locale.component_removed_fmt,
-            crate::overlay::auto_copy_badge::NotificationType::Success,
-            String::new(),
-        ),
-        Err(error) => (
-            locale.component_remove_failed_fmt,
-            crate::overlay::auto_copy_badge::NotificationType::Error,
-            format!("{error:#}"),
-        ),
-    };
-    let title = crate::overlay::auto_copy_badge::format_locale(template, &[("name", &name)]);
-    crate::overlay::auto_copy_badge::show_detailed_notification(&title, &detail, kind);
-    result
+pub(crate) fn recoveries() -> Result<Vec<(PathBuf, String)>> {
+    recovery::list()
 }
 
 pub(crate) fn download_from_manager(
@@ -435,8 +420,11 @@ fn validate_receipt(
 }
 
 fn validate_exact_tree(root: &Path, files: &[RecorderFile]) -> Result<()> {
-    let mut actual = Vec::new();
-    staging::collect_regular_files(root, root, &mut actual, MAX_COMPONENT_FILES + 1)?;
+    let mut actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "recorder component",
+        MAX_COMPONENT_FILES + 1,
+    )?;
     actual.retain(|path| path != Path::new(RECEIPT_NAME));
     if actual.len() != files.len()
         || actual

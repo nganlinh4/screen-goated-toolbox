@@ -27,22 +27,27 @@ interface UsePreviewInteractionParams {
   currentTime: number;
 }
 
-export function usePreviewInteraction({
-  currentVideo,
-  isCropping,
-  activePanel,
-  setActivePanel,
-  isPlaying,
-  handleTogglePlayPause,
-  handleAddKeyframe,
-  beginBatch,
-  commitBatch,
-  previewContainerRef,
-  isKeystrokeResizeDragging,
-  isKeystrokeResizeHandleHover,
-  segment,
-  currentTime,
-}: UsePreviewInteractionParams) {
+export function usePreviewInteraction(params: UsePreviewInteractionParams) {
+  const {
+    currentVideo,
+    isCropping,
+    activePanel,
+    setActivePanel,
+    isPlaying,
+    handleTogglePlayPause,
+    handleAddKeyframe,
+    beginBatch,
+    commitBatch,
+    previewContainerRef,
+    isKeystrokeResizeDragging,
+    isKeystrokeResizeHandleHover,
+    segment,
+    currentTime,
+  } = params;
+  // Window/container listeners read the latest playback time and callbacks
+  // here, so playback does not rebind them every frame.
+  const latestRef = useRef(params);
+  latestRef.current = params;
   const [isPreviewDragging, setIsPreviewDragging] = useState(false);
   const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
   const [seekIndicatorDir, setSeekIndicatorDir] = useState<"left" | "right">(
@@ -55,7 +60,19 @@ export function usePreviewInteraction({
 
   useEffect(() => {
     return () => {
-      previewDragCleanupRef.current?.();
+      // Close any history batch a gesture left open so later edits do not
+      // merge into one undo step after the preview unmounts.
+      const dragCleanup = previewDragCleanupRef.current;
+      previewDragCleanupRef.current = null;
+      const wheelBatchOpen = wheelBatchActiveRef.current;
+      if (wheelBatchTimerRef.current) clearTimeout(wheelBatchTimerRef.current);
+      wheelBatchTimerRef.current = null;
+      wheelBatchActiveRef.current = false;
+      if (dragCleanup) {
+        dragCleanup();
+        latestRef.current.commitBatch();
+      }
+      if (wheelBatchOpen) latestRef.current.commitBatch();
     };
   }, []);
 
@@ -161,6 +178,16 @@ export function usePreviewInteraction({
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
+      const {
+        currentVideo,
+        isCropping,
+        beginBatch,
+        commitBatch,
+        segment,
+        currentTime,
+        handleAddKeyframe,
+        setActivePanel,
+      } = latestRef.current;
       if (!currentVideo || isCropping) return;
       e.preventDefault();
       const lastState = videoRenderer.getLastCalculatedState();
@@ -201,7 +228,7 @@ export function usePreviewInteraction({
 
     container.addEventListener("wheel", handleWheel, { passive: false });
     return () => container.removeEventListener("wheel", handleWheel);
-  }, [currentVideo, isCropping, handleAddKeyframe, beginBatch, commitBatch, previewContainerRef, setActivePanel, segment, currentTime]);
+  }, [previewContainerRef, currentVideo, isCropping]);
 
   return {
     isPreviewDragging,

@@ -1,0 +1,34 @@
+{
+  "currentModes": ["quality"],
+  "defaultMode": "quality",
+  "minimumPolycount": 500,
+  "maximumPolycount": 20000,
+  "newRequests": [
+    {"mode":"quality","polycount":0,"autoSegment":false,"normalizedPolycount":500},
+    {"mode":"quality","polycount":100,"autoSegment":true,"normalizedPolycount":500},
+    {"mode":"quality","polycount":499,"autoSegment":false,"normalizedPolycount":500},
+    {"mode":"quality","polycount":500,"autoSegment":true,"normalizedPolycount":500},
+    {"mode":"quality","polycount":20000,"autoSegment":false,"normalizedPolycount":20000},
+    {"mode":"quality","polycount":20001,"autoSegment":true,"normalizedPolycount":20000},
+    {"mode":"quality","polycount":4294967295,"autoSegment":false,"normalizedPolycount":20000},
+    {"mode":"quality","polycount":4294967296,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":"quality","polycount":-1,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":"quality","polycount":500.5,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":"quality","polycount":"500","autoSegment":false,"normalizedPolycount":null},
+    {"mode":"quality","polycount":null,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":null,"polycount":500,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":"quality","polycount":500,"autoSegment":"false","normalizedPolycount":null},
+    {"mode":"fast","polycount":100,"autoSegment":false,"normalizedPolycount":null},
+    {"mode":"unknown","polycount":5000,"autoSegment":false,"normalizedPolycount":null}
+  ],
+  "frozenRequests": [
+    {"mode":"fast","polycount":100,"autoSegment":false,"valid":true},
+    {"mode":"fast","polycount":15000,"autoSegment":false,"valid":true},
+    {"mode":"fast","polycount":15001,"autoSegment":false,"valid":false},
+    {"mode":"fast","polycount":100,"autoSegment":true,"valid":false},
+    {"mode":"quality","polycount":499,"autoSegment":false,"valid":false},
+    {"mode":"quality","polycount":500,"autoSegment":true,"valid":true},
+    {"mode":"quality","polycount":20000,"autoSegment":false,"valid":true},
+    {"mode":"unknown","polycount":5000,"autoSegment":false,"valid":false}
+  ]
+}

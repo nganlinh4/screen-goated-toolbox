@@ -14,8 +14,12 @@ export function notifyUserError(
   error?: unknown,
 ): void {
   if (error !== undefined) console.error(`[Recorder] ${messageKey}`, error);
+  const detail = error instanceof Error ? error.message : error;
+  const notificationKey = detail === "SGT_SETTINGS_OUTCOME_UNKNOWN"
+    ? "settingsOutcomeUnknown"
+    : messageKey;
   window.dispatchEvent(new CustomEvent<UserNotificationDetail>(
     USER_NOTIFICATION_EVENT,
-    { detail: { id: nextNotificationId++, messageKey } },
+    { detail: { id: nextNotificationId++, messageKey: notificationKey } },
   ));
 }

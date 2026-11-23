@@ -1,11 +1,19 @@
 pub(crate) fn get_js() -> &'static str {
     r#"
+let currentRequestId = '';
+let heartbeatTimer = null;
+function stopHeartbeat() {
+    if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+}
 function select(idx) {
-    window.ipc.postMessage('select:' + idx);
+    stopHeartbeat();
+    window.ipc.postMessage('select:' + currentRequestId + ':' + idx);
 }
 
 function dismiss() {
-    window.ipc.postMessage('dismiss');
+    stopHeartbeat();
+    window.ipc.postMessage('dismiss:' + currentRequestId);
 }
 
 const grid = document.getElementById('grid');
@@ -158,7 +166,9 @@ function animateIn() {
     setTimeout(() => cacheItemPositions(), totalAnimationTime);
 }
 
-window.updateContent = function(itemsHtml, dismissLabel) {
+window.updateContent = function(itemsHtml, dismissLabel, requestId) {
+    stopHeartbeat();
+    currentRequestId = requestId;
     grid.innerHTML = itemsHtml;
     dismissBtn.innerText = dismissLabel;
     items = Array.from(document.querySelectorAll('.preset-item'));
@@ -168,7 +178,12 @@ window.updateContent = function(itemsHtml, dismissLabel) {
     items.forEach(item => item.classList.remove('visible'));
 
     setTimeout(() => {
-        window.ipc.postMessage('ready_to_show');
+        if (currentRequestId !== requestId) return;
+        window.ipc.postMessage('ready_to_show:' + requestId);
+        heartbeatTimer = setInterval(() => {
+            if (currentRequestId !== requestId) return;
+            window.ipc.postMessage('heartbeat:' + requestId);
+        }, 1000);
         setTimeout(() => requestAnimationFrame(animateIn), 16);
 
         setTimeout(() => {
@@ -176,6 +191,13 @@ window.updateContent = function(itemsHtml, dismissLabel) {
             items.forEach(item => item.classList.add('visible'));
         }, 300);
     }, 0);
+};
+
+window.clearContent = function(requestId) {
+    if (currentRequestId !== requestId) return;
+    stopHeartbeat();
+    currentRequestId = '';
+    grid.innerHTML = '';
 };
 
 document.addEventListener('keydown', (e) => {

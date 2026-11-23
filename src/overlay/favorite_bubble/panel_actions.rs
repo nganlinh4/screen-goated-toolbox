@@ -10,10 +10,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetWindowRect, PostMessageW, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOZORDER,
-    SetForegroundWindow, SetWindowPos, WM_HOTKEY,
+    GetWindowRect, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOZORDER, SetForegroundWindow, SetWindowPos,
 };
-use windows::core::w;
 use wry::Rect;
 
 pub(super) fn trigger_preset(preset_idx: usize) {
@@ -31,16 +29,8 @@ pub(super) fn trigger_preset(preset_idx: usize) {
                 std::thread::sleep(std::time::Duration::from_millis(30));
             }
         }
-
-        let class = w!("HotkeyListenerClass");
-        let title = w!("Listener");
-        let hwnd = FindWindowW(class, title).unwrap_or_default();
-
-        if !hwnd.is_invalid() {
-            let hotkey_id = (preset_idx as i32 * 1000) + 1;
-            let _ = PostMessageW(Some(hwnd), WM_HOTKEY, WPARAM(hotkey_id as usize), LPARAM(0));
-        }
     }
+    crate::hotkey::listener::trigger_preset(preset_idx);
 }
 
 pub(super) fn activate_continuous_from_panel(preset_idx: usize) {

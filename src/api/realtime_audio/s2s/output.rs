@@ -1,11 +1,17 @@
 use super::*;
 
+#[path = "segment_texts.rs"]
+mod segment_texts;
+use segment_texts::SegmentTexts;
+
 struct SegmentPlayback {
     chunks: VecDeque<Vec<u8>>,
     chunk_count: usize,
     byte_count: usize,
     source_audio_ms: usize,
     queued_at: Option<Instant>,
+    playback_epoch: Option<u64>,
+    _backlog: Option<Arc<super::backlog::S2sBacklogLease>>,
     has_input_text: bool,
     has_output_text: bool,
     done: bool,
@@ -20,6 +26,8 @@ impl SegmentPlayback {
             byte_count: 0,
             source_audio_ms: 0,
             queued_at: None,
+            playback_epoch: None,
+            _backlog: None,
             has_input_text: false,
             has_output_text: false,
             done: false,
@@ -28,136 +36,239 @@ impl SegmentPlayback {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "S2S output owns session identity, state, and playback"
+)]
 pub(super) fn coordinate_output(
     event_rx: mpsc::Receiver<S2sEvent>,
     stop_signal: Arc<AtomicBool>,
+    session_stopped: Arc<AtomicBool>,
+    session_id: u64,
+    engine_revision: u64,
     overlay_hwnd: HWND,
     translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
     context_memory: Arc<Mutex<S2sContextMemory>>,
     mode: S2sMode,
+    backlog: Arc<super::backlog::S2sBacklogRun>,
 ) {
     let mut next_play_id = 0u64;
     let mut segments = BTreeMap::<u64, SegmentPlayback>::new();
-    let mut inputs = BTreeMap::<u64, String>::new();
-    let mut outputs = BTreeMap::<u64, String>::new();
+    let mut inputs = SegmentTexts::default();
+    let mut outputs = SegmentTexts::default();
     let mut playback: Option<RealtimePlaybackBridge> = None;
+    let mut admitted = Vec::new();
+    let mut playback_epoch = TTS_MANAGER.realtime_epoch();
 
-    while !stop_signal.load(Ordering::SeqCst) {
-        match event_rx.recv_timeout(Duration::from_millis(30)) {
-            Ok(event) => match event {
-                S2sEvent::Queued {
-                    id,
-                    audio_ms,
-                    queued_at,
-                } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
-                    segment.source_audio_ms = audio_ms;
-                    segment.queued_at = Some(queued_at);
-                }
-                S2sEvent::InputText { id, text } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    segments
-                        .entry(id)
-                        .or_insert_with(SegmentPlayback::new)
-                        .has_input_text = true;
-                    inputs.insert(id, text);
-                    publish_text(&state, overlay_hwnd, translation_hwnd, &inputs, &outputs);
-                }
-                S2sEvent::OutputText { id, text } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    segments
-                        .entry(id)
-                        .or_insert_with(SegmentPlayback::new)
-                        .has_output_text = true;
-                    merge_segment_text(outputs.entry(id).or_default(), &text);
-                    publish_text(&state, overlay_hwnd, translation_hwnd, &inputs, &outputs);
-                }
-                S2sEvent::Audio { id, bytes } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
-                    segment.chunk_count += 1;
-                    segment.byte_count += bytes.len();
-                    segment.chunks.push_back(bytes);
-                }
-                S2sEvent::Done { id } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    segments.entry(id).or_insert_with(SegmentPlayback::new).done = true;
-                    push_completed_context(id, &inputs, &outputs, &context_memory);
-                }
-                S2sEvent::Error { id, message } => {
-                    if id < next_play_id {
-                        continue;
-                    }
-                    eprintln!("[{}] segment={id} error: {message}", mode.log_tag());
-                    let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
-                    segment.error = true;
-                    segment.done = true;
-                }
-                S2sEvent::LiveText {
-                    source_full,
-                    source_committed_len,
-                    target_committed,
-                    target_draft,
-                } => {
-                    publish_live_translate_text(
-                        &state,
-                        overlay_hwnd,
-                        translation_hwnd,
-                        source_full,
-                        source_committed_len,
-                        target_committed,
-                        target_draft,
-                    );
-                }
-                S2sEvent::Interrupt => {
-                    TTS_MANAGER.stop();
-                    playback = None;
-                }
-            },
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+    while !stop_signal.load(Ordering::SeqCst) && !session_stopped.load(Ordering::SeqCst) {
+        let event = event_rx.recv_timeout(Duration::from_millis(30));
+        if matches!(&event, Err(mpsc::RecvTimeoutError::Disconnected)) {
+            break;
         }
+        let mut retired = Vec::new();
+        let published = crate::overlay::realtime_webview::state::publish_if_engine_current(
+            session_id,
+            &session_stopped,
+            engine_revision,
+            || {
+                if stop_signal.load(Ordering::SeqCst) {
+                    return;
+                }
+                let visible =
+                    crate::overlay::realtime_webview::state::TRANS_VISIBLE.load(Ordering::SeqCst);
+                let epoch = TTS_MANAGER.realtime_epoch();
+                if retire_stale_audio(&mut segments, playback_epoch, epoch, visible) {
+                    playback.take();
+                }
+                playback_epoch = epoch;
+                match event {
+                    Ok(event) => match event {
+                        S2sEvent::Queued {
+                            id,
+                            audio_ms,
+                            queued_at,
+                            playback_epoch: segment_epoch,
+                            backlog,
+                        } => {
+                            if id < next_play_id {
+                                return;
+                            }
+                            let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
+                            segment.source_audio_ms = audio_ms;
+                            segment.queued_at = Some(queued_at);
+                            segment.playback_epoch = segment_epoch;
+                            segment._backlog = Some(backlog);
+                        }
+                        S2sEvent::InputText { id, text } => {
+                            if id >= next_play_id {
+                                segments
+                                    .entry(id)
+                                    .or_insert_with(SegmentPlayback::new)
+                                    .has_input_text = true;
+                            }
+                            inputs.replace(id, text);
+                            publish_text(&state, overlay_hwnd, translation_hwnd, &inputs, &outputs);
+                        }
+                        S2sEvent::OutputText { id, text } => {
+                            if id >= next_play_id {
+                                segments
+                                    .entry(id)
+                                    .or_insert_with(SegmentPlayback::new)
+                                    .has_output_text = true;
+                            }
+                            outputs.merge(id, &text);
+                            publish_text(&state, overlay_hwnd, translation_hwnd, &inputs, &outputs);
+                        }
+                        S2sEvent::Audio { id, bytes } => {
+                            if id < next_play_id {
+                                return;
+                            }
+                            let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
+                            queue_audio(segment, bytes, playback_epoch, visible);
+                        }
+                        S2sEvent::Done { id } => {
+                            if id >= next_play_id {
+                                segments.entry(id).or_insert_with(SegmentPlayback::new).done = true;
+                            }
+                            push_completed_context(id, &inputs, &outputs, &context_memory);
+                            inputs.mark_done(id);
+                            outputs.mark_done(id);
+                        }
+                        S2sEvent::Error { id, message } => {
+                            inputs.mark_done(id);
+                            outputs.mark_done(id);
+                            if id < next_play_id {
+                                return;
+                            }
+                            eprintln!("[{}] segment={id} error: {message}", mode.log_tag());
+                            let segment = segments.entry(id).or_insert_with(SegmentPlayback::new);
+                            segment.error = true;
+                            segment.done = true;
+                        }
+                        S2sEvent::LiveText {
+                            source_full,
+                            source_committed_len,
+                            target_committed,
+                            target_draft,
+                        } => {
+                            publish_live_translate_text(
+                                &state,
+                                overlay_hwnd,
+                                translation_hwnd,
+                                source_full,
+                                source_committed_len,
+                                target_committed,
+                                target_draft,
+                            );
+                        }
+                        S2sEvent::Interrupt => {
+                            if let Some(current) = playback.take()
+                                && let Some(notice) = TTS_MANAGER.retire_if_active(current.id)
+                            {
+                                retired.push(notice);
+                            }
+                        }
+                    },
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => unreachable!(),
+                }
 
-        drain_ordered_audio(
-            &mut segments,
-            &mut next_play_id,
-            &mut playback,
-            translation_hwnd.unwrap_or(overlay_hwnd),
-            mode,
+                drain_ordered_audio(
+                    &mut segments,
+                    &mut next_play_id,
+                    &mut playback,
+                    translation_hwnd.unwrap_or(overlay_hwnd),
+                    mode,
+                    &stop_signal,
+                    playback_epoch,
+                    &mut admitted,
+                    &backlog,
+                    &mut retired,
+                );
+                update_s2s_ready_backlog(&segments, next_play_id, &backlog);
+            },
         );
-        update_s2s_ready_backlog(&segments, next_play_id);
+        TTS_MANAGER.notify_retired_playback(retired);
+        if !published || stop_signal.load(Ordering::SeqCst) {
+            break;
+        }
     }
 
-    if let Some(current) = playback.take() {
+    if stop_signal.load(Ordering::SeqCst)
+        || session_stopped.load(Ordering::SeqCst)
+        || is_stale_session(session_id)
+        || !crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
+    {
+        for id in admitted {
+            TTS_MANAGER.stop_if_active(id);
+        }
+    } else if let Some(current) = playback.take() {
         current.end();
     }
 }
 
+fn is_current_audio(produced: Option<u64>, current: u64, visible: bool) -> bool {
+    visible && produced == Some(current)
+}
+
+fn queue_audio(segment: &mut SegmentPlayback, bytes: Vec<u8>, epoch: u64, visible: bool) {
+    segment.chunk_count += 1;
+    segment.byte_count += bytes.len();
+    if is_current_audio(segment.playback_epoch, epoch, visible) {
+        segment.chunks.push_back(bytes);
+    }
+}
+
+fn retire_stale_audio(
+    segments: &mut BTreeMap<u64, SegmentPlayback>,
+    previous_epoch: u64,
+    current_epoch: u64,
+    visible: bool,
+) -> bool {
+    if previous_epoch == current_epoch && visible {
+        return false;
+    }
+    for segment in segments.values_mut() {
+        segment.chunks.clear();
+    }
+    true
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ordered playback needs its queue, run ownership, and current admission state"
+)]
 fn drain_ordered_audio(
     segments: &mut BTreeMap<u64, SegmentPlayback>,
     next_play_id: &mut u64,
     playback: &mut Option<RealtimePlaybackBridge>,
     hwnd: HWND,
     mode: S2sMode,
+    stop_signal: &AtomicBool,
+    playback_epoch: u64,
+    admitted: &mut Vec<u64>,
+    backlog: &super::backlog::S2sBacklogRun,
+    retired: &mut Vec<(isize, u64)>,
 ) {
+    if stop_signal.load(Ordering::SeqCst) {
+        if let Some(current) = playback.take()
+            && let Some(notice) = TTS_MANAGER.retire_if_active(current.id)
+        {
+            retired.push(notice);
+        }
+        return;
+    }
     loop {
         let Some(segment) = segments.get_mut(next_play_id) else {
             return;
         };
-        crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_DELAY_MS
-            .store(segment_delay_ms(segment) as u32, Ordering::Relaxed);
+        if segment.playback_epoch != Some(playback_epoch) {
+            segments.remove(next_play_id);
+            *next_play_id += 1;
+            continue;
+        }
+        backlog.set_delay(segment_delay_ms(segment) as u32);
         if playback.is_none()
             && segment.chunks.is_empty()
             && !segment.done
@@ -175,9 +286,7 @@ fn drain_ordered_audio(
                 segment.has_output_text,
                 s2s_backlog_ms()
             );
-            let source_audio_ms = segment.source_audio_ms;
             segments.remove(next_play_id);
-            decrement_s2s_backlog(source_audio_ms);
             *next_play_id += 1;
             continue;
         }
@@ -190,17 +299,27 @@ fn drain_ordered_audio(
                 segment_delay_ms(segment),
                 s2s_backlog_ms()
             );
-            let source_audio_ms = segment.source_audio_ms;
             segments.remove(next_play_id);
-            decrement_s2s_backlog(source_audio_ms);
             *next_play_id += 1;
             continue;
         }
+        if playback
+            .as_ref()
+            .is_some_and(|bridge| !TTS_MANAGER.is_speaking(bridge.id))
+        {
+            *playback = None;
+        }
         if playback.is_none() && !segment.chunks.is_empty() {
             let delay_ms = segment_delay_ms(segment);
-            crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_DELAY_MS
-                .store(delay_ms as u32, Ordering::Relaxed);
-            *playback = Some(RealtimePlaybackBridge::new(hwnd.0 as isize));
+            backlog.set_delay(delay_ms as u32);
+            *playback = RealtimePlaybackBridge::new(hwnd.0 as isize, stop_signal, playback_epoch);
+            if let Some(bridge) = playback.as_ref() {
+                admitted.retain(|id| TTS_MANAGER.is_speaking(*id));
+                admitted.push(bridge.id);
+            }
+            if playback.is_none() {
+                segment.chunks.clear();
+            }
         }
         if let Some(player) = playback.as_ref() {
             while let Some(bytes) = segment.chunks.pop_front() {
@@ -208,14 +327,12 @@ fn drain_ordered_audio(
             }
         }
         if segment.done && segment.chunks.is_empty() {
-            let source_audio_ms = segment.source_audio_ms;
             let next_id = *next_play_id + 1;
             let _ = segment;
             let next_ready = segments
                 .get(&next_id)
                 .is_some_and(|next| !next.chunks.is_empty());
             segments.remove(next_play_id);
-            decrement_s2s_backlog(source_audio_ms);
             *next_play_id += 1;
             if !next_ready && let Some(player) = playback.take() {
                 player.end();
@@ -230,34 +347,25 @@ fn publish_text(
     state: &SharedRealtimeState,
     overlay_hwnd: HWND,
     translation_hwnd: Option<HWND>,
-    inputs: &BTreeMap<u64, String>,
-    outputs: &BTreeMap<u64, String>,
+    inputs: &SegmentTexts,
+    outputs: &SegmentTexts,
 ) {
-    let source_display = split_s2s_visuals(inputs);
-    let target_display = split_s2s_visuals(outputs);
-    let (source_display, target_display) = if let Ok(mut s) = state.lock() {
-        s.full_transcript = source_display.full.clone();
+    let source_display = inputs.visuals();
+    let target_display = outputs.visuals();
+    if let Ok(mut s) = state.lock() {
         s.transcript_committed_pos = source_display.committed_len;
         s.last_committed_pos = s.transcript_committed_pos;
         s.uncommitted_source_start = source_display.committed_len;
         s.uncommitted_source_end = source_display.full.len();
-        s.display_transcript = if s.frozen_prefix.is_empty() {
-            source_display.full.clone()
-        } else if source_display.full.is_empty() {
-            s.frozen_prefix.clone()
-        } else {
-            format!("{}\n\n{}", s.frozen_prefix, source_display.full)
-        };
+        s.full_transcript = source_display.full;
+        s.set_display_transcript("\n\n");
         s.committed_translation = target_display.committed;
         s.uncommitted_translation = target_display.draft;
         s.display_translation = target_display.full;
-        (s.display_transcript.clone(), s.display_translation.clone())
-    } else {
-        (String::new(), String::new())
-    };
-    update_overlay_text(overlay_hwnd, &source_display);
+    }
+    notify_transcript_changed(overlay_hwnd);
     if let Some(hwnd) = translation_hwnd {
-        update_translation_text(hwnd, &target_display);
+        notify_translation_changed(hwnd);
     }
 }
 
@@ -279,29 +387,20 @@ fn publish_live_translate_text(
     } else {
         format!("{target_committed} {target_draft}")
     };
-    let source_display = if let Ok(mut s) = state.lock() {
-        s.full_transcript = source_full.clone();
+    if let Ok(mut s) = state.lock() {
         s.transcript_committed_pos = source_committed_len;
         s.last_committed_pos = source_committed_len;
         s.uncommitted_source_start = source_committed_len;
         s.uncommitted_source_end = source_full.len();
-        s.display_transcript = if s.frozen_prefix.is_empty() {
-            source_full.clone()
-        } else if source_full.is_empty() {
-            s.frozen_prefix.clone()
-        } else {
-            format!("{}\n\n{}", s.frozen_prefix, source_full)
-        };
-        s.committed_translation = target_committed.clone();
-        s.uncommitted_translation = target_draft.clone();
-        s.display_translation = target_full.clone();
-        s.display_transcript.clone()
-    } else {
-        String::new()
-    };
-    update_overlay_text(overlay_hwnd, &source_display);
+        s.full_transcript = source_full;
+        s.set_display_transcript("\n\n");
+        s.committed_translation = target_committed;
+        s.uncommitted_translation = target_draft;
+        s.display_translation = target_full;
+    }
+    notify_transcript_changed(overlay_hwnd);
     if let Some(hwnd) = translation_hwnd {
-        update_translation_text(hwnd, &target_full);
+        notify_translation_changed(hwnd);
     }
 }
 
@@ -313,57 +412,14 @@ fn clamp_to_char_boundary(value: &str, mut index: usize) -> usize {
     index
 }
 
-struct S2sVisualText {
-    committed: String,
-    draft: String,
-    full: String,
-    committed_len: usize,
-}
-
-fn split_s2s_visuals(items: &BTreeMap<u64, String>) -> S2sVisualText {
-    let mut segments = items
-        .values()
-        .filter_map(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let draft = segments.pop().unwrap_or_default().to_string();
-    let committed = segments.join(" ");
-    let full = if committed.is_empty() {
-        draft.clone()
-    } else if draft.is_empty() {
-        committed.clone()
-    } else {
-        format!("{committed} {draft}")
-    };
-    let committed_len = if committed.is_empty() {
-        0
-    } else {
-        committed.len()
-    };
-
-    S2sVisualText {
-        committed,
-        draft,
-        full,
-        committed_len,
-    }
-}
-
 fn push_completed_context(
     id: u64,
-    inputs: &BTreeMap<u64, String>,
-    outputs: &BTreeMap<u64, String>,
+    inputs: &SegmentTexts,
+    outputs: &SegmentTexts,
     context_memory: &Arc<Mutex<S2sContextMemory>>,
 ) {
-    let source = inputs.get(&id).map(String::as_str).unwrap_or_default();
-    let target = outputs.get(&id).map(String::as_str).unwrap_or_default();
+    let source = inputs.get(id);
+    let target = outputs.get(id);
     if let Ok(mut memory) = context_memory.lock() {
         memory.push_completed(id, source, target);
     }
@@ -389,55 +445,38 @@ fn should_skip_stale_pending_segment(segment: &SegmentPlayback) -> bool {
 }
 
 pub(super) fn s2s_backlog_ms() -> u32 {
-    crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG_MS.load(Ordering::Relaxed)
+    super::backlog::current_backlog().audio_ms
 }
 
-fn update_s2s_ready_backlog(segments: &BTreeMap<u64, SegmentPlayback>, next_play_id: u64) {
+fn update_s2s_ready_backlog(
+    segments: &BTreeMap<u64, SegmentPlayback>,
+    next_play_id: u64,
+    backlog: &super::backlog::S2sBacklogRun,
+) {
     let ready_ms = segments
         .range((next_play_id + 1)..)
         .filter(|(_, segment)| !segment.chunks.is_empty())
         .map(|(_, segment)| segment.source_audio_ms as u32)
         .sum();
-    crate::overlay::realtime_webview::state::REALTIME_S2S_READY_BACKLOG_MS
-        .store(ready_ms, Ordering::Relaxed);
-}
-
-fn decrement_s2s_backlog(audio_ms: usize) {
-    crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(value.saturating_sub(1))
-        })
-        .ok();
-    crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG_MS
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-            Some(value.saturating_sub(audio_ms as u32))
-        })
-        .ok();
-    if crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG.load(Ordering::Relaxed)
-        == 0
-    {
-        crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_DELAY_MS
-            .store(0, Ordering::Relaxed);
-        crate::overlay::realtime_webview::state::REALTIME_S2S_READY_BACKLOG_MS
-            .store(0, Ordering::Relaxed);
-    }
+    backlog.set_ready(ready_ms);
 }
 
 struct RealtimePlaybackBridge {
     tx: mpsc::Sender<AudioEvent>,
+    id: u64,
 }
 
 impl RealtimePlaybackBridge {
-    fn new(hwnd: isize) -> Self {
+    fn new(hwnd: isize, session_stopped: &AtomicBool, epoch: u64) -> Option<Self> {
         let (tx, rx) = mpsc::channel();
-        let generation = TTS_MANAGER.interrupt_generation.load(Ordering::SeqCst);
-        let request_id = S2S_PLAYBACK_COUNTER.fetch_add(1, Ordering::SeqCst);
-        {
-            let mut queue = TTS_MANAGER.playback_queue.lock().unwrap();
-            queue.push_back((rx, hwnd, request_id, generation, true));
-        }
-        TTS_MANAGER.playback_signal.notify_one();
-        Self { tx }
+        let id = TTS_MANAGER.enqueue_realtime_audio(
+            rx,
+            hwnd,
+            session_stopped,
+            &crate::overlay::realtime_webview::state::TRANS_VISIBLE,
+            epoch,
+        )?;
+        Some(Self { tx, id })
     }
 
     fn push(&self, bytes: Vec<u8>) {
@@ -448,3 +487,7 @@ impl RealtimePlaybackBridge {
         let _ = self.tx.send(AudioEvent::End);
     }
 }
+
+#[cfg(test)]
+#[path = "output_tests.rs"]
+mod tests;

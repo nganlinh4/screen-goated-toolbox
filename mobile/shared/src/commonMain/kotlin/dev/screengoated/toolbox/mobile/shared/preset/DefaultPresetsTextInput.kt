@@ -40,6 +40,7 @@ internal val defaultTextInputPresets: List<Preset> = listOf(
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
                 "Answer the following question or request helpfully and comprehensively. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. QUESTION/REQUEST:",
+                "language1" to "Vietnamese",
             ),
         ),
     ),
@@ -54,6 +55,7 @@ internal val defaultTextInputPresets: List<Preset> = listOf(
             textBlock(
                 PRESET_SEARCH_MODEL_ID,
                 "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. SEARCH FOR:",
+                "language1" to "Vietnamese",
             ).copy(searchEnabled = true),
         ),
     ),
@@ -68,6 +70,7 @@ internal val defaultTextInputPresets: List<Preset> = listOf(
             textBlock(
                 PRESET_TEXT_GAME_MODEL_ID,
                 "Create a complete, standalone HTML game. Choose controls that fit the game: keyboard, mouse/pointer, touch, or a combination. Show clear control instructions in the game, and ensure keyboard input works after the player clicks or taps the game. Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:",
+                "language1" to "Vietnamese",
             ).copy(renderMode = "markdown"),
         ),
     ),

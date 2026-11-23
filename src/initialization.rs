@@ -60,80 +60,8 @@ pub fn enable_dark_mode_for_app() {
     }
 }
 
-/// Cleanup temporary files left by the application (restart scripts, partial downloads).
-pub fn cleanup_temporary_files() {
-    // 1. Clean up restart scripts in %TEMP%
-    let temp_dir = std::env::temp_dir();
-    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with("sgt_restart_") && name_str.ends_with(".bat") {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-
-    // 2. Clean up the updater's exact staging name. Component installers
-    // reconcile only their own generated staging namespaces.
-    if let Ok(exe_path) = std::env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        for name in ["temp_download", "update_download.part"] {
-            let partial_download = exe_dir.join(name);
-            if partial_download.exists() {
-                let _ = std::fs::remove_file(partial_download);
-            }
-        }
-    }
-}
-
-/// Apply any pending updates and clean up old exe files.
-pub fn apply_pending_updates() {
-    if let Ok(exe_path) = std::env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        let staging_path = exe_dir.join("update_pending.exe");
-        let backup_path = exe_path.with_extension("exe.old");
-
-        // If there's a pending update, apply it
-        if staging_path.exists() {
-            // Backup current exe
-            let _ = std::fs::copy(&exe_path, &backup_path);
-            // Replace with staged exe
-            if std::fs::rename(&staging_path, &exe_path).is_ok() {
-                // Success - cleanup temp file
-                let _ = std::fs::remove_file("temp_download");
-            }
-        }
-
-        // Clean up old exe files
-        let current_exe_name = exe_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if let Ok(entries) = std::fs::read_dir(exe_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let file_name = entry.file_name();
-                let name_str = file_name.to_string_lossy();
-
-                // Delete old ScreenGoatedToolbox_v*.exe files (keep only current)
-                if (name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe"))
-                    && name_str.as_ref() != current_exe_name
-                {
-                    let _ = std::fs::remove_file(entry.path());
-                }
-
-                // Delete .old backup files
-                if name_str.ends_with(".exe.old") {
-                    let _ = std::fs::remove_file(entry.path());
-                }
-            }
-        }
-    }
-}
-
-pub(crate) use crate::crash_report::CrashReportMode;
-
-pub(crate) fn setup_crash_handler(mode: CrashReportMode) {
-    crate::crash_report::install(mode);
+pub(crate) fn setup_crash_handler() {
+    crate::crash_report::install();
     setup_console_ctrl_handler();
 }
 
@@ -256,8 +184,16 @@ pub fn init_com_and_dpi() {
     unsafe {
         use windows::Win32::System::Com::CoInitialize;
         let _ = CoInitialize(None);
+    }
+    set_process_dpi_awareness();
+}
 
-        // Force Per-Monitor V2 DPI Awareness for correct screen metrics
+/// Declares Per-Monitor V2 DPI awareness for the whole process. It must run
+/// before this process creates any window (a startup message box included):
+/// windows created earlier stay DPI-unaware and are bitmap-stretched. Later
+/// calls fail harmlessly once the awareness is set.
+pub(crate) fn set_process_dpi_awareness() {
+    unsafe {
         if let Ok(hidpi) = LoadLibraryW(w!("user32.dll"))
             && let Some(set_context) = GetProcAddress(hidpi, s!("SetProcessDpiAwarenessContext"))
         {

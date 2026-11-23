@@ -79,11 +79,9 @@ pub enum Icon {
     ElectricBolt, // groq        (Android: ms_electric_bolt)
     AutoAwesome,  // google / gemini  (Android: ms_auto_awesome)
     Translate,    // google-gtx  (Android: ms_translate)
-    Whatshot,     // (Android: ms_local_fire_department)
     Terminal,     // ollama      (Android: ms_terminal)
     Public,       // openrouter  (Android: ms_public)
     QrCode,       // qrserver
-    SpeechToText, // parakeet / local ASR providers
     Rocket,       // taalas
     Search,
     Stat3,
@@ -372,7 +370,6 @@ pub fn provider_icon(provider: &str) -> Icon {
         "nvidia" => Icon::Rocket,
         "ollama" => Icon::Terminal,
         "qrserver" => Icon::QrCode,
-        "parakeet" | "qwen3" => Icon::SpeechToText,
         "taalas" => Icon::Rocket,
         _ => Icon::Settings,
     }
@@ -390,7 +387,7 @@ mod tests {
 
     #[test]
     fn generated_mapping_is_exhaustive_and_preserves_aliases() {
-        assert_eq!(ALL_ICONS.len(), 73);
+        assert_eq!(ALL_ICONS.len(), 71);
         let indices = ALL_ICONS
             .iter()
             .map(|icon| icon.sprite_index())

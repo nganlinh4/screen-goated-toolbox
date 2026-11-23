@@ -8,7 +8,7 @@ use windows::core::Interface;
 use super::super::d3d_interop::{D3D11GpuFence, KeyedMutexGuard};
 use super::super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::super::mf_encode::{EncoderConfig, MfEncoder, VideoInputSurfaceFormat};
-use super::audio::apply_audio_volume_envelope;
+use super::audio::{apply_audio_volume_envelope, frames_inside_segment};
 use super::types::{EncodeThreadContext, RenderOutput, ZeroCopyExportResult};
 
 fn recycle_cancelled_output(
@@ -255,22 +255,29 @@ pub(super) fn run_encode_thread(
                             }
                             continue;
                         }
-                        if chunk_time < seg_start {
-                            continue;
-                        }
-                        if chunk_time <= seg_end {
-                            let channels = dec.channels() as usize;
-                            let input_frames = if channels == 0 {
-                                0
-                            } else {
-                                pcm.len() / (channels * 4)
-                            };
-                            let source_duration_sec =
-                                input_frames as f64 / audio_sample_rate as f64;
-                            let mut resampled = pcm.clone();
+                        let channels = dec.channels() as usize;
+                        let input_frames = if channels == 0 {
+                            0
+                        } else {
+                            pcm.len() / (channels * 4)
+                        };
+                        let kept = frames_inside_segment(
+                            input_frames,
+                            audio_sample_rate,
+                            chunk_time,
+                            seg_start,
+                            seg_end,
+                        );
+                        if !kept.is_empty() {
+                            let kept_start_time =
+                                chunk_time + kept.start as f64 / audio_sample_rate as f64;
+                            let source_duration_sec = kept.len() as f64 / audio_sample_rate as f64;
+                            let frame_bytes = channels * 4;
+                            let mut resampled =
+                                pcm[kept.start * frame_bytes..kept.end * frame_bytes].to_vec();
                             apply_audio_volume_envelope(
                                 &mut resampled,
-                                chunk_time,
+                                kept_start_time,
                                 source_duration_sec,
                                 channels,
                                 &config.audio_volume_points,
@@ -320,14 +327,13 @@ pub(super) fn run_encode_thread(
             RenderOutput::Gpu { ring_idx } => {
                 // Acquire D3D11-side keyed mutex -- cache-invalidates the DX12-written
                 // data so the MF encoder reads the correct frame, not stale L2 data.
-                // The guard releases the shared slot on every exit path (including the
-                // CreateTexture2D / cast `?` below), so a mid-copy failure can't leave it
-                // locked and hang the render thread's next acquire.
-                let slot_guard = if gpu_enc_keyed_mutexes.is_empty() {
+                // Before submission a failed setup releases the slot. Once a copy
+                // starts it stays quarantined until the D3D11 fence confirms completion.
+                let mut slot_guard = if gpu_enc_keyed_mutexes.is_empty() {
                     None
                 } else {
                     Some(
-                        KeyedMutexGuard::acquire(&gpu_enc_keyed_mutexes[ring_idx], 0)
+                        KeyedMutexGuard::acquire(&gpu_enc_keyed_mutexes[ring_idx], 0, cancel_flag)
                             .map_err(|e| format!("AcquireSync D3D11 enc[{ring_idx}]: {e}"))?,
                     )
                 };
@@ -351,19 +357,24 @@ pub(super) fn run_encode_thread(
                         let copied_res: ID3D11Resource = copied
                             .cast()
                             .map_err(|e| format!("QI encode-private ID3D11Resource: {e}"))?;
+                        if let Some(guard) = slot_guard.as_mut() {
+                            guard.quarantine();
+                        }
                         unsafe {
                             context.CopyResource(&copied_res, &gpu_buffer_resources[ring_idx]);
                         }
                         // Ensure the shared->private copy is complete before releasing the
                         // shared slot back to the render thread.
-                        fence.signal_and_wait()?;
+                        fence.signal_and_wait_cancellable(cancel_flag)?;
                         copied
                     } else {
-                        gpu_buffers[ring_idx].texture.clone()
+                        return Err("GPU encoder copy resources are unavailable".to_string());
                     };
 
                 // Shared slot is no longer needed once the private copy is complete.
-                drop(slot_guard);
+                if let Some(guard) = slot_guard {
+                    guard.release_after_completion()?;
+                }
                 let _ = gpu_recycle_tx.send(ring_idx);
 
                 encoder.write_frame_gpu(&private_texture, timestamp_100ns, frame_duration_100ns)?;
@@ -440,11 +451,7 @@ mod tests {
         let (gpu_tx, gpu_rx) = std::sync::mpsc::channel();
         let (cpu_tx, cpu_rx) = std::sync::mpsc::channel();
 
-        recycle_cancelled_output(
-            RenderOutput::Gpu { ring_idx: 7 },
-            &gpu_tx,
-            &cpu_tx,
-        );
+        recycle_cancelled_output(RenderOutput::Gpu { ring_idx: 7 }, &gpu_tx, &cpu_tx);
         recycle_cancelled_output(
             RenderOutput::Cpu {
                 rendered_bgra: vec![1, 2, 3, 4],

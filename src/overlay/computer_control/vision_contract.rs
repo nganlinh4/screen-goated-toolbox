@@ -398,8 +398,9 @@ pub(crate) fn response_reports_not_visible(response: &str) -> bool {
     let (Some(start), Some(end)) = (response.find('{'), response.rfind('}')) else {
         return false;
     };
-    serde_json::from_str::<serde_json::Value>(&response[start..=end])
-        .ok()
+    response
+        .get(start..=end)
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
         .and_then(|value| value.get("error")?.as_str().map(str::to_string))
         .is_some_and(|error| !error.trim().is_empty())
 }
@@ -407,6 +408,15 @@ pub(crate) fn response_reports_not_visible(response: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_brace_order_is_not_a_visible_error() {
+        assert!(!response_reports_not_visible("} else {"));
+        assert!(!response_reports_not_visible("}{"));
+        assert!(response_reports_not_visible(
+            "response: {\"error\":\"not visible\"}"
+        ));
+    }
 
     #[test]
     fn point_and_verification_contracts_are_fail_closed() {

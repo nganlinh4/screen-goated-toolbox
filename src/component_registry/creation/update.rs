@@ -68,14 +68,11 @@ fn parse(value: serde_json::Value) -> Result<CreationDelivery> {
     super::super::validate_identifier(&contract.version)?;
     super::super::validate_identifier(&contract.runtime_version)?;
     let features = contract.features.into_iter().collect::<HashSet<_>>();
-    if features
-        != HashSet::from([
-            "image_to_3d".into(),
-            "image_to_svg".into(),
-            "image_creator".into(),
-        ])
-    {
-        bail!("signed Creation capabilities are invalid")
+    if !features.is_superset(&HashSet::from([
+        "image_to_3d".to_string(),
+        "image_to_svg".to_string(),
+    ])) {
+        bail!("signed Creation capabilities are missing a shipped feature")
     }
     validate_sha(&contract.windows.sha256)?;
     let expected_asset = format!(
@@ -162,4 +159,27 @@ fn tracked_contract_parses() {
         .unwrap(),
     )
     .unwrap();
+}
+
+#[test]
+fn signed_contracts_may_advertise_extra_features() {
+    let mut contract: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../component-delivery/windows/creation-v1.json"
+    ))
+    .unwrap();
+    contract["features"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::Value::String("future_tool".into()));
+    parse(contract).unwrap();
+}
+
+#[test]
+fn signed_contracts_must_advertise_every_shipped_feature() {
+    let mut contract: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../component-delivery/windows/creation-v1.json"
+    ))
+    .unwrap();
+    contract["features"] = serde_json::json!(["image_to_3d"]);
+    assert!(parse(contract).is_err());
 }

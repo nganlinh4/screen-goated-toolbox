@@ -1,3 +1,4 @@
+use super::lifecycle::{self, Action};
 use super::panel::{
     WM_FORCE_SHOW_PANEL, close_panel, destroy_panel, move_panel_to_bubble, save_bubble_position,
     show_panel,
@@ -21,37 +22,51 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 const WM_REFRESH_PANEL: u32 = WM_APP + 42;
 pub const WM_BUBBLE_THEME_UPDATE: u32 = WM_APP + 44;
 
-// Show the favorite bubble overlay
+/// Shows the favorite bubble, cancelling a fade-out that is still running.
 pub fn show_favorite_bubble() {
-    // Prevent duplicates
-    if BUBBLE_ACTIVE.swap(true, Ordering::SeqCst) {
-        return; // Already active
-    }
-
-    // Reset opacity to 0 for fade-in animation
-    CURRENT_OPACITY.store(0, Ordering::SeqCst);
-    // Clear any pending fade-out
-    FADE_OUT_STATE.store(false, Ordering::SeqCst);
-
-    std::thread::spawn(|| {
-        create_bubble_window();
-    });
+    run_lifecycle(lifecycle::Lifecycle::show);
 }
 
-// Hide the favorite bubble overlay with fade-out animation
+/// Hides the favorite bubble with a fade-out, even if it is still being created.
 pub fn hide_favorite_bubble() {
-    if !BUBBLE_ACTIVE.load(Ordering::SeqCst) {
-        return;
-    }
+    run_lifecycle(lifecycle::Lifecycle::hide);
+}
 
+/// Applies one lifecycle transition. The fade flag changes under the
+/// lifecycle lock so the window's timer never sees a stale direction.
+fn run_lifecycle(transition: impl FnOnce(&mut lifecycle::Lifecycle) -> Action) {
+    let action = lifecycle::update(|state| {
+        let action = transition(state);
+        match action {
+            Action::Spawn => {
+                CURRENT_OPACITY.store(0, Ordering::SeqCst);
+                FADE_OUT_STATE.store(false, Ordering::SeqCst);
+            }
+            Action::FadeIn => FADE_OUT_STATE.store(false, Ordering::SeqCst),
+            Action::FadeOut => FADE_OUT_STATE.store(true, Ordering::SeqCst),
+            Action::None | Action::Close => {}
+        }
+        action
+    });
+    match action {
+        Action::Spawn => {
+            std::thread::spawn(create_bubble_window);
+        }
+        Action::FadeIn | Action::FadeOut => start_opacity_animation(),
+        Action::None | Action::Close => {}
+    }
+}
+
+fn start_opacity_animation() {
     let hwnd_val = BUBBLE_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
-        // Start fade-out animation
-        FADE_OUT_STATE.store(true, Ordering::SeqCst);
-        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
         unsafe {
-            // Start opacity timer to handle fade-out
-            let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
+            let _ = SetTimer(
+                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
+                OPACITY_TIMER_ID,
+                16,
+                None,
+            );
         }
     }
 }
@@ -131,7 +146,8 @@ fn create_bubble_window() {
         .unwrap_or_default();
 
         if hwnd.is_invalid() {
-            BUBBLE_ACTIVE.store(false, Ordering::SeqCst);
+            lifecycle::update(lifecycle::Lifecycle::creation_failed);
+            CoUninitialize();
             return;
         }
 
@@ -142,8 +158,9 @@ fn create_bubble_window() {
 
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
-        // Start fade-in animation immediately
+        // Start the fade-in, or the fade-out of a hide that arrived meanwhile.
         let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
+        run_lifecycle(lifecycle::Lifecycle::created);
 
         // Do not pre-create the favorites panel/WebView on startup.
         // The panel now initializes on first open to keep launch cost minimal.
@@ -157,10 +174,11 @@ fn create_bubble_window() {
 
         // Cleanup
         destroy_panel();
-        BUBBLE_ACTIVE.store(false, Ordering::SeqCst);
         BUBBLE_HWND.store(0, Ordering::SeqCst);
         CoUninitialize();
     }
+    // A show that arrived after the close was committed reopens the bubble.
+    run_lifecycle(lifecycle::Lifecycle::closed);
 }
 
 unsafe extern "system" fn bubble_wnd_proc(
@@ -351,10 +369,13 @@ unsafe extern "system" fn bubble_wnd_proc(
                     } else {
                         // Target reached
                         if is_fading_out && current == 0 {
-                            // Fade-out complete, now close the window
-                            let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
-                            FADE_OUT_STATE.store(false, Ordering::SeqCst);
-                            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                            // Close unless a show cancelled the fade meanwhile;
+                            // that show already restarted this timer to fade in.
+                            if lifecycle::update(lifecycle::Lifecycle::faded_out) == Action::Close {
+                                let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                                FADE_OUT_STATE.store(false, Ordering::SeqCst);
+                                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                            }
                         } else if blink_state > 0 {
                             // Transition to next blink state
                             if blink_state >= 4 {
@@ -472,9 +493,9 @@ unsafe extern "system" fn bubble_wnd_proc(
             }
 
             WM_BUBBLE_THEME_UPDATE => {
-                // Theme changed: refresh panel CSS (if open) BEFORE updating bubble visual,
-                // because update_bubble_visual writes LAST_THEME_IS_DARK which the panel
-                // checks to detect theme changes. SendMessageW is synchronous on same thread.
+                // Theme changed: refresh the open panel (its refresh also repaints the
+                // bubble); a hidden panel restyles when it is next shown.
+                // SendMessageW is synchronous on the same thread.
                 if IS_EXPANDED.load(Ordering::SeqCst) {
                     let panel_val = PANEL_HWND.load(Ordering::SeqCst);
                     if panel_val != 0 {

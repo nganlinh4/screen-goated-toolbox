@@ -20,13 +20,14 @@ pub(super) fn document() -> String {
         "selection",
         &crate::overlay::text_selection::html::get_html("Select text..."),
     );
-    let documents = serde_json::json!({
-        "recording": recording,
-        "notification": notification,
-        "selection": selection,
-    })
-    .to_string()
-    .replace("</", "<\\/");
+    let documents = crate::overlay::utils::inline_script_json(
+        &serde_json::json!({
+            "recording": recording,
+            "notification": notification,
+            "selection": selection,
+        })
+        .to_string(),
+    );
 
     format!(
         r#"<!doctype html>
@@ -113,6 +114,7 @@ function applySnapshot(scene) {{
   hide('notification');
   place('notification', scene.notification_rect);
   if (scene.recording) {{
+    invoke('recording', 'setRecordingSessionId', scene.recording.session_id);
     place('recording', scene.recording.rect);
     invoke('recording', 'updateSubtext', scene.recording.subtext);
     invoke('recording', 'updateState', scene.recording.state, scene.recording.rms);
@@ -156,7 +158,7 @@ window.applyStatusCommand = command => {{
     case 'theme': applyTheme(command.is_dark); break;
     case 'recording_prepare':
       invoke('recording', 'updateSubtext', command.scene.subtext);
-      place('recording', command.scene.rect); hide('recording'); invoke('recording', 'resetState'); break;
+      place('recording', command.scene.rect); hide('recording'); invoke('recording', 'resetState', command.scene.session_id); break;
     case 'recording_show':
       place('recording', command.rect); show('recording');
       setTimeout(() => frameWindow('recording').document.body.classList.add('visible'), 50); break;
@@ -221,9 +223,9 @@ window.setStatusRecordingPointer = (target, active) => {{
 }};
 window.__sgtStatusFrameMessage = (frame, message) => {{
   if (frame === 'recording') {{
-    if (message === 'ready') post({{type:'recording_ready'}});
-    else if (message === 'pause_toggle') post({{type:'recording_pause_toggle'}});
-    else if (message === 'cancel' || message === 'close') post({{type:'recording_cancel'}});
+    if (message?.type === 'ready' && typeof message.session_id === 'string') post({{type:'recording_ready',session_id:message.session_id}});
+    else if (message?.type === 'pause_toggle' && typeof message.session_id === 'string') post({{type:'recording_pause_toggle',session_id:message.session_id}});
+    else if (message?.type === 'cancel' && typeof message.session_id === 'string') post({{type:'recording_cancel',session_id:message.session_id}});
   }} else if (frame === 'notification' && message === 'finished') {{
     hide('notification'); post({{type:'notification_finished',through_id:notificationWatermark,through_progress_order:progressWatermark}});
   }} else if (String(message).startsWith('error:')) {{

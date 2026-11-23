@@ -23,7 +23,7 @@ class AndroidFileProviderTest {
     fun `file mutations consume the shared parity invariants`() {
         val invariants = contract.getValue("invariants").jsonObject
 
-        assertEquals(4, contract.getValue("schemaVersion").jsonPrimitive.int)
+        assertEquals(6, contract.getValue("schemaVersion").jsonPrimitive.int)
         assertTrue(invariants.getValue("sameCanonicalPathSerializedWithinProcess").jsonPrimitive.boolean)
         assertTrue(invariants.getValue("createWithoutOverwriteIsAtomic").jsonPrimitive.boolean)
         assertTrue(invariants.getValue("exactReplaceRevalidatesExpectedHashAtCommit").jsonPrimitive.boolean)
@@ -32,9 +32,12 @@ class AndroidFileProviderTest {
         assertTrue(invariants.getValue("ordinaryDelimitedEditPreservesRecordShape").jsonPrimitive.boolean)
         assertTrue(invariants.getValue("ordinaryDelimitedEditPreservesFormulaCells").jsonPrimitive.boolean)
         assertTrue(invariants.getValue("formulaAndOrdinaryDataCannotChangeInOneEdit").jsonPrimitive.boolean)
+        assertEquals(65_536, invariants.getValue("maxTotalReplacementOccurrences").jsonPrimitive.int)
+        assertTrue(invariants.getValue("finalByteLimitIncludesUtf8Bom").jsonPrimitive.boolean)
+        assertTrue(invariants.getValue("unpairedSurrogateNeverCommitted").jsonPrimitive.boolean)
         assertTrue(
             invariants
-                .getValue("unambiguousDelimitedSerializationRepairIsCrossPlatform")
+                .getValue("requestedReplacementGroupsAreAppliedVerbatimOrRejected")
                 .jsonPrimitive
                 .boolean,
         )
@@ -186,10 +189,100 @@ class AndroidFileProviderTest {
     }
 
     @Test
-    fun `ordinary row edit restores exact formula bytes`() {
+    fun `shared exact replacement cases preserve requested bytes or reject`() {
+        val cases = contract.getValue("exactReplacementCases").jsonArray
+        cases.forEachIndexed { index, entry ->
+            val case = entry.jsonObject
+            val original = case.getValue("original").jsonPrimitive.content
+            val extension = case.getValue("path").jsonPrimitive.content.substringAfterLast('.')
+            val destination = temporaryFolder.newFile("exact-$index.$extension").apply {
+                writeText(original)
+            }
+            val replacements = case.getValue("replacements").jsonArray.map { item ->
+                val replacement = item.jsonObject
+                ExactReplacement(
+                    replacement.getValue("old_text").jsonPrimitive.content,
+                    replacement.getValue("new_text").jsonPrimitive.content,
+                    replacement.getValue("expected_count").jsonPrimitive.int,
+                )
+            }
+            val result = replace(destination, *replacements.toTypedArray())
+            val expectedCode = case.getValue("resultCode").jsonPrimitive.content
+            if (expectedCode == "ok") {
+                assertTrue(result is AndroidProviderResult.Success)
+                assertTrue((result as AndroidProviderResult.Success).effectVerified)
+                assertEquals(case.getValue("output").jsonPrimitive.content, destination.readText())
+            } else {
+                val failure = assertFailure(result, expectedCode)
+                assertTrue(failure.data.getValue("original_unchanged").jsonPrimitive.boolean)
+                assertTrue(original.toByteArray().contentEquals(destination.readBytes()))
+            }
+        }
+    }
+
+    @Test
+    fun `shared resource cases reject before writing`() {
+        contract.getValue("resourceCases").jsonArray.forEachIndexed { index, entry ->
+            val case = entry.jsonObject
+            val unit = case.getValue("originalUnit").jsonPrimitive.content
+            val count = case.getValue("repeatCount").jsonPrimitive.int
+            val original = unit.repeat(count)
+            val destination = temporaryFolder.newFile("resource-$index.txt").apply { writeText(original) }
+            val result = replace(
+                destination,
+                ExactReplacement(unit, case.getValue("replacementUnit").jsonPrimitive.content, count),
+            )
+            val failure = assertFailure(result, case.getValue("resultCode").jsonPrimitive.content)
+            assertTrue(failure.data.getValue("original_unchanged").jsonPrimitive.boolean)
+            assertTrue(original.toByteArray().contentEquals(destination.readBytes()))
+        }
+    }
+
+    @Test
+    fun `utf8 sizing accounts for surrogate pairs across replacement boundaries`() {
+        val parts = listOf("a\uD83D", "\uDE00", "é")
+        val expected = parts.joinToString("").toByteArray(Charsets.UTF_8).size.toLong()
+        val exact = BoundedUtf8Counter(expected)
+        parts.forEach { assertTrue(exact.append(it, 0, it.length)) }
+        assertTrue(exact.complete())
+        val tooSmall = BoundedUtf8Counter(expected - 1)
+        val accepted = parts.all { tooSmall.append(it, 0, it.length) } && tooSmall.complete()
+        assertFalse(accepted)
+    }
+
+    @Test
+    fun `unpaired replacement surrogate is rejected without writing`() {
+        val case = contract.getValue("encodingCases").jsonArray.single().jsonObject
+        val replacement = case.getValue("utf16Units").jsonArray
+            .map { it.jsonPrimitive.int.toChar() }
+            .joinToString("")
+        val destination = temporaryFolder.newFile("invalid-unicode.txt").apply { writeText("before") }
+        val failure = assertFailure(
+            replace(destination, ExactReplacement("before", replacement, 1)),
+            case.getValue("androidResultCode").jsonPrimitive.content,
+        )
+        assertTrue(failure.data.getValue("original_unchanged").jsonPrimitive.boolean)
+        assertEquals("before", destination.readText())
+    }
+
+    @Test
+    fun `edited byte limit includes an existing utf8 bom`() {
+        val destination = temporaryFolder.newFile("bounded-bom.txt")
+        val prefix = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val original = prefix + ("x".repeat(8 * 1024 * 1024 - 4) + "z").toByteArray()
+        destination.writeBytes(original)
+        val failure = assertFailure(
+            replace(destination, ExactReplacement("z", "zz", 1)),
+            "ERR_TEXT_FILE_TOO_LARGE",
+        )
+        assertTrue(failure.data.getValue("original_unchanged").jsonPrimitive.boolean)
+        assertTrue(original.contentEquals(destination.readBytes()))
+    }
+
+    @Test
+    fun `single replacement cannot silently alter a formula`() {
         val original = "name,status,total\r\nalpha,Unknown,\"=B2*12\"\r\n"
         val destination = temporaryFolder.newFile("formula.csv").apply { writeText(original) }
-
         val result = replace(
             destination,
             ExactReplacement(
@@ -197,96 +290,35 @@ class AndroidFileProviderTest {
                 "alpha,Ready,\"=99\"",
                 1,
             ),
-        ) as AndroidProviderResult.Success
-
-        assertEquals(
-            "name,status,total\r\nalpha,Ready,\"=B2*12\"\r\n",
-            destination.readText(),
         )
-        assertEquals(1L, result.data.getValue("formula_cells_auto_preserved").jsonPrimitive.long)
-        assertEquals(
-            1,
-            result.data.getValue("formula_replacement_groups_rewritten").jsonPrimitive.int,
-        )
-        val structure = result.data.getValue("structure").jsonObject
-        assertTrue(structure.getValue("record_shape_preserved").jsonPrimitive.boolean)
-        assertTrue(structure.getValue("formulas_preserved").jsonPrimitive.boolean)
+        assertFailure(result, "ERR_TEXT_FILE_FORMULA_MIXED_EDIT")
+        assertEquals(original, destination.readText())
     }
 
     @Test
-    fun `ordinary table work omits a separate formula-only group`() {
-        val destination = temporaryFolder.newFile("formula.tsv").apply {
-            writeText("name\tstatus\ttotal\nalpha\tUnknown\t=B2*12\n")
-        }
-
-        val result = replace(
-            destination,
-            ExactReplacement("Unknown", "Ready", 1),
-            ExactReplacement("=B2*12", "=99", 1),
-        ) as AndroidProviderResult.Success
-
-        assertEquals("name\tstatus\ttotal\nalpha\tReady\t=B2*12\n", destination.readText())
-        assertEquals(2, result.data.getValue("requested_replacement_groups").jsonPrimitive.int)
-        assertEquals(1, result.data.getValue("replacement_groups").jsonPrimitive.int)
-        assertEquals(1, result.data.getValue("formula_only_groups_omitted").jsonPrimitive.int)
-    }
-
-    @Test
-    fun `ordinary row edit repairs split formula quoting`() {
-        val original = "name,status,eligible\r\nalpha,Unknown,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\n"
-        val destination = temporaryFolder.newFile("quoted-formula.csv").apply { writeText(original) }
-
+    fun `ordinary edit preserves an unchanged formula exactly`() {
+        val original = "name,status,total\r\nalpha,Unknown,\"=B2*12\"\r\n"
+        val destination = temporaryFolder.newFile("unchanged-formula.csv").apply { writeText(original) }
         val result = replace(
             destination,
             ExactReplacement(
-                "alpha,Unknown,\"=AND(B2>0,C2=\"\"Yes\"\")\"",
-                "alpha,Ready,=AND(B2>0,C2=\"Yes\")",
+                "alpha,Unknown,\"=B2*12\"",
+                "alpha,Ready,\"=B2*12\"",
                 1,
             ),
         )
-
         assertTrue(result is AndroidProviderResult.Success)
-        assertEquals(
-            "name,status,eligible\r\nalpha,Ready,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\n",
-            destination.readText(),
-        )
+        assertTrue((result as AndroidProviderResult.Success).effectVerified)
+        assertEquals("name,status,total\r\nalpha,Ready,\"=B2*12\"\r\n", destination.readText())
     }
 
     @Test
-    fun `ordinary row edit removes only redundant trailing empty fields`() {
-        val destination = temporaryFolder.newFile("trailing-empty.csv").apply {
-            writeText("Label,Pending\r\n")
-        }
-
-        val result = replace(
-            destination,
-            ExactReplacement("Label,Pending", "Label,Ready,,", 1),
-        ) as AndroidProviderResult.Success
-
-        assertEquals("Label,Ready\r\n", destination.readText())
-        assertEquals(2L, result.data.getValue("trailing_empty_fields_omitted").jsonPrimitive.long)
-    }
-
-    @Test
-    fun `ordinary row edit quotes an unambiguous split trailing value`() {
-        val destination = temporaryFolder.newFile("trailing-value.csv").apply {
-            writeText("Field,Value\r\nRationale,Unknown\r\n")
-        }
-
-        val result = replace(
-            destination,
-            ExactReplacement(
-                "Rationale,Unknown",
-                "Rationale,Supports families, shared vaults, and recovery",
-                1,
-            ),
-        ) as AndroidProviderResult.Success
-
-        assertEquals(
-            "Field,Value\r\nRationale,\"Supports families, shared vaults, and recovery\"\r\n",
-            destination.readText(),
-        )
-        assertEquals(2L, result.data.getValue("trailing_value_fields_repaired").jsonPrimitive.long)
+    fun `ordinary edit retains multiline quoted formula bytes`() {
+        val original = "name,total\r\nalpha,\"=SUM(\r\nA1,B1)\"\r\n"
+        val destination = temporaryFolder.newFile("formula-multiline.csv").apply { writeText(original) }
+        val result = replace(destination, ExactReplacement("alpha", "beta", 1))
+        assertTrue(result is AndroidProviderResult.Success)
+        assertEquals("name,total\r\nbeta,\"=SUM(\r\nA1,B1)\"\r\n", destination.readText())
     }
 
     @Test
@@ -307,7 +339,7 @@ class AndroidFileProviderTest {
     fun `structural preflight returns a cross-platform token without writing`() {
         val original = "name,value\nalpha,1\n"
         val destination = temporaryFolder.newFile("structure.csv").apply { writeText(original) }
-        val provider = AndroidFileProvider { null }
+        val provider = testFileProvider { null }
         val expectedSha256 = destination.readBytes().sha256()
         val replacements = listOf(
             ExactReplacement(
@@ -342,7 +374,7 @@ class AndroidFileProviderTest {
         val destination = temporaryFolder.newFile("validated-structure.csv").apply {
             writeText(original)
         }
-        val provider = AndroidFileProvider { null }
+        val provider = testFileProvider { null }
         val expectedSha256 = destination.readBytes().sha256()
         val replacements = listOf(
             ExactReplacement(
@@ -378,7 +410,7 @@ class AndroidFileProviderTest {
         val destination = temporaryFolder.newFile("stale-structure.csv").apply {
             writeText(original)
         }
-        val provider = AndroidFileProvider { null }
+        val provider = testFileProvider { null }
         val expectedSha256 = destination.readBytes().sha256()
         val replacements = listOf(
             ExactReplacement(
@@ -396,13 +428,13 @@ class AndroidFileProviderTest {
         val token = first.data.getValue("structural_change_token").jsonPrimitive.content
         destination.writeText("external,bytes\nremain,here\n")
 
-        val committed = provider.commitStructuralAfterAuthorization(
-            destination.absolutePath,
+        val committed = provider.prepareTarget(destination.absolutePath).use { target -> provider.commitStructuralAfterAuthorization(
+            target,
             expectedSha256,
             replacements,
             token,
-            targetLease(destination),
-        )
+            testFileOwner(), { true },
+        ) }
 
         assertFailure(committed, "hash_mismatch")
         assertEquals("external,bytes\nremain,here\n", destination.readText())
@@ -414,7 +446,7 @@ class AndroidFileProviderTest {
         val destination = temporaryFolder.newFile("proposal-bound.csv").apply {
             writeText(original)
         }
-        val provider = AndroidFileProvider { null }
+        val provider = testFileProvider { null }
         val expectedSha256 = destination.readBytes().sha256()
         val firstProposal = listOf(
             ExactReplacement(
@@ -438,13 +470,13 @@ class AndroidFileProviderTest {
         ) as AndroidProviderResult.Failure
         val firstToken = first.data.getValue("structural_change_token").jsonPrimitive.content
 
-        val result = provider.commitStructuralAfterAuthorization(
-            destination.absolutePath,
+        val result = provider.prepareTarget(destination.absolutePath).use { target -> provider.commitStructuralAfterAuthorization(
+            target,
             expectedSha256,
             secondProposal,
             firstToken,
-            targetLease(destination),
-        )
+            testFileOwner(), { true },
+        ) }
 
         val rejected = assertFailure(result, "ERR_TEXT_FILE_STRUCTURE_CHANGE")
         assertFalse(
@@ -474,24 +506,12 @@ class AndroidFileProviderTest {
         )
     }
 
-    private fun replace(
-        destination: File,
-        vararg replacements: ExactReplacement,
-    ): AndroidProviderResult = AndroidFileProvider { null }.exactReplace(
-        destination.absolutePath,
-        destination.readBytes().sha256(),
-        replacements.toList(),
-        targetLease(destination),
-    )
-
-    private fun targetLease(file: File): FileMutationTargetLease {
-        val target = file.canonicalFile
-        val existedBefore = target.isFile
-        return FileMutationTargetLease(
-            canonicalPath = target.absolutePath,
-            existedBefore = existedBefore,
-            expectedSha256 = if (existedBefore) target.readBytes().sha256() else null,
-        )
+    private fun replace(destination: File, vararg replacements: ExactReplacement): AndroidProviderResult {
+        val provider = testFileProvider { null }
+        val target = try { provider.prepareTarget(destination.absolutePath) }
+            catch (error: Throwable) { return provider.preparationFailure(error) }
+        return target.use { provider.exactReplace(it, destination.readBytes().sha256(),
+            replacements.toList(), testFileOwner(), { true }) }
     }
 
     private fun assertFailure(

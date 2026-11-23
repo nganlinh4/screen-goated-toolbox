@@ -5,17 +5,23 @@
 
 use serde_json::{Map, Value, json};
 
+/// Gemini `mediaResolution`, shared by Live setup and `generateContent`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MediaResolution {
     Low,
+    /// Only the catalog transport probe measures this tier.
+    #[cfg(all(test, not(feature = "recorder-worker")))]
+    Medium,
     #[cfg(not(feature = "recorder-worker"))]
     High,
 }
 
 impl MediaResolution {
-    fn api_value(self) -> &'static str {
+    pub(crate) fn api_value(self) -> &'static str {
         match self {
             Self::Low => "MEDIA_RESOLUTION_LOW",
+            #[cfg(all(test, not(feature = "recorder-worker")))]
+            Self::Medium => "MEDIA_RESOLUTION_MEDIUM",
             #[cfg(not(feature = "recorder-worker"))]
             Self::High => "MEDIA_RESOLUTION_HIGH",
         }

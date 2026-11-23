@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "samples": {
+    "en": "Hello. This is a voice preview.",
+    "vi": "Xin chào. Đây là giọng nói mẫu.",
+    "ko": "안녕하세요. 음성 미리 듣기입니다.",
+    "ja": "こんにちは。音声のサンプルです。",
+    "zh": "你好。这是语音预览。",
+    "es": "Hola. Esta es una muestra de voz.",
+    "fr": "Bonjour. Voici un aperçu de cette voix.",
+    "hi": "नमस्ते। यह आवाज़ का नमूना है।",
+    "it": "Ciao. Questa è un'anteprima della voce.",
+    "pt": "Olá. Esta é uma amostra de voz."
+  },
+  "fallback": "Hello. This is a voice preview.",
+  "cases": [
+    {"name":"edge_row_overrides_ui_language", "provider":"edge", "language":"ja", "voice":"ja-JP-NanamiNeural", "uiLanguage":"vi", "expectedSampleLanguage":"ja"},
+    {"name":"duplicate_row_uses_clicked_voice", "provider":"edge", "language":"en", "voice":"en-US-GuyNeural", "earlierVoice":"en-US-AriaNeural", "expectedSampleLanguage":"en"},
+    {"name":"unknown_language_uses_shared_fallback", "provider":"edge", "language":"xx", "voice":"xx-ExampleVoice", "expectedSampleLanguage":"fallback"}
+  ]
+}

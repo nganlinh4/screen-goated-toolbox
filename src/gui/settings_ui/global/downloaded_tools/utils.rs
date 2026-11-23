@@ -1,10 +1,10 @@
+use super::keyed_cache::{KeyedCache, OnDrop};
 use crate::gui::theme::AppTheme;
 use eframe::egui::{self, CornerRadius, Frame, Margin};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
 /// Themed Material container used for every downloaded-tools card, replacing the
 /// default `ui.group(...)` so cards match the dialog surface (card fill, hairline
@@ -23,26 +23,43 @@ pub(super) fn tool_card(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::
     tool_card_frame(&theme).show(ui, add_contents);
 }
 
+pub(super) fn render_install_progress(
+    ui: &mut egui::Ui,
+    text: &crate::gui::locale::LocaleText,
+    progress: f32,
+) {
+    if progress < 0.0 {
+        ui.label(text.auxiliary.managed_tools.tool_status_installing);
+    } else {
+        ui.label(format!("{progress:.0}%"));
+    }
+    ui.spinner();
+    // Recheck cached install status even when an operation finishes quickly.
+    ui.ctx().request_repaint_after(PROBE_CACHE_TTL);
+}
+
+pub(super) fn start_install(key: &'static str, install: impl FnOnce() + Send + 'static) {
+    let Some(guard) = crate::install_progress::try_begin(key) else {
+        return;
+    };
+    let result = std::thread::Builder::new()
+        .name("sgt-tool-install".into())
+        .spawn(move || {
+            let _guard = guard;
+            install();
+        });
+    if let Err(error) = result {
+        crate::log_info!("[DownloadedTools] Could not start installation: {error}");
+    }
+}
+
 const SIZE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROBE_CACHE_TTL: Duration = Duration::from_secs(2);
 const VALUE_CACHE_TTL: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy)]
-struct SizeCacheEntry {
-    bytes: u64,
-    updated_at: Option<Instant>,
-    calculating: bool,
-}
-
-static SIZE_CACHE: OnceLock<Mutex<std::collections::HashMap<PathBuf, SizeCacheEntry>>> =
-    OnceLock::new();
-static PROBE_CACHE: OnceLock<Mutex<std::collections::HashMap<&'static str, ProbeCacheEntry>>> =
-    OnceLock::new();
-static U64_CACHE: OnceLock<Mutex<std::collections::HashMap<&'static str, U64CacheEntry>>> =
-    OnceLock::new();
-static SIZE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
-static PROBE_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
-static U64_CACHE_GENERATION: AtomicU64 = AtomicU64::new(0);
+static SIZES: KeyedCache<PathBuf, u64> = KeyedCache::new(SIZE_CACHE_TTL, "sgt-tool-size");
+static PROBES: KeyedCache<&'static str, bool> = KeyedCache::new(PROBE_CACHE_TTL, "sgt-tool-probe");
+static VALUES: KeyedCache<&'static str, u64> = KeyedCache::new(VALUE_CACHE_TTL, "sgt-tool-value");
 static REMOVING: LazyLock<Mutex<std::collections::HashSet<&'static str>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
@@ -59,22 +76,54 @@ pub(super) fn start_removal(
     remove: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     after: impl FnOnce() + Send + 'static,
 ) {
+    let error_name = name.clone();
+    let spawned = spawn_removal(key, move || {
+        let mut result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            show_removal_started(&name);
+            remove()
+        }))
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("component removal stopped unexpectedly")));
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(after)).is_err() {
+            result = Err(anyhow::anyhow!(
+                "component status refresh stopped unexpectedly"
+            ));
+        }
+        show_removal_finished(&name, &result);
+    });
+    if let Err(error) = spawned {
+        show_removal_finished(
+            &error_name,
+            &Err(anyhow::anyhow!(
+                "could not start component removal: {error}"
+            )),
+        );
+    }
+}
+
+/// Runs `job` on a removal thread while rows keyed by `key` show it as
+/// removing. A second request for the same key while one runs is ignored.
+fn spawn_removal(key: &'static str, job: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
     let started = REMOVING
         .lock()
         .map(|mut removing| removing.insert(key))
         .unwrap_or(false);
     if !started {
-        return;
+        return Ok(());
     }
-    std::thread::spawn(move || {
-        show_removal_started(&name);
-        let result = remove();
-        after();
-        show_removal_finished(&name, &result);
-        if let Ok(mut removing) = REMOVING.lock() {
-            removing.remove(key);
-        }
-    });
+    let guard = OnDrop(Some(move || {
+        REMOVING
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(key);
+        request_gui_repaint();
+    }));
+    std::thread::Builder::new()
+        .name("sgt-tool-removal".into())
+        .spawn(move || {
+            let _guard = guard;
+            job();
+        })
+        .map(|_| ())
 }
 
 fn show_removal_started(name: &str) {
@@ -108,33 +157,7 @@ fn show_removal_finished(name: &str, result: &anyhow::Result<()>) {
     crate::overlay::auto_copy_badge::show_detailed_notification(&title, &detail, kind);
 }
 
-#[derive(Clone, Copy)]
-struct ProbeCacheEntry {
-    value: bool,
-    updated_at: Option<Instant>,
-    calculating: bool,
-}
-
-#[derive(Clone, Copy)]
-struct U64CacheEntry {
-    value: u64,
-    updated_at: Option<Instant>,
-    calculating: bool,
-}
-
-fn size_cache() -> &'static Mutex<std::collections::HashMap<PathBuf, SizeCacheEntry>> {
-    SIZE_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
-fn probe_cache() -> &'static Mutex<std::collections::HashMap<&'static str, ProbeCacheEntry>> {
-    PROBE_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
-fn u64_cache() -> &'static Mutex<std::collections::HashMap<&'static str, U64CacheEntry>> {
-    U64_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
-fn request_gui_repaint() {
+pub(super) fn request_gui_repaint() {
     let context = crate::gui::GUI_CONTEXT
         .lock()
         .ok()
@@ -148,210 +171,42 @@ pub(super) fn cached_probe(
     key: &'static str,
     compute: impl FnOnce() -> bool + Send + 'static,
 ) -> bool {
-    let now = Instant::now();
-    let generation = if let Ok(mut cache) = probe_cache().lock() {
-        let entry = cache.entry(key).or_insert(ProbeCacheEntry {
-            value: false,
-            updated_at: None,
-            calculating: false,
-        });
-        let fresh = entry
-            .updated_at
-            .is_some_and(|updated_at| now.duration_since(updated_at) < PROBE_CACHE_TTL);
-        if fresh || entry.calculating {
-            return entry.value;
-        }
-        entry.calculating = true;
-        PROBE_CACHE_GENERATION.load(Ordering::Acquire)
-    } else {
-        PROBE_CACHE_GENERATION.load(Ordering::Acquire)
-    };
-
-    std::thread::spawn(move || {
-        let value = compute();
-        if let Ok(mut cache) = probe_cache().lock() {
-            if PROBE_CACHE_GENERATION.load(Ordering::Acquire) != generation {
-                return;
-            }
-            cache.insert(
-                key,
-                ProbeCacheEntry {
-                    value,
-                    updated_at: Some(Instant::now()),
-                    calculating: false,
-                },
-            );
-        }
-        request_gui_repaint();
-    });
-
-    probe_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(key).map(|entry| entry.value))
-        .unwrap_or(false)
+    PROBES.get(key, compute)
 }
 
-pub(super) fn invalidate_probe_cache(_key: &'static str) {
-    if let Ok(mut cache) = probe_cache().lock() {
-        PROBE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        PROBE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
-    request_gui_repaint();
+pub(super) fn invalidate_probe_cache(key: &'static str) {
+    PROBES.invalidate(&key);
 }
 
 pub(super) fn cached_u64(key: &'static str, compute: impl FnOnce() -> u64 + Send + 'static) -> u64 {
-    let now = Instant::now();
-    let generation = if let Ok(mut cache) = u64_cache().lock() {
-        let entry = cache.entry(key).or_insert(U64CacheEntry {
-            value: 0,
-            updated_at: None,
-            calculating: false,
-        });
-        let fresh = entry
-            .updated_at
-            .is_some_and(|updated_at| now.duration_since(updated_at) < VALUE_CACHE_TTL);
-        if fresh || entry.calculating {
-            return entry.value;
-        }
-        entry.calculating = true;
-        U64_CACHE_GENERATION.load(Ordering::Acquire)
-    } else {
-        U64_CACHE_GENERATION.load(Ordering::Acquire)
-    };
-
-    std::thread::spawn(move || {
-        let value = compute();
-        if let Ok(mut cache) = u64_cache().lock() {
-            if U64_CACHE_GENERATION.load(Ordering::Acquire) != generation {
-                return;
-            }
-            cache.insert(
-                key,
-                U64CacheEntry {
-                    value,
-                    updated_at: Some(Instant::now()),
-                    calculating: false,
-                },
-            );
-        }
-        request_gui_repaint();
-    });
-
-    u64_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(key).map(|entry| entry.value))
-        .unwrap_or(0)
+    VALUES.get(key, compute)
 }
 
-pub(super) fn invalidate_u64_cache(_key: &'static str) {
-    if let Ok(mut cache) = u64_cache().lock() {
-        U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
-    request_gui_repaint();
+pub(super) fn invalidate_u64_cache(key: &'static str) {
+    VALUES.invalidate(&key);
 }
 
 pub(super) fn clear_downloaded_tools_caches() {
-    if let Ok(mut cache) = size_cache().lock() {
-        SIZE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        SIZE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
-    if let Ok(mut cache) = probe_cache().lock() {
-        PROBE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        PROBE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
-    if let Ok(mut cache) = u64_cache().lock() {
-        U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        U64_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
+    super::ai_runtime::invalidate_statuses();
+    super::backgrounds::pack_status::invalidate_backgrounds();
+    super::backgrounds::pack_status::invalidate_pointers();
+    SIZES.clear();
+    PROBES.clear();
+    VALUES.clear();
     request_gui_repaint();
 }
 
 pub(super) fn get_dir_size(path: &Path) -> u64 {
-    cached_size(path, true)
+    cached_dir_size(path)
 }
 
-pub(super) fn get_path_size(path: &Path) -> u64 {
-    match fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => cached_size(path, true),
-        Ok(metadata) => metadata.len(),
-        Err(_) => 0,
-    }
+pub(super) fn invalidate_size_cache(path: &Path) {
+    SIZES.invalidate(&path.to_path_buf());
 }
 
-pub(super) fn invalidate_size_cache(_path: &Path) {
-    if let Ok(mut cache) = size_cache().lock() {
-        SIZE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-        cache.clear();
-    } else {
-        SIZE_CACHE_GENERATION.fetch_add(1, Ordering::AcqRel);
-    }
-    request_gui_repaint();
-}
-
-fn cached_size(path: &Path, recursive: bool) -> u64 {
-    let path = path.to_path_buf();
-    let now = Instant::now();
-    let generation = if let Ok(mut cache) = size_cache().lock() {
-        let entry = cache.entry(path.clone()).or_insert(SizeCacheEntry {
-            bytes: 0,
-            updated_at: None,
-            calculating: false,
-        });
-        let fresh = entry
-            .updated_at
-            .is_some_and(|updated_at| now.duration_since(updated_at) < SIZE_CACHE_TTL);
-        if fresh || entry.calculating {
-            return entry.bytes;
-        }
-        entry.calculating = true;
-        SIZE_CACHE_GENERATION.load(Ordering::Acquire)
-    } else {
-        SIZE_CACHE_GENERATION.load(Ordering::Acquire)
-    };
-
-    let compute_path = path.clone();
-    std::thread::spawn(move || {
-        let bytes = if recursive {
-            compute_dir_size(&compute_path)
-        } else {
-            fs::metadata(&compute_path)
-                .map(|metadata| metadata.len())
-                .unwrap_or(0)
-        };
-        if let Ok(mut cache) = size_cache().lock() {
-            if SIZE_CACHE_GENERATION.load(Ordering::Acquire) != generation {
-                return;
-            }
-            cache.insert(
-                compute_path,
-                SizeCacheEntry {
-                    bytes,
-                    updated_at: Some(Instant::now()),
-                    calculating: false,
-                },
-            );
-        }
-        request_gui_repaint();
-    });
-
-    size_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&path).map(|entry| entry.bytes))
-        .unwrap_or(0)
+fn cached_dir_size(path: &Path) -> u64 {
+    let compute_path = path.to_path_buf();
+    SIZES.get(path.to_path_buf(), move || compute_dir_size(&compute_path))
 }
 
 fn compute_dir_size(path: &Path) -> u64 {
@@ -376,15 +231,29 @@ pub(super) fn format_size(bytes: u64) -> String {
 }
 
 #[cfg(test)]
+pub(super) static CACHE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
     use std::sync::mpsc;
+    use std::time::Instant;
+
+    fn wait_until_settled(key: &'static str) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while PROBES.is_calculating(&key) {
+            assert!(Instant::now() < deadline, "probe reservation stayed busy");
+            std::thread::yield_now();
+        }
+    }
 
     #[test]
     fn completed_background_probe_wakes_ui_with_new_value() {
+        let _lock = CACHE_TEST_LOCK.lock().unwrap();
         const KEY: &str = "downloaded-tools:test-background-probe-repaint";
 
-        invalidate_probe_cache(KEY);
+        PROBES.forget(&KEY);
         let context = egui::Context::default();
         let (sender, receiver) = mpsc::channel();
         context.set_request_repaint_callback(move |_| {
@@ -397,10 +266,85 @@ mod tests {
         let updated = cached_probe(KEY, || false);
 
         *crate::gui::GUI_CONTEXT.lock().unwrap() = None;
-        invalidate_probe_cache(KEY);
+        PROBES.forget(&KEY);
 
         assert!(!initial);
         assert!(repainted);
         assert!(updated);
+    }
+
+    #[test]
+    fn panicking_probe_releases_its_reservation() {
+        let _lock = CACHE_TEST_LOCK.lock().unwrap();
+        const KEY: &str = "downloaded-tools:test-panicking-probe";
+        PROBES.forget(&KEY);
+        let (sender, receiver) = mpsc::channel();
+        cached_probe(KEY, move || {
+            sender.send(()).unwrap();
+            panic!("injected probe panic");
+        });
+        receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until_settled(KEY);
+        PROBES.forget(&KEY);
+    }
+
+    #[test]
+    fn invalidating_one_tool_keeps_every_card_on_its_last_value() {
+        let _lock = CACHE_TEST_LOCK.lock().unwrap();
+        const REMOVED: &str = "downloaded-tools:test-invalidated-tool";
+        const OTHER: &str = "downloaded-tools:test-untouched-tool";
+        PROBES.forget(&REMOVED);
+        PROBES.forget(&OTHER);
+        cached_probe(REMOVED, || true);
+        cached_probe(OTHER, || true);
+        wait_until_settled(REMOVED);
+        wait_until_settled(OTHER);
+
+        invalidate_probe_cache(REMOVED);
+        let (release, gate) = mpsc::channel::<()>();
+        let while_recomputing = cached_probe(REMOVED, move || {
+            let _ = gate.recv_timeout(Duration::from_secs(2));
+            false
+        });
+        let other = cached_probe(OTHER, || false);
+        release.send(()).unwrap();
+        wait_until_settled(REMOVED);
+        let recomputed = cached_probe(REMOVED, || true);
+        PROBES.forget(&REMOVED);
+        PROBES.forget(&OTHER);
+
+        assert!(while_recomputing, "the card must keep its last value");
+        assert!(other, "another tool's card must not be reset");
+        assert!(
+            !recomputed,
+            "the invalidated key must pick up the new value"
+        );
+    }
+
+    #[test]
+    fn reservation_guard_runs_during_unwind() {
+        let released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let signal = released.clone();
+        let result = std::panic::catch_unwind(move || {
+            let _guard = OnDrop(Some(move || signal.store(true, Ordering::Release)));
+            panic!("injected worker failure");
+        });
+        assert!(result.is_err());
+        assert!(released.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn committed_guard_cannot_release_a_later_reservation() {
+        let busy = std::sync::Arc::new(Mutex::new(true));
+        let owned = busy.clone();
+        let mut guard = OnDrop(Some(move || *owned.lock().unwrap() = false));
+        {
+            let mut state = busy.lock().unwrap();
+            *state = false;
+            guard.0.take();
+        }
+        *busy.lock().unwrap() = true;
+        drop(guard);
+        assert!(*busy.lock().unwrap());
     }
 }

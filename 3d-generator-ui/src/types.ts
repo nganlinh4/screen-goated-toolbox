@@ -170,12 +170,11 @@ export type AppState = {
   rotate: boolean;
   grid: boolean;
   wire: boolean;
-  historyRefreshing: boolean;
   referencePreviewItemId: string;
   referencePreviewToken: number;
   generationCapabilities: {
     ready: boolean;
-    optionalInstruction: Record<GenerationMode, boolean>;
+    optionalInstruction: Partial<Record<GenerationMode, boolean>>;
   };
 };
 
@@ -194,6 +193,7 @@ export type AppNodes = {
   polycountRange: HTMLInputElement;
   polycountValue: HTMLOutputElement;
   modeButtons: HTMLButtonElement[];
+  savedMode: HTMLElement;
   initialTopology: HTMLSelectElement;
   initialTopologySection: HTMLElement;
   autoSegmentSection: HTMLElement;

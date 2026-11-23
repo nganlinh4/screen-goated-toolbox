@@ -15,6 +15,7 @@ import android.media.session.PlaybackState
 import android.os.IBinder
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.service.ForegroundNotificationIds
 import dev.screengoated.toolbox.mobile.service.tryStartForegroundService
 import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 
@@ -211,7 +212,7 @@ class DjPlaybackService : Service() {
 
     companion object {
         const val CHANNEL_ID = "sgt_dj_playback"
-        const val NOTIFICATION_ID = 1002
+        const val NOTIFICATION_ID = ForegroundNotificationIds.DJ_PLAYBACK
 
         private const val ACTION_UPDATE = "dev.screengoated.toolbox.dj.UPDATE"
         private const val ACTION_PLAY = "dev.screengoated.toolbox.dj.PLAY"

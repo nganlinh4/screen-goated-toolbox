@@ -11,10 +11,7 @@ import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
 import dev.screengoated.toolbox.mobile.BuildConfig
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /**
  * Update source for the `play` flavor: drives the Google Play In-App Updates flow
@@ -32,22 +29,18 @@ class PlayInAppUpdateManager(
 ) : AppUpdateController {
     private val appUpdateManager = AppUpdateManagerFactory.create(context.applicationContext)
     private val currentVersion = canonicalAppVersion(currentVersionName)
-    private var autoCheckStarted = false
-    private var cachedInfo: AppUpdateInfo? = null
-
-    private val mutableState = MutableStateFlow(AppUpdateUiState(currentVersion = currentVersion))
-    override val state: StateFlow<AppUpdateUiState> = mutableState.asStateFlow()
+    private val owner=AppUpdateStateOwner<AppUpdateInfo>(currentVersion)
+    override val state: StateFlow<AppUpdateUiState> = owner.state
 
     private val installListener = InstallStateUpdatedListener { installState ->
         when (installState.installStatus()) {
-            InstallStatus.DOWNLOADING ->
-                mutableState.update { it.copy(status = AppUpdateStatus.DOWNLOADING, errorMessage = null) }
+            InstallStatus.PENDING, InstallStatus.DOWNLOADING ->
+                owner.installState(AppUpdateStatus.DOWNLOADING)
             InstallStatus.DOWNLOADED ->
-                mutableState.update { it.copy(status = AppUpdateStatus.DOWNLOADED, errorMessage = null) }
-            InstallStatus.FAILED ->
-                mutableState.update {
-                    it.copy(status = AppUpdateStatus.ERROR, errorMessage = "Play update failed")
-                }
+                owner.installState(AppUpdateStatus.DOWNLOADED)
+            InstallStatus.INSTALLING -> owner.installState(AppUpdateStatus.INSTALLING)
+            InstallStatus.FAILED, InstallStatus.CANCELED ->
+                owner.installState(AppUpdateStatus.ERROR,"Play update failed")
             else -> Unit
         }
     }
@@ -59,81 +52,87 @@ class PlayInAppUpdateManager(
     }
 
     override fun autoCheckForUpdates() {
-        if (autoCheckStarted) {
-            return
-        }
-        autoCheckStarted = true
-        checkForUpdates()
+        owner.beginAutoCheck()?.let(::runCheck)
     }
 
     override fun checkForUpdates() {
-        if (mutableState.value.status == AppUpdateStatus.CHECKING) {
-            return
+        owner.beginCheck()?.let(::runCheck)
+    }
+
+    override fun consumeNotification(notice: AppUpdateNotice?): String? = owner.consumeNotification(notice)
+
+    private fun runCheck(check: AppUpdateCheck) {
+        try {
+            appUpdateManager.appUpdateInfo
+                .addOnSuccessListener { info ->
+                    val projection=runCatching {
+                        playUpdateProjection(info.installStatus(),info.updateAvailability(),
+                            { info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE) },{ info.availableVersionCode() },currentVersion)
+                    }.getOrElse { AppUpdateProjection(AppUpdateStatus.ERROR,errorMessage="Play update check failed") }
+                    owner.finishCheck(check,projection,info)
+                }
+                .addOnFailureListener { error ->
+                    owner.finishCheck(check,AppUpdateProjection(AppUpdateStatus.ERROR,
+                        errorMessage=error.message ?: "Play update check failed"))
+                }
+        } catch (_: Exception) {
+            owner.finishCheck(check,AppUpdateProjection(AppUpdateStatus.ERROR,errorMessage="Play update check failed"))
         }
-        mutableState.update { it.copy(status = AppUpdateStatus.CHECKING, errorMessage = null) }
-        appUpdateManager.appUpdateInfo
-            .addOnSuccessListener { info ->
-                cachedInfo = info
-                when {
-                    info.installStatus() == InstallStatus.DOWNLOADED -> {
-                        mutableState.update {
-                            it.copy(status = AppUpdateStatus.DOWNLOADED, errorMessage = null)
-                        }
-                    }
-
-                    info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                        info.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE) -> {
-                        mutableState.update {
-                            it.copy(
-                                status = AppUpdateStatus.UPDATE_AVAILABLE,
-                                latestVersion = info.availableVersionCode().toString(),
-                                releaseNotes = "",
-                                errorMessage = null,
-                            )
-                        }
-                    }
-
-                    info.updateAvailability() ==
-                        UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS -> {
-                        mutableState.update { it.copy(status = AppUpdateStatus.DOWNLOADING) }
-                    }
-
-                    else -> {
-                        mutableState.update {
-                            it.copy(
-                                status = AppUpdateStatus.UP_TO_DATE,
-                                latestVersion = currentVersion,
-                                errorMessage = null,
-                            )
-                        }
-                    }
-                }
-            }
-            .addOnFailureListener { error ->
-                mutableState.update {
-                    it.copy(
-                        status = AppUpdateStatus.ERROR,
-                        errorMessage = error.message ?: "Play update check failed",
-                    )
-                }
-            }
     }
 
     /** Launch Play's flexible-update flow for the cached available update. */
     override fun startUpdate(launcher: ActivityResultLauncher<IntentSenderRequest>): Boolean {
-        val info = cachedInfo ?: return false
-        return runCatching {
+        val launch = owner.claimAction() ?: return false
+        val accepted = tryStartPlayUpdate {
             appUpdateManager.startUpdateFlowForResult(
-                info,
+                launch.value,
                 launcher,
                 AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
             )
-        }.isSuccess
+        }
+        owner.finishLaunch(launch,accepted,"Play update failed")
+        return accepted
     }
 
     /** Apply a downloaded flexible update (restarts the app). */
     override fun completeUpdate(): Boolean {
-        appUpdateManager.completeUpdate()
-        return true
+        val completion=owner.beginCompletion() ?: return false
+        return try {
+            appUpdateManager.completeUpdate()
+                .addOnSuccessListener { owner.finishCompletion(completion,null) }
+                .addOnFailureListener { owner.finishCompletion(completion,"Play update failed") }
+            true
+        } catch (_: Exception) {
+            owner.finishCompletion(completion,"Play update failed")
+            false
+        }
     }
 }
+
+internal fun playUpdateProjection(
+    installStatus: Int,
+    availability: Int,
+    flexibleAllowed: () -> Boolean,
+    availableVersion: () -> Int,
+    currentVersion: String,
+): AppUpdateProjection = when {
+    installStatus==InstallStatus.DOWNLOADED -> AppUpdateProjection(AppUpdateStatus.DOWNLOADED)
+    installStatus==InstallStatus.INSTALLING -> AppUpdateProjection(AppUpdateStatus.INSTALLING)
+    installStatus in setOf(InstallStatus.PENDING,InstallStatus.DOWNLOADING) -> AppUpdateProjection(AppUpdateStatus.DOWNLOADING)
+    availability==UpdateAvailability.UPDATE_AVAILABLE -> {
+        if (!flexibleAllowed()) unavailablePlayUpdate() else {
+            val version=availableVersion()
+            if (version>0) AppUpdateProjection(AppUpdateStatus.UPDATE_AVAILABLE,latestVersion=playVersionName(version))
+            else unavailablePlayUpdate()
+        }
+    }
+    availability==UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS -> AppUpdateProjection(AppUpdateStatus.DOWNLOADING)
+    availability==UpdateAvailability.UPDATE_NOT_AVAILABLE -> AppUpdateProjection(AppUpdateStatus.UP_TO_DATE,latestVersion=currentVersion)
+    else -> unavailablePlayUpdate()
+}
+
+/** Inverse of build.gradle.kts semverToVersionCode: 50700 -> "5.7.0", 41001 -> "4.10.1". */
+internal fun playVersionName(versionCode: Int): String =
+    "${versionCode / 10000}.${versionCode / 100 % 100}.${versionCode % 100}"
+
+private fun unavailablePlayUpdate()=AppUpdateProjection(AppUpdateStatus.ERROR,errorMessage="Play update is unavailable")

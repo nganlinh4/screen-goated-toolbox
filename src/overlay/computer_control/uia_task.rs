@@ -14,7 +14,6 @@ use crate::api::gemini_live::transport::{
 use super::executor;
 use super::grid::Grid;
 use super::human_input::{self, HumanProfile};
-use super::protocol::{ServerEvent, parse_server_message};
 use super::session::{self, Sock, View, connect_ws, send};
 use super::uia::{self, UiElement};
 
@@ -34,9 +33,12 @@ mod postcondition;
 mod prompt;
 mod receipts;
 mod render;
+mod request_authorization;
 mod resource_authorization;
+mod resource_boundary;
 mod setup_guard;
 mod snapshot;
+mod state_signature;
 mod structural_authorization;
 mod structural_edit;
 mod tab_ownership;
@@ -48,25 +50,39 @@ use anchors::*;
 pub(in crate::overlay::computer_control) use frame_identity::FrameSource;
 use perception::*;
 use postcondition::*;
+pub(crate) use prompt::build_normal_setup;
+#[cfg(test)]
 pub(crate) use prompt::build_setup;
 use render::*;
 pub(super) use snapshot::{SnapshotFrame, snapshot};
 use vision::*;
 use vision_verify::*;
 
-/// Reconnect the Live session, resuming the prior conversation by `resume` handle.
+/// Reconnect the Live session using bounded prior-conversation context.
 pub(super) fn reconnect(
     key: &str,
-    resume: Option<&str>,
-    voice: bool,
-    search: bool,
     reconnect_context: Option<&str>,
+    stop: &AtomicBool,
+    attempt_stop: &AtomicBool,
+    deadline: Instant,
 ) -> Result<Sock> {
-    let mut socket = connect_ws(key).context("reconnect")?;
-    let setup = prompt::build_setup_with_context(resume, voice, search, reconnect_context)?;
+    session::check_connection_attempt(stop, Some(attempt_stop), Some(deadline))?;
+    let mut socket = connect_ws(key, stop, Some(attempt_stop), deadline).context("reconnect")?;
+    session::check_connection_attempt(stop, Some(attempt_stop), Some(deadline))?;
+    socket
+        .get_mut()
+        .get_mut()
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    let setup = prompt::build_normal_setup(reconnect_context)?;
     super::telemetry::record_model_setup(&setup, "reconnect");
-    send(&mut socket, setup)?;
-    wait_for_setup(&mut socket)?;
+    super::runtime::control::reconnect_attempt_effect(
+        stop,
+        Some(attempt_stop),
+        Some(deadline),
+        || send(&mut socket, setup),
+    )?;
+    wait_for_setup(&mut socket, stop, attempt_stop, deadline)?;
+    session::check_connection_attempt(stop, Some(attempt_stop), Some(deadline))?;
     set_socket_nonblocking(&mut socket)?;
     Ok(socket)
 }
@@ -116,6 +132,7 @@ pub(super) struct Grounded {
 
 struct SemanticSurfaceState {
     elements: String,
+    has_elements: bool,
     title: String,
     url: String,
     identity: super::controller::world::SurfaceIdentity,

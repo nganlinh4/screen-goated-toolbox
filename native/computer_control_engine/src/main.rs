@@ -1,5 +1,4 @@
 mod mcp;
-mod provider_frame;
 mod setup;
 mod stdio;
 
@@ -35,9 +34,36 @@ fn dispatch(command: Command) -> Result<Output> {
         Command::BuildSetup(request) => Output::Setup(setup::build(request)?),
         Command::NormalizeMcpCatalog(request) => Output::McpCatalog(mcp::normalize(request)?),
         Command::ParseProviderFrame { frame } => {
-            let events: Vec<ProviderEvent> = provider_frame::parse(&frame);
+            let events: Vec<ProviderEvent> =
+                sgt_computer_control_engine::parse_provider_frame(&frame);
             Output::ProviderEvents { events }
         }
         Command::Shutdown => Output::Shutdown,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The host owns compatibility by pinning the engine version it receives;
+    // `host_version` is informational and must never gate the handshake.
+    #[test]
+    fn handshake_reports_engine_identity_for_any_host_version() {
+        for host_version in ["1.0.0", "0.0.0", "99.1.2-dev", ""] {
+            let output = dispatch(Command::Handshake {
+                host_version: host_version.to_string(),
+            })
+            .unwrap();
+            let Output::Handshake {
+                engine_version,
+                architecture,
+            } = output
+            else {
+                panic!("handshake must answer with the engine identity");
+            };
+            assert_eq!(engine_version, env!("CARGO_PKG_VERSION"));
+            assert_eq!(architecture, std::env::consts::ARCH);
+        }
+    }
 }

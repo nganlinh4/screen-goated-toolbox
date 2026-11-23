@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -19,6 +19,12 @@ pub(crate) mod verification;
 pub(crate) use capability_probe::supports_optional_3d_instruction;
 pub(crate) use download::download_runtime;
 pub(crate) use lifecycle::{shutdown, stop_for_component_removal};
+
+pub(crate) fn configured_command(path: impl AsRef<std::ffi::OsStr>) -> std::io::Result<Command> {
+    let mut command = Command::new(path);
+    crate::paths::configure_isolated_child_environment(&mut command)?;
+    Ok(command)
+}
 
 struct VerifiedInstalledRuntime {
     runtime: crate::component_registry::creation::RuntimeUse,
@@ -67,10 +73,6 @@ fn supported_readiness_tool(tool: &str) -> bool {
         "svg" => {
             crate::creation_feature_availability::image_to_svg_release_enabled()
                 && crate::component_registry::creation::supports("image_to_svg")
-        }
-        "image" => {
-            crate::creation_feature_availability::image_creator_release_enabled()
-                && crate::component_registry::creation::supports("image_creator")
         }
         _ => false,
     }
@@ -121,7 +123,9 @@ fn query_readiness(tool: &str) -> String {
     let Some(path) = shared_runtime_path() else {
         return "unavailable".to_string();
     };
-    let mut command = Command::new(path);
+    let Ok(mut command) = configured_command(path) else {
+        return "unavailable".to_string();
+    };
     hide_command_window(&mut command);
     let request = json!({ "id": "readiness", "cmd": "readiness", "args": { "tool": tool } });
     let input = format!("{request}\n");
@@ -136,26 +140,30 @@ fn query_readiness(tool: &str) -> String {
     .unwrap_or_else(|| "unavailable".to_string())
 }
 
-const BASE_READINESS_CAPACITY: usize = 3;
-const MAX_READINESS_CAPACITY: usize = 3;
+/// Warm runtime slots kept per Creation tool, whatever the queue depth.
+const READINESS_CAPACITY: usize = 3;
 
 struct ReadinessTask {
     stop: Arc<AtomicBool>,
-    desired: AtomicUsize,
+    /// Set by a later request while the maintainer runs, so it runs once more.
+    rerun: AtomicBool,
     install_if_missing: AtomicBool,
 }
 
 static READINESS_IN_FLIGHT: LazyLock<Mutex<std::collections::HashMap<String, Arc<ReadinessTask>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-static RUNTIME_PROCESSES: LazyLock<Mutex<std::collections::HashSet<u32>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+static RUNTIME_PROCESSES: LazyLock<
+    Mutex<std::collections::HashMap<u32, crate::overlay::creation_process::Termination>>,
+> = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static RUNTIME_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn runtime_shutting_down() -> bool {
     RUNTIME_SHUTTING_DOWN.load(Ordering::Acquire)
 }
 
-pub(super) fn register_runtime_process(pid: u32) -> bool {
+pub(super) fn register_runtime_process(
+    child: &crate::overlay::creation_process::CreationProcess,
+) -> bool {
     if runtime_shutting_down() {
         return false;
     }
@@ -165,7 +173,7 @@ pub(super) fn register_runtime_process(pid: u32) -> bool {
     if runtime_shutting_down() {
         return false;
     }
-    processes.insert(pid);
+    processes.insert(child.id(), child.termination());
     true
 }
 
@@ -202,17 +210,15 @@ fn remove_readiness_if_current(
     }
 }
 
-fn desired_readiness_capacity(active_demand: usize) -> usize {
-    active_demand.clamp(BASE_READINESS_CAPACITY, MAX_READINESS_CAPACITY)
-}
-
 fn send_live_capacity_request(tool: String, desired: usize) {
     std::thread::spawn(move || {
         let Some(path) = shared_runtime_path() else {
             return;
         };
         let desired = desired.to_string();
-        let mut command = Command::new(path);
+        let Ok(mut command) = configured_command(path) else {
+            return;
+        };
         command.args([
             "--request-readiness-capacity",
             "--tool",
@@ -224,22 +230,18 @@ fn send_live_capacity_request(tool: String, desired: usize) {
     });
 }
 
-pub(crate) fn maintain_readiness_for_demand(
-    tool: &str,
-    active_demand: usize,
-    install_if_missing: bool,
-) {
+pub(crate) fn maintain_readiness(tool: &str, install_if_missing: bool) {
     if !supported_readiness_tool(tool) {
         return;
     }
-    let desired = desired_readiness_capacity(active_demand);
+    let desired = READINESS_CAPACITY;
     let task;
     {
         let mut in_flight = READINESS_IN_FLIGHT
             .lock()
             .unwrap_or_else(|value| value.into_inner());
         if let Some(current) = in_flight.get(tool) {
-            current.desired.fetch_max(desired, Ordering::AcqRel);
+            current.rerun.store(true, Ordering::Release);
             if install_if_missing {
                 current.install_if_missing.store(true, Ordering::Release);
             }
@@ -248,7 +250,7 @@ pub(crate) fn maintain_readiness_for_demand(
         }
         task = Arc::new(ReadinessTask {
             stop: Arc::new(AtomicBool::new(false)),
-            desired: AtomicUsize::new(desired),
+            rerun: AtomicBool::new(false),
             install_if_missing: AtomicBool::new(install_if_missing),
         });
         in_flight.insert(tool.to_string(), task.clone());
@@ -256,7 +258,7 @@ pub(crate) fn maintain_readiness_for_demand(
     let tool = tool.to_string();
     std::thread::spawn(move || {
         loop {
-            let desired = task.desired.swap(0, Ordering::AcqRel);
+            task.rerun.store(false, Ordering::Release);
             if shared_runtime_path().is_none()
                 && task.install_if_missing.load(Ordering::Acquire)
                 && let Err(error) = download_runtime(task.stop.clone(), true)
@@ -269,9 +271,11 @@ pub(crate) fn maintain_readiness_for_demand(
             let Some(path) = shared_runtime_path() else {
                 break;
             };
-            let desired = desired.max(BASE_READINESS_CAPACITY).to_string();
+            let desired = desired.to_string();
             let parent_pid = std::process::id().to_string();
-            let mut command = Command::new(path);
+            let Ok(mut command) = configured_command(path) else {
+                break;
+            };
             command.args([
                 "--maintain-readiness",
                 "--tool",
@@ -290,7 +294,7 @@ pub(crate) fn maintain_readiness_for_demand(
                 64 * 1024,
                 || task.stop.load(Ordering::Acquire),
             );
-            if task.desired.load(Ordering::Acquire) == 0 {
+            if !task.rerun.load(Ordering::Acquire) {
                 if tool == "3d" {
                     verification::refresh();
                 }
@@ -305,10 +309,6 @@ pub(crate) fn maintain_readiness_for_demand(
             &task,
         );
     });
-}
-
-pub(crate) fn maintain_readiness(tool: &str, install_if_missing: bool) {
-    maintain_readiness_for_demand(tool, 0, install_if_missing);
 }
 
 #[cfg(windows)]

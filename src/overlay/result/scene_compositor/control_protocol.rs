@@ -22,6 +22,8 @@ pub struct SceneControls {
     pub tts_speaking: bool,
     pub is_browsing: bool,
     pub is_editing: bool,
+    #[serde(default)]
+    pub edit_session: Option<String>,
     pub input_text: String,
     pub opacity_percent: u8,
     /// API model name that produced this result, shown beside the controls.
@@ -50,6 +52,7 @@ impl Default for SceneControls {
             tts_speaking: false,
             is_browsing: false,
             is_editing: false,
+            edit_session: None,
             input_text: String::new(),
             opacity_percent: 100,
             model_label: String::new(),

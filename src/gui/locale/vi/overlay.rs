@@ -2,6 +2,7 @@ use crate::gui::locale::OverlayLocaleText;
 
 pub(super) fn get() -> OverlayLocaleText {
     OverlayLocaleText {
+        audio_preview_unavailable: "Không thể xem trước bản ghi âm này. Quá trình xử lý vẫn sử dụng toàn bộ âm thanh.",
         overlay_copy_tooltip: "Sao chép",
         overlay_copy_image_tooltip: "Sao chép ảnh đã dịch",
         overlay_copy_image_failed: "Không thể sao chép ảnh đã dịch. Vui lòng thử lại.",
@@ -10,6 +11,10 @@ pub(super) fn get() -> OverlayLocaleText {
         overlay_edit_tooltip: "Chỉnh sửa / Viết lại",
         overlay_refine_placeholder: "Chỉnh sửa kết quả...",
         overlay_download_tooltip: "Tải về HTML",
+        overlay_download_busy: "Hộp thoại lưu đã mở. Hãy hoàn tất trước khi lưu kết quả khác.",
+        overlay_download_failed: "Không thể lưu tệp HTML. Vui lòng thử lại.",
+        overlay_download_finish_before_exit: "Hoàn tất hoặc hủy lưu HTML trước khi thoát.",
+        overlay_download_exit_in_progress: "Không thể bắt đầu lưu HTML khi ứng dụng đang đóng.",
         overlay_speaker_tooltip: "Đọc to (TTS)",
         overlay_result_handle_tooltip: "Chổi: Trái - Đóng | Phải - Đóng nhóm | Giữa - Đóng hết | Kéo - Dời | Kéo phải - Dời nhóm | Kéo giữa - Dời hết",
         overlay_back_tooltip: "Quay lại",
@@ -26,5 +31,19 @@ pub(super) fn get() -> OverlayLocaleText {
         history_open_media_folder_tooltip: "Mở thư mục media",
         history_delete_tooltip: "Xóa",
         history_copy_text_tooltip: "Sao chép văn bản",
+        chain_error_generic: "Lỗi: {error}",
+        chain_error_http_400: "Lỗi 400: Yêu cầu không hợp lệ đến {target}. Vui lòng kiểm tra lại cài đặt.",
+        chain_error_http_401: "Lỗi 401: API key của {provider} không hợp lệ hoặc đã hết hạn.",
+        chain_error_http_402: "Lỗi 402: Tài khoản {target} đã hết hạn mức thanh toán. Vui lòng kiểm tra mục thanh toán của nhà cung cấp.",
+        chain_error_http_403: "Lỗi 403: Không có quyền truy cập {provider}. Vui lòng kiểm tra API key.",
+        chain_error_http_404: "Lỗi 404: Không tìm thấy mô hình {model} trên {provider}.",
+        chain_error_http_429: "Lỗi 429: Đã vượt quá hạn mức của mô hình {target} (Rate Limit). Vui lòng chờ một lát rồi thử lại.",
+        chain_error_http_500: "Lỗi 500: Máy chủ {provider} gặp lỗi nội bộ. Vui lòng thử lại sau.",
+        chain_error_http_502: "Lỗi 502: Bad Gateway - {provider} đang gặp sự cố. Vui lòng thử lại sau.",
+        chain_error_http_503: "Lỗi 503: Dịch vụ {provider} đang quá tải hoặc bảo trì. Vui lòng thử lại sau.",
+        chain_error_http_504: "Lỗi 504: Hết thời gian chờ phản hồi từ {target}. Vui lòng thử lại.",
+        chain_error_http_other: "Lỗi {code}: Có lỗi xảy ra với {target} (HTTP {code}).",
+        chain_error_unnamed_model: "này",
+        chain_retrying: "(Đang thử lại {model}...)",
     }
 }

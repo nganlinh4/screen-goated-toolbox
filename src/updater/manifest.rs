@@ -34,11 +34,21 @@ struct Installer {
 }
 
 pub(super) fn fetch() -> Result<Option<UpdateCandidate>> {
-    let Some(payload) = fetch_optional(MANIFEST_URL, MAX_MANIFEST_BYTES)? else {
+    fetch_with(MANIFEST_URL, SIGNATURE_URL, || {
+        crate::crypto::decode_hex(PUBLIC_KEY_HEX.trim(), "app update manifest")
+    })
+}
+
+fn fetch_with(
+    manifest_url: &str,
+    signature_url: &str,
+    public_key: impl FnOnce() -> Result<Vec<u8>>,
+) -> Result<Option<UpdateCandidate>> {
+    let Some(payload) = fetch_optional(manifest_url, MAX_MANIFEST_BYTES)? else {
         return Ok(None);
     };
-    let signature = fetch_required(SIGNATURE_URL, 64)?;
-    let public_key = crate::crypto::decode_hex(PUBLIC_KEY_HEX.trim(), "app update manifest")?;
+    let signature = fetch_required(signature_url, 64)?;
+    let public_key = public_key()?;
     crate::crypto::verify_p256_sha256(&public_key, &payload, &signature, "app update manifest")?;
     parse(&payload).map(Some)
 }
@@ -126,6 +136,14 @@ fn read_bounded(response: ureq::http::Response<ureq::Body>, limit: u64) -> Resul
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+#[path = "authority_tests.rs"]
+mod authority_tests;
+
+#[cfg(test)]
+#[path = "manifest_parity_tests.rs"]
+mod parity_tests;
 
 #[cfg(test)]
 mod tests {

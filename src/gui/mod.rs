@@ -6,6 +6,7 @@ pub mod model_performance;
 pub mod resize_subclass;
 pub mod settings_ui;
 pub mod splash;
+pub(crate) mod startup;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod theme;

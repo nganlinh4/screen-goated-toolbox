@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 use serde::Deserialize;
 
+#[path = "../../build_support/component_identifier.rs"]
+mod component_identifier;
+
 const EMBEDDED_CATALOG: &str = include_str!("../../component-catalog/catalog-v1.json");
 const MAX_COMPONENTS: usize = 256;
 
@@ -77,6 +80,13 @@ impl ComponentCatalog {
             }
         }
         for component in &self.components {
+            // Model weights are leaf data: the user can always remove them and
+            // they never pin a runtime (the runtime depends on nothing here).
+            if matches!(component.kind, ComponentKind::Model)
+                && (!component.removable || !component.dependencies.is_empty())
+            {
+                bail!("model component must be removable and have no dependencies");
+            }
             let mut dependencies = HashSet::new();
             for dependency in &component.dependencies {
                 validate_identifier(dependency)?;
@@ -101,10 +111,9 @@ impl ComponentCatalog {
         if id.starts_with("test-") {
             return true;
         }
-        self.components.iter().any(|component| {
-            let _ = &component.kind;
-            component.id == id && component.removable
-        })
+        self.components
+            .iter()
+            .any(|component| component.id == id && component.removable)
     }
 }
 
@@ -129,12 +138,7 @@ fn visit<'a>(
 }
 
 pub(crate) fn validate_identifier(value: &str) -> Result<()> {
-    if value.is_empty()
-        || value.len() > 80
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
-        })
-    {
+    if !component_identifier::valid(value) {
         bail!("component identifier is invalid");
     }
     Ok(())
@@ -153,6 +157,42 @@ mod tests {
     fn catalog_rejects_unknown_fields() {
         let invalid = r#"{"schemaVersion":1,"components":[],"signature":"fake"}"#;
         assert!(serde_json::from_str::<ComponentCatalog>(invalid).is_err());
+    }
+
+    #[test]
+    fn component_kinds_are_validated_without_a_placeholder_read() {
+        let component = |kind: &str| {
+            format!(
+                r#"{{"schemaVersion":1,"components":[{{"id":"runtime","displayName":"Runtime","kind":"{kind}","capabilities":[],"dependencies":[],"removable":true}}]}}"#
+            )
+        };
+        let catalog: ComponentCatalog = serde_json::from_str(&component("sidecar")).unwrap();
+        assert!(catalog.is_removable("runtime"));
+        assert!(serde_json::from_str::<ComponentCatalog>(&component("mystery")).is_err());
+        let source = include_str!("catalog.rs");
+        let body = &source[..source
+            .find(
+                "#[cfg(test)]
+mod tests",
+            )
+            .unwrap()];
+        assert!(!body.contains("let _ = &component"));
+    }
+
+    #[test]
+    fn model_components_must_be_removable_leaves() {
+        let catalog = |dependencies: &str, removable: bool| {
+            serde_json::from_str::<ComponentCatalog>(&format!(
+                r#"{{"schemaVersion":1,"components":[
+                    {{"id":"runtime","displayName":"Runtime","kind":"native-runtime","capabilities":[],"dependencies":[],"removable":true}},
+                    {{"id":"weights","displayName":"Weights","kind":"model","capabilities":[],"dependencies":[{dependencies}],"removable":{removable}}}
+                ]}}"#
+            ))
+            .unwrap()
+        };
+        assert!(catalog("", true).validate().is_ok());
+        assert!(catalog(r#""runtime""#, true).validate().is_err());
+        assert!(catalog("", false).validate().is_err());
     }
 
     #[test]

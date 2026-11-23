@@ -8,20 +8,23 @@
 // Output: Vec<OverlayFrame> indexed by frame_idx.
 
 mod layout;
+#[cfg(test)]
+mod scale_tests;
 mod types;
 
 use layout::{
-    LaneItem, Placement, compute_slot_width_hints, get_lane_gap_px, layout_keystroke_lane,
+    LaneGeometry, LaneItem, Placement, compute_slot_width_hints, get_lane_gap_px,
+    layout_keystroke_lane,
 };
 use types::{
     ActiveEvent, DEFAULT_KEYSTROKE_OVERLAY_SCALE, DEFAULT_KEYSTROKE_OVERLAY_X,
     DEFAULT_KEYSTROKE_OVERLAY_Y, KEYSTROKE_OVERLAY_MAX_SCALE, KEYSTROKE_OVERLAY_MIN_SCALE, clamp01,
-    find_active_events, get_keystroke_visual_state, get_speed, get_text_visual_state,
-    is_time_inside_segments,
+    find_active_events, get_keystroke_visual_state, get_text_visual_state, is_time_inside_segments,
 };
 pub use types::{KeystrokeAtlasEntry, OverlayAtlasMetadata};
 
 use super::config::{OverlayFrame, OverlayQuad, SpeedPoint, TrimSegment};
+use crate::overlay::screen_record::gpu_pipeline::frame_times;
 
 // --- Main entry point ---
 
@@ -41,7 +44,6 @@ pub fn generate_overlay_frames(
 
     let atlas_w = meta.atlas_width as f64;
     let atlas_h = meta.atlas_height.max(1) as f64;
-    let out_dt = 1.0 / fps as f64;
     let delay_sec = meta.keystroke_delay_sec;
     let has_keystrokes = meta.keystroke_mode != "off" && !meta.display_events.is_empty();
 
@@ -62,6 +64,7 @@ pub fn generate_overlay_frames(
         DEFAULT_KEYSTROKE_OVERLAY_SCALE
     };
     let _ = overlay_scale; // Scale is baked into the atlas bubble layout widths
+    let render_scale = meta.effective_render_scale();
 
     let anchor_x_px = (overlay_x / 100.0) * canvas_width;
     let baseline_y_px = (overlay_y / 100.0) * canvas_height;
@@ -76,27 +79,16 @@ pub fn generate_overlay_frames(
         .map(|e| (e.unique_key.as_str(), e))
         .collect();
 
-    let end_time = trim_segments.last().unwrap().end_time;
-    let mut seg_idx = 0usize;
-    let mut t = trim_segments[0].start_time;
-    let mut frames = Vec::new();
+    // Overlay frames are looked up by output frame index, so they must walk
+    // exactly the video's frame timeline.
+    let source_times = frame_times(fps, 0.0, 0.0, trim_segments, speed_points);
+    let mut frames = Vec::with_capacity(source_times.len());
 
-    while t < end_time - 1e-9 {
-        // Advance to next trim segment if needed
-        while seg_idx < trim_segments.len() && t >= trim_segments[seg_idx].end_time {
-            seg_idx += 1;
-            if seg_idx < trim_segments.len() {
-                t = trim_segments[seg_idx].start_time;
-            }
-        }
-        if seg_idx >= trim_segments.len() {
-            break;
-        }
-
+    for t in source_times {
         let mut quads = Vec::new();
 
         // Text overlays
-        emit_text_quads(&mut quads, meta, t, atlas_w, atlas_h);
+        emit_text_quads(&mut quads, meta, t, atlas_w, atlas_h, render_scale);
 
         // Keystroke overlays
         if has_keystrokes && is_time_inside_segments(t, &meta.visibility_segments) {
@@ -113,23 +105,14 @@ pub fn generate_overlay_frames(
                 baseline_y_px,
                 atlas_w,
                 atlas_h,
+                render_scale,
             );
         }
 
-        if quads.is_empty() {
-            frames.push(OverlayFrame {
-                frame_index: None,
-                quads: Vec::new(),
-            });
-        } else {
-            frames.push(OverlayFrame {
-                frame_index: None,
-                quads,
-            });
-        }
-
-        let speed = get_speed(t, speed_points).clamp(0.1, 16.0);
-        t += speed * out_dt;
+        frames.push(OverlayFrame {
+            frame_index: None,
+            quads,
+        });
     }
 
     frames
@@ -141,18 +124,11 @@ fn emit_text_quads(
     t: f64,
     atlas_w: f64,
     atlas_h: f64,
+    render_scale: f64,
 ) {
     for text in &meta.text_entries {
         if t >= text.start_time && t <= text.end_time {
-            let visual = get_text_visual_state(
-                t,
-                text.start_time,
-                text.end_time,
-                text.animation_preset.as_str(),
-                text.animation_in_duration,
-                text.animation_out_duration,
-                text.rect_h as f64,
-            );
+            let visual = get_text_visual_state(t, text, render_scale);
             if visual.alpha > 0.001 {
                 let quad_x = text.pivot_x as f64
                     + ((text.hit_x - text.pad) as f64 - text.pivot_x as f64) * visual.scale;
@@ -189,6 +165,7 @@ fn emit_keystroke_quads(
     baseline_y_px: f64,
     atlas_w: f64,
     atlas_h: f64,
+    render_scale: f64,
 ) {
     let keyboard_events = find_active_events(
         &meta.keyboard_start_times,
@@ -222,8 +199,14 @@ fn emit_keystroke_quads(
         for ae in active_events {
             let event = &meta.display_events[ae.event_index];
             let is_mouse = event.event_type == "mousedown" || event.event_type == "wheel";
-            let visual =
-                get_keystroke_visual_state(t, ae.start_time, ae.end_time, is_mouse, event.is_hold);
+            let visual = get_keystroke_visual_state(
+                t,
+                ae.start_time,
+                ae.end_time,
+                is_mouse,
+                event.is_hold,
+                render_scale,
+            );
             if visual.alpha <= 0.001 {
                 continue;
             }
@@ -278,22 +261,25 @@ fn emit_keystroke_quads(
         keyboard_items
             .first()
             .map(|i| i.layout_font_size)
-            .unwrap_or(16.0),
+            .unwrap_or(16.0 * render_scale),
         mouse_items
             .first()
             .map(|i| i.layout_font_size)
-            .unwrap_or(16.0),
+            .unwrap_or(16.0 * render_scale),
+        render_scale,
     );
 
     let keyboard_slot_hints = compute_slot_width_hints(
         &meta.keyboard_slot_representative_widths,
         &keyboard_items,
         canvas_height,
+        render_scale,
     );
     let mouse_slot_hints = compute_slot_width_hints(
         &meta.mouse_slot_representative_widths,
         &mouse_items,
         canvas_height,
+        render_scale,
     );
 
     let emit_lane_quads =
@@ -352,24 +338,20 @@ fn emit_keystroke_quads(
             }
         };
 
+    let geometry = LaneGeometry {
+        canvas_width,
+        lane_gap_px,
+        anchor_x_px,
+        baseline_y_px,
+        render_scale,
+    };
     let keyboard_placements = layout_keystroke_lane(
         &keyboard_items,
-        canvas_width,
-        lane_gap_px,
+        geometry,
         true, // right-align
         &keyboard_slot_hints,
-        anchor_x_px,
-        baseline_y_px,
     );
-    let mouse_placements = layout_keystroke_lane(
-        &mouse_items,
-        canvas_width,
-        lane_gap_px,
-        false, // left-align
-        &mouse_slot_hints,
-        anchor_x_px,
-        baseline_y_px,
-    );
+    let mouse_placements = layout_keystroke_lane(&mouse_items, geometry, false, &mouse_slot_hints);
 
     emit_lane_quads(&keyboard_items, &keyboard_placements, quads);
     emit_lane_quads(&mouse_items, &mouse_placements, quads);

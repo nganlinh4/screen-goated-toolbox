@@ -4,6 +4,44 @@ use serde_json::{Map, Value, json};
 
 use super::Privacy;
 
+/// Runtime field names and values are untrusted even in otherwise safe events.
+/// The global sink retains their shape; detailed fields stay in the session trace.
+fn global_record(record: &Value) -> Value {
+    let mut global = Map::new();
+    for key in [
+        "session_id",
+        "turn_id",
+        "action_id",
+        "event",
+        "component",
+        "privacy",
+        "ts_ms",
+        "mono_ms",
+    ] {
+        if let Some(value) = record.get(key) {
+            global.insert(key.to_string(), value.clone());
+        }
+    }
+    if let Some(fields) = record.get("fields") {
+        global.insert("fields".into(), value_metadata(fields));
+    }
+    Value::Object(global)
+}
+
+pub(super) struct EncodedRecords {
+    pub global: Option<String>,
+    pub session: String,
+}
+
+pub(super) fn encode_records(record: &Value, privacy: Privacy) -> EncodedRecords {
+    EncodedRecords {
+        global: privacy
+            .may_write_global()
+            .then(|| global_record(record).to_string()),
+        session: record.to_string(),
+    }
+}
+
 pub(super) fn sanitize_safe_fields(privacy: Privacy, fields: Value) -> Value {
     if privacy != Privacy::Safe {
         return fields;
@@ -155,6 +193,55 @@ fn value_kind(value: &Value) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rendered_diagnostics_and_transcripts_serialize_only_to_the_session_sink() {
+        let record = json!({
+            "event": "diagnostic", "component": "cc", "session_id": "session",
+            "fields": {"template": "read: {result}", "line": "private clipboard text"},
+        });
+        for privacy in [Privacy::Sensitive, Privacy::UserText] {
+            let encoded = encode_records(&record, privacy);
+            assert!(encoded.global.is_none());
+            assert!(encoded.session.contains("private clipboard text"));
+        }
+        let encoded = encode_records(&record, Privacy::Safe);
+        assert!(!encoded.global.unwrap().contains("private"));
+        assert!(encoded.session.contains("private clipboard text"));
+    }
+
+    #[test]
+    fn global_event_fields_never_declassify_runtime_keys_values_or_identifiers() {
+        let record = json!({
+            "event": "observation", "component": "capture", "session_id": "session",
+            "ts_ms": 42, "turn_id": 3, "action_id": 4, "privacy": "safe",
+            "unexpected": "private root value",
+            "fields": {
+                "name": "private title", "reason": "private clipboard", "status": "private page",
+                "code": "private command", "input_sha256": "a".repeat(64),
+                "private-key-name": {"inner": "private value"}, "observed": 987654321,
+            },
+        });
+        let global = global_record(&record);
+        assert_eq!(global["event"], "observation");
+        assert_eq!(global["ts_ms"], 42);
+        assert_eq!(global["action_id"], 4);
+        assert_eq!(global["fields"]["field_count"], 7);
+        assert_eq!(global["fields"]["value_types"]["string"], 5);
+        assert!(!global.to_string().contains("private"));
+        assert!(!global.to_string().contains("987654321"));
+        assert!(!global.to_string().contains(&"a".repeat(64)));
+        assert!(record.to_string().contains("private title"));
+    }
+
+    #[test]
+    fn global_scalar_fields_keep_only_shape_metadata() {
+        let record = json!({"event": "diagnostic", "fields": "private clipboard"});
+        let global = global_record(&record);
+        assert_eq!(global["fields"]["char_count"], 17);
+        assert_eq!(global["fields"]["redacted"], true);
+        assert!(!global.to_string().contains("private"));
+    }
 
     #[test]
     fn safe_fields_keep_protocol_ids_but_redact_content_by_default() {

@@ -245,7 +245,7 @@ private fun overlayModalCss(isDark: Boolean): String {
         )
     }
     return """
-        #tts-modal, #download-modal, #custom-vocabulary-modal {
+        #tts-modal, #custom-vocabulary-modal {
             display: none;
             position: fixed !important;
             top: 50% !important;
@@ -261,18 +261,10 @@ private fun overlayModalCss(isDark: Boolean): String {
             scrollbar-width: none;
             box-sizing: border-box;
         }
-        #tts-modal::-webkit-scrollbar, #download-modal::-webkit-scrollbar, #custom-vocabulary-modal::-webkit-scrollbar {
+        #tts-modal::-webkit-scrollbar, #custom-vocabulary-modal::-webkit-scrollbar {
             display: none;
         }
         #tts-modal { padding: 16px 20px; }
-        #download-modal {
-            border: 1px solid ${modal.borderFocusColor};
-            min-width: min(320px, calc(100vw - 16px));
-            max-width: min(90vw, calc(100vw - 16px));
-            padding: 12px 16px;
-            text-align: center;
-            z-index: 2147483647 !important;
-        }
         #tts-modal {
             border: 1px solid ${modal.borderColor};
             min-width: min(200px, calc(100vw - 16px));
@@ -284,27 +276,27 @@ private fun overlayModalCss(isDark: Boolean): String {
             border: 1px solid ${modal.borderFocusColor};
             z-index: 2147483647 !important;
         }
-        #tts-modal.show, #download-modal.show, #custom-vocabulary-modal.show {
+        #tts-modal.show, #custom-vocabulary-modal.show {
             display: block !important;
             animation: modal-appear 0.2s ease-out;
         }
-        #tts-modal-overlay, #download-modal-overlay, #custom-vocabulary-modal-overlay {
+        #tts-modal-overlay, #custom-vocabulary-modal-overlay {
             display: none;
             position: fixed !important;
             inset: 0;
             background: rgba(0,0,0,0.35);
         }
-        #tts-modal-overlay.show, #download-modal-overlay.show, #custom-vocabulary-modal-overlay.show {
+        #tts-modal-overlay.show, #custom-vocabulary-modal-overlay.show {
             display: block !important;
         }
-        #tts-modal-overlay, #download-modal-overlay, #custom-vocabulary-modal-overlay {
+        #tts-modal-overlay, #custom-vocabulary-modal-overlay {
             z-index: 2147483646 !important;
         }
         @keyframes modal-appear {
             from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
             to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
         }
-        .tts-modal-title, .download-modal-title {
+        .tts-modal-title {
             display: flex;
             align-items: center;
             gap: 6px;
@@ -313,7 +305,6 @@ private fun overlayModalCss(isDark: Boolean): String {
             margin-bottom: 10px;
         }
         .tts-modal-title { color: #ff9633; }
-        .download-modal-title { color: #00c8ff; }
         .custom-vocabulary-modal-title {
             display: flex;
             align-items: center;
@@ -424,10 +415,6 @@ private fun overlayModalCss(isDark: Boolean): String {
             font-size: 11px;
             color: ${modal.labelColor};
         }
-        .download-modal-msg {
-            font-size: 11px;
-            color: ${modal.textColor};
-        }
         .toggle-switch {
             position: relative;
             flex-shrink: 0;
@@ -496,35 +483,6 @@ private fun overlayModalCss(isDark: Boolean): String {
             background: linear-gradient(135deg, #ff9633 0%, #ff6b00 100%);
             border-color: #ff9633;
             color: #fff;
-        }
-        .download-progress-bar {
-            width: 100%;
-            height: 6px;
-            background: ${modal.sliderBg};
-            border-radius: 3px;
-            overflow: hidden;
-            margin-bottom: 8px;
-        }
-        .download-progress-fill {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #00c8ff, #0080ff);
-            transition: width 0.2s ease;
-        }
-        .download-cancel-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            margin-top: 12px;
-            padding: 8px 16px;
-            width: 100%;
-            border: 1px solid #ff4444;
-            border-radius: 6px;
-            background: transparent;
-            color: #ff6666;
-            font-size: 11px;
-            cursor: pointer;
         }
     """.trimIndent()
 }

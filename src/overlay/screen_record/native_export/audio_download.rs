@@ -1,7 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::Ordering;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
@@ -11,7 +9,9 @@ use super::audio_mix::{
     ExportAudioSource, IMPLICIT_AUDIO_EDGE_FADE_SEC, build_preprocessed_audio_mix,
     calculate_mix_output_duration,
 };
-use super::composition::{slice_audio_for_clip, slice_track_volume_points};
+use super::clip_audio_slice::{
+    ClipSequenceWindow, slice_audio_for_clip, slice_track_volume_points,
+};
 use super::config::{
     AudioDownloadClipJob, AudioDownloadConfig, AudioDownloadFormat, AudioDownloadTrackKind,
     DeviceAudioPoint, ImportedAudioSegmentConfig, SpeedPoint,
@@ -134,14 +134,12 @@ fn build_clip_sources(
     let mut sources = Vec::new();
     match config.track_kind {
         AudioDownloadTrackKind::Device => {
+            // An empty device path means the clip has no device audio; the
+            // clip still occupies its duration as silence.
             let points =
                 sorted_volume_points(&clip.segment.device_audio_points, clip.duration, 1.0);
             if points.iter().any(|point| point.volume > 0.0001) {
-                let path = if clip.device_audio_path.trim().is_empty() {
-                    clip.source_video_path.trim()
-                } else {
-                    clip.device_audio_path.trim()
-                };
+                let path = clip.device_audio_path.trim();
                 if !path.is_empty() {
                     sources.push(ExportAudioSource {
                         path: path.to_string(),
@@ -172,33 +170,78 @@ fn build_clip_sources(
             }
         }
         AudioDownloadTrackKind::Imported => {
-            let segments = slice_audio_for_clip(
-                &config.audio_segments,
-                project_clip_start_sec,
-                clip.duration,
-            );
-            let volume = slice_track_volume_points(
-                &config.audio_track_volume_points,
-                project_clip_start_sec,
-                clip.duration,
-            );
+            if config.clips.len() == 1 {
+                push_imported_sources(
+                    &mut sources,
+                    &config.audio_segments,
+                    &config.audio_track_volume_points,
+                );
+                return sources;
+            }
+            let window = clip_sequence_window(clip, project_clip_start_sec);
+            let segments = slice_audio_for_clip(&config.audio_segments, &window);
+            let volume = slice_track_volume_points(&config.audio_track_volume_points, &window);
             push_imported_sources(&mut sources, &segments, &volume);
         }
         AudioDownloadTrackKind::Narration => {
-            let segments = slice_audio_for_clip(
-                &config.narration_segments,
-                project_clip_start_sec,
-                clip.duration,
-            );
-            let volume = slice_track_volume_points(
-                &config.narration_track_volume_points,
-                project_clip_start_sec,
-                clip.duration,
-            );
+            if config.clips.len() == 1 {
+                push_imported_sources(
+                    &mut sources,
+                    &config.narration_segments,
+                    &config.narration_track_volume_points,
+                );
+                return sources;
+            }
+            let window = clip_sequence_window(clip, project_clip_start_sec);
+            let segments = slice_audio_for_clip(&config.narration_segments, &window);
+            let volume = slice_track_volume_points(&config.narration_track_volume_points, &window);
             push_imported_sources(&mut sources, &segments, &volume);
         }
     }
     sources
+}
+
+fn clip_sequence_window(clip: &AudioDownloadClipJob, sequence_start: f64) -> ClipSequenceWindow {
+    ClipSequenceWindow::new(
+        sequence_start,
+        clip.trim_start,
+        clip.duration,
+        &clip.segment.trim_segments,
+    )
+}
+
+fn render_clip_audio(
+    sources: &[ExportAudioSource],
+    clip: &AudioDownloadClipJob,
+    speed_points: &[SpeedPoint],
+    temp_root: &Path,
+    file_stem: &str,
+) -> Result<Option<(PathBuf, bool)>, String> {
+    if let Some(path) = build_preprocessed_audio_mix(
+        sources,
+        speed_points,
+        clip.trim_start,
+        clip.duration,
+        &clip.segment.trim_segments,
+        temp_root,
+        file_stem,
+    )? {
+        return Ok(Some((path, true)));
+    }
+    // A silent/missing source still occupies this clip's output time. Dropping
+    // it would shift every later clip earlier in the downloaded track.
+    let duration = calculate_mix_output_duration(
+        clip.trim_start,
+        clip.duration,
+        &clip.segment.trim_segments,
+        speed_points,
+    );
+    if duration <= 0.0001 {
+        return Ok(None);
+    }
+    let path = temp_root.join(format!("{file_stem}_silent.wav"));
+    write_silent_wav(&path, duration)?;
+    Ok(Some((path, false)))
 }
 
 fn concat_wavs(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
@@ -281,23 +324,26 @@ fn encode_mp3(input_wav: &Path, output_mp3: &Path) -> Result<(), String> {
     let ffmpeg = crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge_message(
         &audio_ffmpeg_download_message(),
     )?;
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            input_wav.to_str().unwrap_or(""),
-            "-vn",
-            "-codec:a",
-            "libmp3lame",
-            "-b:a",
-            "192k",
-            output_mp3.to_str().unwrap_or(""),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to launch FFmpeg MP3 export: {e}"))?;
+    let mut command = crate::process_job::HelperCommand::new(&ffmpeg);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        input_wav.to_str().unwrap_or(""),
+        "-vn",
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        "192k",
+        output_mp3.to_str().unwrap_or(""),
+    ]);
+    #[cfg(not(feature = "recorder-worker"))]
+    let resources = ffmpeg_component;
+    #[cfg(feature = "recorder-worker")]
+    let resources = ();
+    let output = super::run_ffmpeg(&command, resources)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("FFmpeg MP3 export failed: {stderr}"));
@@ -307,7 +353,6 @@ fn encode_mp3(input_wav: &Path, output_mp3: &Path) -> Result<(), String> {
 
 pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value, String> {
     let _active_export_guard = super::ExportActiveGuard::activate()?;
-    super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let started = Instant::now();
     let config: AudioDownloadConfig = parse_json_with_path(args)?;
@@ -326,7 +371,7 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
         AudioDownloadFormat::Wav => "wav",
     };
     let final_path = output_dir.join(format!("{base_name}.{extension}"));
-    let temp_root = crate::paths::app_local_data_dir()
+    let temp_root = crate::paths::app_runtime_local_data_dir()
         .join("audio-download")
         .join(timestamp_ms.to_string());
     fs::create_dir_all(&temp_root).map_err(|e| format!("Create audio temp dir: {e}"))?;
@@ -336,7 +381,7 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
         let mut audible_clip_count = 0usize;
         let mut project_clip_start = 0.0_f64;
         for (index, clip) in config.clips.iter().enumerate() {
-            if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+            if super::export_user_cancelled() {
                 return Ok(json!({ "status": "cancelled" }));
             }
             eprintln!(
@@ -346,34 +391,13 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
             let sources = build_clip_sources(&config, clip, project_clip_start);
             project_clip_start += clip.duration.max(0.0);
             let speed_points = sorted_speed_points(&clip.segment.speed_points);
-            if sources.is_empty() {
-                let silent_duration = calculate_mix_output_duration(
-                    clip.trim_start,
-                    clip.duration,
-                    &clip.segment.trim_segments,
-                    &speed_points,
-                );
-                if silent_duration > 0.0001 {
-                    let silent_path = temp_root.join(format!("{base_name}_silent_{index}.wav"));
-                    write_silent_wav(&silent_path, silent_duration)?;
-                    rendered_wavs.push(silent_path);
-                }
-                continue;
-            }
             let file_stem = format!("{}_clip_{}", base_name, index);
-            let Some(wav_path) = build_preprocessed_audio_mix(
-                &sources,
-                &speed_points,
-                clip.trim_start,
-                clip.duration,
-                &clip.segment.trim_segments,
-                &temp_root,
-                &file_stem,
-            )?
+            let Some((wav_path, audible)) =
+                render_clip_audio(&sources, clip, &speed_points, &temp_root, &file_stem)?
             else {
                 continue;
             };
-            audible_clip_count += 1;
+            audible_clip_count += usize::from(audible);
             rendered_wavs.push(wav_path);
         }
         if rendered_wavs.is_empty() || audible_clip_count == 0 {
@@ -408,7 +432,7 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
         }))
     })();
 
-    if result.is_err() || super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+    if result.is_err() || super::export_user_cancelled() {
         let _ = fs::remove_file(&final_path);
     }
     let _ = fs::remove_dir_all(&temp_root);
@@ -416,8 +440,28 @@ pub fn start_audio_download(args: serde_json::Value) -> Result<serde_json::Value
 }
 
 #[cfg(test)]
+#[path = "audio_download_timeline_tests.rs"]
+mod timeline_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_clip_audio_download_keeps_source_timeline() {
+        let config = parse_json_with_path::<AudioDownloadConfig>(json!({
+            "trackKind":"imported", "clips":[{"clipId":"root", "clipName":"Root", "trimStart":7,
+                "duration":5, "segment":{"crop":null,"cursorVisibilitySegments":null,
+                    "trimSegments":[{"startTime":7,"endTime":12}]} }],
+            "audioSegments":[{"rawAudioPath":"audio.wav", "duration":4,"startTime":8,
+                "inPoint":0,"outPoint":4}]
+        }))
+        .unwrap();
+        let sources = build_clip_sources(&config, &config.clips[0], 0.0);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].start_offset_sec, 8.0);
+        assert_eq!(sources[0].source_out_sec, Some(4.0));
+    }
 
     #[test]
     fn device_audio_download_uses_track_delay() {

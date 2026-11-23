@@ -68,19 +68,17 @@ internal fun CreationNativeScreen(
     val accent = when (tool) {
         CreationTool.IMAGE_TO_3D -> ModelAccent
         CreationTool.IMAGE_TO_SVG -> VectorAccent
-        CreationTool.IMAGE_CREATOR -> VectorAccent
     }
     val title = when (tool) {
         CreationTool.IMAGE_TO_3D -> locale.creationApps.appImageTo3dTitle
         CreationTool.IMAGE_TO_SVG -> locale.creationApps.appImageToSvgTitle
-        CreationTool.IMAGE_CREATOR -> locale.creationApps.appImageCreatorTitle
     }
     val snackbar = remember { SnackbarHostState() }
     state.inputValidation?.let { failure ->
         CreationInputValidationDialog(failure.error, locale.localeCode,
-            viewModel::dismissInputValidation,
-            { viewModel.dismissInputValidation(); viewModel.submitSelected() },
-            { viewModel.dismissInputValidation(); onPickImages() })
+            { viewModel.dismissInputValidation(failure) },
+            { viewModel.retryInputValidation(failure) },
+            { if (viewModel.dismissInputValidation(failure)) onPickImages() })
     }
     LaunchedEffect(viewModel) {
         withFrameNanos { }
@@ -90,6 +88,11 @@ internal fun CreationNativeScreen(
         state.transientError?.let {
             snackbar.showSnackbar(publicCreationErrorText(it, common))
             viewModel.dismissError()
+        }
+    }
+    LaunchedEffect(state.svgRecoveryPending, tool) {
+        if (tool == CreationTool.IMAGE_TO_SVG && state.svgRecoveryPending) {
+            snackbar.showSnackbar(locale.creationApps.svg.editRecoveryPending)
         }
     }
 
@@ -238,25 +241,9 @@ private fun CreationItemRail(
                 accent = accent,
                 onSelect = viewModel::selectItem,
                 onRemove = viewModel::removeDraft,
-                onAdd = if (tool == CreationTool.IMAGE_CREATOR) {
-                    viewModel::addImageSession
-                } else {
-                    onPickImages
-                },
-                addLabel = if (tool == CreationTool.IMAGE_CREATOR) {
-                    locale.creationApps.image.newImage
-                } else {
-                    locale.creationApps.common.addImages
-                },
-                itemLabel = { item ->
-                    when {
-                        tool != CreationTool.IMAGE_CREATOR -> item.sourceName
-                        item.referencePaths.isEmpty() -> locale.creationApps.image.newImage
-                        item.referencePaths.size == 1 -> item.sourceName
-                        else -> locale.creationApps.image.referenceCount
-                            .replace("{}", item.referencePaths.size.toString())
-                    }
-                },
+                onAdd = onPickImages,
+                addLabel = locale.creationApps.common.addImages,
+                itemLabel = { item -> item.sourceName },
                 showArtworkPreviews = tool == CreationTool.IMAGE_TO_3D,
             )
         } else {
@@ -328,7 +315,7 @@ private fun CreationPhoneBody(
             CreationActiveWorkbench(tool, state, locale, accent, viewModel, onPickImages)
         }
         item {
-            CreationActiveSettings(tool, state, locale, accent, viewModel, onPickImages)
+            CreationActiveSettings(tool, state, locale, accent, viewModel)
         }
         if (!tool.usesProjectLibrary()) item {
             CreationOutputSettings(
@@ -385,7 +372,7 @@ private fun CreationWideBody(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
-                    CreationActiveSettings(tool, state, locale, accent, viewModel, onPickImages)
+                    CreationActiveSettings(tool, state, locale, accent, viewModel)
                 }
                 if (!tool.usesProjectLibrary()) item {
                     CreationOutputSettings(

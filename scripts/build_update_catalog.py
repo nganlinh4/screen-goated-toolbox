@@ -13,19 +13,12 @@ from pathlib import Path
 from ecdsa import NIST256p, SigningKey
 from ecdsa.util import sigencode_string
 
+from update_catalog_payload import build_payload, catalog_bytes, catalog_stem, load_json
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCES = ROOT / "component-delivery" / "update-catalog-v1.sources.json"
 PUBLIC_KEY = ROOT / "component-delivery" / "update-catalog-p256-public-key.hex"
-
-
-def load_json(path: Path) -> object:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise SystemExit(f"missing catalog input: {path}") from error
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"invalid JSON {path}: {error}") from error
 
 
 def private_key(args: argparse.Namespace) -> SigningKey:
@@ -52,37 +45,6 @@ def public_hex(key: SigningKey) -> str:
     return key.verifying_key.to_string("uncompressed").hex()
 
 
-def build_payload(sources: dict[str, object]) -> dict[str, object]:
-    contracts = []
-    seen = set()
-    for source in sources.get("contracts", []):
-        if not isinstance(source, dict):
-            raise SystemExit("catalog contract source must be an object")
-        name = source.get("name")
-        relative = source.get("path")
-        platform = source.get("platform")
-        if not all(isinstance(value, str) and value for value in (name, relative, platform)):
-            raise SystemExit("catalog contract source fields are invalid")
-        if name in seen:
-            raise SystemExit(f"duplicate catalog contract: {name}")
-        seen.add(name)
-        path = (ROOT / relative).resolve()
-        if ROOT not in path.parents:
-            raise SystemExit(f"catalog contract escapes repository: {relative}")
-        contracts.append(
-            {"name": name, "platform": platform, "delivery": load_json(path)}
-        )
-    return {
-        "schemaVersion": 1,
-        "sequence": sources["sequence"],
-        "channel": sources["channel"],
-        "minHostVersion": sources["minHostVersion"],
-        "maxHostVersionExclusive": sources["maxHostVersionExclusive"],
-        "contracts": contracts,
-        "policies": sources.get("policies", []),
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sources", type=Path, default=DEFAULT_SOURCES)
@@ -99,10 +61,10 @@ def main() -> None:
         raise SystemExit("signing key does not match the tracked update public key")
 
     payload = build_payload(sources)
-    catalog = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    catalog = catalog_bytes(payload)
     digest = hashlib.sha256(catalog).hexdigest()
     sequence = int(payload["sequence"])
-    stem = f"sgt-component-catalog-v{sequence:06d}-{digest[:16]}"
+    stem = catalog_stem(sequence, catalog)
     signature = key.sign_digest_deterministic(
         hashlib.sha256(catalog).digest(),
         hashfunc=hashlib.sha256,

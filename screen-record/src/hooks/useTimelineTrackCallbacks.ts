@@ -8,6 +8,9 @@ import type {
   VideoSegment,
 } from "@/types/video";
 import { getTimelineContentEnd, resizeSegmentDuration } from "@/lib/timelineDuration";
+import { deleteNarrationTakes, updateNarrationTake } from "@/lib/narrationGroupTakes";
+import { updateLiveNarrationSegments } from "@/lib/liveNarrationStreamStore";
+import { markNarrationTakesDeleted } from "@/lib/narrationBatchRetirements";
 
 type CompositionSetter = (
   value:
@@ -185,24 +188,30 @@ export function useTimelineTrackCallbacks({
     id: string,
     patch: Partial<NarrationSegment>,
   ) => {
+    const update = (segments: NarrationSegment[]) => updateNarrationTake(segments, id, patch);
     updateCurrentNarrationSegments(
-      (segments) =>
-        segments.map((segment) =>
-          segment.id === id ? { ...segment, ...patch } : segment,
-        ),
+      update,
       "update-narration-segment",
       { persist: false },
     );
-  }, [updateCurrentNarrationSegments]);
+    updateLiveNarrationSegments(currentProjectDataRef.current?.id, update);
+  }, [currentProjectDataRef, updateCurrentNarrationSegments]);
 
   const handleDeleteNarrationSegments = useCallback((ids: string[]) => {
-    const idSet = new Set(ids);
+    const update = (segments: NarrationSegment[]) => {
+      const remaining = deleteNarrationTakes(segments, ids);
+      const kept = new Set(remaining);
+      const projectId = currentProjectDataRef.current?.id;
+      if (projectId) markNarrationTakesDeleted(projectId, segments.filter((item) => !kept.has(item)));
+      return remaining;
+    };
     updateCurrentNarrationSegments(
-      (segments) => segments.filter((segment) => !idSet.has(segment.id)),
+      update,
       "delete-narration-segments",
       { persist: true },
     );
-  }, [updateCurrentNarrationSegments]);
+    updateLiveNarrationSegments(currentProjectDataRef.current?.id, update);
+  }, [currentProjectDataRef, updateCurrentNarrationSegments]);
 
   const handleCommitNarrationSegments = useCallback(() => {
     if (isPlaceholderBackedProject && segmentRef.current) {

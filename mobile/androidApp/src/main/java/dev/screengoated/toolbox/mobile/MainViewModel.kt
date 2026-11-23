@@ -5,17 +5,19 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
+import dev.screengoated.toolbox.mobile.updater.AppUpdateNotice
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
+import dev.screengoated.toolbox.mobile.model.CustomModelStatus
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
-import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.model.MobileTtsLanguageCondition
 import dev.screengoated.toolbox.mobile.model.MobileTtsMethod
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.next
 import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
+import dev.screengoated.toolbox.mobile.model.restoredDefaults
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
 import dev.screengoated.toolbox.mobile.model.withMethod
 import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
@@ -28,9 +30,10 @@ import dev.screengoated.toolbox.mobile.service.tts.TtsRequest
 import dev.screengoated.toolbox.mobile.service.tts.TtsRequestMode
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
+import dev.screengoated.toolbox.mobile.service.tts.VoicePreviewSamples
+import dev.screengoated.toolbox.mobile.service.tts.edgeVoicePreviewRequest
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionPatch
-import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateController
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
@@ -43,6 +46,7 @@ class MainViewModel(
     private val historyRepository: HistoryRepository,
     private val ttsRuntimeService: TtsRuntimeService,
     private val appUpdateController: AppUpdateController,
+    private val voicePreviewSamples: VoicePreviewSamples,
 ) : ViewModel() {
     private var lastPreviewIndex = -1
     private val mutableHistorySearchQuery = MutableStateFlow("")
@@ -59,6 +63,8 @@ class MainViewModel(
     val uiPreferences: StateFlow<MobileUiPreferences> = repository.uiPreferences
     val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = repository.presetRuntimeSettings
     val customModels: StateFlow<List<CustomPresetModelDefinition>> = repository.customModels
+    val customModelsStatus: StateFlow<CustomModelStatus> = repository.customModelsStatus
+    val customModelEditor = repository.customModelEditor
     val edgeVoiceCatalogState: StateFlow<EdgeVoiceCatalogState> = ttsRuntimeService.edgeVoiceCatalogState
     val historyState: StateFlow<HistoryUiState> = historyRepository.state
     val historySearchQuery: StateFlow<String> = mutableHistorySearchQuery.asStateFlow()
@@ -74,7 +80,6 @@ class MainViewModel(
                 },
             ),
         )
-        repository.ensureSafePlayDefaults()
         repository.refreshPermissions()
         appUpdateController.autoCheckForUpdates()
     }
@@ -84,18 +89,6 @@ class MainViewModel(
     fun refreshPermissions() {
         repository.refreshPermissions()
         repository.ensureSourceStillValid()
-    }
-
-    fun onSourceModeSelected(sourceMode: SourceMode) {
-        repository.updateConfig(LiveSessionPatch(sourceMode = sourceMode))
-    }
-
-    fun onDisplayModeSelected(displayMode: DisplayMode) {
-        repository.updateConfig(LiveSessionPatch(displayMode = displayMode))
-    }
-
-    fun onTargetLanguageSelected(targetLanguage: String) {
-        repository.updateConfig(LiveSessionPatch(targetLanguage = targetLanguage))
     }
 
     fun onApiKeyChanged(apiKey: String) {
@@ -118,9 +111,16 @@ class MainViewModel(
         repository.updateOllamaUrl(url)
     }
 
-    fun onCustomModelsChanged(models: List<CustomPresetModelDefinition>) {
-        repository.updateCustomModels(models)
-    }
+    fun onCustomModelsChanged(expected: List<CustomPresetModelDefinition>, models: List<CustomPresetModelDefinition>) =
+        repository.submitCustomModels(expected, models)
+
+    fun onCustomModelEdited(identity: dev.screengoated.toolbox.mobile.model.CustomModelRowIdentity,
+        transform: (CustomPresetModelDefinition) -> CustomPresetModelDefinition) = repository.editCustomModel(identity, transform)
+
+    fun onCustomModelDeleted(identity: dev.screengoated.toolbox.mobile.model.CustomModelRowIdentity) =
+        repository.deleteCustomModel(identity)
+
+    fun retryCustomModels(): Boolean = repository.retryCustomModels()
 
     fun onUiLanguageSelected(languageCode: String) {
         repository.updateUiPreferences(
@@ -136,12 +136,6 @@ class MainViewModel(
         )
     }
 
-    fun onThemeSelected(themeMode: MobileThemeMode) {
-        repository.updateUiPreferences(
-            repository.currentUiPreferences().copy(themeMode = themeMode),
-        )
-    }
-
     fun onOverlayOpacityChanged(opacityPercent: Int) {
         repository.updateUiPreferences(
             repository.currentUiPreferences().copy(
@@ -150,32 +144,20 @@ class MainViewModel(
         )
     }
 
+    /**
+     * Settings half of Reset defaults, as Windows restore_defaults.rs resets app
+     * and audio settings: theme, overlay opacity, preset runtime and every global
+     * TTS field (method, Gemini model, voice, speed, language conditions, Edge).
+     */
+    fun restoreAppSettingsDefaults() {
+        repository.updateUiPreferences(repository.currentUiPreferences().restoredDefaults())
+        repository.updatePresetRuntimeSettings(PresetRuntimeSettings())
+        repository.updateGlobalTtsSettings(MobileGlobalTtsSettings())
+        repository.restoreLiveTranslateDefaults()
+    }
+
     fun onPresetRuntimeSettingsChanged(settings: PresetRuntimeSettings) {
         repository.updatePresetRuntimeSettings(settings)
-    }
-
-    fun onRealtimeTtsEnabledChanged(enabled: Boolean) {
-        repository.updateRealtimeTtsSettings(
-            repository.currentRealtimeTtsSettings().copy(enabled = enabled),
-        )
-    }
-
-    fun onRealtimeTtsAutoSpeedChanged(enabled: Boolean) {
-        repository.updateRealtimeTtsSettings(
-            repository.currentRealtimeTtsSettings().copy(autoSpeed = enabled),
-        )
-    }
-
-    fun onRealtimeTtsSpeedChanged(speedPercent: Int) {
-        repository.updateRealtimeTtsSettings(
-            repository.currentRealtimeTtsSettings().copy(speedPercent = speedPercent),
-        )
-    }
-
-    fun onRealtimeTtsVolumeChanged(volumePercent: Int) {
-        repository.updateRealtimeTtsSettings(
-            repository.currentRealtimeTtsSettings().copy(volumePercent = volumePercent),
-        )
     }
 
     fun onGlobalTtsMethodChanged(method: MobileTtsMethod) {
@@ -229,7 +211,7 @@ class MainViewModel(
     fun previewGeminiVoice(voiceName: String) {
         val snapshot = repository.currentGlobalTtsSettings().copy(voice = voiceName)
         val preview = nextPreviewText(voiceName)
-        ttsRuntimeService.interruptAndSpeak(
+        ttsRuntimeService.enqueueSettingsPreview(
             TtsRequest(
                 text = preview,
                 consumer = TtsConsumer.SETTINGS_PREVIEW,
@@ -245,32 +227,15 @@ class MainViewModel(
         languageCode: String,
         voiceName: String,
     ) {
-        val settings = repository.currentGlobalTtsSettings()
-        val nextConfigs = settings.edgeSettings.voiceConfigs.toMutableList()
-        val existingIndex = nextConfigs.indexOfFirst { it.languageCode.equals(languageCode, ignoreCase = true) }
-        if (existingIndex >= 0) {
-            nextConfigs[existingIndex] = nextConfigs[existingIndex].copy(voiceName = voiceName)
-        }
-        val snapshot = settings.copy(
-            edgeSettings = settings.edgeSettings.copy(voiceConfigs = nextConfigs),
-        )
-        val preview = nextPreviewText(voiceName)
-        ttsRuntimeService.interruptAndSpeak(
-            TtsRequest(
-                text = preview,
-                consumer = TtsConsumer.SETTINGS_PREVIEW,
-                priority = TtsPriority.PREVIEW,
-                requestMode = TtsRequestMode.INTERRUPT,
-                settingsSnapshot = snapshot.toRuntimeSnapshot(),
-                ownerToken = "settings-preview",
-            ),
+        ttsRuntimeService.enqueueSettingsPreview(
+            edgeVoicePreviewRequest(repository.currentGlobalTtsSettings(), languageCode, voiceName, voicePreviewSamples),
         )
     }
 
     fun previewGoogleTranslate() {
         val snapshot = repository.currentGlobalTtsSettings().withMethod(MobileTtsMethod.GOOGLE_TRANSLATE)
         val preview = nextPreviewText("Google Translate")
-        ttsRuntimeService.interruptAndSpeak(
+        ttsRuntimeService.enqueueSettingsPreview(
             TtsRequest(
                 text = preview,
                 consumer = TtsConsumer.SETTINGS_PREVIEW,
@@ -316,6 +281,9 @@ class MainViewModel(
         historyRepository.delete(id)
     }
 
+    fun historyMediaProofForOpen(item: dev.screengoated.toolbox.mobile.history.HistoryItem): dev.screengoated.toolbox.mobile.history.HistoryMediaProof? =
+        historyRepository.mediaProofForOpen(item)
+
     fun clearHistoryItems() {
         historyRepository.clearAll()
     }
@@ -323,6 +291,8 @@ class MainViewModel(
     fun checkForAppUpdates() {
         appUpdateController.checkForUpdates()
     }
+
+    fun consumeUpdateNotification(notice: AppUpdateNotice?): String? = appUpdateController.consumeNotification(notice)
 
     fun hasApiKey(): Boolean = repository.currentApiKey().isNotBlank()
 
@@ -354,6 +324,7 @@ class MainViewModel(
                         historyRepository,
                         ttsRuntimeService,
                         appUpdateController,
+                        VoicePreviewSamples.parse(application.assets.open("voice-preview.json").bufferedReader().use { it.readText() }),
                     ) as T
                 }
             }

@@ -1,6 +1,5 @@
 package dev.screengoated.toolbox.mobile.preset
 
-import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -15,7 +14,6 @@ internal const val GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completi
 internal const val OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 internal const val NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
 internal const val GTX_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
-internal val debugJson = Json { prettyPrint = false }
 
 internal data class GeminiDelta(
     val content: String = "",

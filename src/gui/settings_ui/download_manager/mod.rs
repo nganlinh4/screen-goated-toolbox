@@ -1,6 +1,14 @@
+mod analysis;
+mod analysis_process;
+mod browser_discovery;
 pub mod detection;
+mod download_args;
 pub mod ffmpeg_dependency;
+mod folder_picker;
+#[cfg(test)]
+mod live_download_tests;
 pub mod persistence;
+mod quality;
 pub mod run;
 mod run_download;
 mod run_install;
@@ -10,24 +18,19 @@ pub mod utils;
 mod ytdlp_process;
 
 pub use self::types::{CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus};
-use crate::api::realtime_audio::sherpa_onnx::{self, ZipformerLanguage};
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct DownloadManager {
     pub show_window: bool,
+    folder_picker: folder_picker::FolderPicker,
     pub ffmpeg_status: Arc<Mutex<InstallStatus>>,
     pub ytdlp_status: Arc<Mutex<InstallStatus>>,
     pub deno_status: Arc<Mutex<InstallStatus>>,
     // Logs and cancel for tool installation (ffmpeg/ytdlp/deno), not per-session
     pub install_logs: Arc<Mutex<Vec<String>>>,
     pub install_cancel_flag: Arc<AtomicBool>,
-
-    // Zipformer ASR per-language download state
-    pub zipformer_dlls_status: Arc<Mutex<InstallStatus>>,
-    pub zipformer_lang_statuses: HashMap<ZipformerLanguage, Arc<Mutex<InstallStatus>>>,
 
     // Shared download config
     pub custom_download_path: Option<PathBuf>,
@@ -36,7 +39,8 @@ pub struct DownloadManager {
     pub use_subtitles: Arc<Mutex<bool>>,
     pub use_playlist: bool,
     pub cookie_browser: CookieBrowser,
-    pub available_browsers: Vec<CookieBrowser>,
+    browser_discovery: browser_discovery::BrowserDiscovery,
+    pub last_video_format: Option<String>,
 
     // Multi-tab sessions
     pub sessions: Vec<DownloadSession>,
@@ -55,7 +59,6 @@ impl Default for DownloadManager {
 
 impl DownloadManager {
     pub fn new() -> Self {
-        let available_browsers = detection::detect_installed_browsers();
         let config = persistence::load_config();
 
         let config_exists = persistence::get_config_path().exists();
@@ -65,39 +68,25 @@ impl DownloadManager {
             CookieBrowser::None
         };
 
-        let first_session = DownloadSession::new("Tab 1", config.download_type.clone());
+        let mut first_session = DownloadSession::new("Tab 1", config.download_type.clone());
+        first_session.selected_format = config.last_video_format.clone();
 
         let manager = Self {
             show_window: false,
+            folder_picker: folder_picker::FolderPicker::new(),
             ffmpeg_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             ytdlp_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             deno_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             install_logs: Arc::new(Mutex::new(Vec::new())),
             install_cancel_flag: Arc::new(AtomicBool::new(false)),
-            zipformer_dlls_status: Arc::new(Mutex::new(InstallStatus::Checking)),
-            zipformer_lang_statuses: {
-                let mut m = HashMap::new();
-                for lang in [
-                    ZipformerLanguage::English,
-                    ZipformerLanguage::Korean,
-                    ZipformerLanguage::Chinese,
-                    ZipformerLanguage::French,
-                    ZipformerLanguage::German,
-                    ZipformerLanguage::Spanish,
-                    ZipformerLanguage::Russian,
-                    ZipformerLanguage::All8Lang,
-                ] {
-                    m.insert(lang, Arc::new(Mutex::new(InstallStatus::Checking)));
-                }
-                m
-            },
             custom_download_path: config.custom_download_path,
             use_metadata: config.use_metadata,
             use_sponsorblock: config.use_sponsorblock,
             use_subtitles: Arc::new(Mutex::new(config.use_subtitles)),
             use_playlist: config.use_playlist,
             cookie_browser: default_browser,
-            available_browsers,
+            browser_discovery: browser_discovery::BrowserDiscovery::new(),
+            last_video_format: config.last_video_format,
             sessions: vec![first_session],
             active_tab_idx: 0,
             show_cookie_deno_dialog: false,
@@ -121,16 +110,23 @@ impl DownloadManager {
             .get(self.active_idx())
             .map(|s| s.download_type.clone())
             .unwrap_or(DownloadType::Video);
-        self.sessions
-            .push(DownloadSession::new(format!("Tab {}", n), dt));
+        let mut session = DownloadSession::new(format!("Tab {}", n), dt);
+        session.selected_format = self.last_video_format.clone();
+        self.sessions.push(session);
         self.active_tab_idx = self.sessions.len() - 1;
     }
 
     pub fn close_tab(&mut self, idx: usize) {
+        // A closed tab can no longer cancel its download, so stop it now.
+        if let Some(session) = self.sessions.get(idx) {
+            session.cancel_flag.store(true, Ordering::Release);
+        }
         if self.sessions.len() <= 1 {
             // Don't close the last tab — just clear it instead
             let dt = self.sessions[0].download_type.clone();
-            self.sessions[0] = DownloadSession::new("Tab 1", dt);
+            let mut session = DownloadSession::new("Tab 1", dt);
+            session.selected_format = self.last_video_format.clone();
+            self.sessions[0] = session;
             return;
         }
         self.sessions.remove(idx);
@@ -144,12 +140,18 @@ impl DownloadManager {
     }
 
     pub fn save_settings(&self) {
+        if let Err(error) = persistence::try_save_config(&self.settings_snapshot()) {
+            crate::log_info!("[Downloader] Could not save settings: {error}");
+        }
+    }
+
+    fn settings_snapshot(&self) -> persistence::DownloadManagerConfig {
         let dt = self
             .sessions
             .get(self.active_idx())
             .map(|s| s.download_type.clone())
             .unwrap_or(DownloadType::Video);
-        let config = persistence::DownloadManagerConfig {
+        persistence::DownloadManagerConfig {
             custom_download_path: self.custom_download_path.clone(),
             use_metadata: self.use_metadata,
             use_sponsorblock: self.use_sponsorblock,
@@ -157,83 +159,7 @@ impl DownloadManager {
             use_playlist: self.use_playlist,
             cookie_browser: self.cookie_browser.clone(),
             download_type: dt,
-            selected_subtitle: self
-                .sessions
-                .get(self.active_idx())
-                .and_then(|s| s.selected_subtitle.clone()),
-        };
-        persistence::save_config(&config);
-    }
-
-    pub fn start_download_sherpa_dlls(&self) {
-        let status = self.zipformer_dlls_status.clone();
-        *status.lock().unwrap() = InstallStatus::Downloading(0.0);
-        let stop = Arc::new(AtomicBool::new(false));
-        std::thread::spawn(move || {
-            let badge = crate::overlay::auto_copy_badge::DownloadProgressBadge::new("sherpa-onnx");
-            let status_cb = status.clone();
-            let result = sherpa_onnx::dlls::download_sherpa_dlls_with_progress(stop, move |p| {
-                badge.report((p * 100.0).round() as u64, 100);
-                *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
-            });
-            let s = status_after_result(result);
-            *status.lock().unwrap() = s;
-        });
-    }
-
-    pub fn start_download_zipformer_lang(&self, lang: ZipformerLanguage) {
-        let status = self.zipformer_lang_statuses[&lang].clone();
-        let dll_status = self.zipformer_dlls_status.clone();
-        *status.lock().unwrap() = InstallStatus::Downloading(0.0);
-        let stop = Arc::new(AtomicBool::new(false));
-        std::thread::spawn(move || {
-            let language = crate::APP
-                .lock()
-                .map(|app| app.config.ui_language.clone())
-                .unwrap_or_else(|_| "en".to_string());
-            let language_name = crate::gui::locale::LocaleText::get(&language)
-                .auxiliary
-                .managed_tools
-                .zipformer_language_name(lang.code());
-            let badge = Arc::new(crate::overlay::auto_copy_badge::DownloadProgressBadge::new(
-                &format!("Zipformer {language_name}"),
-            ));
-            let result = (|| -> anyhow::Result<()> {
-                if !sherpa_onnx::dlls::is_sherpa_runtime_ready() {
-                    *dll_status.lock().unwrap() = InstallStatus::Downloading(0.0);
-                    let dll_status_cb = dll_status.clone();
-                    let dll_badge = badge.clone();
-                    sherpa_onnx::dlls::download_sherpa_dlls_with_progress(
-                        stop.clone(),
-                        move |p| {
-                            dll_badge.report((p * 50.0).round() as u64, 100);
-                            *dll_status_cb.lock().unwrap() = InstallStatus::Downloading(p);
-                        },
-                    )?;
-                    *dll_status.lock().unwrap() = InstallStatus::Installed;
-                }
-
-                let status_cb = status.clone();
-                let model_badge = badge.clone();
-                sherpa_onnx::download_model_with_progress(lang, stop, move |p| {
-                    model_badge.report(50 + (p * 50.0).round() as u64, 100);
-                    *status_cb.lock().unwrap() = InstallStatus::Downloading(p);
-                })
-            })();
-            let s = status_after_result(result);
-            *status.lock().unwrap() = s;
-            if !sherpa_onnx::dlls::is_sherpa_runtime_ready()
-                && !matches!(*dll_status.lock().unwrap(), InstallStatus::Downloading(_))
-            {
-                *dll_status.lock().unwrap() = InstallStatus::Missing;
-            }
-        });
-    }
-}
-
-fn status_after_result(result: anyhow::Result<()>) -> InstallStatus {
-    match result {
-        Ok(()) => InstallStatus::Installed,
-        Err(e) => InstallStatus::Error(e.to_string()),
+            last_video_format: self.last_video_format.clone(),
+        }
     }
 }

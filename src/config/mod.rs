@@ -31,6 +31,7 @@
 #[allow(clippy::module_inception)]
 mod config;
 mod io;
+mod languages;
 #[cfg(not(feature = "recorder-worker"))]
 mod live_translate_sync;
 pub mod preset;
@@ -44,7 +45,9 @@ pub mod types;
 // ============================================================================
 
 // Config struct and structured hotkey conflict ownership
-pub use config::{Config, GlobalHotkeyOwner, HotkeyConflict};
+pub use config::Config;
+#[cfg(not(feature = "recorder-worker"))]
+pub use config::{GlobalHotkeyOwner, HotkeyConflict};
 
 // Preset and ProcessingBlock
 #[cfg(not(feature = "recorder-worker"))]
@@ -53,9 +56,16 @@ pub use preset::Preset;
 pub use preset::ProcessingBlock;
 
 // I/O functions
+pub use io::load_config;
 #[cfg(not(feature = "recorder-worker"))]
-pub use io::get_all_languages;
-pub use io::{load_config, save_config};
+pub(crate) use io::try_save_current_config;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use io::unread_config_path;
+#[cfg(not(feature = "recorder-worker"))]
+pub use io::{save_config, try_save_config};
+#[cfg(not(feature = "recorder-worker"))]
+pub use languages::get_all_languages;
+pub use languages::language_from_name;
 
 // ============================================================================
 // RE-EXPORTS - Types (only what's actually used externally)
@@ -77,16 +87,11 @@ pub use types::ModelPriorityChains;
 pub use types::RestoreDefaultsSelection;
 
 // TTS types
-#[cfg(feature = "recorder-worker")]
-pub use types::StepAudioVoiceConfig;
-pub use types::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioSettings, SupertonicSettings, SupertonicVoiceConfig,
-    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings,
-    step_audio_tts_text_issue,
-};
 #[cfg(not(feature = "recorder-worker"))]
-pub use types::{StepAudioReferenceVoice, TtsPlaygroundMode};
+pub use types::TtsPlaygroundMode;
+pub use types::{
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+};
 
 // Translation Gummy
 pub use types::TranslationGummySettings;

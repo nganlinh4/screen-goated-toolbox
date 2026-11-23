@@ -11,12 +11,20 @@ internal fun presetResultBaseHtmlTemplate(): String {
             <style>{{THEME_CSS}}</style>
             <style>{{MARKDOWN_CSS}}</style>
             <style>{{WINDOW_CHROME_CSS}}</style>
-            <link href="{{GRIDJS_CSS_URL}}" rel="stylesheet" />
+            <style>{{GRIDJS_LIB_CSS}}</style>
             <style>{{GRIDJS_CSS}}</style>
         </head>
         <body></body>
         <script>{{FIT_SCRIPT}}</script>
-        <script src="{{GRIDJS_JS_URL}}"></script>
+        <script>{{GRIDJS_LIB_JS}}</script>
+        <script>{{RESULT_DOM_PATCH_JS}}</script>
+        <script>
+            {{M3E_LIB_JS}}
+            {{M3E_INIT_JS}}
+            window.sgtStartLoading = function(canvas) {
+                return window.initM3ELoading(canvas, {size: 36, isDark: {{M3E_IS_DARK}}, showContainer: false});
+            };
+        </script>
         <script>
             window.ipc = {
                 postMessage(message) {
@@ -74,10 +82,17 @@ internal fun presetResultCss(isDark: Boolean): String {
         .sgt-loading-shell {
             min-height: 100vh;
             display: flex;
+            flex-direction: column;
+            gap: 8px;
             align-items: center;
             justify-content: center;
             user-select: none;
             -webkit-user-select: none;
+        }
+        .sgt-loading-status {
+            font-size: 13px;
+            opacity: 0.72;
+            text-align: center;
         }
     """.trimIndent()
 }

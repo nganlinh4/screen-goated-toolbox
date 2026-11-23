@@ -75,6 +75,7 @@ export function appMarkup() {
         </div>
         <div class="control-section">
           <span class="control-label" data-i18n="generationMode"></span>
+          <small class="saved-generation-mode" id="savedMode" hidden></small>
           <div class="mode-options" role="group" data-i18n-aria="generationMode">
             <button type="button" data-generation-mode="quality" data-i18n="quality"></button>
           </div>

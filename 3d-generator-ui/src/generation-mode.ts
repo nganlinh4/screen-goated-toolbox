@@ -1,4 +1,4 @@
-export type GenerationMode = "quality";
+export type GenerationMode = "quality" | "fast";
 export type MeshTopology = "triangle" | "quad";
 
 export type GenerationSettings = {
@@ -20,13 +20,16 @@ export function generationSettings(
   topology?: MeshTopology,
 ): GenerationSettings {
   const finitePolycount = Number.isFinite(polycount) ? Math.round(polycount) : 5_000;
+  const legacy = mode === "fast";
+  const limits = legacy ? { minimum: 100, maximum: 15_000 } : LIMITS;
+  const autoSegment = !legacy && requestedAutoSegment;
   return {
     mode,
-    polycount: Math.min(LIMITS.maximum, Math.max(LIMITS.minimum, finitePolycount)),
-    minimumPolycount: LIMITS.minimum,
-    maximumPolycount: LIMITS.maximum,
-    autoSegment: requestedAutoSegment,
-    showAutoSegment: true,
-    topology: requestedAutoSegment ? "triangle" : topology || "quad",
+    polycount: Math.min(limits.maximum, Math.max(limits.minimum, finitePolycount)),
+    minimumPolycount: limits.minimum,
+    maximumPolycount: limits.maximum,
+    autoSegment,
+    showAutoSegment: !legacy,
+    topology: legacy || autoSegment ? "triangle" : topology || "quad",
   };
 }

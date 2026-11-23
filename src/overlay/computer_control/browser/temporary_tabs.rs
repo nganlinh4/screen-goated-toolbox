@@ -455,11 +455,6 @@ fn require_cleanup_capability() -> Result<()> {
     super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)
 }
 
-#[cfg(test)]
-fn cleanup_capability_available(remove: bool, cdp: bool, explicit_tab: bool) -> bool {
-    remove || (cdp && explicit_tab)
-}
-
 fn list_tabs(epoch: u64) -> Result<Vec<TabSnapshot>> {
     let value = super::bridge_rpc::rpc_on_epoch("tabs", json!({"action": "list"}), epoch)?;
     parse_tab_inventory(&value)

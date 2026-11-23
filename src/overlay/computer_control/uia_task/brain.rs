@@ -10,6 +10,14 @@ impl Brain {
     ) {
         self.setup_guard.begin_turn(turn_id);
         if self.current_turn_id == Some(turn_id) {
+            if let Some(source) = source_frame.as_ref() {
+                if self.view != source.view {
+                    self.clear_anchors("model_frame_view_changed");
+                    self.zoomed = false;
+                    self.whole_screen = false;
+                }
+                self.view = source.view;
+            }
             if let Some(FrameSource {
                 surface:
                     super::super::controller::world::SurfaceIdentity::Browser {
@@ -58,7 +66,10 @@ impl Brain {
         self.click_before = None;
         self.zoomed = false;
         self.whole_screen = false;
-        self.view = window_view(self.target.as_deref(), false);
+        self.view = self.source_frame.as_ref().map_or_else(
+            || clamp_to_virtual_desktop(window_view(self.target.as_deref(), false)),
+            |source| source.view,
+        );
         self.show_coarse_grid = false;
         self.controller
             .bind_source_surface(self.source_frame.as_ref().map(|source| &source.surface));
@@ -100,7 +111,9 @@ impl Brain {
     pub fn new(target: Option<String>) -> Self {
         super::super::telemetry::begin_session();
         let trace_dir = super::super::telemetry::trace_dir();
-        if let Err(error) = std::fs::create_dir_all(&trace_dir) {
+        if let Some(Err(error)) =
+            super::super::session_retention::persist(|| std::fs::create_dir_all(&trace_dir))
+        {
             super::super::telemetry::artifact_write_failed(
                 "trace_directory",
                 &trace_dir,
@@ -110,7 +123,7 @@ impl Brain {
         }
         let dir = trace_dir.to_string_lossy().into_owned();
         let requested_target = target.clone();
-        let view = window_view(target.as_deref(), false);
+        let view = clamp_to_virtual_desktop(window_view(target.as_deref(), false));
         let dry = super::harness_options::dry_run_requested();
         let desktop = uia::virtual_desktop();
         super::super::telemetry::record_session_start(json!({
@@ -376,7 +389,7 @@ impl Brain {
             self.bind_pending_anchors(frame_id, v, surface);
         }
         if suppress_readouts {
-            eprintln!(
+            cc_diagnostic!(
                 "[cc] step {:02} (info tool; screen readouts suppressed)",
                 self.step
             );
@@ -389,10 +402,7 @@ impl Brain {
         }
         // Compare the click's own pre/post region so unrelated animation cannot
         // fake an effect. Only click_at/click_target sets this snapshot.
-        let visual_no_change = match self.click_before.take() {
-            Some(before) => session::fingerprint_change(&before, &fp) < vc_min(),
-            None => false,
-        };
+        let visual_no_change = visual_unchanged(self.click_before.take().as_deref(), &fp, vc_min());
         if let Some(state) = &semantic {
             super::super::telemetry::event(
                 "semantic_surface_observed",
@@ -411,19 +421,32 @@ impl Brain {
             let ro = readouts_inline(&elements);
             let ro_short: String = ro.chars().take(220).collect();
             let more = if ro.chars().count() > 220 { " ..." } else { "" };
-            eprintln!(
+            cc_diagnostic!(
                 "[cc] step {:02} READOUTS ({} els): {ro_short}{more}",
                 self.step,
                 elements.len()
             );
         }
-        let new_sig = semantic
+        let observed_text = semantic
             .as_ref()
-            .map(|state| format!("structured:{}", state.elements))
+            .map(|state| state.elements.clone())
             .unwrap_or_else(|| state_signature(&elements));
-        let ui_changed = self.prev_state_sig.as_deref() != Some(new_sig.as_str());
-        self.prev_state_sig = Some(new_sig.clone());
-        let act_sig = record_action(&mut self.recent_actions, name, args);
+        let new_sig = super::state_signature::scoped_signature(
+            &source.surface,
+            &observed_text,
+            semantic.as_ref().map_or(
+                accessibility_observed
+                    && perception_surface.is_some()
+                    && elements.iter().all(|element| !element.value.incomplete),
+                |state| state.has_elements,
+            ),
+        );
+        let state_unchanged = self
+            .prev_state_sig
+            .as_deref()
+            .zip(new_sig.as_deref())
+            .is_some_and(|(before, after)| before == after);
+        self.prev_state_sig = new_sig.clone();
         // Repetition is stuck only when state is unchanged; navigation may reveal new content.
         let is_nav = name == "key_combination"
             && args
@@ -431,15 +454,26 @@ impl Brain {
                 .and_then(Value::as_str)
                 .map(is_nav_keys)
                 .unwrap_or(false);
-        let stuck = is_repeated_unchanged(&self.recent_actions, &act_sig, ui_changed, is_nav);
-        if visual_no_change {
-            eprintln!("[cc] step {:02} NO VISUAL CHANGE after {name}", self.step);
+        let (act_sig, stuck) = record_observed_action(
+            &mut self.recent_actions,
+            name,
+            args,
+            state_unchanged,
+            visual_no_change,
+            is_nav,
+        );
+        if visual_no_change == Some(true) {
+            cc_diagnostic!("[cc] step {:02} NO VISUAL CHANGE after {name}", self.step);
         }
         if stuck {
-            eprintln!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
+            cc_diagnostic!("[cc] step {:02} STUCK: repeated '{act_sig}'", self.step);
         }
         let postcondition = if stuck {
-            let request_advice = latch_advice(&mut self.advice_latches, &act_sig, &new_sig);
+            let request_advice = latch_advice(
+                &mut self.advice_latches,
+                &act_sig,
+                new_sig.as_deref().unwrap_or_default(),
+            );
             GroundPostcondition::no_effect(
                 NoEffectReason::RepeatedUnchangedState,
                 true,

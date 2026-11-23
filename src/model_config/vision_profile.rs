@@ -27,13 +27,9 @@ pub enum VisionSamplingPolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StructuredOutputPolicy {
+    /// No schema is attached. The catalog's `prompt-only` value also maps
+    /// here: asking for structure in the prompt alone sends the same request.
     Unsupported,
-    // Constructed by the generated catalog rather than by hand, so it reads as
-    // dead whenever no enabled endpoint selects it. It stays because the value
-    // is part of the shared wire contract that Android, both validators, and
-    // catalog/README.md all define.
-    #[allow(dead_code)]
-    PromptOnly,
     JsonObject,
     StrictJsonSchema,
 }
@@ -53,6 +49,15 @@ pub struct VisionRequestProfile {
     /// change. The salvage it enables edits a reply, and an edit applied to a
     /// model that does not have the fault can only ever remove correct text.
     pub restates_output: bool,
+}
+
+/// Whether structured requests to this endpoint use strict JSON-schema mode:
+/// its catalog profile declares that policy for text or for vision requests.
+pub fn supports_strict_json_schema(provider: &str, api_model: &str) -> bool {
+    super::text_structured_output_policy(provider, api_model)
+        == Some(StructuredOutputPolicy::StrictJsonSchema)
+        || super::vision_request_profile(provider, api_model).structured_output
+            == StructuredOutputPolicy::StrictJsonSchema
 }
 
 impl VisionRequestProfile {

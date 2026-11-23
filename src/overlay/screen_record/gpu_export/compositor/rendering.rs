@@ -1,6 +1,6 @@
 use super::CompositorUniforms;
 use super::GpuCompositor;
-use crate::overlay::screen_record::gpu_export::setup::{OverlayVertex, shared_gpu_context};
+use crate::overlay::screen_record::gpu_export::setup::OverlayVertex;
 use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 /// Core rendering methods for `GpuCompositor`.
@@ -207,10 +207,7 @@ impl GpuCompositor {
         >,
         quads: &[OverlayQuad],
     ) {
-        let shared = match shared_gpu_context() {
-            Ok(shared) => shared,
-            Err(_) => return,
-        };
+        let shared = &self.shared;
         let webcam_ready = webcam_frame.is_some_and(|frame| {
             self.webcam_overlay
                 .prepare(&self.queue, self.width, self.height, frame)
@@ -221,77 +218,75 @@ impl GpuCompositor {
         } else {
             self.build_overlay_vertices(quads)
         };
-        let overlay_vertex_count = overlay_vertices.len() as u32;
-
-        if !webcam_ready && overlay_vertex_count == 0 {
+        if !webcam_ready && overlay_vertices.is_empty() {
             return;
         }
 
-        if overlay_vertex_count > 0 {
-            let byte_len = (overlay_vertices.len() * std::mem::size_of::<OverlayVertex>()) as u64;
-            if byte_len > self.overlay_vertex_buffer.size() {
-                return;
-            }
-            self.queue.write_buffer(
-                &self.overlay_vertex_buffer,
-                0,
-                bytemuck::cast_slice(&overlay_vertices),
-            );
-        }
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Post Overlays"),
-            });
         let view = self
             .output_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         if webcam_ready {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Webcam Overlay Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let mut encoder = self.post_overlay_encoder();
+            let mut pass = begin_load_pass(&mut encoder, &view, "Webcam Overlay Pass");
             self.webcam_overlay
                 .render_pass(&mut pass, shared, &self.vertex_buffer);
+            drop(pass);
+            self.queue.submit(std::iter::once(encoder.finish()));
         }
 
-        if overlay_vertex_count > 0 {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Atlas Overlay Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+        // A frame with more text quads than the vertex buffer holds is drawn in
+        // buffer-sized batches (whole quads each) instead of being dropped.
+        // Each batch is its own submission because queued buffer writes land
+        // before the next submit.
+        let quads_per_batch = self.overlay_vertex_buffer.size() as usize
+            / (std::mem::size_of::<OverlayVertex>() * VERTICES_PER_QUAD);
+        if quads_per_batch == 0 {
+            return;
+        }
+        for batch in overlay_vertices.chunks(quads_per_batch * VERTICES_PER_QUAD) {
+            self.queue
+                .write_buffer(&self.overlay_vertex_buffer, 0, bytemuck::cast_slice(batch));
+            let mut encoder = self.post_overlay_encoder();
+            let mut pass = begin_load_pass(&mut encoder, &view, "Atlas Overlay Pass");
             pass.set_pipeline(&shared.overlay_pipeline);
             pass.set_bind_group(0, &self.atlas_bind_group, &[]);
             pass.set_vertex_buffer(0, self.overlay_vertex_buffer.slice(..));
-            pass.draw(0..overlay_vertex_count, 0..1);
+            pass.draw(0..batch.len() as u32, 0..1);
+            drop(pass);
+            self.queue.submit(std::iter::once(encoder.finish()));
         }
-
-        self.queue.submit(std::iter::once(encoder.finish()));
     }
+
+    fn post_overlay_encoder(&self) -> wgpu::CommandEncoder {
+        self.device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Overlays"),
+            })
+    }
+}
+
+const VERTICES_PER_QUAD: usize = 6;
+
+fn begin_load_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    view: &'a wgpu::TextureView,
+    label: &'static str,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    })
 }

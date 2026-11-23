@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/creation-v1.json";
-const EXPECTED_FEATURES: &[&str] = &["image_to_3d", "image_to_svg", "image_creator"];
+const EXPECTED_FEATURES: &[&str] = &["image_to_3d", "image_to_svg"];
 const EXPECTED_FILES: &[&str] = &[
     "bin/sgt_creation_runtime.exe",
     "web/assets/index.css",

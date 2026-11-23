@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "placements": ["raw", "result", "action_result", "data", "items"],
+  "cases": [
+    {"host": {}, "mutating": true, "payload": {"executed": false}, "expected": "may_have_occurred"},
+    {"host": {}, "mutating": true, "payload": {"effect_verified": true}, "expected": "may_have_occurred"},
+    {"host": {}, "mutating": false, "payload": {"effect_may_have_occurred": false}, "expected": "unknown"},
+    {"host": {"dispatch_ok": true}, "mutating": true, "payload": {"effect_verified": true}, "expected": "may_have_occurred"},
+    {"host": {"dispatch_ok": false}, "mutating": true, "payload": {"effect_verified": true}, "expected": "proven_no_effect"},
+    {"host": {"effect_verified": true, "effect_may_have_occurred": true}, "mutating": true, "payload": {"executed": false}, "expected": "verified"},
+    {"host": {"input_injection": {"requested": 3, "inserted": 1, "fully_inserted": false}}, "mutating": true, "payload": {"effect_verified": true}, "expected": "may_have_occurred"},
+    {"host": {"input_injection": {"requested": 3, "inserted": 0, "fully_inserted": false}}, "mutating": true, "payload": {"executed": true}, "expected": "proven_no_effect"},
+    {"host": {"effect_may_have_occurred": true}, "mutating": true, "payload": {"effect_scope": "batch", "receipts": [{"effect_verified": true}]}, "expected": "may_have_occurred"},
+    {"host": {"effect_verified": true}, "mutating": true, "payload": {"effect_scope": "batch", "receipts": [{}]}, "expected": "verified"}
+  ]
+}

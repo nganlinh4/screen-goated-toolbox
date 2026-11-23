@@ -9,6 +9,8 @@ import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.normalizedResultOverlayOpacityPercent
 import dev.screengoated.toolbox.mobile.preset.PresetExecutionState
+import dev.screengoated.toolbox.mobile.preset.PresetEffectLease
+import dev.screengoated.toolbox.mobile.preset.PresetPostProcessActions
 import dev.screengoated.toolbox.mobile.preset.PresetRepository
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import dev.screengoated.toolbox.mobile.service.DismissBubbleController
@@ -16,6 +18,7 @@ import dev.screengoated.toolbox.mobile.service.dismissAllLabel
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
+import dev.screengoated.toolbox.mobile.ui.icons.MaterialSymbolSvgs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,8 +46,9 @@ internal class PresetOverlayController(
     internal val ttsSettingsSnapshotProvider: (() -> dev.screengoated.toolbox.mobile.service.tts.TtsRequestSettingsSnapshot)? = null,
 ) {
     internal val appContainer = (context.applicationContext as SgtMobileApplication).appContainer
-    internal val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder()
-    internal val textInputHtmlBuilder = PresetTextInputHtmlBuilder()
+    internal val audioRecoveryOwnerId = java.util.UUID.randomUUID().toString()
+    internal val favoriteBubbleHtmlBuilder = FavoriteBubbleHtmlBuilder(MaterialSymbolSvgs.fromAssets(context))
+    internal val textInputHtmlBuilder = PresetTextInputHtmlBuilder(context)
     internal val density = context.resources.displayMetrics.density
     internal val dismissTarget = DismissBubbleController(
         context = context,
@@ -55,6 +59,7 @@ internal class PresetOverlayController(
     internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
 
     internal val processingIndicator = PresetProcessingIndicator(context, windowManager)
+    private val processingIndicatorGate = PresetProcessingIndicatorGate()
     internal val accessibilityDisclosure = AccessibilityDisclosureOverlay(context, windowManager)
     internal val imageCaptureSession = PresetImageCaptureSession(
         context = context,
@@ -134,6 +139,7 @@ internal class PresetOverlayController(
     )
     internal val inputModule: PresetOverlayInputModule
     internal val resultModule: PresetOverlayResultModule
+    private val ownedPostProcessActions: PresetPostProcessActions
 
     internal var catalogJob: Job? = null
     internal var executionJob: Job? = null
@@ -163,6 +169,7 @@ internal class PresetOverlayController(
                 }
             },
             onMicRequested = ::launchDefaultMicPreset,
+            onCopyInputImage = ::copyImageToClipboard,
             ttsRuntimeService = ttsRuntimeService,
             ttsSettingsSnapshotProvider = ttsSettingsSnapshotProvider,
             overlayOpacityProvider = {
@@ -183,37 +190,33 @@ internal class PresetOverlayController(
             onInputClosedWithoutResults = ::handleInputClosedWithoutResults,
             hasResults = { resultModule.hasResults() },
             onMicRequested = ::launchDefaultMicPreset,
+            onWindowClosed = { windowId ->
+                appContainer.audioPresetLaunchStore.clearInputWindow(audioRecoveryOwnerId, windowId)
+            },
         )
+        appContainer.audioPresetLaunchStore.registerOwner(audioRecoveryOwnerId, ::resumePendingAudioLaunch)
         // Wire centralized post-processing actions (matches Windows step.rs)
-        presetRepository.postProcessActions = object : dev.screengoated.toolbox.mobile.preset.PresetPostProcessActions {
-            override fun handleAutoCopy(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String) {
+        ownedPostProcessActions = object : PresetPostProcessActions {
+            override fun handleAutoCopy(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String, lease: PresetEffectLease) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    lease.runIfCurrent {
                     val copied = copyTextToClipboard(resultText)
                     Toast.makeText(
                         context,
-                        if (copied) {
-                            localized(
-                                "Transcript copied.",
-                                "Đã sao chép bản chép lời.",
-                                "받아쓴 내용을 복사했습니다.",
-                            )
-                        } else {
-                            localized(
-                                "Could not copy transcript.",
-                                "Không thể sao chép bản chép lời.",
-                                "받아쓴 내용을 복사할 수 없습니다.",
-                            )
-                        },
+                        copyToastText(uiLanguage(), copied),
                         Toast.LENGTH_SHORT,
                     ).show()
+                    }
                 }
             }
 
             override fun handleAutoCopyImage(
                 block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock,
                 pngBytes: ByteArray,
+                lease: PresetEffectLease,
             ) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    lease.runIfCurrent {
                     val copied = copyImageToClipboard(pngBytes)
                     Toast.makeText(
                         context,
@@ -232,15 +235,17 @@ internal class PresetOverlayController(
                         },
                         Toast.LENGTH_SHORT,
                     ).show()
+                    }
                 }
             }
 
-            override fun handleAutoSpeak(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String, blockIdx: Int) {
-                autoSpeakCoordinator?.schedule(resultText, blockIdx)
+            override fun handleAutoSpeak(block: dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock, resultText: String, blockIdx: Int, lease: PresetEffectLease) {
+                autoSpeakCoordinator?.schedule(resultText, blockIdx, lease)
             }
 
-            override fun handleAutoPaste() {
+            override fun handleAutoPaste(lease: PresetEffectLease) {
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    lease.runIfCurrent {
                     val svc = SgtAccessibilityService.instance
                     val pasted = svc?.pasteIntoFocusedField() == true
                     if (!pasted) {
@@ -262,9 +267,11 @@ internal class PresetOverlayController(
                             Toast.LENGTH_LONG,
                         ).show()
                     }
+                    }
                 }, 200)
             }
         }
+        presetRepository.postProcessActions = ownedPostProcessActions
 
         catalogJob = scope.launch(Dispatchers.Main.immediate) {
             presetRepository.catalogState.collectLatest {
@@ -289,7 +296,14 @@ internal class PresetOverlayController(
         if (ttsRuntimeService != null) {
             ttsEventsJob = scope.launch(Dispatchers.Main.immediate) {
                 launch {
-                    ttsRuntimeService.playbackEvents.collect { event ->
+                    ttsRuntimeService.playbackEventsFor(
+                        dev.screengoated.toolbox.mobile.service.tts.TtsEventSelector(
+                            dev.screengoated.toolbox.mobile.service.tts.TtsConsumer.AUTO_SPEAK, AUTO_SPEAK_OWNER_PREFIX,
+                        ),
+                        dev.screengoated.toolbox.mobile.service.tts.TtsEventSelector(
+                            dev.screengoated.toolbox.mobile.service.tts.TtsConsumer.RESULT_OVERLAY,
+                        ),
+                    ).collect { event ->
                         autoSpeakCoordinator?.handlePlaybackEvent(event)
                         resultModule.handleTtsPlaybackEvent(event.requestId, event.ownerToken, event.completionStatus)
                     }
@@ -317,6 +331,8 @@ internal class PresetOverlayController(
     }
 
     fun destroy() {
+        releaseAudioRecoveryOwner()
+        presetRepository.releasePostProcessActions(ownedPostProcessActions)
         selectionCaptureGeneration++
         continuousSelection.close()
         catalogJob?.cancel()
@@ -378,7 +394,7 @@ internal class PresetOverlayController(
             preset == null ||
                 preset.blocks.getOrNull(window.blockIdx)?.blockType != dev.screengoated.toolbox.mobile.shared.preset.BlockType.INPUT_ADAPTER
         }
-        if (state.isExecuting && !hasAnyResultWindow) {
+        if (processingIndicatorGate.shouldShow(state.sessionId, state.isExecuting, hasAnyResultWindow)) {
             if (!processingIndicator.isShowing) {
                 val accent = when (activePreset?.preset?.presetType) {
                     dev.screengoated.toolbox.mobile.shared.preset.PresetType.IMAGE ->
@@ -464,6 +480,7 @@ internal class PresetOverlayController(
     }
 
     internal fun dismissAllOverlays() {
+        cancelPendingAudioRecovery()
         selectionCaptureGeneration++
         continuousSelection.close()
         processingIndicator.dismiss()
@@ -480,5 +497,13 @@ internal class PresetOverlayController(
         pendingTextSelectInput = null
         activePreset = null
         setOverlayChromeSuppressed(false)
+    }
+
+    internal fun cancelPendingAudioRecovery() {
+        appContainer.audioPresetLaunchStore.clearOwner(audioRecoveryOwnerId)
+    }
+
+    internal fun releaseAudioRecoveryOwner() {
+        appContainer.audioPresetLaunchStore.releaseOwner(audioRecoveryOwnerId)
     }
 }

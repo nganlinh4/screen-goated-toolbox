@@ -18,6 +18,10 @@ data class PresetResultWindowState(
     val overlayOrder: Int = 0,
     val modelId: String = "",
     val modelProvider: PresetModelProvider? = null,
+    val inputAudioBytes: ByteArray? = null,
+    val inputAudioHtml: java.lang.ref.WeakReference<String>? = null,
+    val inputImageBytes: ByteArray? = null,
+    val inputImageHtml: java.lang.ref.WeakReference<String>? = null,
 )
 
 data class PresetExecutionState(

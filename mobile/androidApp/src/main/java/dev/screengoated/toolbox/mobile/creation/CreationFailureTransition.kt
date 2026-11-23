@@ -14,23 +14,21 @@ internal fun applyCreationFailure(
     val current = memory.jobs[jobId] ?: return null
     if (!creationStageIsBusy(current.stage)) return null
     val request = memory.requests[jobId]
-    val publicMessage = if (request?.tool == CreationTool.IMAGE_CREATOR.wireName) {
-        publicImageCreationFailure()
-    } else {
-        publicCreationFailure()
-    }
-    memory.jobs[jobId] = current.copy(
-        stage = "failed",
-        progressText = "Could not create result.",
-        phase = "failed",
-        error = publicMessage,
-    )
+    memory.jobs[jobId] = creationFailedStatus(current)
     return CreationFailureTransition(
         CreationFailureRecord(
             request?.tool,
             publicCreationFailureCategory(failureCode),
         ),
         request?.outputPath,
-        request?.imagePaths.orEmpty(),
+        listOfNotNull(request?.imagePath),
     )
 }
+
+/** The one public terminal-failure projection of a job status. */
+internal fun creationFailedStatus(current: CreationJobStatus): CreationJobStatus = current.copy(
+    stage = "failed",
+    progressText = "Could not create result.",
+    phase = "failed",
+    error = publicCreationFailure(),
+)

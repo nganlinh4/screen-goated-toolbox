@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"coalesced_checks","platforms":["windows","full","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"check","id":"b","accepted":false},{"action":"available","id":"a"}],"status":"available"},
+    {"name":"startup_once","platforms":["windows","full","play"],"steps":[{"action":"auto","id":"a","accepted":true},{"action":"up_to_date","id":"a"},{"action":"auto","id":"b","accepted":false}],"status":"up_to_date"},
+    {"name":"error_retry","platforms":["windows","full","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"error","id":"a"},{"action":"check","id":"b","accepted":true},{"action":"available","id":"b"}],"status":"available"},
+    {"name":"old_result_after_retry","platforms":["windows","full","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"error","id":"a"},{"action":"check","id":"b","accepted":true},{"action":"available","id":"a"},{"action":"up_to_date","id":"b"}],"status":"up_to_date"},
+    {"name":"notification_once","platforms":["windows","full"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"notice","accepted":true},{"action":"notice","accepted":false}],"status":"available"},
+    {"name":"obsolete_notification","platforms":["windows","full"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"check","id":"b","accepted":true},{"action":"notice","accepted":false},{"action":"up_to_date","id":"b"}],"status":"up_to_date"},
+    {"name":"download_blocks_check","platforms":["windows","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"start","id":"d","accepted":true},{"action":"check","id":"b","accepted":false},{"action":"error","id":"a"}],"status":"downloading"},
+    {"name":"duplicate_start","platforms":["windows","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"start","id":"d","accepted":true},{"action":"start","id":"e","accepted":false},{"action":"ready","id":"d"}],"status":"ready"},
+    {"name":"ready_blocks_check","platforms":["windows","play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"start","id":"d","accepted":true},{"action":"ready","id":"d"},{"action":"check","id":"b","accepted":false},{"action":"error","id":"a"}],"status":"ready"},
+    {"name":"downloaded_absorbs_old_poll","platforms":["play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"ready"},{"action":"available","id":"a"},{"action":"progress"}],"status":"ready"},
+    {"name":"completion_failure_retains_download","platforms":["play"],"steps":[{"action":"ready"},{"action":"complete","id":"c","accepted":true},{"action":"complete","id":"d","accepted":false},{"action":"completion_error","id":"c"}],"status":"ready"},
+    {"name":"old_completion_cannot_replace_retry","platforms":["play"],"steps":[{"action":"ready"},{"action":"complete","id":"c","accepted":true},{"action":"completion_error","id":"c"},{"action":"complete","id":"d","accepted":true},{"action":"completion_error","id":"c"}],"status":"installing"},
+    {"name":"declined_launch_can_check_again","platforms":["play"],"steps":[{"action":"check","id":"a","accepted":true},{"action":"available","id":"a"},{"action":"start","id":"d","accepted":true,"returned":false},{"action":"check","id":"b","accepted":true},{"action":"up_to_date","id":"b"}],"status":"up_to_date"}
+  ]
+}

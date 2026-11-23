@@ -1,6 +1,16 @@
 use super::super::*;
 use super::text_state::LiveTranslateTextState;
 
+#[derive(Clone, Copy)]
+pub(super) struct DirectAudioGate<'a> {
+    pub(super) playback: &'a Arc<dyn crate::api::tts::manager::RealtimeAudioSink>,
+    pub(super) stop_signal: &'a AtomicBool,
+    pub(super) session_id: u64,
+    pub(super) engine_revision: u64,
+    pub(super) epoch: u64,
+    pub(super) visible: bool,
+}
+
 #[derive(Default)]
 pub(super) struct LiveTranslateOutputState {
     received_audio_chunks: usize,
@@ -17,6 +27,7 @@ impl LiveTranslateOutputState {
         effects: Vec<LiveLifecycleEffect>,
         event_tx: &mpsc::Sender<S2sEvent>,
         playback: &crate::api::tts::player::audio_player::AudioPlayer,
+        audio_gate: &DirectAudioGate<'_>,
     ) -> Result<()> {
         for effect in effects {
             match effect {
@@ -26,7 +37,7 @@ impl LiveTranslateOutputState {
                         count == actual,
                         "Live Translate content effect mismatch: expected {count}, frame has {actual}"
                     );
-                    self.deliver_content(frame, event_tx, playback);
+                    self.deliver_content(frame, event_tx, audio_gate);
                 }
                 LiveLifecycleEffect::FinalizeGeneration => {
                     self.generation_boundaries = self.generation_boundaries.saturating_add(1);
@@ -80,7 +91,7 @@ impl LiveTranslateOutputState {
         &mut self,
         frame: &LiveServerFrame,
         event_tx: &mpsc::Sender<S2sEvent>,
-        playback: &crate::api::tts::player::audio_player::AudioPlayer,
+        audio_gate: &DirectAudioGate<'_>,
     ) {
         let mut text_changed = false;
         if let Some(text) = frame.input_transcript.as_deref() {
@@ -95,8 +106,23 @@ impl LiveTranslateOutputState {
         self.received_audio_chunks = self
             .received_audio_chunks
             .saturating_add(frame.audio_chunks.len());
-        for bytes in &frame.audio_chunks {
-            playback.play_native_stream(bytes);
+        if audio_gate.visible {
+            for bytes in &frame.audio_chunks {
+                crate::overlay::realtime_webview::state::publish_if_engine_current(
+                    audio_gate.session_id,
+                    audio_gate.stop_signal,
+                    audio_gate.engine_revision,
+                    || {
+                        TTS_MANAGER.admit_direct_realtime_audio(
+                            audio_gate.playback,
+                            bytes,
+                            audio_gate.stop_signal,
+                            &crate::overlay::realtime_webview::state::TRANS_VISIBLE,
+                            audio_gate.epoch,
+                        );
+                    },
+                );
+            }
         }
     }
 }

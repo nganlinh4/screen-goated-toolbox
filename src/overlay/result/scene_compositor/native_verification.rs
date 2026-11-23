@@ -71,7 +71,8 @@ mod tests {
             let visual = create();
             let input = create();
             let foreground = GetForegroundWindow();
-            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10);
+            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10)
+                .unwrap();
             assert!(super::super::visual_region::stack_below_input(
                 visual, input
             ));
@@ -83,7 +84,8 @@ mod tests {
             assert_eq!(GetWindow(input, GW_HWNDNEXT).unwrap(), visual);
             assert_eq!(GetForegroundWindow(), foreground);
             let _ = ShowWindow(edge, SW_HIDE);
-            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10);
+            super::super::input_surface::sync_input_surface_bounds(input, -100, -100, 10, 10)
+                .unwrap();
             assert!(super::super::visual_region::stack_below_input(
                 visual, input
             ));

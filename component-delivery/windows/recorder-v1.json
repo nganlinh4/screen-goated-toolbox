@@ -2,18 +2,18 @@
   "architecture": "x64",
   "components": [
     {
-      "asset": "screen-recorder-5.6.0-fe797d091e2c4208.zip",
-      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.6.0-fe797d091e2c4208.zip",
+      "asset": "screen-recorder-5.6.0-8fc0298f4a817b72.zip",
+      "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/screen-recorder-5.6.0-8fc0298f4a817b72.zip",
       "files": [
         {
           "path": "bin/x64/sgt-recorder-worker.exe",
-          "sha256": "1efa4c8c69130ccf9d1308c6715c43ec5dca6acaf797e0c6494f0bc2b46e2e55",
-          "sizeBytes": 9537024
+          "sha256": "02e587894b8a57835a7257aa1f0824101bd585e595f785886abae417e776c8c0",
+          "sizeBytes": 8951296
         },
         {
           "path": "licenses/worker/THIRD-PARTY-LICENSES.json",
-          "sha256": "86db2e61e2fbb98f9e65b083e4432282eca1aabdebf300cca7047a72ea947702",
-          "sizeBytes": 4186915
+          "sha256": "99459d2cc02d54773d08d4bbbac1ed0c73d9d88506d3a2e77d78d9ced5eb2b81",
+          "sizeBytes": 3394407
         },
         {
           "path": "licenses/worker/THIRD-PARTY-NOTICES.txt",
@@ -22,28 +22,33 @@
         },
         {
           "path": "web/assets/AudioPanel.js",
-          "sha256": "4dad9663822da8b47bbfe9d31119a1eb9bfe493011427598a1b33b9b40d85d96",
-          "sizeBytes": 11722
+          "sha256": "b279c9f71617d1a0c16d533cc7de62aa85077aeb14973f0e6596ec033c27bf38",
+          "sizeBytes": 9738
         },
         {
           "path": "web/assets/BackgroundPanel.js",
-          "sha256": "00445cff883c1b3c08e6a998322dbefb445b8577896dea0fb1e8f6e1dfca177b",
-          "sizeBytes": 16204
+          "sha256": "9480a4e4729398596df578d569eca3d04cff43b897a2e051f666ebdd8eed7634",
+          "sizeBytes": 19283
         },
         {
           "path": "web/assets/BlurPanel.js",
-          "sha256": "6dff1a1809739bf7a71ddc3f009c51cbee2417b6a0e68356e1f10584ce15b776",
-          "sizeBytes": 856
+          "sha256": "91fba022cc2260007e2ceec0d782c7519f7ac057eb648be74824c8e6864971ba",
+          "sizeBytes": 860
         },
         {
           "path": "web/assets/CameraPanel.js",
-          "sha256": "f10a8449ee27e8f87220afd2e382eb5d6ff2d82de3bfdfa98279e56bc106e38b",
-          "sizeBytes": 3400
+          "sha256": "86fa04d5b7ba8a60893566b0e640dc11fabea6e84e2db96fd51d33beec6332e8",
+          "sizeBytes": 3405
         },
         {
           "path": "web/assets/CursorPanel.js",
-          "sha256": "91e03201b28a3605131378c4362d85d60dbd28b24ae5c8eb4724087229c9b86f",
-          "sizeBytes": 7082
+          "sha256": "3e1be1bc10b547a3b185eabb7fc8f791d51cb28a1439f78d4e397b766bec6745",
+          "sizeBytes": 7332
+        },
+        {
+          "path": "web/assets/EditorMain.js",
+          "sha256": "8b487ac04b3d728aefe7bbfb1c75536e0672b71401949bf35839f7e13e3d46eb",
+          "sizeBytes": 256843
         },
         {
           "path": "web/assets/EditorOverlays.css",
@@ -52,13 +57,18 @@
         },
         {
           "path": "web/assets/EditorOverlays.js",
-          "sha256": "9bf6904187cdc5ddb9672d8afcb464585f8f5b1e7a6f4388fac274d5d81bb76d",
-          "sizeBytes": 75073
+          "sha256": "472177056fbcd2972de8f3127cbcc104dcba149a19b1f74845d67acb63f49e6e",
+          "sizeBytes": 76414
+        },
+        {
+          "path": "web/assets/FieldLabelContext.js",
+          "sha256": "3f6d056c6d3090cd9dd06ca5da2015f064db2243e10bf1daecbf394bd510394f",
+          "sizeBytes": 494
         },
         {
           "path": "web/assets/NarrationPanel.js",
-          "sha256": "09522ab2e32d49fd05f6c28accfb6eeb52343b90f450b5cfd1c9d7e8823bde50",
-          "sizeBytes": 62404
+          "sha256": "1a83056d33d1d0e015f5d3f2073b1da73e2de6cd893a5e6a4be05c2f5b70857f",
+          "sizeBytes": 57774
         },
         {
           "path": "web/assets/PanelCard.js",
@@ -67,58 +77,73 @@
         },
         {
           "path": "web/assets/PanelSelect.js",
-          "sha256": "286945744f2786cabbc2a0dab9db26d3f4fbbfe848b8c1b99ef3af52d993bb77",
-          "sizeBytes": 6442
+          "sha256": "4966a6315163f875c8eeb9c2145f43e70d6a29441fd73dd985689c571e4e90c1",
+          "sizeBytes": 6478
+        },
+        {
+          "path": "web/assets/RecoveryNotices.js",
+          "sha256": "6f2f77749f121d7fa5e0478de9cc5cc6a88ca43286630f8b748d9a1e506dde0b",
+          "sizeBytes": 8034
         },
         {
           "path": "web/assets/SettingRow.js",
-          "sha256": "71bc182e88a3b3b5feaba9ce87440f10ca7ea075b8ab72903a875ccec271700b",
-          "sizeBytes": 821
+          "sha256": "fa2b49609ae37cc78c6c05267dfb8310a32c8af4a25e56f27ddaf14a11909b5d",
+          "sizeBytes": 833
+        },
+        {
+          "path": "web/assets/Slider.js",
+          "sha256": "bb02fccde9f6d7e0b331941761985281e0059adf0230347a081b16e6167a3df9",
+          "sizeBytes": 3453
         },
         {
           "path": "web/assets/SmartSplitControl.js",
-          "sha256": "a4e5ebbab33ed147732ea3b5d9d5e8d347d5bfd5b3cf46c648b7306aea202ad7",
-          "sizeBytes": 6717
+          "sha256": "d3ae691c3f17a24b3f6cccf2bf178a8763a040fc6f2837b013d49152d68833ae",
+          "sizeBytes": 6853
         },
         {
           "path": "web/assets/SubtitlePanel.js",
-          "sha256": "dd72ac59ef2f08f9e662fbc1e7daa3ac1445a859ba7fc7eeb0104fff34f6e2c6",
-          "sizeBytes": 38228
+          "sha256": "19ac770874de171dce5d6ff210511a609f98c858e6580b8a1daa6c6822460d51",
+          "sizeBytes": 37323
         },
         {
           "path": "web/assets/TextPanel.js",
-          "sha256": "2f343276449f6b7c3cfab74b358cf832c137713ca43af5524fff7cdb0b948953",
-          "sizeBytes": 11755
+          "sha256": "c62513887144b8d36ef922bc9d26c0def38149810a29e419622dc191503cce14",
+          "sizeBytes": 11828
         },
         {
           "path": "web/assets/ZoomPanel.js",
-          "sha256": "79987625c2ad82da6af66fd31c73e8f07ec09f014011e622186310e00e0cc7b5",
-          "sizeBytes": 1865
+          "sha256": "22c764bd263e4ac6d9ae0f2f6c3294d856c9cfca558ed524c51d50803d37cf5d",
+          "sizeBytes": 1913
+        },
+        {
+          "path": "web/assets/audioSegmentTime.js",
+          "sha256": "3b613323e07d693510b842b6882afc2301e4137c3661c12fac65b126d0915e42",
+          "sizeBytes": 286
         },
         {
           "path": "web/assets/compositionExport.js",
-          "sha256": "c900a7c6dac379a5b8c8ca2eafdbe6487ec6cda3bfba731f79ac2708d17b5510",
-          "sizeBytes": 3586
+          "sha256": "b04de7783c001a7afa3cec8ba20aa313a0faca788e16ad1f0a26253adc7fd1ec",
+          "sizeBytes": 3665
         },
         {
           "path": "web/assets/editor-renderer.js",
-          "sha256": "9f5b5255e7cfbbab80ee6f2555a3127c112b3b88aa403a00ea48f362d362aeb4",
-          "sizeBytes": 129244
+          "sha256": "3d37c89dc8942c4dc53a70eefb9a7d0962c2ee4973d10fd204d56fe5d07d87a2",
+          "sizeBytes": 126883
         },
         {
           "path": "web/assets/exportStaging.js",
-          "sha256": "1a7e1671fe9b6a77f0e25c193fca498171feacfdfacdf7d23a6310523e91284c",
-          "sizeBytes": 785
+          "sha256": "5f5f5b2632251e3137d2986361e18dd79f8e0e23d0d958d721c8dc03087050b1",
+          "sizeBytes": 1817
         },
         {
           "path": "web/assets/index.css",
-          "sha256": "a708a73f38d8922578f88f64805defaad86642dc62f627559513509cbbb52ee3",
-          "sizeBytes": 143491
+          "sha256": "3f294f44fbb95b8e82c0264ae317b7990d2f65bf0e8738585f7483d41cbd7dfc",
+          "sizeBytes": 141802
         },
         {
           "path": "web/assets/index.js",
-          "sha256": "dd008b6feefcfc1f894e131c27cbaad1fa46ce9cda8a68fc2fb5b38c5f307f05",
-          "sizeBytes": 646741
+          "sha256": "a6e204c0fa52610228d9545f7694439abf2fe3b7414c2489ce02b691532fd124",
+          "sizeBytes": 593951
         },
         {
           "path": "web/assets/persistedState.js",
@@ -131,39 +156,39 @@
           "sizeBytes": 901
         },
         {
-          "path": "web/assets/trimSegments.js",
-          "sha256": "7a635b7999874317759049cd7d76f53602391ebc2d238d3765cc73810f5544f5",
-          "sizeBytes": 2837
+          "path": "web/assets/segmentSmartSplit.js",
+          "sha256": "73eeffc8859829e333f979e3ef33fbb012c19c097f516aeba9088f6ab681b3a8",
+          "sizeBytes": 3600
         },
         {
           "path": "web/assets/utils.js",
-          "sha256": "da20ed9dee9e5abc3b44147cdb053096d31413099776b905092949198d5f3205",
-          "sizeBytes": 98935
+          "sha256": "889da67a0ae11917c552205839296025754db9db674610841ce354ef033278d5",
+          "sizeBytes": 86
         },
         {
           "path": "web/assets/vendor-motion.js",
-          "sha256": "424325d2375f330885f2ded9aef55a49987b8185c754889c08c2f6a952756971",
+          "sha256": "981b0dec6608fb734090e93f4f252b5ed74fc4baf9d4aa9eee014e9c4225b4c5",
           "sizeBytes": 125735
         },
         {
           "path": "web/assets/vendor-radix.js",
-          "sha256": "edc9cbc442d8bb9f8b27ba53082acf21d95f44ec5300dce3405556f41ee76a74",
+          "sha256": "87af2fa3467823bf3e143f9f47f7e9163c9700e9f8a43e3d6f5c93ff1f43623c",
           "sizeBytes": 65526
         },
         {
           "path": "web/assets/vendor-react.js",
-          "sha256": "520924952910ea06287f8739466243e1b32a3a4570a07ad5bfee259ef7c1cbd0",
+          "sha256": "790ee1bd38c758353798ced3a0723018e66c69824a94753069873168251287e0",
           "sizeBytes": 174789
         },
         {
           "path": "web/assets/vendor.js",
-          "sha256": "09571fd0dba1115987fc21b65c0aede33bb1727e14c710165107a085da7969fe",
+          "sha256": "0e6eddc208debac0df8c4319d2db785a61d7b4710f03bc446af59c85625fa49e",
           "sizeBytes": 62769
         },
         {
           "path": "web/assets/videoExporter.js",
-          "sha256": "b5abdc889c5fe33552ed11497e597703355e211a676ed4b45d1a245edb57de88",
-          "sizeBytes": 11450
+          "sha256": "92551019b4d8d0c15b221257c5c7d09d16dab715f1ef329c6f2c124dc8efc821",
+          "sizeBytes": 11514
         },
         {
           "path": "web/bg-antelope-canyon.jpg",
@@ -1032,8 +1057,8 @@
         },
         {
           "path": "web/index.html",
-          "sha256": "2b17715a7d57481aa77ab119c27bd307e8a31741db941a3fc145a5c1e09f1892",
-          "sizeBytes": 1324
+          "sha256": "fb86d8f557b9bbe48da13354275040c62d653761a74931a830949a6c66665a6d",
+          "sizeBytes": 1486
         },
         {
           "path": "web/licenses/THIRD-PARTY-LICENSES.json",
@@ -1047,9 +1072,9 @@
         }
       ],
       "id": "screen-recorder",
-      "sha256": "fe797d091e2c4208793bd284cb42e4f100c6a31931851ec1983a37f97ae79b43",
-      "sizeBytes": 6019786,
-      "unpackedSizeBytes": 16403365,
+      "sha256": "8fc0298f4a817b72b5f637f202b6aeaeccaa3cd9c65ab3ae6f710714193dbfc7",
+      "sizeBytes": 5715222,
+      "unpackedSizeBytes": 15138115,
       "version": "5.6.0"
     }
   ],

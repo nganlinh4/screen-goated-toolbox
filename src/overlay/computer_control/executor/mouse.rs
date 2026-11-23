@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    MOUSE_EVENT_FLAGS, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_WHEEL,
+    MOUSE_EVENT_FLAGS, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_WHEEL,
 };
 
 use super::super::human_input::{self, HumanProfile, Outcome};
 
 const WHEEL_DELTA: i32 = 120;
+mod targeted;
 
 pub(super) fn click(
     args: &Value,
@@ -23,12 +23,13 @@ pub(super) fn click(
     cancel: &AtomicBool,
 ) -> Result<Value> {
     let (x, y) = super::xy(args)?;
+    let geometry = targeted::Geometry::capture(x, y)?;
     let target_w = args.get("target_w").and_then(Value::as_f64).unwrap_or(40.0);
-    let (down, up) = super::button_flags(args);
     super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, target_w, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
+    let anchor = geometry.anchor()?;
     // Confidence-gated hesitation: on an uncertain (vision/grid-located) click,
     // settle on the target before committing so the user can still barge in.
     if profile.humanized()
@@ -53,8 +54,14 @@ pub(super) fn click(
         if cancel.load(Ordering::Relaxed) {
             return Ok(aborted_click(completed));
         }
-        super::verify_expected_pointer_target(args)?;
-        press_button(down, up)?;
+        if !targeted::admit(&geometry, anchor, args, cancel)? {
+            return Ok(aborted_click(completed));
+        }
+        let (down, up) = super::button_flags(args.get("button").and_then(Value::as_str));
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(aborted_click(completed));
+        }
+        targeted::press(&geometry, anchor, down, up)?;
         let interrupted = human_input::sleep_cancellable(dwell, cancel);
         release_button(up)?;
         completed += 1;
@@ -70,6 +77,7 @@ pub(super) fn click(
 
 pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
+    let geometry = targeted::Geometry::capture(x, y)?;
     let dx = args
         .get("dest_x")
         .and_then(Value::as_f64)
@@ -82,32 +90,39 @@ pub(super) fn drag(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) ->
     if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
+    let anchor = geometry.anchor()?;
     if human_input::sleep_cancellable(30, cancel) {
         return Ok(super::aborted());
     }
-    super::verify_expected_input_target(args)?;
-    press_button(MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)?;
+    if !targeted::admit(&geometry, anchor, args, cancel)? {
+        return Ok(super::aborted());
+    }
+    let (down, up) = super::button_flags(None);
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(super::aborted());
+    }
+    targeted::press(&geometry, anchor, down, up)?;
     if human_input::sleep_cancellable(40, cancel) {
-        release_button(MOUSEEVENTF_LEFTUP)?;
+        release_button(up)?;
         return Ok(super::aborted());
     }
     match super::move_humanized(dx, dy, 40.0, profile, cancel) {
         Ok(Outcome::Done) => {}
         Ok(Outcome::Aborted) => {
-            release_button(MOUSEEVENTF_LEFTUP)?;
+            release_button(up)?;
             return Ok(super::aborted());
         }
         Err(move_error) => {
-            release_button(MOUSEEVENTF_LEFTUP)?;
+            release_button(up)?;
             return Err(move_error);
         }
     }
     let interrupted = human_input::sleep_cancellable(40, cancel);
     if let Err(error) = super::verify_expected_input_target(args) {
-        release_button(MOUSEEVENTF_LEFTUP)?;
+        release_button(up)?;
         return Err(error);
     }
-    release_button(MOUSEEVENTF_LEFTUP)?;
+    release_button(up)?;
     if interrupted {
         return Ok(super::aborted());
     }
@@ -143,9 +158,8 @@ pub(super) fn click_here(args: &Value, cancel: &AtomicBool) -> Result<Value> {
     if cancel.load(Ordering::Relaxed) {
         return Ok(super::aborted());
     }
-    super::super::uia::focus_foreground();
     super::verify_expected_input_target(args)?;
-    let (down, up) = super::button_flags(args);
+    let (down, up) = super::button_flags(args.get("button").and_then(Value::as_str));
     press_button(down, up)?;
     release_button(up)?;
     Ok(json!({"ok": true, "clicked": "at the current cursor position"}))
@@ -153,10 +167,12 @@ pub(super) fn click_here(args: &Value, cancel: &AtomicBool) -> Result<Value> {
 
 pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) -> Result<Value> {
     let (x, y) = super::xy(args)?;
+    let geometry = targeted::Geometry::capture(x, y)?;
     super::verify_expected_input_target(args)?;
     if super::move_humanized(x, y, 40.0, profile, cancel)? == Outcome::Aborted {
         return Ok(super::aborted());
     }
+    let anchor = geometry.anchor()?;
     let magnitude = args
         .get("magnitude")
         .and_then(Value::as_f64)
@@ -177,8 +193,13 @@ pub(super) fn scroll(args: &Value, profile: &HumanProfile, cancel: &AtomicBool) 
     if cancel.load(Ordering::Relaxed) {
         return Ok(super::aborted());
     }
-    super::verify_expected_input_target(args)?;
-    super::send(&[super::mouse_input(0, 0, data, flag)])?;
+    if !targeted::admit(&geometry, anchor, args, cancel)? {
+        return Ok(super::aborted());
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(super::aborted());
+    }
+    targeted::scroll(&geometry, anchor, flag, data)?;
     Ok(json!({"ok": true, "scroll": dir, "magnitude": magnitude}))
 }
 

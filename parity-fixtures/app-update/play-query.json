@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"explicit_no_update","install":"unknown","availability":"not_available","flexible":false,"versionCode":0,"status":"up_to_date"},
+    {"name":"available_flexible","install":"unknown","availability":"available","flexible":true,"versionCode":999,"status":"update_available"},
+    {"name":"unsupported_update","install":"unknown","availability":"available","flexible":false,"versionCode":999,"status":"error"},
+    {"name":"unknown_availability","install":"unknown","availability":"unknown","flexible":false,"versionCode":0,"status":"error"},
+    {"name":"downloaded_priority","install":"downloaded","availability":"available","flexible":true,"versionCode":999,"status":"downloaded"},
+    {"name":"downloading_priority","install":"downloading","availability":"available","flexible":true,"versionCode":999,"status":"downloading"},
+    {"name":"installing_priority","install":"installing","availability":"available","flexible":true,"versionCode":999,"status":"installing"},
+    {"name":"triggered_progress","install":"unknown","availability":"in_progress","flexible":false,"versionCode":0,"status":"downloading"},
+    {"name":"invalid_release_identity","install":"unknown","availability":"available","flexible":true,"versionCode":0,"status":"error"},
+    {"name":"pending_priority","install":"pending","availability":"available","flexible":true,"versionCode":999,"status":"downloading"}
+  ]
+}

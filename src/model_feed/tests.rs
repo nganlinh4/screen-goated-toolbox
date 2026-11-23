@@ -209,6 +209,26 @@ fn one_live_feed_cannot_take_more_than_five_chain_slots() {
 }
 
 #[test]
+fn each_candidate_is_ranked_once_per_merge() {
+    let chain: Vec<String> = (0..6).map(|index| format!("local-{index}")).collect();
+    let offered: Vec<String> = (0..12).map(|index| format!("live-{index}")).collect();
+    let calls = std::cell::RefCell::new(std::collections::HashMap::<String, usize>::new());
+    merge_into_chain(&chain, &offered, |id| {
+        *calls.borrow_mut().entry(id.to_owned()).or_default() += 1;
+        CandidateRank {
+            quality_tier: 4,
+            latency_ms: id.len() as u32 * 97 % 1_000,
+        }
+    });
+    let calls = calls.into_inner();
+    assert!(!calls.is_empty());
+    assert!(
+        calls.values().all(|count| *count == 1),
+        "ranks were recomputed: {calls:?}"
+    );
+}
+
+#[test]
 fn adaptive_priority_policy_matches_the_shared_platform_fixture() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

@@ -9,20 +9,13 @@ use crate::APP;
 
 mod audio_utils;
 mod gemini;
-mod native_support;
+#[cfg(feature = "recorder-worker")]
+pub use gemini::synthesize_gemini_live_to_wav_cancel;
 mod open_weights;
-mod sidecar;
 mod worker_edge;
 mod worker_google;
-mod worker_kokoro;
-mod worker_magpie;
-mod worker_step_audio;
-mod worker_supertonic;
-mod worker_unavailable;
-mod worker_vieneu;
 
 pub(crate) use audio_utils::resample_audio;
-pub use gemini::synthesize_gemini_live_to_wav_cancel;
 
 // ---- Warm socket pool for instant TTS ----
 use native_tls::TlsStream;
@@ -52,25 +45,6 @@ fn acquire_warm_socket(api_key: &str) -> Option<WebSocket<TlsStream<TcpStream>>>
 
 pub fn start_warm_up_public(api_key: String) {
     start_warm_up(api_key);
-}
-
-#[cfg(not(feature = "recorder-worker"))]
-pub fn synthesize_step_audio_edit_to_wav_cancel(
-    source_audio_path: String,
-    source_text: String,
-    edit_type: String,
-    edit_info: String,
-    target_text: String,
-    cancel: Arc<std::sync::atomic::AtomicBool>,
-) -> anyhow::Result<super::types::TtsCollectedAudio> {
-    worker_step_audio::synthesize_step_audio_edit_to_wav(
-        source_audio_path,
-        source_text,
-        edit_type,
-        edit_info,
-        target_text,
-        Some(cancel),
-    )
 }
 
 fn start_warm_up(api_key: String) {
@@ -121,7 +95,7 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         };
 
         // Check if this request is stale
-        if request.generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+        if request.is_cancelled(&manager) {
             eprintln!(
                 "[TTS Worker] Request stale (gen {} < current {}), skipping",
                 request.generation,
@@ -162,39 +136,6 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             crate::config::TtsMethod::EdgeTTS => {
                 eprintln!("[TTS Worker] Routing to Edge TTS");
                 worker_edge::handle_edge_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::FishAudioS2Pro => {
-                eprintln!("[TTS Worker] Fish Audio S2 Pro has been removed");
-                open_weights::fail_request(
-                    "Fish Audio S2 Pro",
-                    request.req.hwnd,
-                    &tx,
-                    "Fish Audio S2 Pro was removed because it requires workstation-class GPU memory.",
-                );
-            }
-            crate::config::TtsMethod::StepAudioEditX => {
-                eprintln!("[TTS Worker] Routing to Step Audio EditX");
-                worker_step_audio::handle_step_audio_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::MagpieMultilingual => {
-                eprintln!("[TTS Worker] Routing to NVIDIA Magpie-Multilingual");
-                worker_magpie::handle_magpie_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::Kokoro => {
-                eprintln!("[TTS Worker] Routing to Kokoro 82M v1.0");
-                worker_kokoro::handle_kokoro_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::Supertonic => {
-                eprintln!("[TTS Worker] Routing to Supertonic 3");
-                worker_supertonic::handle_supertonic_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::VieneuTts => {
-                eprintln!("[TTS Worker] Routing to VieNeu-TTS v2");
-                worker_vieneu::handle_vieneu_tts(manager.clone(), request, tx);
-            }
-            crate::config::TtsMethod::VoxtralTts => {
-                eprintln!("[TTS Worker] Saved provider is no longer available");
-                worker_unavailable::handle_unavailable_legacy_tts(request, tx);
             }
             crate::config::TtsMethod::GeminiLive => {
                 eprintln!("[TTS Worker] Using Gemini TTS");

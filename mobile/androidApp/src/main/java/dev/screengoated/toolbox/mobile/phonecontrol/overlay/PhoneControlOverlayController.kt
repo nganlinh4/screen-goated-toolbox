@@ -68,6 +68,7 @@ internal class PhoneControlOverlayController(
     private var powerPromptVisible = PhoneControlPowerPreferences.current(context) == null
     private var dismissing = false
     private var destroyed = false
+    private val attachBackoff = PhoneControlOverlayAttachBackoff()
     @Volatile
     private var interactionBounds: Rect? = null
     @Volatile
@@ -159,10 +160,11 @@ internal class PhoneControlOverlayController(
         refreshHost()
         val canShow = visual.visible && host.isAvailable()
         if (!canShow) {
+            attachBackoff.reset()
             detachWindows()
             return
         }
-        if (dismissing) return
+        if (dismissing || orb == null && !attachBackoff.mayAttach(host)) return
         val orbWasAttached = orb != null
         val promptWasAttached = powerPrompt != null
         ensureWindows()
@@ -229,8 +231,10 @@ internal class PhoneControlOverlayController(
         }.onFailure {
             PhoneControlLog.e(TAG, "overlay_attach_failed host=${host.describe()}", it)
             detachWindows()
+            mainHandler.postDelayed({ if (!destroyed) render() }, attachBackoff.failed(host))
             return
         }
+        attachBackoff.reset()
         PhoneControlLog.i(
             TAG,
             "overlay_attached host=${host.describe()} display_id=${host.displayId}",

@@ -9,15 +9,12 @@ import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnId
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnLifecycle
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnDecisionCode
 import dev.screengoated.toolbox.mobile.phonecontrol.lifecycle.PhoneControlTurnPhase
-import dev.screengoated.toolbox.mobile.phonecontrol.session.buildPhoneControlToolResponse
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolRegistry
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveFunctionCall
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEffect
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 internal class PhoneControlTurnCoordinator(
     executor: PhoneControlToolExecutor,
     scope: CoroutineScope,
@@ -31,6 +28,7 @@ internal class PhoneControlTurnCoordinator(
     private val tools = PhoneControlToolController(executor, scope, completionEvents)
     private val lifecycle = PhoneControlTurnLifecycle(PhoneControlTurnPhase.LISTENING)
     private val inputTranscript = PhoneControlInputTranscriptAssembler()
+    private val inputEpochGate = PhoneControlInputEpochGate()
     private val assistantTranscript = PhoneControlTranscriptAccumulator()
     private val heldToolRejections = PhoneControlHeldToolRejections()
     private val outbound = PhoneControlTurnOutbound(sink)
@@ -54,6 +52,7 @@ internal class PhoneControlTurnCoordinator(
         effects: List<GeminiLiveLifecycleEffect>,
     ) {
         if (outbound.refused) return
+        if (inputEpochGate.takePendingEpoch()) inputTranscript.beginEpoch()
         val interrupted = effects.any {
             it == GeminiLiveLifecycleEffect.FinalizeInterruptedGeneration
         }
@@ -61,6 +60,7 @@ internal class PhoneControlTurnCoordinator(
             sink.interruptPlayback()
             interruptGeneration()
             inputTranscript.beginEpoch()
+            sink.requestScreenRefresh()
         }
         mergeInputTranscript(frame.inputTranscript)
         val frameGeneration = if (interrupted) null else generationForFrame(frame)
@@ -74,7 +74,7 @@ internal class PhoneControlTurnCoordinator(
                 GeminiLiveLifecycleEffect.DiscardQueuedOutput,
                 GeminiLiveLifecycleEffect.FinalizeInterruptedGeneration,
                 -> if (!interrupted) applyLivePlaybackEffect(effect)
-                is GeminiLiveLifecycleEffect.CancelTools -> cancelTools(effect.ids)
+                is GeminiLiveLifecycleEffect.CancelTools -> cancelTools(effect.ids, providerInput = true)
                 GeminiLiveLifecycleEffect.FinalizeGeneration,
                 GeminiLiveLifecycleEffect.FinalizeTurn,
                 is GeminiLiveLifecycleEffect.FinalizeResponse,
@@ -83,9 +83,8 @@ internal class PhoneControlTurnCoordinator(
             }
         }
     }
-    fun userSpeechStarted(assistantPlaybackActive: Boolean) {
-        if (!assistantPlaybackActive) inputTranscript.beginEpoch()
-    }
+    fun userSpeechActivity(assistantPlaybackActive: Boolean, burstStarted: Boolean): Boolean =
+        inputEpochGate.observe(assistantPlaybackActive, burstStarted)
     fun drainToolCompletions() {
         while (true) {
             val event = completionEvents.tryReceive().getOrNull() ?: break
@@ -110,20 +109,15 @@ internal class PhoneControlTurnCoordinator(
                     if (pendingTerminalDone == null) {
                         pendingTerminalDone = completed
                     } else {
-                        outbound.sendPayload(
-                            buildPhoneControlToolResponse(
-                                id = completed.request.id,
-                                name = completed.request.name,
-                                response = buildJsonObject {
-                                    put("code", "duplicate_terminal")
-                                    put("message", "A terminal completion is already pending.")
-                                    put("effect", "proven_no_effect")
-                                },
-                            ),
+                        outbound.sendRejectedTool(
+                            completed.request.id,
+                            completed.request.name,
+                            "duplicate_terminal",
+                            "A terminal completion is already pending.",
                         )
                     }
                 } else {
-                    deliverToolReceipt(completed)
+                    outbound.deliverToolReceipt(completed)
                 }
             } else {
                 Log.d(TAG, "absorbed_tool_receipt id=${completed.request.id} decision=${transition.decision.contractValue}")
@@ -135,30 +129,45 @@ internal class PhoneControlTurnCoordinator(
     }
     fun abandonProtocolSession() {
         outbound.block()
-        sink.interruptPlayback()
-        sink.discardQueuedPlayback()
-        interruptGeneration()
+        retireLocalGeneration()
         tools.cancelAll()
         heldToolRejections.reset()
         pendingTerminalDone = null
     }
     fun retireForProtectedCheckpoint(): Boolean {
         if (tools.pendingCount > 0) return false
-        sink.interruptPlayback()
-        sink.discardQueuedPlayback()
-        interruptGeneration()
+        retireLocalGeneration()
         return true
     }
     fun retireTransportInterruptedTurn(): Boolean {
-        if (!lifecycle.turnRemainsActive || currentGeneration == null || tools.pendingCount > 0) {
+        val generation = currentGeneration
+        if (!lifecycle.turnRemainsActive || generation == null) return false
+        if (tools.pendingCount > 0) {
+            // An accepted effect is still settling, so its generation survives the reconnect.
+            val decision = lifecycle.reduce(PhoneControlTurnEvent.TransportFailed(generation)).decision
+            Log.i(TAG, "transport_turn_kept generation=${generation.value} decision=${decision.contractValue}")
             return false
         }
-        sink.interruptPlayback()
-        sink.discardQueuedPlayback()
-        interruptGeneration()
+        retireLocalGeneration()
         return true
     }
-    fun freshProtocolSessionBound() = outbound.reset()
+    /** A ready connection carries only a generation the reducer still owns; a retired one is never revived. */
+    fun transportReady() {
+        val generation = currentGeneration ?: return
+        val transition = lifecycle.reduce(PhoneControlTurnEvent.SocketOpened(generation))
+        if (transition.effects.any { it is PhoneControlTurnEffect.AcceptSocket }) return
+        Log.w(TAG, "transport_generation_absorbed generation=${generation.value} decision=${transition.decision.contractValue}")
+        retireLocalGeneration()
+    }
+    fun freshProtocolSessionBound() {
+        outbound.reset()
+        if (!lifecycle.turnRemainsActive) inputTranscript.beginEpoch()
+    }
+    /** A typed goal has no input transcript: its send opens the turn, and a user-authored goal is its request. */
+    fun userInterfaceGoalSent(userRequest: String? = null) {
+        if (currentGeneration == null) activateNewTurn()
+        userRequest?.let { text -> lifecycle.activeTurn?.let { recorder.userRequestSubmitted(it.value, text) } }
+    }
     fun freshScreenEvidenceDelivered() {
         if (!lifecycle.reconciliationRequired) return
         lifecycle.reduce(PhoneControlTurnEvent.FreshObservation(stateReconciled = true))
@@ -195,6 +204,7 @@ internal class PhoneControlTurnCoordinator(
     }
 
     private fun activateNewTurn(): PhoneControlGenerationId {
+        inputEpochGate.collecting()
         // A newly admitted user turn owns playback immediately. Stop and retire
         // any audio that was still draining from the preceding turn before the
         // new generation can enqueue output.
@@ -202,6 +212,7 @@ internal class PhoneControlTurnCoordinator(
         sink.discardQueuedPlayback()
         heldToolRejections.discardHeld()
         val replacedTurn = lifecycle.activeTurn?.takeIf { lifecycle.turnRemainsActive }
+        val replacedGeneration = currentGeneration
         nextTurn = outputSequencer.nextOrdinal(nextTurn)
         nextGeneration = outputSequencer.nextOrdinal(nextGeneration)
         val turn = PhoneControlTurnId(nextTurn)
@@ -212,7 +223,7 @@ internal class PhoneControlTurnCoordinator(
         applyTurnEffects(transition.effects)
         replacedTurn?.let {
             recorder.turnInterrupted(it.value)
-            cleanup.retire(it.value)
+            retireTurnCleanup(it, replacedGeneration)
         }
         currentGeneration = generation
         finalGeneration = null
@@ -228,6 +239,7 @@ internal class PhoneControlTurnCoordinator(
     }
 
     private fun interruptGeneration() {
+        inputEpochGate.collecting()
         val generation = currentGeneration ?: return
         val turn = lifecycle.activeTurn
         val transition = lifecycle.reduce(
@@ -237,7 +249,7 @@ internal class PhoneControlTurnCoordinator(
         if (transition.decision == PhoneControlTurnDecisionCode.ACCEPTED) {
             turn?.let {
                 recorder.turnInterrupted(it.value)
-                cleanup.retire(it.value)
+                retireTurnCleanup(it, generation)
             }
         }
         currentGeneration = null
@@ -465,12 +477,33 @@ internal class PhoneControlTurnCoordinator(
 
     private fun recordCompletedTurn(turn: PhoneControlTurnId?) {
         turn ?: return
+        inputEpochGate.completed(turn.value)
         val assistant = assistantTranscript.text.ifBlank { terminalSummary.orEmpty() }
         recorder.turnCompleted(turn.value, inputTranscript.text, assistant)
-        cleanup.retire(turn.value)
+        retireTurnCleanup(turn, generation = null)
     }
 
-    private fun cancelTools(ids: List<String>) {
+    /** Silent local cleanup of a retired turn; the reducer guarantees cleanup produces no output. */
+    private fun retireTurnCleanup(turn: PhoneControlTurnId, generation: PhoneControlGenerationId?) {
+        cleanup.retire(turn.value)
+        val transition = lifecycle.reduce(PhoneControlTurnEvent.CleanupCompleted(generation))
+        check(transition.effects.all { it is PhoneControlTurnEffect.CleanupAcknowledged })
+    }
+
+    private fun retireLocalGeneration() {
+        sink.interruptPlayback()
+        sink.discardQueuedPlayback()
+        interruptGeneration()
+    }
+
+    private fun cancelTools(ids: List<String>, providerInput: Boolean = false) {
+        if (providerInput && tools.activeRequest?.id in ids) {
+            inputEpochGate.collecting()
+            inputTranscript.beginEpoch()
+            sink.interruptPlayback()
+            sink.discardQueuedPlayback()
+            sink.requestScreenRefresh()
+        }
         tools.cancel(ids)
     }
 
@@ -492,35 +525,16 @@ internal class PhoneControlTurnCoordinator(
         val summary = requireNotNull(completed.result.terminalSummary)
         val decision = completeTerminalDone(generation, summary)
         if (decision == PhoneControlTurnDecisionCode.ACCEPTED) {
-            deliverToolReceipt(completed)
+            outbound.deliverToolReceipt(completed)
             return
         }
-        outbound.sendPayload(
-            buildPhoneControlToolResponse(
-                id = completed.request.id,
-                name = completed.request.name,
-                response = buildJsonObject {
-                    put("code", decision.contractValue)
-                    put("message", "The turn cannot close until current state is reconciled.")
-                    put("effect", "proven_no_effect")
-                },
-            ),
+        outbound.sendRejectedTool(
+            completed.request.id,
+            completed.request.name,
+            decision.contractValue,
+            "The turn cannot close until current state is reconciled.",
         )
         sink.updateConversationPhase(PhoneControlTurnPhase.WORKING)
-    }
-
-    private fun deliverToolReceipt(completed: PhoneControlCompletedTool) {
-        if (!outbound.sendPayload(
-            buildPhoneControlToolResponse(
-                id = completed.request.id,
-                name = completed.request.name,
-                response = completed.result.response,
-            ),
-        )) return
-        completed.result.screenFramePayload?.let { payload ->
-            if (!outbound.sendEvidence(payload)) return
-        }
-        if (completed.result.refreshScreenFrame) sink.requestScreenRefresh()
     }
 
     private fun applyTurnEffects(effects: List<PhoneControlTurnEffect>) {
@@ -549,7 +563,7 @@ internal class PhoneControlTurnCoordinator(
             }
             return
         }
-        sendRejectedCallNow(call.id, call.name, code, message)
+        outbound.sendRejectedTool(call.id, call.name, code, message)
     }
 
     private fun flushHeldToolRejections() {
@@ -559,7 +573,7 @@ internal class PhoneControlTurnCoordinator(
             return
         }
         for (rejected in heldToolRejections.drainFor(currentGeneration)) {
-            if (!sendRejectedCallNow(
+            if (!outbound.sendRejectedTool(
                 rejected.id,
                 rejected.name,
                 rejected.code,
@@ -575,23 +589,6 @@ internal class PhoneControlTurnCoordinator(
         interruptGeneration()
         return true
     }
-
-    private fun sendRejectedCallNow(
-        id: String,
-        name: String,
-        code: String,
-        message: String,
-    ): Boolean = outbound.sendPayload(
-            buildPhoneControlToolResponse(
-                id = id,
-                name = name,
-                response = buildJsonObject {
-                    put("code", code)
-                    put("message", message)
-                    put("effect", "proven_no_effect")
-                },
-            ),
-        )
 
     private companion object {
         const val TAG = "SGTPhoneControlTurn"

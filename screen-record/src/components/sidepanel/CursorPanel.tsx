@@ -85,6 +85,8 @@ export interface CursorPanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   hasMouseData?: boolean;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function CursorPanel({
@@ -93,6 +95,8 @@ export function CursorPanel({
   backgroundConfig,
   setBackgroundConfig,
   hasMouseData = true,
+  beginBatch,
+  commitBatch,
 }: CursorPanelProps) {
   const { t } = useSettings();
   const [variantScrollTop, setVariantScrollTop] = useState(0);
@@ -247,24 +251,28 @@ export function CursorPanel({
         </div>
         <SettingRow label={t.cursorSize} valueDisplay={`${(backgroundConfig.cursorScale ?? 2).toFixed(1)}x`} className="cursor-size-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={1} max={8} step={0.1} value={backgroundConfig.cursorScale ?? 2}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorScale: val }))}
           />
         </SettingRow>
         <SettingRow label={t.cursorShadow} valueDisplay={`${Math.round(backgroundConfig.cursorShadow ?? 35)}%`} className="cursor-shadow-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={0} max={200} step={1} value={backgroundConfig.cursorShadow ?? 35}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: val }))}
           />
         </SettingRow>
         <SettingRow label={t.movementSmoothing} valueDisplay={`${backgroundConfig.cursorSmoothness ?? 5}`} className="cursor-smoothness-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={0} max={10} step={1} value={backgroundConfig.cursorSmoothness ?? 5}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: val }))}
           />
         </SettingRow>
         <SettingRow label={t.pointerMovementDelay} valueDisplay={`${(backgroundConfig.cursorMovementDelay ?? 0).toFixed(2)}s`} className="cursor-movement-delay-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={-0.5} max={0.5} step={0.01} value={backgroundConfig.cursorMovementDelay ?? 0}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: val }))}
             className="cursor-movement-delay-slider"
@@ -272,6 +280,7 @@ export function CursorPanel({
         </SettingRow>
         <SettingRow label={t.pointerWiggleStrength} valueDisplay={`${Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%`} className="cursor-wiggle-strength-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={0} max={1} step={0.01} value={backgroundConfig.cursorWiggleStrength ?? 0.30}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: val }))}
             className="cursor-wiggle-strength-slider"
@@ -279,6 +288,7 @@ export function CursorPanel({
         </SettingRow>
         <SettingRow label={t.cursorTilt} valueDisplay={`${backgroundConfig.cursorTiltAngle ?? -10}°`} className="cursor-tilt-angle-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={-30} max={60} step={1} value={backgroundConfig.cursorTiltAngle ?? -10}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: val }))}
             className="cursor-tilt-angle-slider"

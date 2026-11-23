@@ -13,6 +13,16 @@ they do not substitute preset nicknames or locale-specific model abbreviations.
 `realtime_s2s_model_ids` owns which selectors run direct speech translation.
 Those choices use their catalog endpoint independently of the TTS model setting;
 their ordinary preset audio rows retain their existing modality behavior.
+`realtime_transcription_requires_source_language` lists the selectors that
+transcribe only an explicitly chosen source language; Windows Live Translate
+offers its transcription-language choice for exactly those selectors.
+`realtime_transcription_engines` describes every canonical selector (each
+alias target and listed option): `on_device_engine` names the local engine
+family (see `PLATFORM_ENGINES` in `scripts/model_catalog_realtime.py`; Windows
+currently implements none) or is null for a cloud selector, and `platforms` lists where it runs. Android routes offline
+engines, the Gemini-key gate, and "unavailable on Android" from these fields,
+never from id prefixes; the validator rejects a platform that does not
+implement the named engine.
 
 ## Endpoint Profiles
 
@@ -52,7 +62,12 @@ Built-in IDs use lowercase ASCII kebab-case:
   `stable`, and `deprecated`.
 - Use numeric version components separated by hyphens (`3-5`, `1-7b`).
 - IDs are immutable and never reused. An intentional namespace rewrite is a
-  breaking catalog revision; unknown saved IDs fall back by block type.
+  breaking catalog revision. Preserve saved IDs that are not currently known,
+  including blank or whitespace-only IDs:
+  an unresolved or wrong-modality pinned model is unavailable until it can be
+  resolved or the user changes it, and must not silently dispatch to a default.
+  Unresolved authored retry rows remain saved and are skipped for the current
+  attempt; normal retry after a known model failure uses the configured chain.
 - Do not add an in-process migration table. A future persisted-data migration,
   if genuinely required, must be a bounded versioned config upgrade with a
   removal date rather than permanent lookup aliases.
@@ -62,7 +77,6 @@ Examples:
 - `google-gemini-3-5-flash-lite-vision`
 - `groq-qwen-3-6-27b-vision`
 - `groq-gpt-oss-120b-text`
-- `local-qwen-3-asr-1-7b-audio`
 
 ## Localized Display Names
 
@@ -77,7 +91,7 @@ base-name triplet across all modalities.
 | Groq | `G` |
 | OpenRouter | `O` |
 | Taalas | `T` |
-| Local runtimes | `L` |
+| Local runtimes (none ship; see `docs/OFFLINE-ENGINES.md`) | `L` |
 | QRServer | `QR` |
 
 Prefer the shortest useful description, for example `GG Chuẩn`, `G Gọn`, or
@@ -185,8 +199,9 @@ Both platforms generate these settings from the same endpoint profile.
 ## Vision Request Policy
 
 `vision_request_profiles` is keyed by `<provider>:<exact API full_name>` and
-must cover every enabled ordinary Google, Groq, and OpenRouter vision
-endpoint.
+must cover every enabled ordinary Google, Groq, OpenRouter, and NVIDIA vision
+endpoint. It can retain reviewed request policies for disabled catalog rows
+so temporarily unavailable endpoints keep their transport metadata.
 It owns input-part order, media-resolution policy, fast sampling profile,
 optional output-token ceiling, and structured-output wire policy. Windows and
 Android generate these facts from the catalog; do not infer them from a
@@ -214,6 +229,14 @@ The current policies come from production-path transport probes:
 - Admission uses actual quota feedback, not guessed image-token costs or an
   output reservation treated as consumed tokens. Provider-reported quota failures
   retain their retry hints. No fixed account-tier TPM assumption rejects a prompt.
+- A model profile's optional `text_structured_output` uses the same values
+  for structured text requests to that endpoint. Groq selects strict JSON
+  schema when either this or the vision profile declares `strict-json-schema`,
+  and otherwise keeps `json_object`.
+- A model profile's optional `quality_retry_model_id` names, by model ID, the
+  enabled same-provider model that one suspicious transcript chunk is retried
+  on. Groq subtitle generation retries Whisper Turbo chunks this way; the build
+  rejects an unknown, disabled, cross-provider or self-referencing target.
 - `structured_output` is a wire policy, not a default. `prompt-only` means a
   model is asked for structure in the prompt without attaching a schema;
   `json-object` and `strict-json-schema` select documented constrained modes.
@@ -274,7 +297,13 @@ output on Groq.
 
 Preset processing blocks opt in with `search_enabled`. The flag follows retry
 dispatch, and an enabled block fails before the provider call if the selected
-endpoint lacks search capability.
+endpoint lacks search capability. Retry compatibility uses the request flag,
+not the failed model's capabilities: ordinary requests can fall back to any
+compatible non-search-only endpoint, while explicit search remains required at
+every retry. An endpoint that enables search by default also requires explicit
+opt-in when it is initially selected. Selection and dispatch must agree on whether a custom endpoint's
+provider adapter can actually carry its search request. Image-block search is
+unavailable until the image adapter supports it and fails before provider calls.
 
 When adding or changing an endpoint, inspect the actual production payload and
 decide both fields independently. The validator rejects a default-enabled

@@ -7,18 +7,28 @@ mod catalog;
 pub(crate) mod computer_control;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod creation;
+mod directory;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod external_tools;
+mod file_lock;
+#[cfg(not(feature = "recorder-worker"))]
+mod interrupted_installs;
 mod lease;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) mod legacy_offline;
 pub(crate) mod local_asr;
-pub(crate) mod models;
 mod mutation;
+mod native_file;
+mod owned_tree;
 mod pending;
-pub(crate) mod qwen_runtime;
+mod persisted_download;
+mod publication;
 mod receipt;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod recorder;
+pub(crate) mod recovery;
 mod removal;
+mod resumable_download;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod screen_text_detector;
 #[cfg(not(feature = "recorder-worker"))]
@@ -26,22 +36,40 @@ mod staging;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod update_catalog;
 pub(crate) mod vc_runtime;
+mod verified_archive;
+mod verified_cache;
+mod verified_copy;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) mod web_assets;
+mod windows_path;
 
 pub(crate) use catalog::embedded_catalog;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) use catalog::validate_identifier;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use interrupted_installs::reconcile_interrupted_installs_in_background;
 pub(crate) use lease::{ComponentLease, acquire};
-pub(crate) use mutation::{RegistryMutationGuard, acquire_mutation_guard};
+pub(crate) use mutation::{acquire_mutation_guard, acquire_mutation_guard_cancellable};
+// Only runtime_support (host-only) takes a transfer guard through this path.
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use mutation::acquire_transfer_guard_cancellable;
+/// The one reparse-safe way to open and classify a delivered file, also used
+/// by downloads that are not registry components.
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use native_file::{canonical_regular_dir, canonical_regular_file, open_regular};
+pub(crate) use receipt::is_reparse_point;
 pub(crate) use receipt::write_receipt;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) use receipt::{ComponentReceipt, OwnedComponentFile};
+pub(crate) use removal::RemovalOutcome;
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) use removal::clean_all;
 #[cfg(not(feature = "recorder-worker"))]
+pub(crate) use removal::request_remove;
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) use removal::request_remove_and_wait;
-pub(crate) use removal::{RemovalOutcome, request_remove};
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use verified_copy::stream_matches;
 
 #[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn resume_pending_removals() -> anyhow::Result<Vec<(String, RemovalOutcome)>> {
@@ -58,6 +86,7 @@ pub(crate) fn components_root() -> std::path::PathBuf {
     crate::paths::app_runtime_local_data_dir().join("components")
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 pub(crate) fn worker_workspace(id: &str) -> anyhow::Result<std::path::PathBuf> {
     catalog::validate_identifier(id)?;
     let root = crate::paths::app_runtime_local_data_dir().join("worker-workspaces");

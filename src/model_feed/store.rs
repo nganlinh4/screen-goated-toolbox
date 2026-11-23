@@ -75,13 +75,35 @@ pub fn cached() -> Option<Arc<AvailabilityFeed>> {
     if let Ok(guard) = FEED.read()
         && let Some(resolved) = guard.as_ref()
     {
-        return resolved.clone();
+        return current(resolved.clone());
     }
     let resolved = load_from_disk().map(Arc::new);
+    if let Some(feed) = &resolved {
+        crate::log_info!("{}", feed_in_use_line(feed));
+    }
     if let Ok(mut guard) = FEED.write() {
         *guard = Some(resolved.clone());
     }
-    resolved
+    current(resolved)
+}
+
+/// Withholds a feed whose publication has aged out.
+///
+/// Checked on every read rather than once at load, because a process that
+/// loaded a fresh feed keeps the memo for as long as refreshes keep failing.
+fn current(feed: Option<Arc<AvailabilityFeed>>) -> Option<Arc<AvailabilityFeed>> {
+    feed.filter(|feed| feed.is_current_at(chrono::Utc::now()))
+}
+
+/// Names the verified feed a process starts applying, so a support log shows
+/// which publication drove routing.
+fn feed_in_use_line(feed: &AvailabilityFeed) -> String {
+    format!(
+        "[Model feed] using {} feed generated {} ({} models)",
+        feed.provider,
+        feed.generated_at,
+        feed.models.len()
+    )
 }
 
 /// Reads and verifies the cache file, with no memoisation.
@@ -151,6 +173,7 @@ pub fn refresh() -> Result<AvailabilityFeed> {
         bail!("availability feed signature has an unexpected length");
     }
     let feed = parse_verified(&payload, &signature)?;
+    accept_refresh(&feed, load_from_disk().as_ref(), chrono::Utc::now())?;
 
     let directory = cache_dir();
     std::fs::create_dir_all(&directory)?;
@@ -163,6 +186,35 @@ pub fn refresh() -> Result<AvailabilityFeed> {
         context.request_repaint();
     }
     Ok(feed)
+}
+
+/// Refuses a verified download that would not make routing more current.
+///
+/// A publication past its freshness limit means the publisher has stopped, and
+/// a publication older than the cached one is a replay. Neither may overwrite
+/// the cache or renew its file time.
+#[cfg(not(feature = "recorder-worker"))]
+fn accept_refresh(
+    candidate: &AvailabilityFeed,
+    cached: Option<&AvailabilityFeed>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    if !candidate.is_current_at(now) {
+        bail!(
+            "availability feed generated {} is past its freshness limit",
+            candidate.generated_at
+        );
+    }
+    if let Some(cached) = cached
+        && cached.published_at() > candidate.published_at()
+    {
+        bail!(
+            "availability feed generated {} is older than the cached feed generated {}",
+            candidate.generated_at,
+            cached.generated_at
+        );
+    }
+    Ok(())
 }
 
 /// Keeps the cached feed fresh for as long as the app runs.
@@ -216,7 +268,47 @@ pub fn discovered_models() -> Vec<crate::model_config::ModelConfig> {
     let Some(feed) = cached() else {
         return Vec::new();
     };
-    discovered_models_from_feed(&feed)
+    DISCOVERED.for_feed(&feed).to_vec()
+}
+
+/// One discovered model by id, without projecting the whole feed again.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn find_discovered_model(id: &str) -> Option<crate::model_config::ModelConfig> {
+    let feed = cached()?;
+    DISCOVERED
+        .for_feed(&feed)
+        .iter()
+        .find(|model| model.id == id)
+        .cloned()
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+static DISCOVERED: DiscoveredMemo = DiscoveredMemo(std::sync::Mutex::new(None));
+
+/// The discovery projection of the feed currently in use. Model lookups run
+/// inside chain ranking, so the projection is built once per loaded feed.
+#[cfg(not(feature = "recorder-worker"))]
+struct DiscoveredMemo(std::sync::Mutex<Option<DiscoveredProjection>>);
+
+#[cfg(not(feature = "recorder-worker"))]
+type DiscoveredProjection = (
+    std::sync::Weak<AvailabilityFeed>,
+    Arc<[crate::model_config::ModelConfig]>,
+);
+
+#[cfg(not(feature = "recorder-worker"))]
+impl DiscoveredMemo {
+    fn for_feed(&self, feed: &Arc<AvailabilityFeed>) -> Arc<[crate::model_config::ModelConfig]> {
+        let mut memo = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some((source, models)) = memo.as_ref()
+            && std::sync::Weak::ptr_eq(source, &Arc::downgrade(feed))
+        {
+            return models.clone();
+        }
+        let models: Arc<[_]> = discovered_models_from_feed(feed).into();
+        *memo = Some((Arc::downgrade(feed), models.clone()));
+        models
+    }
 }
 
 /// Pure discovery projection used by routing and hermetic contract tests.

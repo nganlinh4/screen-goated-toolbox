@@ -16,7 +16,7 @@ import {
   GEMINI_SUBTITLE_OUTPUT_CONTRACT_PREVIEW,
   GEMINI_SUBTITLE_PROMPT_PRESETS,
 } from '@/lib/geminiSubtitlePrompt';
-import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import { getSubtitleTrackLabel, ORIGINAL_SUBTITLE_TRACK_ID } from '@/lib/subtitleTracks';
 import {
   buildSubtitleMethodOptions,
@@ -111,7 +111,7 @@ export function SubtitleGenerationSettings({
   const usesLanguageHint = subtitleMethodUsesLanguageHint(selectedMethod);
   const usesGeminiPrompt = subtitleMethodUsesGeminiPrompt(selectedMethod);
   const usesGroqVocabulary = subtitleMethodUsesGroqVocabulary(selectedMethod);
-  const languageOptions = getSubtitleLanguageOptionsForMethod(selectedMethod);
+  const languageOptions = SUBTITLE_LANGUAGE_OPTIONS;
   const subtitleStatusText = selectedMethodReason
     ?? statusMessage
     ?? (hasSubtitleSource ? t.subtitleIdleHint : t.subtitleUnavailableSource);

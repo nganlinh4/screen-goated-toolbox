@@ -41,7 +41,10 @@ internal class CreationPendingCleanupStore(
 ) {
     private val target = File(context.filesDir, "creation/pending-cleanup.json")
     private val json = Json { ignoreUnknownKeys = true }
-    private val lock = Any()
+
+    // Every store instance shares pending-cleanup.json, so the read-modify-write lock
+    // is process-wide, like the history lock.
+    private val lock = creationPendingCleanupLock
 
     fun isolateAndEnqueue(candidates: Collection<CreationCleanupCandidate>): Set<String> =
         synchronized(lock) {
@@ -93,6 +96,10 @@ internal class CreationPendingCleanupStore(
             write(records)
             records.mapNotNull(::reattachedCreationHistoryEntry)
         }
+
+    fun hasPendingPath(path: String): Boolean? = synchronized(lock) {
+        read()?.any { it.artifactPath == path }
+    }
 
     fun acknowledgeReattached(entryIds: Set<String>) {
         if (entryIds.isEmpty()) return
@@ -416,3 +423,5 @@ internal fun decideCreationCleanup(
         CreationCleanupDecision.RESTORE
     }
 }
+
+private val creationPendingCleanupLock = Any()

@@ -177,7 +177,9 @@ impl SettingsApp {
                         });
                 });
 
-                if self.config.realtime_transcription_model == "zipformer" {
+                if crate::model_config::realtime_transcription_requires_source_language(
+                    &self.config.realtime_transcription_model,
+                ) {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.label(text.realtime.realtime_tooltip_transcription_language);
@@ -186,7 +188,7 @@ impl SettingsApp {
                                 self.config.realtime_transcription_language.to_uppercase(),
                             )
                             .show_ui(ui, |ui| {
-                                for (code, label) in transcription_languages() {
+                                for (code, label) in transcription_languages(text) {
                                     changed |= ui
                                         .selectable_value(
                                             &mut self.config.realtime_transcription_language,
@@ -218,6 +220,7 @@ impl SettingsApp {
                 changed |= node_graph::utils::show_language_value_selector(
                     ui,
                     text.realtime.realtime_tooltip_target_language,
+                    text.preset_editor.node_language_search,
                     "live_translate_target_language",
                     &mut self.config.realtime_target_language,
                 );
@@ -466,15 +469,39 @@ fn transcription_model_label(model: &str) -> &'static str {
         .unwrap_or_else(|| crate::model_config::realtime_transcription_model_options()[0].1)
 }
 
-fn transcription_languages() -> [(&'static str, &'static str); 8] {
-    [
-        ("en", "English"),
-        ("ko", "Korean"),
-        ("zh", "Chinese"),
-        ("fr", "French"),
-        ("de", "German"),
-        ("es", "Spanish"),
-        ("ru", "Russian"),
-        ("all-8", "AR, EN, ID, JA, RU, TH, VI, ZH"),
-    ]
+/// Source languages of the realtime transcription models, named in the UI language.
+fn transcription_languages(text: &LocaleText) -> Vec<(&'static str, String)> {
+    const CODES: [&str; 8] = ["en", "ko", "zh", "fr", "de", "es", "ru", "all-8"];
+    let names = &text.auxiliary.managed_tools;
+    CODES
+        .into_iter()
+        .map(|code| {
+            let name = names.transcription_language_name(code);
+            let label = if code == "all-8" {
+                format!("{name} (AR, EN, ID, JA, RU, TH, VI, ZH)")
+            } else {
+                name.to_string()
+            };
+            (code, label)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod transcription_language_tests {
+    use super::*;
+
+    #[test]
+    fn transcription_language_names_follow_the_ui_language() {
+        let english = transcription_languages(&LocaleText::get("en"));
+        assert_eq!(english[0], ("en", "English".to_string()));
+        for code in ["ko", "vi"] {
+            let localized = transcription_languages(&LocaleText::get(code));
+            assert_eq!(localized.len(), english.len());
+            for ((code_a, local), (code_b, en)) in localized.iter().zip(&english) {
+                assert_eq!(code_a, code_b);
+                assert_ne!(local, en, "{code}: {code_a}");
+            }
+        }
+    }
 }

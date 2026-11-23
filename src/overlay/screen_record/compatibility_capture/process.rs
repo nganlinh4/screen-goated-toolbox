@@ -1,27 +1,20 @@
+use crate::process_job::{HelperCommand, Input, LaunchSlot, OwnedProcess};
 use anyhow::{Context, Result, bail};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::ffi::c_void;
 use std::io::{BufRead, BufReader, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::process::ExitStatus;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
-};
-use windows::core::PCWSTR;
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const STARTUP_GRACE: Duration = Duration::from_millis(400);
+const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const STDERR_TAIL_LINES: usize = 32;
+static LAUNCH: LaunchSlot = LaunchSlot::new();
+#[cfg(test)]
+pub(super) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Clone, Debug)]
 pub(super) struct CaptureProcessConfig {
@@ -48,6 +41,13 @@ impl CaptureEncoder {
         }
     }
 
+    /// The next encoder to try once this one keeps failing mid-recording.
+    pub(super) fn fallback(self, config: &CaptureProcessConfig) -> Option<Self> {
+        let order = Self::startup_order(config);
+        let index = order.iter().position(|encoder| *encoder == self)?;
+        order.get(index + 1).copied()
+    }
+
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::MediaFoundation => "h264_mf(hardware)",
@@ -63,62 +63,62 @@ pub(super) struct ProcessOutcome {
 }
 
 pub(super) struct ManagedCaptureProcess {
-    child: Child,
-    stdin: Option<ChildStdin>,
+    child: OwnedProcess,
+    stdin: Option<Input>,
     stderr_thread: Option<JoinHandle<()>>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     progress_us: Arc<AtomicU64>,
-    job: OwnedHandle,
+    first_frame: Arc<Mutex<Option<Instant>>>,
 }
 
-#[cfg(feature = "recorder-worker")]
-pub(super) type ResolvedFfmpeg = PathBuf;
-
-#[cfg(not(feature = "recorder-worker"))]
+#[derive(Clone)]
 pub(super) struct ResolvedFfmpeg {
     path: PathBuf,
-    _component: crate::component_registry::external_tools::ExternalToolUse,
+    #[cfg(not(feature = "recorder-worker"))]
+    _component: Arc<crate::component_registry::external_tools::ExternalToolUse>,
 }
 
-#[cfg(not(feature = "recorder-worker"))]
 impl std::ops::Deref for ResolvedFfmpeg {
     type Target = Path;
-
     fn deref(&self) -> &Self::Target {
         &self.path
     }
 }
 
-impl ManagedCaptureProcess {
-    pub(super) fn spawn(ffmpeg: &Path, args: &[String]) -> Result<Self> {
-        let mut command = Command::new(ffmpeg);
-        command
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW);
+#[cfg(all(test, feature = "recorder-worker"))]
+pub(super) fn test_executable() -> ResolvedFfmpeg {
+    ResolvedFfmpeg {
+        path: std::env::current_exe().unwrap(),
+    }
+}
 
-        let mut child = command
-            .spawn()
+impl ManagedCaptureProcess {
+    pub(super) fn spawn(ffmpeg: &ResolvedFfmpeg, args: &[String]) -> Result<Self> {
+        let frame_clock = super::frame_clock::FrameClock::now()?;
+        let permit = LAUNCH.acquire()?;
+        let mut command = HelperCommand::new(&ffmpeg.path);
+        command.args(args).pipe_stdin().stdout_null();
+
+        let mut child = OwnedProcess::spawn_helper(&command, (ffmpeg.clone(), permit))
             .with_context(|| format!("start FFmpeg at {}", ffmpeg.display()))?;
-        let job = match create_kill_on_close_job(&child) {
-            Ok(job) => job,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
-        };
-        let stdin = child.stdin.take();
-        let stderr = child.stderr.take().context("open FFmpeg stderr")?;
+        let stdin = child.take_stdin();
+        let stderr = child.take_stderr().context("open FFmpeg stderr")?;
+        child.resume()?;
         let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
         let reader_tail = stderr_tail.clone();
         let progress_us = Arc::new(AtomicU64::new(0));
         let reader_progress_us = progress_us.clone();
+        let first_frame = Arc::new(Mutex::new(None));
+        let reader_first_frame = first_frame.clone();
         let stderr_thread = std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(std::result::Result::ok) {
+                if line.contains("Parsed_showinfo_") {
+                    if let Some(origin) = frame_clock.first_frame(&line) {
+                        reader_first_frame.lock().get_or_insert(origin);
+                    }
+                    continue;
+                }
                 if let Some(value) = line.strip_prefix("out_time_us=") {
                     if let Ok(value) = value.parse::<u64>() {
                         reader_progress_us.store(value, Ordering::Relaxed);
@@ -143,27 +143,43 @@ impl ManagedCaptureProcess {
             stderr_thread: Some(stderr_thread),
             stderr_tail,
             progress_us,
-            job,
+            first_frame,
         })
     }
 
     pub(super) fn verify_started(&mut self) -> Result<()> {
-        std::thread::sleep(STARTUP_GRACE);
-        if let Some(outcome) = self.poll_exit()? {
-            bail!(
-                "FFmpeg compatibility capture exited during startup ({}): {}",
-                outcome.status,
-                outcome.diagnostics
-            );
+        let began = Instant::now();
+        loop {
+            if let Some(outcome) = self.poll_exit()? {
+                bail!(
+                    "FFmpeg compatibility capture exited during startup ({}): {}",
+                    outcome.status,
+                    outcome.diagnostics
+                );
+            }
+            if began.elapsed() >= STARTUP_GRACE && self.first_frame.lock().is_some() {
+                return Ok(());
+            }
+            if began.elapsed() >= FIRST_FRAME_TIMEOUT {
+                bail!(
+                    "FFmpeg did not report its first captured frame: {}",
+                    self.stderr_summary()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        Ok(())
+    }
+
+    pub(super) fn started_at(&self) -> Option<Instant> {
+        *self.first_frame.lock()
     }
 
     pub(super) fn poll_exit(&mut self) -> Result<Option<ProcessOutcome>> {
         let Some(status) = self.child.try_wait().context("poll FFmpeg exit")? else {
             return Ok(None);
         };
-        self.join_stderr();
+        self.child.stop_within(Duration::from_secs(3))?;
+        self.join_stderr()?;
         Ok(Some(ProcessOutcome {
             status,
             diagnostics: self.stderr_summary(),
@@ -192,9 +208,12 @@ impl ManagedCaptureProcess {
                 return Ok(outcome);
             }
             if Instant::now() >= deadline {
-                let _ = unsafe { TerminateJobObject(job_handle(&self.job), 1) };
-                let status = self.child.wait().context("wait for terminated FFmpeg")?;
-                self.join_stderr();
+                self.child.stop_within(Duration::from_secs(3))?;
+                let status = self
+                    .child
+                    .try_wait()?
+                    .context("FFmpeg exit was not reaped")?;
+                self.join_stderr()?;
                 bail!(
                     "FFmpeg compatibility capture did not stop within {} ms ({status}){}: {}",
                     timeout.as_millis(),
@@ -213,9 +232,12 @@ impl ManagedCaptureProcess {
                 return Ok(outcome);
             }
             if Instant::now() >= deadline {
-                let _ = unsafe { TerminateJobObject(job_handle(&self.job), 1) };
-                let status = self.child.wait().context("wait for terminated FFmpeg")?;
-                self.join_stderr();
+                self.child.stop_within(Duration::from_secs(3))?;
+                let status = self
+                    .child
+                    .try_wait()?
+                    .context("FFmpeg exit was not reaped")?;
+                self.join_stderr()?;
                 bail!(
                     "FFmpeg process exceeded {} ms ({status}): {}",
                     timeout.as_millis(),
@@ -226,10 +248,24 @@ impl ManagedCaptureProcess {
         }
     }
 
-    fn join_stderr(&mut self) {
-        if let Some(thread) = self.stderr_thread.take() {
-            let _ = thread.join();
+    fn join_stderr(&mut self) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while self
+            .stderr_thread
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
+        {
+            if Instant::now() >= deadline {
+                bail!("FFmpeg diagnostic output has not drained");
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
+        if let Some(thread) = self.stderr_thread.take() {
+            thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("FFmpeg diagnostic reader failed"))?;
+        }
+        Ok(())
     }
 
     fn stderr_summary(&self) -> String {
@@ -245,17 +281,17 @@ impl ManagedCaptureProcess {
 impl Drop for ManagedCaptureProcess {
     fn drop(&mut self) {
         self.stdin.take();
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = unsafe { TerminateJobObject(job_handle(&self.job), 1) };
-            let _ = self.child.wait();
+        let _ = self.child.stop_within(Duration::from_millis(500));
+        if self.child.stopped() {
+            let _ = self.join_stderr();
         }
-        self.join_stderr();
     }
 }
 
 #[cfg(feature = "recorder-worker")]
 pub(super) fn resolve_ffmpeg() -> Result<ResolvedFfmpeg> {
     crate::gui::settings_ui::download_manager::ffmpeg_dependency::ensure_ffmpeg_with_badge()
+        .map(|path| ResolvedFfmpeg { path })
         .map_err(anyhow::Error::new)
 }
 
@@ -266,7 +302,7 @@ pub(super) fn resolve_ffmpeg() -> Result<ResolvedFfmpeg> {
             .map_err(anyhow::Error::msg)?;
     Ok(ResolvedFfmpeg {
         path: component.executable(),
-        _component: component,
+        _component: Arc::new(component),
     })
 }
 
@@ -278,13 +314,16 @@ pub(super) fn build_ffmpeg_args(
     let mut args = vec![
         "-hide_banner".to_string(),
         "-loglevel".to_string(),
-        "warning".to_string(),
+        "info".to_string(),
         "-nostats".to_string(),
         "-progress".to_string(),
         "pipe:2".to_string(),
         "-stats_period".to_string(),
         "0.25".to_string(),
         "-y".to_string(),
+        "-copyts".to_string(),
+        "-use_wallclock_as_timestamps".to_string(),
+        "1".to_string(),
         "-f".to_string(),
         "lavfi".to_string(),
         "-i".to_string(),
@@ -296,6 +335,7 @@ pub(super) fn build_ffmpeg_args(
         ),
         "-an".to_string(),
     ];
+    let clock_filter = "settb=1/1000000,showinfo=checksum=0,setpts=PTS-STARTPTS";
 
     match encoder {
         CaptureEncoder::MediaFoundation => {
@@ -304,6 +344,8 @@ pub(super) fn build_ffmpeg_args(
                 .div_ceil(4)
                 .min(100_000_000);
             args.extend([
+                "-vf".to_string(),
+                clock_filter.to_string(),
                 "-c:v".to_string(),
                 "h264_mf".to_string(),
                 "-hw_encoding".to_string(),
@@ -326,7 +368,7 @@ pub(super) fn build_ffmpeg_args(
             args.extend([
                 "-vf".to_string(),
                 format!(
-                    "hwdownload,format=bgra,scale={}:{}:flags=fast_bilinear,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    "{clock_filter},hwdownload,format=bgra,scale={}:{}:flags=fast_bilinear,pad=ceil(iw/2)*2:ceil(ih/2)*2",
                     config.width, config.height
                 ),
                 "-c:v".to_string(),
@@ -347,38 +389,15 @@ pub(super) fn build_ffmpeg_args(
         }
     }
 
+    // Capture segments keep the moov atom at the end: a faststart rewrite of a
+    // multi-GB segment on stop could outlast the stop timeout and be killed
+    // mid-rewrite. The stitched output (concat_args) is the faststart file.
     args.extend([
         "-fps_mode".to_string(),
         "cfr".to_string(),
-        "-movflags".to_string(),
-        "+faststart".to_string(),
         output.to_string_lossy().to_string(),
     ]);
     args
-}
-
-fn create_kill_on_close_job(child: &Child) -> Result<OwnedHandle> {
-    let raw_job =
-        unsafe { CreateJobObjectW(None, PCWSTR::null()) }.context("create capture process job")?;
-    let job = unsafe { OwnedHandle::from_raw_handle(raw_job.0) };
-    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    unsafe {
-        SetInformationJobObject(
-            job_handle(&job),
-            JobObjectExtendedLimitInformation,
-            &limits as *const _ as *const c_void,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        )
-        .context("configure capture process job")?;
-        AssignProcessToJobObject(job_handle(&job), HANDLE(child.as_raw_handle()))
-            .context("contain FFmpeg in capture process job")?;
-    }
-    Ok(job)
-}
-
-fn job_handle(job: &OwnedHandle) -> HANDLE {
-    HANDLE(job.as_raw_handle())
 }
 
 fn stop_signal_context(error: Option<&str>) -> String {
@@ -409,6 +428,49 @@ fn is_progress_line(line: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn capture_pipe_child() {
+        if !std::env::args().any(|arg| arg == "capture-pipe-fixture") {
+            return;
+        }
+        let mut command = String::new();
+        std::io::stdin().read_line(&mut command).unwrap();
+        assert_eq!(command, "q\n");
+        eprintln!("out_time_us=1234000");
+        eprintln!("capture-fixture-final-diagnostic");
+        std::process::exit(0);
+    }
+
+    #[test]
+    fn completed_capture_drains_final_progress_and_releases_its_launch_permit() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let name = format!(
+            "{}::capture_pipe_child",
+            module_path!().split_once("::").unwrap().1
+        );
+        let args = [
+            "--exact",
+            &name,
+            "--nocapture",
+            "--",
+            "capture-pipe-fixture",
+        ]
+        .map(str::to_string);
+        let mut process = ManagedCaptureProcess::spawn(&test_executable(), &args).unwrap();
+        let outcome = process.stop_gracefully(Duration::from_secs(10)).unwrap();
+        assert!(outcome.status.success());
+        assert_eq!(outcome.encoded_duration, Duration::from_micros(1_234_000));
+        assert!(
+            outcome
+                .diagnostics
+                .contains("capture-fixture-final-diagnostic")
+        );
+        assert!(process.child.stopped());
+        assert!(LAUNCH.acquire().is_err());
+        drop(process);
+        assert!(LAUNCH.acquire().is_ok());
+    }
+
     fn config() -> CaptureProcessConfig {
         CaptureProcessConfig {
             monitor_index: 2,
@@ -417,6 +479,27 @@ mod tests {
             width: 2560,
             height: 1080,
             bitrate: 60_000_000,
+        }
+    }
+
+    #[test]
+    fn capture_reports_the_first_frame_epoch_before_normalizing_video_pts() {
+        for encoder in [CaptureEncoder::MediaFoundation, CaptureEncoder::Software] {
+            let args = build_ffmpeg_args(&config(), encoder, Path::new("capture.mp4"));
+            let joined = args.join(" ");
+            assert!(joined.contains("-copyts -use_wallclock_as_timestamps 1"));
+            assert!(joined.contains("settb=1/1000000,showinfo=checksum=0,setpts=PTS-STARTPTS"));
+        }
+    }
+
+    #[test]
+    fn capture_segments_never_request_a_faststart_rewrite() {
+        for encoder in [CaptureEncoder::MediaFoundation, CaptureEncoder::Software] {
+            let args = build_ffmpeg_args(&config(), encoder, Path::new("segment.mp4"));
+            assert!(
+                !args.iter().any(|arg| arg.contains("faststart")),
+                "{args:?}"
+            );
         }
     }
 

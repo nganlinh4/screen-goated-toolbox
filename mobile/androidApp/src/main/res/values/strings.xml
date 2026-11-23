@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="live_audio_gap">Some audio may have been missed while reconnecting.</string>
     <string name="app_name">SGT Mobile</string>
     <string name="live_translate_channel_name">Live Translate</string>
     <string name="live_translate_channel_description">Foreground session status for SGT mobile live translation.</string>
@@ -16,6 +17,7 @@
     <string name="preset_audio_notification_title">SGT Audio Preset</string>
     <string name="preset_audio_notification_device">Capturing device audio for preset</string>
     <string name="preset_audio_notification_microphone">Capturing microphone audio for preset</string>
+    <string name="preset_audio_permission_required">Allow microphone access to resume the preset.</string>
     <string name="preset_audio_notification_idle">Preset audio capture idle</string>
     <string name="bubble_channel_name">SGT Bubble</string>
     <string name="bubble_channel_description">Floating bubble overlay</string>
@@ -56,6 +58,9 @@
     <string name="phone_control_activation_accessibility_toast">Enable SGT Accessibility.</string>
     <string name="phone_control_activation_overlay_toast">Allow the floating orb.</string>
     <string name="phone_control_activation_projection_needed">Share the entire screen to start Phone Control.</string>
+    <string name="phone_control_projection_busy">Screen sharing is busy. Finish the current step, then try again.</string>
+    <string name="phone_control_stop_retry">Couldn’t stop Phone Control. Tap to try again.</string>
+    <string name="phone_control_projection_expired">Screen sharing changed. Please try again.</string>
     <string name="phone_control_activation_projection_toast">Share the whole screen.</string>
     <string name="phone_control_activation_start_failed_toast">Phone Control could not start.</string>
     <string name="phone_control_power_prompt_title">Control power</string>
@@ -74,6 +79,7 @@
     <string name="phone_control_sgt_adb_setup_toast">Opening Wireless debugging…</string>
     <string name="phone_control_sgt_adb_pending">SGT Bridge remains selected. Keep Wireless debugging enabled and complete the visible Android-owned step.</string>
     <string name="phone_control_sgt_adb_pending_toast">Finish the visible Android step.</string>
+    <string name="phone_control_sgt_adb_unavailable">SGT Bridge is unavailable because its connection cannot be verified. Choose another authority to continue, or keep the current selection.</string>
     <string name="phone_control_sgt_adb_forget">Forget pairing</string>
     <string name="phone_control_sgt_adb_forgotten_toast">SGT Bridge pairing forgotten.</string>
     <string name="phone_control_sgt_adb_forget_failed_toast">Couldn\'t forget SGT pairing.</string>
@@ -93,14 +99,17 @@
     <string name="phone_control_private_setup_continue">Share the screen again to verify the selected control provider.</string>
     <string name="phone_control_private_setup_complete_toast">Share the screen to continue.</string>
     <string name="phone_control_private_setup_working">Finishing secure setup…</string>
+    <string name="phone_control_private_setup_shizuku_manual">Enter the code in the Shizuku notification, then start it.</string>
     <string name="phone_control_private_setup_pending">Share the screen again to continue setup. SGT will re-check the selected control provider from fresh evidence.</string>
     <string name="phone_control_private_setup_pending_toast">Share the screen to continue.</string>
     <string name="phone_control_private_setup_needs_user_step">Setup still needs a visible Android step.</string>
     <string name="phone_control_private_setup_needs_user_step_toast">Finish the visible Android step.</string>
     <string name="phone_control_action_cancel_setup">Cancel setup</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
-    <string name="feature_asr_ort_name">Moonshine runtime</string>
-    <string name="feature_asr_moonshine_name">Moonshine engine</string>
-    <string name="feature_asr_sherpa_name">Zipformer engine</string>
     <string name="feature_creation_runtime_name">Creation tools</string>
+    <string name="creation_retained_original">Original</string>
+    <string name="secure_store_unavailable_title">Settings are unavailable</string>
+    <string name="secure_store_unavailable_body">Your encrypted settings could not be opened. They have not been deleted. Unlock your device and try again.</string>
+    <string name="secure_store_retry_failed">Settings are still unavailable. Try again later.</string>
+    <string name="secure_store_retry">Try again</string>
 </resources>

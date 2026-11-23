@@ -4,6 +4,7 @@ package dev.screengoated.toolbox.mobile.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,10 +24,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
@@ -44,6 +48,7 @@ import androidx.compose.ui.zIndex
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.preset.AdaptiveManualEdit
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
+import dev.screengoated.toolbox.mobile.preset.CHOSEN_MODEL_ROW
 import dev.screengoated.toolbox.mobile.preset.PresetLiveModelOverrides
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
@@ -52,11 +57,16 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelType
 import dev.screengoated.toolbox.mobile.preset.PresetRetryChainKind
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.preset.adaptiveChain
+import dev.screengoated.toolbox.mobile.preset.chosenAfter
 import dev.screengoated.toolbox.mobile.preset.commitAdaptiveEdits
+import dev.screengoated.toolbox.mobile.preset.editablePriorityOrder
 import dev.screengoated.toolbox.mobile.preset.offeredModels
+import dev.screengoated.toolbox.mobile.preset.splitPriorityOrder
 import dev.screengoated.toolbox.mobile.preset.ui.providerIconRes
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlin.math.roundToInt
+
+private val priorityRowSpacing = 10.dp
 
 @Composable
 internal fun PriorityChainEditor(
@@ -72,7 +82,7 @@ internal fun PriorityChainEditor(
     locale: MobileLocaleText,
     uiLanguage: String,
     accent: Color,
-    onStateChanged: (List<String>, Boolean, PresetLiveModelOverrides) -> Unit,
+    onStateChanged: (List<String>, Int, Boolean, PresetLiveModelOverrides) -> Unit,
 ) {
     val feedSnapshot by PresetModelFeed.state.collectAsState()
     val availableModels = PresetModelCatalog.forType(modelType)
@@ -85,25 +95,26 @@ internal fun PriorityChainEditor(
     val liveLatencyById = liveOffers
         .filter { (_, latencyMs) -> latencyMs != Int.MAX_VALUE }
         .toMap()
+    val authoredRows = editablePriorityOrder(authoredChain, chainKind.chosenAfter(settings))
     val visibleChain = if (adaptiveEnabled) {
-        chainKind.adaptiveChain(authoredChain, overrides, settings, apiKeys)
+        chainKind.adaptiveChain(authoredRows, overrides, settings, apiKeys)
     } else {
-        authoredChain
+        authoredRows
     }
     var showAddMenu by remember { mutableStateOf(false) }
     var draggedModelId by remember { mutableStateOf<String?>(null) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    val itemHeightPx = with(LocalDensity.current) { 44.dp.toPx() }
     val latestChain by rememberUpdatedState(visibleChain)
     val latestCommit by rememberUpdatedState(onStateChanged)
 
-    fun commit(chain: List<String>, edit: AdaptiveManualEdit) {
-        if (!adaptiveEnabled) {
-            latestCommit(chain, false, overrides)
+    fun commit(chain: List<String>, edit: AdaptiveManualEdit?) {
+        val (stored, after) = splitPriorityOrder(chain)
+        if (!adaptiveEnabled || edit == null) {
+            latestCommit(stored, after, adaptiveEnabled, overrides)
             return
         }
-        val result = commitAdaptiveEdits(chain, overrides, liveIds, listOf(edit))
-        latestCommit(result.authored, result.remainsEnabled, result.overrides)
+        val result = commitAdaptiveEdits(stored, overrides, liveIds, listOf(edit))
+        latestCommit(result.authored, after, result.remainsEnabled, result.overrides)
     }
 
     ExpressiveDialogSectionCard(accent = accent, modifier = Modifier.fillMaxWidth()) {
@@ -121,16 +132,17 @@ internal fun PriorityChainEditor(
                         selected = adaptiveEnabled,
                         onClick = {
                             if (adaptiveEnabled) {
-                                latestCommit(visibleChain, false, overrides)
+                                val (stored, after) = splitPriorityOrder(visibleChain)
+                                latestCommit(stored, after, false, overrides)
                             } else {
-                                latestCommit(authoredChain, true, overrides)
+                                latestCommit(authoredChain, chainKind.chosenAfter(settings), true, overrides)
                             }
                         },
                         label = { Text(locale.presetRuntimeLive) },
                     )
                     TextButton(
                         onClick = {
-                            latestCommit(defaultChain, true, PresetLiveModelOverrides())
+                            latestCommit(defaultChain, 0, true, PresetLiveModelOverrides())
                         },
                     ) {
                         Icon(
@@ -146,69 +158,69 @@ internal fun PriorityChainEditor(
             },
         )
 
-        FixedPriorityEntry(
-            number = 0,
-            label = locale.presetRuntimeChosenModel,
-            hint = locale.presetRuntimeChosenHint,
-            accent = accent,
-        )
-
-        visibleChain.forEachIndexed { index, modelId ->
-            key("$modelId-$index-${feedSnapshot.revision}") {
-                DraggablePriorityModel(
-                    number = index + 1,
-                    modelId = modelId,
-                    availableModels = availableModels,
-                    liveLatencyById = liveLatencyById,
-                    uiLanguage = uiLanguage,
-                    accent = accent,
-                    isDragging = draggedModelId == modelId,
-                    dragOffsetY = dragOffsetY,
-                    onModelChanged = { newId ->
-                        val list = latestChain.toMutableList()
-                        val modelIndex = list.indexOf(modelId)
-                        if (modelIndex >= 0) {
-                            list[modelIndex] = newId
-                            commit(list, AdaptiveManualEdit.Replace(modelId, newId))
-                        }
-                    },
-                    onDragStart = {
-                        draggedModelId = modelId
-                        dragOffsetY = 0f
-                    },
-                    onDragDelta = { deltaY ->
-                        val activeId = draggedModelId ?: return@DraggablePriorityModel
-                        val currentIndex = latestChain.indexOf(activeId)
-                        if (currentIndex < 0) {
-                            draggedModelId = null
+        Column(verticalArrangement = Arrangement.spacedBy(priorityRowSpacing)) {
+            visibleChain.forEachIndexed { index, modelId ->
+                // Never key by index: a reorder would dispose the row and its in-flight drag gesture.
+                // A row replace can repeat an id, so the occurrence count keeps keys unique.
+                val occurrence = visibleChain.subList(0, index).count { it == modelId }
+                key(modelId, occurrence, feedSnapshot.revision) {
+                    DraggablePriorityModel(
+                        number = index + 1,
+                        modelId = modelId,
+                        chosenLabel = locale.presetRuntimeChosenModel.takeIf { modelId == CHOSEN_MODEL_ROW },
+                        availableModels = availableModels,
+                        liveLatencyById = liveLatencyById,
+                        uiLanguage = uiLanguage,
+                        accent = accent,
+                        isDragging = draggedModelId == modelId,
+                        dragOffsetY = dragOffsetY,
+                        onModelChanged = { newId ->
+                            val list = latestChain.toMutableList()
+                            val modelIndex = list.indexOf(modelId)
+                            if (modelIndex >= 0) {
+                                list[modelIndex] = newId
+                                commit(list, AdaptiveManualEdit.Replace(modelId, newId))
+                            }
+                        },
+                        onDragStart = {
+                            draggedModelId = modelId
                             dragOffsetY = 0f
-                        } else {
-                            dragOffsetY += deltaY
-                            val steps = (dragOffsetY / itemHeightPx).roundToInt()
-                            if (steps != 0) {
-                                val target = (currentIndex + steps).coerceIn(0, latestChain.lastIndex)
-                                if (target != currentIndex) {
-                                    val list = latestChain.toMutableList()
-                                    list.add(target, list.removeAt(currentIndex))
-                                    dragOffsetY -= (target - currentIndex) * itemHeightPx
-                                    commit(list, AdaptiveManualEdit.Move(activeId))
+                        },
+                        onDragDelta = { deltaY, rowStridePx ->
+                            val activeId = draggedModelId ?: return@DraggablePriorityModel
+                            val currentIndex = latestChain.indexOf(activeId)
+                            if (currentIndex < 0) {
+                                draggedModelId = null
+                                dragOffsetY = 0f
+                            } else {
+                                dragOffsetY += deltaY
+                                val steps = (dragOffsetY / rowStridePx).roundToInt()
+                                if (steps != 0) {
+                                    val target = (currentIndex + steps).coerceIn(0, latestChain.lastIndex)
+                                    if (target != currentIndex) {
+                                        val list = latestChain.toMutableList()
+                                        list.add(target, list.removeAt(currentIndex))
+                                        dragOffsetY -= (target - currentIndex) * rowStridePx
+                                        commit(list, activeId.takeUnless { it == CHOSEN_MODEL_ROW }
+                                            ?.let { AdaptiveManualEdit.Move(it) })
+                                    }
                                 }
                             }
-                        }
-                    },
-                    onDragEnd = {
-                        draggedModelId = null
-                        dragOffsetY = 0f
-                    },
-                    onRemove = {
-                        val list = latestChain.toMutableList()
-                        if (list.remove(modelId)) {
-                            if (draggedModelId == modelId) draggedModelId = null
+                        },
+                        onDragEnd = {
+                            draggedModelId = null
                             dragOffsetY = 0f
-                            commit(list, AdaptiveManualEdit.Remove(modelId))
-                        }
-                    },
-                )
+                        },
+                        onRemove = {
+                            val list = latestChain.toMutableList()
+                            if (list.remove(modelId)) {
+                                if (draggedModelId == modelId) draggedModelId = null
+                                dragOffsetY = 0f
+                                commit(list, AdaptiveManualEdit.Remove(modelId))
+                            }
+                        },
+                    )
+                }
             }
         }
 
@@ -243,6 +255,7 @@ internal fun PriorityChainEditor(
 private fun DraggablePriorityModel(
     number: Int,
     modelId: String,
+    chosenLabel: String?,
     availableModels: List<PresetModelDescriptor>,
     liveLatencyById: Map<String, Int>,
     uiLanguage: String,
@@ -250,7 +263,7 @@ private fun DraggablePriorityModel(
     isDragging: Boolean,
     dragOffsetY: Float,
     onDragStart: () -> Unit,
-    onDragDelta: (Float) -> Unit,
+    onDragDelta: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onModelChanged: (String) -> Unit,
     onRemove: () -> Unit,
@@ -258,6 +271,13 @@ private fun DraggablePriorityModel(
     val currentStart by rememberUpdatedState(onDragStart)
     val currentDelta by rememberUpdatedState(onDragDelta)
     val currentEnd by rememberUpdatedState(onDragEnd)
+    val draggingNow by rememberUpdatedState(isDragging)
+    var rowHeightPx by remember { mutableIntStateOf(0) }
+    val rowSpacingPx by rememberUpdatedState(with(LocalDensity.current) { priorityRowSpacing.toPx() })
+    // A row disposed mid-drag never receives onDragCancel, so end the drag here.
+    DisposableEffect(Unit) {
+        onDispose { if (draggingNow) currentEnd() }
+    }
     val dragModifier = Modifier
         .width(44.dp)
         .heightIn(min = 32.dp)
@@ -266,7 +286,7 @@ private fun DraggablePriorityModel(
                 onDragStart = { currentStart() },
                 onDrag = { change, offset ->
                     change.consume()
-                    currentDelta(offset.y)
+                    if (rowHeightPx > 0) currentDelta(offset.y, rowHeightPx + rowSpacingPx)
                 },
                 onDragEnd = currentEnd,
                 onDragCancel = currentEnd,
@@ -275,16 +295,17 @@ private fun DraggablePriorityModel(
     PriorityModelRow(
         number = number,
         modelId = modelId,
+        chosenLabel = chosenLabel,
         availableModels = availableModels,
         liveLatencyById = liveLatencyById,
         uiLanguage = uiLanguage,
         accent = accent,
         isDragging = isDragging,
-        modifier = if (isDragging) {
+        modifier = (if (isDragging) {
             Modifier.offset { IntOffset(0, dragOffsetY.roundToInt()) }.zIndex(10f)
         } else {
             Modifier
-        },
+        }).onSizeChanged { rowHeightPx = it.height },
         dragHandleModifier = dragModifier,
         onModelChanged = onModelChanged,
         onRemove = onRemove,
@@ -315,6 +336,7 @@ private fun FixedPriorityEntry(number: Int, label: String, hint: String, accent:
 private fun PriorityModelRow(
     number: Int,
     modelId: String,
+    chosenLabel: String?,
     availableModels: List<PresetModelDescriptor>,
     liveLatencyById: Map<String, Int>,
     uiLanguage: String,
@@ -346,6 +368,13 @@ private fun PriorityModelRow(
         Spacer(Modifier.width(4.dp))
         Text("$number.", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.width(6.dp))
+        if (chosenLabel != null) {
+            Box(Modifier.weight(1f).heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                Text(chosenLabel, style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.width(28.dp))
+            return@Row
+        }
         Box(Modifier.weight(1f)) {
             TextButton(onClick = { showDropdown = true }, modifier = Modifier.fillMaxWidth()) {
                 ModelPerformancePrefix(descriptor, latencyOverrideMs = liveLatencyById[modelId])

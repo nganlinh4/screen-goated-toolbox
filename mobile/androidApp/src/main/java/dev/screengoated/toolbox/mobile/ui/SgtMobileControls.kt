@@ -18,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
@@ -91,7 +93,10 @@ internal fun ThemeMorphToggle(
     val morph = remember(fromIdx, toIdx) { Morph(ThemeShapes[fromIdx], ThemeShapes[toIdx]) }
     val color = lerpColor(ThemeColors[fromIdx], ThemeColors[toIdx], segmentT)
 
-    IconButton(onClick = onClick) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.semantics { this.contentDescription = contentDescription },
+    ) {
         Canvas(modifier = Modifier.size(28.dp)) {
             val path = morph.toPath(progress = segmentT)
             val s = size.minDimension

@@ -3,6 +3,8 @@ package dev.screengoated.toolbox.mobile.phonecontrol.session
 import android.content.Context
 import android.graphics.Bitmap
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
+import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolRegistry
+import kotlinx.serialization.json.contentOrNull
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveMediaResolution
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReasoningOverride
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSetupSpec
@@ -35,6 +37,7 @@ internal data class PhoneControlContractAssets(
             check(declarations.size == GeneratedPhoneControlContract.STATIC_DECLARATION_COUNT) {
                 "Phone Control catalog declaration count mismatch"
             }
+            validatedPhoneControlDeclarations(declarations)
             val prompt = context.assets.open(GeneratedPhoneControlContract.PROMPT_CORE_ASSET_PATH)
                 .bufferedReader()
                 .use { it.readText() }
@@ -44,6 +47,21 @@ internal data class PhoneControlContractAssets(
             return PhoneControlContractAssets(declarations, prompt)
         }
     }
+}
+
+internal fun validatedPhoneControlDeclarations(declarations: JsonArray): Map<String, JsonObject> {
+    val selected = declarations.map { value ->
+        val declaration = value as? JsonObject ?: error("Tool declaration is not an object")
+        val name = (declaration["name"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+            ?: error("Tool declaration has no name")
+        check(declaration["parameters"] is JsonObject) { "Tool declaration has no parameter schema" }
+        name to declaration
+    }
+    check(selected.map { it.first }.toSet().size == selected.size) { "Tool declaration names are duplicated" }
+    check(selected.map { it.first }.toSet() == PhoneControlToolRegistry.byName.keys) {
+        "Session declarations do not match the executable tool registry"
+    }
+    return selected.toMap()
 }
 
 internal fun buildPhoneControlSetupPayload(
@@ -217,14 +235,6 @@ internal fun buildPhoneControlToolResponse(
             )
         },
     )
-}.toString()
-
-internal fun buildPhoneControlActivityStartPayload(): String = buildJsonObject {
-    put("realtimeInput", buildJsonObject { put("activityStart", JsonPrimitive(true)) })
-}.toString()
-
-internal fun buildPhoneControlActivityEndPayload(): String = buildJsonObject {
-    put("realtimeInput", buildJsonObject { put("activityEnd", JsonPrimitive(true)) })
 }.toString()
 
 private fun boundedBitmapScale(width: Int, height: Int): Float {

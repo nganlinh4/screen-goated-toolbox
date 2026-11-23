@@ -1,10 +1,11 @@
 //! Manager for Gemini Live LLM connection pool
 
-use super::types::{LiveEvent, LiveRequest, QueuedLiveRequest};
+use super::request::{LiveResponse, RequestControl};
+use super::types::{LiveRequest, QueuedLiveRequest};
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::sync::{
-    Condvar, Mutex,
+    Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
@@ -14,51 +15,51 @@ static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 /// Similar architecture to TtsManager for consistency
 pub struct GeminiLiveManager {
     /// Queue for workers: requests waiting to be processed
-    pub work_queue: Mutex<VecDeque<QueuedLiveRequest>>,
+    pub work_queue: Arc<Mutex<VecDeque<QueuedLiveRequest>>>,
     /// Signal for workers to wake up
     pub work_signal: Condvar,
 
     /// Generation counter for interrupts
-    pub interrupt_generation: AtomicU64,
+    pub interrupt_generation: Arc<AtomicU64>,
 
     /// Shutdown flag
-    pub shutdown: AtomicBool,
+    pub shutdown: Arc<AtomicBool>,
 }
 
 impl GeminiLiveManager {
     pub fn new() -> Self {
         Self {
-            work_queue: Mutex::new(VecDeque::new()),
+            work_queue: Arc::new(Mutex::new(VecDeque::new())),
             work_signal: Condvar::new(),
-            interrupt_generation: AtomicU64::new(0),
-            shutdown: AtomicBool::new(false),
+            interrupt_generation: Arc::new(AtomicU64::new(0)),
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Send a request to the Gemini Live LLM and get a receiver for events
-    /// Returns (request_id, event_receiver)
-    pub fn request(&self, req: LiveRequest) -> (u64, mpsc::Receiver<LiveEvent>) {
+    /// Dropping the response retires only this request.
+    pub fn request(&self, req: LiveRequest) -> LiveResponse {
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let current_gen = self.interrupt_generation.load(Ordering::SeqCst);
 
         let (tx, rx) = mpsc::channel();
+        let control = Arc::new(RequestControl::new(
+            current_gen,
+            self.interrupt_generation.clone(),
+            self.shutdown.clone(),
+        ));
 
         {
             let mut queue = self.work_queue.lock().unwrap();
             queue.push_back(QueuedLiveRequest {
                 req,
-                generation: current_gen,
+                control: control.clone(),
                 response_tx: tx,
             });
         }
         self.work_signal.notify_one();
 
-        (id, rx)
-    }
-
-    /// Check if a request's generation is still valid
-    pub fn is_generation_valid(&self, generation: u64) -> bool {
-        generation >= self.interrupt_generation.load(Ordering::SeqCst)
+        LiveResponse::new(id, rx, control, Arc::downgrade(&self.work_queue))
     }
 }
 
@@ -76,7 +77,7 @@ mod tests {
     #[test]
     fn queued_request_preserves_the_callers_credential() {
         let manager = GeminiLiveManager::new();
-        let (_id, _receiver) = manager.request(LiveRequest {
+        let _response = manager.request(LiveRequest {
             api_key: "caller-key".to_string(),
             model: "model".to_string(),
             content: LiveInputContent::Text("hello".to_string()),

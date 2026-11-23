@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "platform": "windows",
+  "cases": [
+    {
+      "name": "legacy_only",
+      "saved": { "hotkey": { "code": 112, "modifiers": 2, "name": "old label" } },
+      "expected": [{ "code": 112, "modifiers": 2 }]
+    },
+    {
+      "name": "legacy_precedes_existing_list",
+      "saved": {
+        "hotkey": { "code": 112, "modifiers": 2 },
+        "hotkeys": [{ "code": 113, "modifiers": 4 }, { "code": 114, "modifiers": 0 }]
+      },
+      "expected": [{ "code": 112, "modifiers": 2 }, { "code": 113, "modifiers": 4 }, { "code": 114, "modifiers": 0 }]
+    },
+    {
+      "name": "existing_identity_is_not_duplicated_or_reordered",
+      "saved": {
+        "hotkey": { "code": 112, "modifiers": 2, "name": "old label" },
+        "hotkeys": [{ "code": 113, "modifiers": 4 }, { "code": 112, "modifiers": 2, "name": "another label" }]
+      },
+      "expected": [{ "code": 113, "modifiers": 4 }, { "code": 112, "modifiers": 2 }]
+    },
+    {
+      "name": "same_key_with_different_modifiers_is_distinct",
+      "saved": {
+        "hotkey": { "code": 112, "modifiers": 2 },
+        "hotkeys": [{ "code": 112, "modifiers": 4 }]
+      },
+      "expected": [{ "code": 112, "modifiers": 2 }, { "code": 112, "modifiers": 4 }]
+    },
+    {
+      "name": "current_list_without_legacy_field",
+      "saved": { "hotkeys": [{ "code": 113, "modifiers": 4 }] },
+      "expected": [{ "code": 113, "modifiers": 4 }]
+    },
+    { "name": "no_binding_is_invented", "saved": {}, "expected": [] }
+  ]
+}

@@ -98,6 +98,68 @@ export interface LoadVideoArgs {
   debugLabel?: string;
 }
 
+export class VideoSourceLoader {
+  private active: AbortController | null = null;
+  public version = 0;
+
+  constructor(
+    private video: HTMLVideoElement,
+    private canvas: HTMLCanvasElement,
+    private webcam: HTMLMediaElement | undefined,
+    private deviceAudio: HTMLMediaElement | undefined,
+    private micAudio: HTMLMediaElement | undefined,
+    private callbacks: {
+      start: (label?: string) => void;
+      success: () => void;
+      failure: () => void;
+      finish: () => void;
+    },
+  ) {}
+
+  destroy(): void {
+    this.version += 1;
+    this.active?.abort();
+    this.active = null;
+  }
+
+  async load(args: LoadVideoArgs): Promise<string> {
+    this.version += 1;
+    this.active?.abort();
+    const request = new AbortController();
+    this.active = request;
+    this.callbacks.start(args.debugLabel);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const resetTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => request.abort(new Error("Video load timed out")), 30000);
+    };
+    resetTimeout();
+    try {
+      const result = await fetchVideoSource({ ...args, onLoadingProgress: (progress) => {
+        resetTimeout();
+        args.onLoadingProgress?.(progress);
+      } }, this.webcam, this.deviceAudio, this.micAudio, request.signal,
+      (url, initialTime) => performVideoSourceChange(this.video, this.canvas, url, initialTime, request.signal));
+      if (request.signal.aborted && (args.videoBlob ||
+        (args.videoUrl && !args.videoUrl.startsWith("blob:") && !isNativeMediaUrl(args.videoUrl)))) {
+        URL.revokeObjectURL(result);
+      }
+      request.signal.throwIfAborted();
+      if (this.active === request) this.callbacks.success();
+      return result;
+    } catch (error) {
+      if (this.active === request) this.callbacks.failure();
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (this.active === request) {
+        this.active = null;
+        this.callbacks.finish();
+      }
+    }
+  }
+}
+
 /**
  * Fetch the video blob/URL and return the usable source URL.
  * `onSourceChange` is called with the resolved URL and optional label
@@ -108,6 +170,7 @@ export async function fetchVideoSource(
   webcamVideo: HTMLMediaElement | undefined,
   deviceAudio: HTMLMediaElement | undefined,
   micAudio: HTMLMediaElement | undefined,
+  signal: AbortSignal,
   onSourceChange: (
     url: string,
     initialTime?: number,
@@ -134,10 +197,12 @@ export async function fetchVideoSource(
   } else if (videoUrl?.startsWith("blob:") || isNativeMediaUrl(videoUrl)) {
     const directVideoUrl = videoUrl!;
     await onSourceChange(directVideoUrl, initialTime, debugLabel);
+    signal.throwIfAborted();
     onLoadingProgress?.(100);
     return directVideoUrl;
   } else if (videoUrl) {
-    const response = await fetch(videoUrl);
+    const response = await awaitWithAbort(fetch(videoUrl, { signal }), signal);
+    signal.throwIfAborted();
     if (!response.ok) throw new Error("Failed to fetch video");
 
     const reader = response.body!.getReader();
@@ -146,7 +211,8 @@ export async function fetchVideoSource(
     const chunks = [];
 
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await awaitWithAbort(reader.read(), signal);
+      signal.throwIfAborted();
       if (done) break;
       chunks.push(value);
       receivedLength += value.length;
@@ -154,7 +220,7 @@ export async function fetchVideoSource(
         (receivedLength / contentLength) * 100,
         100,
       );
-      onLoadingProgress?.(progress);
+      onLoadingProgress?.(contentLength > 0 ? progress : 0);
     }
 
     blob = new Blob(chunks, { type: "video/mp4" });
@@ -167,9 +233,25 @@ export async function fetchVideoSource(
     throw new Error("No video data provided");
   }
 
+  signal.throwIfAborted();
   const objectUrl = URL.createObjectURL(blob);
-  await onSourceChange(objectUrl, initialTime, debugLabel);
-  return objectUrl;
+  try {
+    await onSourceChange(objectUrl, initialTime, debugLabel);
+    signal.throwIfAborted();
+    return objectUrl;
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+}
+
+function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return; }
+    const onAbort = () => { signal.removeEventListener("abort", onAbort); reject(signal.reason); };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -181,78 +263,80 @@ export async function fetchVideoSource(
  * new URL, wait for both `loadedmetadata` and `canplaythrough`, then
  * configure the canvas.
  *
- * `beforeChange` is invoked right before the source is cleared so the
- * controller can reset transient state. `afterChange` is called once the
- * video is ready so the controller can set isReady / isChangingSource.
+ * The request signal cancels the readiness wait and any initial seek.
  */
 export async function performVideoSourceChange(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
   videoUrl: string,
   initialTime: number | undefined,
-  beforeChange: () => void,
-  afterChange: () => void,
+  signal: AbortSignal,
 ): Promise<void> {
-  beforeChange();
+  signal.throwIfAborted();
   clearMediaElementSource(video);
 
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     let metadataLoaded = false;
     let canPlay = false;
     let settled = false;
     let canPlayFallback: number | null = null;
+    let seekTimeout: number | null = null;
+    const cleanup = () => {
+      if (canPlayFallback !== null) window.clearTimeout(canPlayFallback);
+      if (seekTimeout !== null) window.clearTimeout(seekTimeout);
+      video.removeEventListener("loadedmetadata", onMetadata);
+      video.removeEventListener("canplaythrough", onCanPlay);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error !== undefined) reject(error); else resolve();
+    };
+    const onAbort = () => finish(signal.reason);
+    const onError = () => { if (video.error) finish(new Error(video.error.message || "Failed to load video")); };
+    const onSeeked = () => finish();
 
     const tryFinish = () => {
       if (settled) return;
       if (!metadataLoaded || !canPlay) return;
-      settled = true;
-      cleanup();
+      try {
+        if (canPlayFallback !== null) window.clearTimeout(canPlayFallback);
+        video.removeEventListener("loadedmetadata", onMetadata);
+        video.removeEventListener("canplaythrough", onCanPlay);
 
-      // Set up canvas
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+        // Set up canvas
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
 
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-      }
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+        }
 
-      const seekTarget =
-        typeof initialTime === "number" && Number.isFinite(initialTime)
-          ? Math.max(0, Math.min(initialTime, video.duration || initialTime))
-          : 0;
-      if (seekTarget <= 0.001) {
-        afterChange();
-        resolve();
-        return;
-      }
+        const seekTarget =
+          typeof initialTime === "number" && Number.isFinite(initialTime)
+            ? Math.max(0, Math.min(initialTime, video.duration || initialTime))
+            : 0;
+        if (seekTarget <= 0.001) {
+          finish();
+          return;
+        }
 
-      const finishAfterSeek = () => {
-        afterChange();
-        resolve();
-      };
+        if (Math.abs(video.currentTime - seekTarget) <= 0.02) {
+          finish();
+          return;
+        }
 
-      if (Math.abs(video.currentTime - seekTarget) <= 0.02) {
-        finishAfterSeek();
-        return;
-      }
+        seekTimeout = window.setTimeout(() => finish(), 800);
 
-      const onSeeked = () => {
-        cleanupSeek();
-        finishAfterSeek();
-      };
-      const cleanupSeek = () => {
-        clearTimeout(seekTimeout);
-        video.removeEventListener("seeked", onSeeked);
-      };
-      const seekTimeout = window.setTimeout(() => {
-        cleanupSeek();
-        finishAfterSeek();
-      }, 800);
-
-      video.addEventListener("seeked", onSeeked, { once: true });
-      video.currentTime = seekTarget;
+        video.addEventListener("seeked", onSeeked, { once: true });
+        video.currentTime = seekTarget;
+      } catch (error) { finish(error); }
     };
 
     const onMetadata = () => {
@@ -268,19 +352,15 @@ export async function performVideoSourceChange(
       canPlay = true;
       tryFinish();
     };
-    const cleanup = () => {
-      if (canPlayFallback !== null) {
-        window.clearTimeout(canPlayFallback);
-      }
-      video.removeEventListener("loadedmetadata", onMetadata);
-      video.removeEventListener("canplaythrough", onCanPlay);
-    };
-
     // Wait for BOTH metadata (dimensions) and canplaythrough (buffered)
     video.addEventListener("loadedmetadata", onMetadata);
     video.addEventListener("canplaythrough", onCanPlay);
-    video.preload = "auto";
-    video.src = videoUrl;
-    video.load();
+    video.addEventListener("error", onError);
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      video.preload = "auto";
+      video.src = videoUrl;
+      video.load();
+    } catch (error) { finish(error); }
   });
 }

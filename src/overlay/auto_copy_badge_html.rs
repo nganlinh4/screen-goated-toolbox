@@ -1,5 +1,13 @@
+use crate::overlay::html_components::icons::OverlayIcon;
+
+/// Leading icon size in a badge.
+const LEADING_ICON_PX: u32 = 20;
+
 pub(super) fn get_badge_html() -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let gif_copy_icon = OverlayIcon::Image.svg_at(LEADING_ICON_PX);
+    let file_copy_icon = OverlayIcon::ContentCopy.svg_at(LEADING_ICON_PX);
+    let done_icon = OverlayIcon::Check.svg_at(LEADING_ICON_PX);
 
     format!(
         r#"<!DOCTYPE html>
@@ -354,12 +362,12 @@ pub(super) fn get_badge_html() -> String {
 
         function getLeadingIcon(type) {{
             if (type === 'gif_copy') {{
-                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm6-6h1.5V9H11zm-4 0h2q.425 0 .713-.288T10 14v-2H8.5v1.5h-1v-3H10V10q0-.425-.288-.712T9 9H7q-.425 0-.712.288T6 10v4q0 .425.288.713T7 15m7 0h1.5v-2h2v-1.5h-2v-1h3V9H14z"/></svg>`;
+                return `{gif_copy_icon}`;
             }}
             if (type === 'file_copy') {{
-                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18q-.825 0-1.412-.587T7 16V4q0-.825.588-1.412T9 2h9q.825 0 1.413.588T20 4v12q0 .825-.587 1.413T18 18zm-4 4q-.825 0-1.412-.587T3 20V6h2v14h11v2z"/></svg>`;
+                return `{file_copy_icon}`;
             }}
-            return `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z"/></svg>`;
+            return `{done_icon}`;
         }}
 
         function maybeHideWindow() {{
@@ -504,5 +512,18 @@ mod tests {
         assert!(!html.contains("${snippet}"));
         assert!(html.contains(".title-text').textContent = title || ''"));
         assert!(html.contains(".snippet').textContent = snippet || ''"));
+    }
+
+    #[test]
+    fn leading_icons_are_catalog_symbols() {
+        let html = get_badge_html();
+        crate::overlay::html_components::icons::assert_only_catalog_icons(&html);
+        for icon in [
+            OverlayIcon::Image,
+            OverlayIcon::ContentCopy,
+            OverlayIcon::Check,
+        ] {
+            assert!(html.contains(&format!("return `{}`;", icon.svg_at(LEADING_ICON_PX))));
+        }
     }
 }

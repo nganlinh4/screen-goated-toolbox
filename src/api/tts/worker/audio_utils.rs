@@ -21,6 +21,49 @@ pub(crate) fn decode_mp3_to_pcm(
     source_sample_rate: &mut u32,
     is_interrupted: impl Fn() -> bool,
 ) -> bool {
+    decode_mp3_inner(
+        mp3_data,
+        all_samples,
+        source_sample_rate,
+        is_interrupted,
+        false,
+    )
+    .unwrap_or(true)
+}
+
+/// Decode an Edge response without exposing partial samples on failure.
+/// Cancellation returns `Ok(None)`; malformed or empty audio is an error.
+pub(crate) fn decode_edge_mp3_to_pcm(
+    mp3_data: Vec<u8>,
+    is_interrupted: impl Fn() -> bool,
+) -> anyhow::Result<Option<(Vec<i16>, u32)>> {
+    if is_interrupted() {
+        return Ok(None);
+    }
+    let mut samples = Vec::new();
+    let mut sample_rate = 24_000;
+    if !decode_mp3_inner(
+        mp3_data,
+        &mut samples,
+        &mut sample_rate,
+        is_interrupted,
+        true,
+    )? {
+        return Ok(None);
+    }
+    if samples.is_empty() {
+        bail!("Edge TTS returned no decodable audio");
+    }
+    Ok(Some((samples, sample_rate)))
+}
+
+fn decode_mp3_inner(
+    mp3_data: Vec<u8>,
+    all_samples: &mut Vec<i16>,
+    source_sample_rate: &mut u32,
+    is_interrupted: impl Fn() -> bool,
+    strict: bool,
+) -> anyhow::Result<bool> {
     let mss = MediaSourceStream::new(Box::new(Cursor::new(mp3_data)), Default::default());
 
     let mut hint = Hint::new();
@@ -33,7 +76,8 @@ pub(crate) fn decode_mp3_to_pcm(
         MetadataOptions::default(),
     ) {
         Ok(p) => p,
-        Err(_) => return true,
+        Err(error) if strict => return Err(error).context("probe Edge TTS MP3"),
+        Err(_) => return Ok(true),
     };
 
     let track = match format.tracks().iter().find_map(|track| {
@@ -41,7 +85,8 @@ pub(crate) fn decode_mp3_to_pcm(
         (params.codec != CODEC_ID_NULL_AUDIO).then_some((track.id, params.clone()))
     }) {
         Some(track) => track,
-        None => return true,
+        None if strict => bail!("Edge TTS MP3 has no audio track"),
+        None => return Ok(true),
     };
     let (track_id, codec_params) = track;
 
@@ -49,12 +94,13 @@ pub(crate) fn decode_mp3_to_pcm(
         .make_audio_decoder(&codec_params, &AudioDecoderOptions::default())
     {
         Ok(d) => d,
-        Err(_) => return true,
+        Err(error) if strict => return Err(error).context("initialize Edge TTS MP3 decoder"),
+        Err(_) => return Ok(true),
     };
 
     loop {
         if is_interrupted() {
-            return false;
+            return Ok(false);
         }
 
         let packet = match format.next_packet() {
@@ -62,6 +108,7 @@ pub(crate) fn decode_mp3_to_pcm(
             Ok(None) => break,
             // EOF (and any other read error) ends decoding, matching the previous
             // `minimp3::Error::Eof => break` / `Err(_) => break` behavior.
+            Err(error) if strict => return Err(error).context("read Edge TTS MP3 packet"),
             Err(_) => break,
         };
 
@@ -71,6 +118,7 @@ pub(crate) fn decode_mp3_to_pcm(
 
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
+            Err(error) if strict => return Err(error).context("decode Edge TTS MP3 packet"),
             Err(_) => continue,
         };
 
@@ -89,7 +137,7 @@ pub(crate) fn decode_mp3_to_pcm(
         }
     }
 
-    true
+    Ok(true)
 }
 
 /// Linear-interpolation resampler for mono PCM16 by source/target rate. Shared by
@@ -99,45 +147,6 @@ pub(crate) fn resample_audio(samples: &[i16], from_rate: u32, to_rate: u32) -> V
     crate::api::audio::resample_linear_i16(samples, to_rate as f64 / from_rate as f64)
 }
 
-/// Read a WAV sidecar into i16 samples, returning `(samples, sample_rate)`.
-/// `label` names the producer in error messages. With `require_mono`, a non-mono
-/// file is rejected. Int >16-bit is down-shifted to 16-bit; Float is
-/// clamped/scaled/rounded. Previously copy-pasted across the Magpie, Step-Audio
-/// and VieNeu workers (with a hardcoded-shift / missing-wide-int divergence).
-pub(crate) fn read_wav_i16(
-    path: &std::path::Path,
-    label: &str,
-    require_mono: bool,
-) -> anyhow::Result<(Vec<i16>, u32)> {
-    let mut reader = hound::WavReader::open(path)
-        .with_context(|| format!("Failed to read {label} WAV '{}'", path.display()))?;
-    let spec = reader.spec();
-    if require_mono && spec.channels != 1 {
-        bail!("{label} WAV must be mono, got {} channels", spec.channels);
-    }
-    let samples = match spec.sample_format {
-        hound::SampleFormat::Int => {
-            if spec.bits_per_sample <= 16 {
-                reader
-                    .samples::<i16>()
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-            } else {
-                reader
-                    .samples::<i32>()
-                    .map(|sample| {
-                        sample.map(|value| {
-                            (value >> (spec.bits_per_sample.saturating_sub(16) as u32)) as i16
-                        })
-                    })
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-            }
-        }
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|sample| {
-                sample.map(|value| (value.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
-            })
-            .collect::<std::result::Result<Vec<_>, _>>()?,
-    };
-    Ok((samples, spec.sample_rate))
-}
+#[cfg(test)]
+#[path = "audio_utils_tests.rs"]
+mod tests;

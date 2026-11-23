@@ -57,8 +57,11 @@ pub(super) struct Lane {
 }
 
 impl Lane {
-    pub(super) fn load(ui: &egui::Ui, key: &'static str, indices: Vec<usize>) -> Self {
+    pub(super) fn load(ui: &egui::Ui, key: &'static str, indices: Vec<usize>, reset: bool) -> Self {
         let mut reorder = ListReorder::load(ui, key);
+        if reset {
+            reorder.cancel();
+        }
         reorder.track(ui, indices.len());
         let plan = reorder.plan(indices.len());
         Self {
@@ -104,9 +107,16 @@ impl Lane {
 /// Armed only while a preset is lifted: the sidebar re-lays out whenever the
 /// window resizes, and animating those corrections would slide the whole list
 /// around for reasons that have nothing to do with reordering.
-pub(super) fn animated_row_offset(ui: &egui::Ui, preset_id: &str, lifting: bool) -> egui::Vec2 {
+pub(super) fn animated_row_offset(
+    ui: &egui::Ui,
+    preset_id: &str,
+    index: usize,
+    lifting: bool,
+) -> egui::Vec2 {
     let target_y = ui.next_widget_position().y;
-    let animation_id = egui::Id::new("preset-row-position").with(preset_id);
+    let animation_id = egui::Id::new("preset-row-position")
+        .with(preset_id)
+        .with(index);
     let seconds = if lifting { ROW_SETTLE_SECONDS } else { 0.0 };
     let animated_y = ui
         .ctx()
@@ -121,15 +131,18 @@ pub(super) fn animated_row_offset(ui: &egui::Ui, preset_id: &str, lifting: bool)
 pub(super) fn render_drag_handle(
     ui: &mut egui::Ui,
     preset: &Preset,
+    index: usize,
     type_icon: Icon,
 ) -> egui::Response {
-    let drag_id = egui::Id::new("preset-drag-handle").with(&preset.id);
+    let drag_id = egui::Id::new("preset-drag-handle")
+        .with(&preset.id)
+        .with(index);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ICON_LG, ICON_LG), egui::Sense::hover());
     let response = ui.interact(rect, drag_id, egui::Sense::drag());
     let morph = if response.dragged() {
         1.0
     } else {
-        icon_drag_morph(ui, rect, &preset.id)
+        icon_drag_morph(ui, rect, &preset.id, index)
     };
 
     if response.hovered() {
@@ -163,9 +176,12 @@ pub(super) fn render_drag_handle(
 
 /// The hole the carried preset will drop into: an outlined slot the same size as
 /// a row, plus the empty actions cell that keeps the grid columns aligned.
-pub(super) fn render_gap_cells(ui: &mut egui::Ui, lane: &Lane) {
+pub(super) fn render_gap_cells(ui: &mut egui::Ui, lane: &mut Lane) {
     let fallback = egui::vec2(PRESET_CONTENT_MIN_WIDTH, PRESET_ROW_HEIGHT);
     let (rect, _) = ui.allocate_exact_size(lane.reorder.slot_size(fallback), egui::Sense::hover());
+    // The gap is a slot like any row; when it leads the lane it is the first
+    // slot the drag projection measures from.
+    lane.reorder.note_slot(rect);
     ui.painter().rect_stroke(
         rect.shrink(1.0),
         4.0,
@@ -299,7 +315,7 @@ mod tests {
         let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
             // Config indices 1, 4 and 7 belong to this lane; the rest are other
             // modalities interleaved between them.
-            let lane = Lane::load(ui, "test-lane", vec![1, 4, 7]);
+            let lane = Lane::load(ui, "test-lane", vec![1, 4, 7], false);
             cells = (0..5).map(|row| lane.cell(row)).collect();
         });
 
@@ -322,5 +338,30 @@ mod tests {
                 LaneCell::Empty,
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+
+    #[test]
+    fn a_leading_gap_is_the_first_measured_slot() {
+        let ctx = egui::Context::default();
+        let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
+            let mut reorder = ListReorder::load(ui, "sidebar-gap-test");
+            let row = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(180.0, 22.0));
+            reorder.lift(ui, 0, row);
+            let plan = reorder.plan(3);
+            assert_eq!(plan.first(), Some(&Slot::Gap));
+            let mut lane = Lane {
+                reorder,
+                indices: vec![0, 1, 2],
+                plan,
+            };
+            render_gap_cells(ui, &mut lane);
+            let first = lane.reorder.noted_first_slot().expect("gap was measured");
+            assert_eq!(first.size(), egui::vec2(180.0, 22.0));
+        });
     }
 }

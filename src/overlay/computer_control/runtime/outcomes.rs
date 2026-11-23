@@ -32,10 +32,11 @@ impl OutcomeStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct ToolOutcome {
     tool: String,
     status: OutcomeStatus,
+    owner: Option<super::reconciliation::JobIdentity>,
 }
 
 /// Contains only a compact tool identifier and structural delivery state. Tool
@@ -99,8 +100,24 @@ impl ToolOutcomeLedger {
         self.push(tool, OutcomeStatus::TransportInterruptedUnknown);
     }
 
+    pub(super) fn record_transport_interruption_for(
+        &mut self,
+        tool: &str,
+        owner: Option<super::reconciliation::JobIdentity>,
+    ) {
+        self.push_owned(tool, OutcomeStatus::TransportInterruptedUnknown, owner);
+    }
+
     pub(super) fn record_interrupted_effect(&mut self, tool: &str) {
         self.push(tool, OutcomeStatus::InterruptedResultUnknown);
+    }
+
+    pub(super) fn record_interrupted_effect_for(
+        &mut self,
+        tool: &str,
+        owner: Option<super::reconciliation::JobIdentity>,
+    ) {
+        self.push_owned(tool, OutcomeStatus::InterruptedResultUnknown, owner);
     }
 
     fn reconnect_lines(&self) -> Vec<String> {
@@ -134,20 +151,33 @@ impl ToolOutcomeLedger {
             .any(|entry| entry.status == OutcomeStatus::TransportInterruptedUnknown)
     }
 
-    pub(super) fn clear_interruption_uncertainty(&mut self) {
+    pub(super) fn clear_interruption_for(&mut self, owner: &super::reconciliation::JobIdentity) {
         self.entries.retain(|entry| {
             !matches!(
                 entry.status,
                 OutcomeStatus::InterruptedResultUnknown
                     | OutcomeStatus::TransportInterruptedUnknown
-            )
+            ) || !entry
+                .owner
+                .as_ref()
+                .is_some_and(|entry_owner| entry_owner.same(owner))
         });
     }
 
     fn push(&mut self, tool: &str, status: OutcomeStatus) {
+        self.push_owned(tool, status, None);
+    }
+
+    fn push_owned(
+        &mut self,
+        tool: &str,
+        status: OutcomeStatus,
+        owner: Option<super::reconciliation::JobIdentity>,
+    ) {
         self.entries.push_back(ToolOutcome {
             tool: structural_tool_name(tool),
             status,
+            owner,
         });
         while self.entries.len() > MAX_OUTCOMES {
             self.entries.pop_front();
@@ -227,14 +257,26 @@ mod tests {
 
     #[test]
     fn resolved_transport_uncertainty_is_removed_without_touching_other_outcomes() {
+        use std::sync::{Arc, atomic::AtomicBool};
+        let token = Arc::new(AtomicBool::new(false));
+        let pending = super::super::reader::Pending {
+            id: Some("one".into()),
+            cancel: Some(token),
+            ..Default::default()
+        };
+        let owner = super::super::reconciliation::JobIdentity::from_pending(&pending).unwrap();
         let mut ledger = ToolOutcomeLedger::default();
         ledger.record_delivered("reader", &json!({"ok": true}));
-        ledger.record_transport_interruption("writer");
+        ledger.record_transport_interruption_for("writer", Some(owner.clone()));
+        ledger.record_transport_interruption("other");
         assert!(ledger.has_transport_uncertainty());
 
-        ledger.clear_interruption_uncertainty();
+        ledger.clear_interruption_for(&owner);
 
-        assert!(!ledger.has_transport_uncertainty());
-        assert_eq!(ledger.reconnect_summary(1000), "reader=delivered_ok");
+        assert!(ledger.has_transport_uncertainty());
+        assert_eq!(
+            ledger.reconnect_summary(1000),
+            "reader=delivered_ok, other=transport_interrupted_result_unknown"
+        );
     }
 }

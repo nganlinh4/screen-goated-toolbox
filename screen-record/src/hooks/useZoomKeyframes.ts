@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { VideoSegment, ZoomBlock } from "@/types/video";
-import { useThrottle } from "./useAppHooks";
 
 // ============================================================================
 // useZoomKeyframes — manages discrete zoom *blocks* (Screen Studio-style).
@@ -20,7 +19,7 @@ const MIN_BLOCK_GAP_SEC = 0.1; // keep a sliver between adjacent blocks
 
 interface UseZoomKeyframesProps {
   segment: VideoSegment | null;
-  setSegment: (segment: VideoSegment | null, addToHistory?: boolean) => void;
+  setSegment: (segment: VideoSegment | null) => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   currentTime: number;
   isVideoReady: boolean;
@@ -132,14 +131,16 @@ export function useZoomKeyframes(props: UseZoomKeyframesProps) {
     }
   }, [props, editingKeyframeId]);
 
-  const throttledUpdateZoom = useThrottle((updates: Partial<ZoomBlock>) => {
+  // Every slider change is applied, so the block always ends on the released value.
+  const updateZoom = useCallback((updates: Partial<ZoomBlock>) => {
     if (!props.segment || editingKeyframeId === null) return;
 
     const updatedBlocks = getBlocks(props.segment).map((b, i) =>
       i === editingKeyframeId ? { ...b, ...updates } : b,
     );
 
-    props.setSegment({ ...props.segment, zoomBlocks: updatedBlocks }, false);
+    // The zoom panel sliders group each drag into one undo step via their gesture batch.
+    props.setSegment({ ...props.segment, zoomBlocks: updatedBlocks });
 
     // Keep the playhead inside the edited block so its effect stays visible.
     const block = updatedBlocks[editingKeyframeId];
@@ -151,7 +152,7 @@ export function useZoomKeyframes(props: UseZoomKeyframesProps) {
     }
 
     requestAnimationFrame(() => props.renderFrame());
-  }, 32);
+  }, [props, editingKeyframeId]);
 
   // Active-block tracking: select whichever block the playhead is inside.
   useEffect(() => {
@@ -185,6 +186,6 @@ export function useZoomKeyframes(props: UseZoomKeyframesProps) {
     setZoomFactor,
     handleAddKeyframe,
     handleDeleteKeyframe,
-    throttledUpdateZoom,
+    updateZoom,
   };
 }

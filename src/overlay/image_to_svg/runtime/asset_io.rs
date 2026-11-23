@@ -44,14 +44,17 @@ pub(super) fn bounded_embedded_raster_pixels(value: &str) -> Option<u64> {
     if value.len() > 2_800_000 {
         return None;
     }
-    let expected_format = match value[..value.len().min(64)].to_ascii_lowercase() {
-        header if header.starts_with("data:image/png;base64,") => image::ImageFormat::Png,
-        header if header.starts_with("data:image/jpeg;base64,") => image::ImageFormat::Jpeg,
-        _ => return None,
+    let (header, payload) = value.split_once(',')?;
+    let expected_format = if header.eq_ignore_ascii_case("data:image/png;base64") {
+        image::ImageFormat::Png
+    } else if header.eq_ignore_ascii_case("data:image/jpeg;base64") {
+        image::ImageFormat::Jpeg
+    } else {
+        return None;
     };
-    let bytes = general_purpose::STANDARD
-        .decode(value.split_once(',')?.1)
-        .ok()?;
+    let Ok(bytes) = general_purpose::STANDARD.decode(payload) else {
+        return None;
+    };
     if expected_format == image::ImageFormat::Png && png_is_animated(&bytes) {
         return None;
     }
@@ -143,7 +146,7 @@ fn validate_element(
             .map_err(|_| "SVG contains an invalid attribute.".to_string())?
             .to_string();
         let value = attribute
-            .decode_and_unescape_value(decoder)
+            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, decoder)
             .map_err(|_| "SVG contains an invalid attribute value.".to_string())?
             .into_owned();
         attributes.push((key, value));
@@ -576,18 +579,20 @@ fn replace_existing(path: &Path, replacement: &Path) -> Result<(), String> {
 pub(in crate::overlay::image_to_svg) fn open_output(
     requested_path: Option<&str>,
 ) -> Result<(), String> {
-    let path = requested_path
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .map_or_else(super::default_output_dir, Ok)?;
-    let target = if path.is_file() {
-        path.parent()
-            .map(PathBuf::from)
-            .map_or_else(super::default_output_dir, Ok)?
-    } else {
-        path
-    };
-    open::that(&target).map_err(|error| format!("Could not open {}: {error}", target.display()))
+    let results = super::STATE
+        .lock()
+        .map_err(|_| "Result state is unavailable.".to_string())?
+        .jobs
+        .values()
+        .filter_map(|job| job.output_path.as_ref().map(PathBuf::from))
+        .collect();
+    crate::overlay::creation_output::open_result_folder(
+        "svg",
+        requested_path,
+        &super::default_output_dir()?,
+        results,
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

@@ -1,50 +1,10 @@
+# Builds the ONNX Runtime + DirectML package delivered by local-asr-v1.json.
 param(
-    [switch]$Debug,
-    [string]$OutputDir,
-    [string]$CargoTargetDir
+    [string]$OutputDir
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$manifest = Join-Path $repo 'native\local_asr_worker\Cargo.toml'
-$target = 'x86_64-pc-windows-msvc'
-$workerTarget = if ([string]::IsNullOrWhiteSpace($CargoTargetDir)) {
-    Join-Path $repo 'native\local_asr_worker\target'
-} else {
-    [IO.Path]::GetFullPath($CargoTargetDir)
-}
-$configuration = if ($Debug) { 'debug' } else { 'release' }
-$cargoArgs = @(
-    'build', '--manifest-path', $manifest, '--target', $target,
-    '--target-dir', $workerTarget, '--locked'
-)
-if (-not $Debug) {
-    $cargoArgs += '--release'
-}
-
-$savedRustFlags = $env:RUSTFLAGS
-$savedSourceDate = $env:SOURCE_DATE_EPOCH
-try {
-    $env:RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=/Brepro --remap-path-prefix=$repo=."
-    $env:SOURCE_DATE_EPOCH = '1704067200'
-    & cargo @cargoArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Local ASR worker build failed with exit code $LASTEXITCODE."
-    }
-} finally {
-    $env:RUSTFLAGS = $savedRustFlags
-    $env:SOURCE_DATE_EPOCH = $savedSourceDate
-}
-
-$worker = Join-Path $workerTarget "$target\$configuration\sgt-local-asr-worker.exe"
-if (-not (Test-Path -LiteralPath $worker -PathType Leaf)) {
-    throw "Local ASR worker output is missing: $worker"
-}
-if ($Debug) {
-    Write-Output "Development worker ready: $worker"
-    exit 0
-}
-
 $output = if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     Join-Path $repo 'local-runtime-bundles\sgt_local_asr'
 } else {
@@ -89,11 +49,9 @@ foreach ($download in $downloads) {
 }
 
 & py -3 (Join-Path $repo 'scripts\package_local_asr.py') `
-    --worker-exe $worker `
-    --parakeet-license (Join-Path $repo 'third_party\parakeet-rs\LICENSE') `
     --onnx-package $onnx `
     --directml-package $directml `
     --output-dir $output
 if ($LASTEXITCODE -ne 0) {
-    throw "Local ASR packaging failed with exit code $LASTEXITCODE."
+    throw "ONNX runtime packaging failed with exit code $LASTEXITCODE."
 }

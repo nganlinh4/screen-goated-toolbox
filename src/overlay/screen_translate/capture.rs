@@ -1,9 +1,7 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context, Result};
-use image::ExtendedColorType;
-use image::codecs::jpeg::JpegEncoder;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetSystemMetrics, GetWindowRect, SM_CXSCREEN, SM_CXVIRTUALSCREEN,
@@ -13,30 +11,23 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::overlay::selection::CapturedRegion;
 
 pub(super) fn start_foreground() {
-    if crate::overlay::is_busy() {
+    if !crate::overlay::try_claim_overlay() {
         return;
     }
-    crate::overlay::set_is_busy(true);
     let (job_id, cancel) = super::runtime::begin_job();
     std::thread::spawn(move || {
-        let result = capture_foreground()
-            .and_then(|region| translate_region(job_id, Arc::clone(&cancel), region));
-        if let Err(error) = result
-            && super::runtime::is_current(job_id)
-            && !cancel.load(Ordering::SeqCst)
-        {
-            crate::log_info!("[Screen Translate] {error:#}");
-            notify_error(&error.to_string());
-        }
+        let result = capture_foreground().and_then(|region| {
+            super::incremental::translate_region(job_id, Arc::clone(&cancel), region)
+        });
+        report_job_end(job_id, &cancel, result);
         crate::overlay::set_is_busy(false);
     });
 }
 
 pub(super) fn start_image(path: std::path::PathBuf) {
-    if crate::overlay::is_busy() {
+    if !crate::overlay::try_claim_overlay() {
         return;
     }
-    crate::overlay::set_is_busy(true);
     let (job_id, cancel) = super::runtime::begin_job();
     std::thread::spawn(move || {
         let result = image::open(&path)
@@ -51,15 +42,33 @@ pub(super) fn start_image(path: std::path::PathBuf) {
                     left,
                     top,
                 };
-                translate_region(job_id, Arc::clone(&cancel), region)
+                super::incremental::translate_region(job_id, Arc::clone(&cancel), region)
             });
-        if let Err(error) = result
-            && super::runtime::is_current(job_id)
-            && !cancel.load(Ordering::SeqCst)
-        {
-            crate::log_info!("[Screen Translate] {error:#}");
-            notify_error(&error.to_string());
-        }
+        report_job_end(job_id, &cancel, result);
+        crate::overlay::set_is_busy(false);
+    });
+}
+
+#[cfg(debug_assertions)]
+pub(super) fn start_lab_image(path: std::path::PathBuf, admission: super::LabSnapshot) {
+    std::thread::spawn(move || {
+        let Ok(image) = image::open(&path).map(|image| image.to_rgba8()) else {
+            return;
+        };
+        let Some((job_id, cancel, _)) = super::admit_lab_job(admission) else {
+            return;
+        };
+        super::prepare_detector();
+        let (left, top) = image_origin(image.width(), image.height());
+        let region = CapturedRegion {
+            width: image.width(),
+            height: image.height(),
+            image,
+            left,
+            top,
+        };
+        let result = super::incremental::translate_region(job_id, Arc::clone(&cancel), region);
+        report_job_end(job_id, &cancel, result);
         crate::overlay::set_is_busy(false);
     });
 }
@@ -88,166 +97,9 @@ pub(super) fn process_captured_region(image: image::RgbaImage, rect: RECT) {
     };
     let (job_id, cancel) = super::runtime::begin_job();
     std::thread::spawn(move || {
-        if let Err(error) = translate_region(job_id, Arc::clone(&cancel), region)
-            && super::runtime::is_current(job_id)
-            && !cancel.load(Ordering::SeqCst)
-        {
-            crate::log_info!("[Screen Translate] {error:#}");
-            notify_error(&error.to_string());
-        }
+        let result = super::incremental::translate_region(job_id, Arc::clone(&cancel), region);
+        report_job_end(job_id, &cancel, result);
     });
-}
-
-fn translate_region(job_id: u64, cancel: Arc<AtomicBool>, region: CapturedRegion) -> Result<()> {
-    if crate::component_registry::screen_text_detector::incremental_delivery() {
-        return super::incremental::translate_region(job_id, cancel, region);
-    }
-    let trace_id = format!("screen-translate-{job_id}");
-    crate::overlay::result::latency::begin(&trace_id);
-    let region_width = i32::try_from(region.width).context("selected region is too wide")?;
-    let region_height = i32::try_from(region.height).context("selected region is too tall")?;
-    let (target_language, translation_model, translation_prompt, ui_language, show_glow_box) =
-        crate::APP
-            .lock()
-            .map(|app| {
-                (
-                    app.config.screen_translate.target_language.clone(),
-                    configured_translation_model(&app.config),
-                    app.config.screen_translate.translation_prompt.clone(),
-                    app.config.ui_language.clone(),
-                    app.config.screen_translate.show_glow_box,
-                )
-            })
-            .unwrap_or_else(|_| {
-                (
-                    "Vietnamese".to_string(),
-                    crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
-                    crate::config::types::ScreenTranslateSettings::default_prompt(),
-                    "en".to_string(),
-                    true,
-                )
-            });
-    let text = crate::gui::locale::LocaleText::get(&ui_language);
-    let mut processing = super::processing::Progress::show(
-        RECT {
-            left: region.left,
-            top: region.top,
-            right: region.left.saturating_add(region_width),
-            bottom: region.top.saturating_add(region_height),
-        },
-        show_glow_box,
-    )?;
-    if processing.id().is_some() {
-        crate::overlay::result::latency::mark(&trace_id, "indicator_visible");
-    }
-    let jpeg = encode_jpeg(&region.image)?;
-    crate::overlay::result::latency::mark(&trace_id, "capture_encoded");
-
-    let mut evidence = super::diagnostics::RunEvidence::begin(
-        &trace_id,
-        &region,
-        &jpeg,
-        &target_language,
-        &translation_model,
-        &translation_prompt,
-    );
-
-    crate::overlay::result::latency::mark(&trace_id, "detector_started");
-    let detected = match super::detector::detect(
-        &jpeg,
-        region.image.width(),
-        region.image.height(),
-        &cancel,
-    ) {
-        Ok(detected) => detected,
-        Err(error) => {
-            evidence.fail("detector", &error);
-            return Err(error);
-        }
-    };
-    let mut accepted = detected.accepted;
-    crate::overlay::result::latency::mark(&trace_id, "detector_complete");
-    super::appearance::annotate_backgrounds(&region.image, &mut accepted);
-    let candidates = std::sync::Arc::<[super::contract::DetectedTextRegion]>::from(accepted);
-    processing.geometry(&candidates, region.width, region.height);
-    crate::overlay::result::latency::mark(&trace_id, "background_analysis_complete");
-    evidence.detected(&candidates, &detected.raw);
-    if candidates.is_empty() {
-        evidence.no_text();
-        crate::overlay::auto_copy_badge::show_notification(
-            text.screen_translate.screen_translate_no_text,
-        );
-        return Ok(());
-    }
-
-    let mut overlay = match super::render::start(
-        job_id,
-        region,
-        std::sync::Arc::clone(&candidates),
-        &trace_id,
-        None,
-        processing.id(),
-    ) {
-        Ok(renderer) => renderer,
-        Err(error) => {
-            evidence.fail("renderer_start", &error);
-            return Err(error);
-        }
-    };
-    crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
-    let mut provider_started = false;
-    let outcome = match super::inference::translate(
-        super::inference::TranslateInput {
-            trace_id: &trace_id,
-            target_language: &target_language,
-            translation_model: &translation_model,
-            translation_prompt: &translation_prompt,
-            candidates: &candidates,
-            scene: &candidates,
-            prior_translations: &[],
-            dialogue: &[],
-        },
-        Arc::clone(&cancel),
-        |region| {
-            if !provider_started {
-                provider_started = true;
-                crate::overlay::result::latency::mark(&trace_id, "provider_first_output");
-            }
-            processing.resolved(&region.member_ids);
-            overlay.send(region);
-        },
-    ) {
-        Ok(document) => document,
-        Err(error) => {
-            evidence.fail("translation", &error);
-            return Err(error);
-        }
-    };
-    let warning = outcome.warning();
-    let document = outcome.document;
-    crate::overlay::result::latency::mark(&trace_id, "translation_complete");
-    crate::overlay::result::latency::mark(&trace_id, "provider_complete");
-    if super::runtime::is_current(job_id) && !cancel.load(Ordering::SeqCst) {
-        let evidence_document = document.clone();
-        let region_count = match overlay.complete(document) {
-            Ok(region_count) => region_count,
-            Err(error) => {
-                evidence.fail("renderer_complete", &error);
-                return Err(error);
-            }
-        };
-        if let Some(warning) = &warning {
-            crate::overlay::auto_copy_badge::show_notification(warning);
-        }
-        evidence.finish_with_warning(evidence_document, region_count, warning);
-        crate::log_info!("[Screen Translate] ready regions={region_count}");
-        processing.finish();
-    }
-    Ok(())
-}
-
-fn configured_translation_model(config: &crate::config::Config) -> String {
-    config.screen_translate.translation_model.clone()
 }
 
 pub(super) fn notify_error(error: &str) {
@@ -261,6 +113,34 @@ pub(super) fn notify_error(error: &str) {
         error,
         crate::overlay::auto_copy_badge::NotificationType::Error,
     );
+}
+
+/// A user cancel or superseded job stays silent; every failure is shown.
+fn report_job_end(job_id: u64, cancel: &AtomicBool, result: Result<()>) {
+    match super::runtime::end_job(job_id, cancel, result) {
+        super::runtime::JobEnd::Failed(error) => {
+            crate::log_info!("[Screen Translate] {error:#}");
+            notify_job_error(job_id, &error.to_string());
+        }
+        // The component already ended the job, so the notice is not gated on it.
+        super::runtime::JobEnd::ComponentFailed(cause) => notify_error(&cause),
+        super::runtime::JobEnd::Completed | super::runtime::JobEnd::Cancelled => {}
+    }
+}
+
+fn notify_job_error(job_id: u64, error: &str) {
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let text = crate::gui::locale::LocaleText::get(&language);
+    let _ = super::runtime::with_current_primary(job_id, || {
+        crate::overlay::auto_copy_badge::show_detailed_notification(
+            text.screen_translate.screen_translate_error,
+            error,
+            crate::overlay::auto_copy_badge::NotificationType::Error,
+        );
+    });
 }
 
 fn capture_foreground() -> Result<CapturedRegion> {
@@ -291,30 +171,4 @@ fn capture_foreground() -> Result<CapturedRegion> {
         width: (right - left) as u32,
         height: (bottom - top) as u32,
     })
-}
-
-pub(crate) fn encode_jpeg(image: &image::RgbaImage) -> Result<Vec<u8>> {
-    let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
-    let mut jpeg = Vec::new();
-    JpegEncoder::new_with_quality(&mut jpeg, 88).encode(
-        rgb.as_raw(),
-        rgb.width(),
-        rgb.height(),
-        ExtendedColorType::Rgb8,
-    )?;
-    Ok(jpeg)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::configured_translation_model;
-
-    #[test]
-    fn mini_app_selection_wins_over_priority_list_head() {
-        let mut config = crate::config::Config::default();
-        config.screen_translate.translation_model = "chosen-model".to_string();
-        config.model_priority_chains.text_to_text = vec!["priority-head".to_string()];
-
-        assert_eq!(configured_translation_model(&config), "chosen-model");
-    }
 }

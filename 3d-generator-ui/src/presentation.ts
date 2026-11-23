@@ -173,6 +173,8 @@ export class ModelPresentation {
       button.classList.toggle("active", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    nodes.savedMode.hidden = settings.mode !== "fast";
+    nodes.savedMode.textContent = settings.mode === "fast" ? t("savedFastMode") : "";
     nodes.autoSegmentSection.hidden = !settings.showAutoSegment;
     nodes.autoSegmentInput.checked = settings.autoSegment;
     nodes.autoSegmentationLevel.value = item?.segmentationLevel || "detailed";

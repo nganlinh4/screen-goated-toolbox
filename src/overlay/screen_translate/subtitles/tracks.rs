@@ -1,8 +1,6 @@
 //! Text-group identity and visibility outlive OCR frames and provider requests.
 use super::super::{
-    contract::{NormalizedBounds, TranslationRegion},
-    render::OverlayMotion,
-    runtime,
+    contract::TranslationRegion, render::OverlayMotion, runtime, source_bounds::SourceBounds,
 };
 use super::{
     observation::{Frame, Group},
@@ -29,7 +27,9 @@ pub(super) struct Track {
     pub translation: Option<TranslationRegion>,
     pub job: Option<u64>,
     pub motion: Option<OverlayMotion>,
+    pub rendered_size: Option<(u32, u32)>,
     missing_since: Option<u64>,
+    missing_observations: usize,
     pub seen_at: Instant,
 }
 impl Track {
@@ -50,6 +50,7 @@ impl Track {
             runtime::cancel_job(job);
         }
         self.motion = None;
+        self.rendered_size = None;
     }
     fn invalidate(&mut self) {
         self.hide();
@@ -70,6 +71,7 @@ pub(super) struct Scene {
     next: u64,
     pub epoch: u64,
     batch: Option<(Vec<Ticket>, Arc<AtomicBool>)>,
+    last_capture_id: Option<u64>,
 }
 impl Scene {
     pub fn uncertain(&mut self, now: u64) {
@@ -88,6 +90,7 @@ impl Scene {
             t.hide();
         }
         self.tracks.clear();
+        self.last_capture_id = None;
         self.epoch = epoch;
         if let Some((_, cancel)) = self.batch.take() {
             cancel.store(true, Ordering::Release);
@@ -113,9 +116,24 @@ impl Scene {
             cancel.store(true, Ordering::Release);
         }
     }
+    pub fn needs_confirmation(&self) -> bool {
+        self.tracks
+            .iter()
+            .any(|track| track.missing_since.is_some() || track.tracker.needs_confirmation())
+    }
     pub fn observe(&mut self, epoch: u64, frame: Arc<Frame>, now: u64, current: &image::RgbaImage) {
         if self.epoch != epoch {
             self.clear(epoch);
+        }
+        if self
+            .last_capture_id
+            .is_some_and(|old| frame.capture_id < old)
+        {
+            return;
+        }
+        let fresh = self.last_capture_id != Some(frame.capture_id);
+        if fresh {
+            self.last_capture_id = Some(frame.capture_id);
         }
         let mut matched = vec![false; self.tracks.len()];
         let mut uncertain_bounds = frame.uncertain.clone();
@@ -162,7 +180,9 @@ impl Scene {
                     translation: None,
                     job: None,
                     motion: None,
+                    rendered_size: None,
                     missing_since: None,
+                    missing_observations: 0,
                     seen_at: frame.observed_at,
                 });
                 matched.push(false);
@@ -171,7 +191,11 @@ impl Scene {
             matched[index] = true;
             let t = &mut self.tracks[index];
             t.missing_since = None;
+            t.missing_observations = 0;
             t.seen_at = frame.observed_at;
+            if !fresh {
+                continue;
+            }
             let update = t.tracker.observe(&group.candidate.source_text, now);
             if update.changed {
                 t.invalidate();
@@ -184,22 +208,17 @@ impl Scene {
                 let old = t.group.candidate.bounds;
                 let new = group.candidate.bounds;
                 if let Some(motion) = &t.motion {
-                    let dx = i32::from(new.left) * frame.image.width() as i32 / 1000
-                        - i32::from(old.left) * t.frame.image.width() as i32 / 1000;
-                    let dy = i32::from(new.top) * frame.image.height() as i32 / 1000
-                        - i32::from(old.top) * t.frame.image.height() as i32 / 1000;
+                    let (dx, dy) = movement(&t.frame, old, &frame, new);
                     if dx != 0 || dy != 0 {
                         motion.shift(dx, dy);
                     }
                 }
-                if let Some(translation) = &t.translation {
-                    let drawn = translation.bounds;
-                    let width = drawn.right - drawn.left;
-                    let height = drawn.bottom - drawn.top;
+                if let Some((width, height)) = t.rendered_size {
+                    let new = new.pixels();
                     // Recognition-box jitter must not restart a settled text reveal.
                     // Compare against the rendered size so real accumulated resizing still refits.
-                    if width.abs_diff(new.right - new.left) > (width / 4).max(3)
-                        || height.abs_diff(new.bottom - new.top) > (height / 4).max(3)
+                    if width.abs_diff(new.width) > (width / 4).max(3)
+                        || height.abs_diff(new.height) > (height / 4).max(3)
                     {
                         t.hide();
                         t.queued = true;
@@ -216,9 +235,17 @@ impl Scene {
             let uncertain = uncertain_bounds
                 .iter()
                 .any(|b| overlaps(*b, t.group.candidate.bounds));
+            let cleared =
+                super::change_detection::cleared(&t.frame.image, current, t.group.candidate.bounds);
             let missing = *t.missing_since.get_or_insert(now);
+            if fresh && !uncertain {
+                t.missing_observations = t.missing_observations.saturating_add(1);
+            }
             let grace = if uncertain { 1000 } else { 100 };
-            if now.saturating_sub(missing) >= grace && !t.source.is_empty() {
+            if now.saturating_sub(missing) >= grace
+                && (uncertain || cleared || t.missing_observations >= 2)
+                && !t.source.is_empty()
+            {
                 t.invalidate();
                 t.source.clear();
                 t.tracker.reset();
@@ -232,12 +259,37 @@ impl Scene {
         self.cancel_obsolete_batch();
     }
 }
-fn distance(a: NormalizedBounds, b: NormalizedBounds) -> u32 {
-    a.left.abs_diff(b.left) as u32 + a.top.abs_diff(b.top) as u32
+fn distance(a: SourceBounds, b: SourceBounds) -> u128 {
+    let (width, height) = a.image_size();
+    let a = a.pixels();
+    let b = b.pixels();
+    u128::from(a.x.abs_diff(b.x)) * u128::from(height)
+        + u128::from(a.y.abs_diff(b.y)) * u128::from(width)
 }
-fn overlaps(a: NormalizedBounds, b: NormalizedBounds) -> bool {
-    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+fn overlaps(a: SourceBounds, b: SourceBounds) -> bool {
+    let a = a.pixels();
+    let b = b.pixels();
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
-fn nearby(a: NormalizedBounds, b: NormalizedBounds) -> bool {
-    overlaps(a, b) || distance(a, b) <= 80
+fn nearby(a: SourceBounds, b: SourceBounds) -> bool {
+    let (width, height) = a.image_size();
+    overlaps(a, b) || distance(a, b) * 1000 <= 80 * u128::from(width) * u128::from(height)
+}
+
+pub(super) fn movement(
+    old_frame: &Frame,
+    old: SourceBounds,
+    new_frame: &Frame,
+    new: SourceBounds,
+) -> (i32, i32) {
+    let old = old.pixels();
+    let new = new.pixels();
+    let difference = |old: u32, old_origin: i32, new: u32, new_origin: i32| {
+        (i64::from(new) + i64::from(new_origin) - i64::from(old) - i64::from(old_origin))
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+    };
+    (
+        difference(old.x, old_frame.origin.0, new.x, new_frame.origin.0),
+        difference(old.y, old_frame.origin.1, new.y, new_frame.origin.1),
+    )
 }

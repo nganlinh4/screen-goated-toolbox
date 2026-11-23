@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { timelineRangeKeyProps } from "./timelineKeyboard";
 
 const EDGE_HANDLE_PX = 8;
 const MIN_SOURCE_SEC = 0.05;
@@ -12,12 +13,23 @@ type AudioTimelineSegment = {
   playbackRate?: number;
 };
 
-type DragMode = "start" | "end" | "body";
+export type DragMode = "start" | "end" | "body";
 
 interface DragState<T extends AudioTimelineSegment> {
   mode: DragMode;
   segment: T;
   pointerOffsetSec: number;
+}
+
+export interface AudioSegmentKeyOptions {
+  /** Spoken name, for example: Narration "Intro". */
+  name: string;
+  startLabel: string;
+  endLabel: string;
+  /** Timeline length the segment is drawn with. */
+  visibleSec: number;
+  onActivate: () => void;
+  onDelete?: () => void;
 }
 
 interface UseAudioSegmentTimelineEditOptions<T extends AudioTimelineSegment> {
@@ -36,6 +48,47 @@ function getRate(segment: AudioTimelineSegment) {
 
 function getTimelineLength(segment: AudioTimelineSegment) {
   return Math.max((segment.outPoint - segment.inPoint) / getRate(segment), MIN_SOURCE_SEC);
+}
+
+/**
+ * The patch a pointer at `pointerTime` makes to `segment` while dragging its
+ * body or one edge. Edges trim the source (inPoint/outPoint) at the segment's
+ * playback rate; the body keeps its length and stays inside the timeline.
+ */
+export function resolveAudioSegmentEdit(
+  segment: AudioTimelineSegment,
+  mode: DragMode,
+  pointerTime: number,
+  pointerOffsetSec: number,
+  duration: number,
+): Partial<AudioTimelineSegment> {
+  const rate = getRate(segment);
+  const sourceMin = MIN_SOURCE_SEC * rate;
+  const sourceDuration = Math.max(segment.duration, segment.outPoint, segment.inPoint);
+
+  if (mode === "body") {
+    const maxStart = Math.max(0, duration - getTimelineLength(segment));
+    return { startTime: Math.max(0, Math.min(maxStart, pointerTime - pointerOffsetSec)) };
+  }
+
+  if (mode === "start") {
+    const maxTimelineStart = segment.startTime + getTimelineLength(segment) - MIN_SOURCE_SEC;
+    const requestedStart = Math.max(0, Math.min(maxTimelineStart, pointerTime));
+    const requestedSourceIn = segment.inPoint + (requestedStart - segment.startTime) * rate;
+    const inPoint = Math.max(0, Math.min(segment.outPoint - sourceMin, requestedSourceIn));
+    return { startTime: segment.startTime + (inPoint - segment.inPoint) / rate, inPoint };
+  }
+
+  const maxTimelineEnd = segment.startTime + Math.max(0, (sourceDuration - segment.inPoint) / rate);
+  const requestedEnd = Math.max(
+    segment.startTime + MIN_SOURCE_SEC,
+    Math.min(duration, Math.min(maxTimelineEnd, pointerTime)),
+  );
+  const outPoint = Math.max(
+    segment.inPoint + sourceMin,
+    Math.min(sourceDuration, segment.inPoint + (requestedEnd - segment.startTime) * rate),
+  );
+  return { outPoint };
 }
 
 export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
@@ -96,47 +149,30 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
     (pointerTime: number) => {
       const drag = dragRef.current;
       if (!drag || !onUpdateSegment) return;
-      const { segment, mode } = drag;
-      const rate = getRate(segment);
-      const sourceMin = MIN_SOURCE_SEC * rate;
-      const sourceDuration = Math.max(segment.duration, segment.outPoint, segment.inPoint);
-
       didMoveRef.current = true;
-      if (mode === "body") {
-        const timelineLength = getTimelineLength(segment);
-        const maxStart = Math.max(0, duration - timelineLength);
-        const startTime = Math.max(0, Math.min(maxStart, pointerTime - drag.pointerOffsetSec));
-        onUpdateSegment(segment.id, { startTime } as Partial<T>);
-        return;
-      }
-
-      if (mode === "start") {
-        const maxTimelineStart = segment.startTime + getTimelineLength(segment) - MIN_SOURCE_SEC;
-        const requestedStart = Math.max(0, Math.min(maxTimelineStart, pointerTime));
-        const requestedSourceIn =
-          segment.inPoint + (requestedStart - segment.startTime) * rate;
-        const inPoint = Math.max(
-          0,
-          Math.min(segment.outPoint - sourceMin, requestedSourceIn),
-        );
-        const startTime = segment.startTime + (inPoint - segment.inPoint) / rate;
-        onUpdateSegment(segment.id, { startTime, inPoint } as Partial<T>);
-        return;
-      }
-
-      const maxTimelineEnd =
-        segment.startTime + Math.max(0, (sourceDuration - segment.inPoint) / rate);
-      const requestedEnd = Math.max(
-        segment.startTime + MIN_SOURCE_SEC,
-        Math.min(duration, Math.min(maxTimelineEnd, pointerTime)),
+      onUpdateSegment(
+        drag.segment.id,
+        resolveAudioSegmentEdit(drag.segment, drag.mode, pointerTime, drag.pointerOffsetSec, duration) as Partial<T>,
       );
-      const outPoint = Math.max(
-        segment.inPoint + sourceMin,
-        Math.min(sourceDuration, segment.inPoint + (requestedEnd - segment.startTime) * rate),
-      );
-      onUpdateSegment(segment.id, { outPoint } as Partial<T>);
     },
     [duration, onUpdateSegment],
+  );
+
+  /** Keyboard edit: moves the segment or one edge by `deltaSec` as one undo step. */
+  const nudgeAudioSegment = useCallback(
+    (segment: T, mode: DragMode, deltaSec: number) => {
+      if (!onUpdateSegment) return;
+      const edgeTime =
+        mode === "end" ? segment.startTime + getTimelineLength(segment) : segment.startTime;
+      beginBatch?.();
+      onUpdateSegment(
+        segment.id,
+        resolveAudioSegmentEdit(segment, mode, edgeTime + deltaSec, 0, duration) as Partial<T>,
+      );
+      commitBatch?.();
+      onCommitSegments?.();
+    },
+    [beginBatch, commitBatch, duration, onCommitSegments, onUpdateSegment],
   );
 
   const handlePointerMove = useCallback(
@@ -180,10 +216,25 @@ export function useAudioSegmentTimelineEdit<T extends AudioTimelineSegment>({
     [applyPointerTime, commitBatch, onCommitSegments],
   );
 
+  /** Focus, roles and keys for one audio segment body and its two trim edges. */
+  const getAudioSegmentKeys = (segment: T, options: AudioSegmentKeyOptions) =>
+    timelineRangeKeyProps({
+      name: options.name,
+      startLabel: options.startLabel,
+      endLabel: options.endLabel,
+      range: { startTime: segment.startTime, endTime: segment.startTime + options.visibleSec },
+      duration,
+      nudge: onUpdateSegment && ((edge, deltaSec) => nudgeAudioSegment(segment, edge, deltaSec)),
+      onActivate: options.onActivate,
+      onDelete: options.onDelete,
+    });
+
   return {
     isDraggingAudioSegment,
     handleAudioSegmentPointerDown: handlePointerDown,
     handleAudioSegmentPointerMove: handlePointerMove,
     handleAudioSegmentPointerUp: handlePointerUp,
+    nudgeAudioSegment,
+    getAudioSegmentKeys,
   };
 }

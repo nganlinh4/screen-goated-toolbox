@@ -10,7 +10,8 @@ import './WeightKnob';
 import type { WeightKnob } from './WeightKnob';
 
 import type { MidiDispatcher } from '../utils/MidiDispatcher';
-import type { Prompt, ControlChange } from '../types';
+import { MidiControlBinding } from '../utils/MidiControlBinding';
+import type { Prompt } from '../types';
 import { LOCALES, Lang } from '../utils/Locales';
 
 /** A single prompt input associated with a MIDI CC. */
@@ -277,21 +278,26 @@ export class PromptController extends LitElement {
 
   private lastValidText!: string;
 
+  private readonly midiBinding = new MidiControlBinding(({ channel, cc, value }) => {
+    if (this.learnMode) {
+      this.cc = cc;
+      this.channel = channel;
+      this.learnMode = false;
+      this.dispatchPromptChange();
+    } else if (cc === this.cc) {
+      this.weight = (value / 127) * 2;
+      this.dispatchPromptChange();
+    }
+  });
+
   override connectedCallback() {
     super.connectedCallback();
-    this.midiDispatcher?.addEventListener('cc-message', (e: Event) => {
-      const customEvent = e as CustomEvent<ControlChange>;
-      const { channel, cc, value } = customEvent.detail;
-      if (this.learnMode) {
-        this.cc = cc;
-        this.channel = channel;
-        this.learnMode = false;
-        this.dispatchPromptChange();
-      } else if (cc === this.cc) {
-        this.weight = (value / 127) * 2;
-        this.dispatchPromptChange();
-      }
-    });
+    this.midiBinding.connect(this.midiDispatcher);
+  }
+
+  override disconnectedCallback() {
+    this.midiBinding.disconnect();
+    super.disconnectedCallback();
   }
 
   override firstUpdated() {
@@ -313,6 +319,9 @@ export class PromptController extends LitElement {
   }
 
   override update(changedProperties: Map<string, unknown>) {
+    if (changedProperties.has('midiDispatcher') && this.isConnected) {
+      this.midiBinding.connect(this.midiDispatcher);
+    }
     if (changedProperties.has('showCC') && !this.showCC) {
       this.learnMode = false;
     }

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::super::runtime_paths::export_replay_args_path;
 use super::SR_HWND;
 use serde::Serialize;
 use windows::Win32::Foundation::*;
@@ -10,20 +11,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
 const REPLAY_INLINE_MEDIA_MAX_BYTES: usize = 8 * 1024 * 1024;
 
-pub fn export_replay_args_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| {
-        base.join("screen-goated-toolbox")
-            .join("export-debug")
-            .join("last_export_args.json")
-    })
-}
-
 pub fn export_result_log_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| {
-        base.join("screen-goated-toolbox")
-            .join("export-debug")
-            .join("last_export_result.json")
-    })
+    super::super::runtime_paths::optional_local_data_dir()
+        .map(|base| base.join("export-debug").join("last_export_result.json"))
 }
 
 pub fn persist_export_result(result: &Result<serde_json::Value, String>) {

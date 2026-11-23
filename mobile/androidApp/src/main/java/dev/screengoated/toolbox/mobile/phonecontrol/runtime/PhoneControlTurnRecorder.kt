@@ -6,6 +6,12 @@ internal interface PhoneControlTurnRecorder {
 
     fun userTranscriptUpdated(turnId: Long, text: String)
 
+    /**
+     * A user-authored text goal sent for [turnId]. It has no input transcript,
+     * yet it is the turn's committed request for authorization scope.
+     */
+    fun userRequestSubmitted(turnId: Long, text: String) = Unit
+
     fun assistantTranscriptUpdated(turnId: Long, text: String)
 
     fun turnCompleted(
@@ -38,6 +44,10 @@ internal class CompositePhoneControlTurnRecorder(
 
     override fun userTranscriptUpdated(turnId: Long, text: String) {
         delegates.forEach { it.userTranscriptUpdated(turnId, text) }
+    }
+
+    override fun userRequestSubmitted(turnId: Long, text: String) {
+        delegates.forEach { it.userRequestSubmitted(turnId, text) }
     }
 
     override fun assistantTranscriptUpdated(turnId: Long, text: String) {

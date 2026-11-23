@@ -61,27 +61,16 @@
       "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-3-8-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
-      "google-gemini-2-5-live-transcribe-audio",
-      "local-qwen-3-asr-600m-audio",
-      "local-qwen-3-asr-1-7b-audio",
-      "zipformer",
-      "parakeet"
+      "google-gemini-2-5-live-transcribe-audio"
     ],
     "androidTranscriptionProviders": [
       "google-gemini-3-5-live-translate-audio",
       "google-gemini-3-5-transcribe-live-audio",
       "google-gemini-3-8-live-transcribe-audio",
       "google-gemini-3-1-live-transcribe-audio",
-      "google-gemini-2-5-live-transcribe-audio",
-      "moonshine-tiny-streaming",
-      "moonshine-small-streaming",
-      "moonshine-medium-streaming",
-      "zipformer",
-      "parakeet"
+      "google-gemini-2-5-live-transcribe-audio"
     ],
-    "androidUnavailableTranscriptionProviders": [
-      "parakeet"
-    ],
+    "androidUnavailableTranscriptionProviders": [],
     "targetLanguages": [
       "Abkhazian",
       "Afar",
@@ -309,7 +298,6 @@
     "overlayLocaleSource": "active-ui-language-bundle",
     "overlayLocaleRefresh": "live-on-ui-language-change",
     "ttsModalLocaleRefresh": "live-on-ui-language-change",
-    "downloadModalLocaleRefresh": "live-on-ui-language-change",
     "s2sTooltipLocaleRefresh": "live-on-ui-language-change",
     "irrelevantDisabledControls": "hidden-not-greyed",
     "roundedWindowMask": true,
@@ -340,13 +328,6 @@
     "google-gemini-3-5-transcribe-live-audio": "Gemini 3.5 Transcribe Live",
     "google-gemini-2-5-live-transcribe-audio": "Gemini 2.5 Flash Native Audio",
     "google-gemini-3-1-live-transcribe-audio": "Gemini S2S 3.1 Flash Live",
-    "parakeet": "Parakeet Realtime",
-    "local-qwen-3-asr-600m-audio": "Qwen3-ASR 0.6B",
-    "local-qwen-3-asr-1-7b-audio": "Qwen3-ASR 1.7B",
-    "zipformer": "Zipformer",
-    "moonshine-tiny-streaming": "Moonshine Tiny",
-    "moonshine-small-streaming": "Moonshine Small",
-    "moonshine-medium-streaming": "Moonshine Medium",
     "google-gemini-3-8-live-transcribe-audio": "Gemini S2S 3.8 Live"
   },
   "transcriptionApiModels": {

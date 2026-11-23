@@ -15,7 +15,7 @@ from dev_cache_paths import manifest_path, require_repo_or_managed_cache
 
 
 FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
-FEATURES = ("image_to_3d", "image_to_svg", "image_creator")
+FEATURES = ("image_to_3d", "image_to_svg")
 WEB_FILES = ("assets/index.css", "assets/index.js", "index.html")
 WEB_DIST = Path("src/overlay/three_d_generator/dist")
 

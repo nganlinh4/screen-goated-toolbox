@@ -4,39 +4,11 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
+#[path = "../src/component_registry/screen_text_detector/protocol.rs"]
+mod protocol;
+
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/screen-text-detector-v1.json";
 const COMPONENT_ID: &str = "screen-text-detector";
-const LEGACY_OPTIONAL_FILES: &[&str] =
-    &["models/pp-ocr-screen-text/recognizers/unified/model-cpu.ort"];
-const REQUIRED_FILES: &[&str] = &[
-    "bin/x64/sgt-screen-text-detector-worker.exe",
-    "models/pp-ocr-screen-text/detector.onnx",
-    "models/pp-ocr-screen-text/detector.ort",
-    "models/pp-ocr-screen-text/recognizers.json",
-    "models/pp-ocr-screen-text/recognizers/unified/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/unified/config.yml",
-    "models/pp-ocr-screen-text/recognizers/hangul/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/hangul/config.yml",
-    "models/pp-ocr-screen-text/recognizers/cyrillic/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/cyrillic/config.yml",
-    "models/pp-ocr-screen-text/recognizers/arabic/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/arabic/config.yml",
-    "models/pp-ocr-screen-text/recognizers/devanagari/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/devanagari/config.yml",
-    "models/pp-ocr-screen-text/recognizers/thai/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/thai/config.yml",
-    "models/pp-ocr-screen-text/recognizers/greek/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/greek/config.yml",
-    "models/pp-ocr-screen-text/recognizers/tamil/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/tamil/config.yml",
-    "models/pp-ocr-screen-text/recognizers/telugu/model.onnx",
-    "models/pp-ocr-screen-text/recognizers/telugu/config.yml",
-    "licenses/THIRD-PARTY-LICENSES.json",
-    "licenses/THIRD-PARTY-NOTICES.txt",
-    "licenses/PaddleOCR-LICENSE.txt",
-    "licenses/PaddleOCR-MODELS.json",
-    "licenses/PP-OCRv5-mobile-det-README.md",
-];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
@@ -69,16 +41,11 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
     assert_eq!(required_string(component, "id", path), COMPONENT_ID);
     let version = required_string(component, "version", path);
     validate_identifier(version, path);
-    let mut incremental_files = incremental_files();
-    if version == "4.1.0" {
-        incremental_files.retain(|path| path != "models/pp-ocr-screen-text/layout.onnx");
-    }
-    let (required_files, optional_files): (Vec<&str>, &[&str]) =
-        if matches!(version, "4.1.0" | "4.2.0" | "4.2.1" | "4.2.2") {
-            (incremental_files.iter().map(String::as_str).collect(), &[])
-        } else {
-            (REQUIRED_FILES.to_vec(), LEGACY_OPTIONAL_FILES)
-        };
+    let declared = component
+        .get("protocol")
+        .map(|value| value.as_str().expect("detector protocol must be a string"));
+    protocol::validate(version, declared).expect("incompatible screen-text detector delivery");
+    let required_files = incremental_files();
     let sha256 = required_string(component, "sha256", path);
     validate_sha256(sha256, path);
     let asset = required_string(component, "asset", path);
@@ -101,8 +68,11 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
         .get("files")
         .and_then(Value::as_array)
         .unwrap_or_else(|| panic!("{} component has no files", path.display()));
-    assert!(
-        (required_files.len()..=required_files.len() + optional_files.len()).contains(&files.len())
+    assert_eq!(
+        files.len(),
+        required_files.len(),
+        "{} inventory must match package-inputs.json",
+        path.display()
     );
     let mut seen = HashSet::new();
     let mut file_total = 0_u64;
@@ -113,8 +83,9 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
             .unwrap_or_else(|| panic!("{} contains an invalid file", path.display()));
         let relative = required_string(file, "path", path);
         assert!(
-            (required_files.contains(&relative) || optional_files.contains(&relative))
-                && seen.insert(relative)
+            required_files.iter().any(|required| required == relative) && seen.insert(relative),
+            "{} lists an unexpected or duplicate file {relative}",
+            path.display()
         );
         let file_size = required_u64(file, "sizeBytes", path);
         file_total = file_total
@@ -129,7 +100,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
     assert!(
         required_files
             .iter()
-            .all(|relative| seen.contains(relative))
+            .all(|relative| seen.contains(relative.as_str()))
     );
     assert_eq!(file_total, unpacked_size_bytes);
     format!(

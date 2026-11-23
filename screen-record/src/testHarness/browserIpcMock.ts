@@ -13,6 +13,8 @@ type TestWindow = Window & {
   __SGT_TEST_IPC_CALLS__?: IpcCall[];
 };
 
+let narrationTicketSequence = 0;
+
 export function isScreenRecordTestHarnessEnabled() {
   if (typeof window === "undefined") return false;
   const params = new URLSearchParams(window.location.search);
@@ -21,9 +23,10 @@ export function isScreenRecordTestHarnessEnabled() {
 
 function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
   switch (cmd) {
+    case "allocate_narration_job_id":
+      return { jobId: `ticket-test-${String(args?.kind)}-${++narrationTicketSequence}` };
     case "get_hotkeys":
     case "get_monitors":
-    case "get_windows":
     case "take_pending_audio_drop_actions":
     case "take_pending_subtitle_drop_actions":
     case "take_pending_video_drop_actions":
@@ -59,39 +62,12 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           { method: "GeminiLive", label: "Gemini Live" },
           { method: "EdgeTTS", label: "Edge TTS" },
           { method: "GoogleTranslate", label: "Google Translate" },
-          { method: "Kokoro", label: "Kokoro 82M v1.0" },
-          { method: "Supertonic", label: "Supertonic 3" },
-          { method: "VieneuTts", label: "VieNeu-TTS v2" },
-          { method: "StepAudioEditX", label: "Step Audio EditX" },
-          { method: "MagpieMultilingual", label: "Magpie Multilingual" },
         ],
         geminiVoices: [],
         geminiModels: [],
         geminiInstructionLanguages: [],
         geminiSpeedOptions: ["Slow", "Normal", "Fast"],
         googleSpeedOptions: ["Slow", "Normal"],
-        kokoroVoiceLanguages: [
-          { languageCode: "eng", languageName: "English" },
-          { languageCode: "jpn", languageName: "Japanese" },
-        ],
-        kokoroVoices: [
-          { id: "af_heart", label: "Heart", languageCode: "en-us" },
-          { id: "jf_alpha", label: "Alpha", languageCode: "ja" },
-        ],
-        supertonicLanguages: [
-          { languageCode: "en", languageName: "English" },
-          { languageCode: "vi", languageName: "Vietnamese" },
-        ],
-        supertonicVoices: [
-          { id: "F1", label: "F1" },
-          { id: "M1", label: "M1" },
-        ],
-        stepAudioVoices: [
-          { id: "ref-demo", label: "Demo reference" },
-        ],
-        stepAudioReferenceVoices: [
-          { id: "ref-demo", label: "Demo reference", audioPath: "", transcript: "" },
-        ],
         edgeVoiceState: "loaded",
         edgeVoiceLanguages: [],
         edgeVoicesByLanguage: {},
@@ -107,32 +83,6 @@ function defaultResponse(cmd: string, args?: Record<string, unknown>): unknown {
           edgePitch: 0,
           edgeRate: 0,
           edgeVoiceConfigs: [],
-          kokoroVoice: "af_heart",
-          kokoroSpeed: 1,
-          kokoroNumThreads: 2,
-          kokoroVoiceConfigs: [
-            { languageCode: "eng", languageName: "English", voiceId: "af_heart" },
-            { languageCode: "jpn", languageName: "Japanese", voiceId: "jf_alpha" },
-          ],
-          stepAudioVoice: "default_en",
-          stepAudioReferenceVoiceId: "",
-          stepAudioPromptText: "",
-          stepAudioUseCustomReference: false,
-          stepAudioReferenceAudioPath: "",
-          stepAudioReferenceText: "",
-          stepAudioReferenceLabel: "",
-          magpieVoice: "",
-          magpieVoiceConfigs: [],
-          supertonicSpeed: 1,
-          supertonicNumSteps: 5,
-          supertonicNumThreads: 2,
-          supertonicVoiceConfigs: [
-            { languageCode: "en", languageName: "English", voiceId: "M1" },
-            { languageCode: "vi", languageName: "Vietnamese", voiceId: "F1" },
-          ],
-          vieneuVariant: "v2-turbo-gpu",
-          vieneuEmotion: "natural",
-          vieneuReferenceVoiceId: "",
         },
       };
     case "probe_video_metadata":

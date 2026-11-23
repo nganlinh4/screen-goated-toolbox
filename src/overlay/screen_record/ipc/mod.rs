@@ -20,6 +20,7 @@ pub(super) mod recording_state;
 mod s2s_narration;
 mod stage_export;
 mod subtitle_export;
+mod subtitle_import;
 mod subtitles;
 mod wav_decode;
 mod window_monitor;
@@ -35,7 +36,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-exports used by the parent module.
 pub use media_server::start_global_media_server;
-pub(crate) use window_monitor::capture_window_thumbnail;
 
 pub(super) fn cancel_all_jobs() {
     subtitles::cancel_all_jobs();
@@ -43,12 +43,27 @@ pub(super) fn cancel_all_jobs() {
     s2s_narration::cancel_all_jobs();
     gemini_translate_narration::cancel_all_jobs();
 }
+pub(super) fn start_recording(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    recording::handle_start_recording(args)
+}
+
+pub(super) fn stop_recording() -> Result<serde_json::Value, String> {
+    recording::handle_stop_recording()
+}
 
 pub fn handle_ipc_command(
     cmd: String,
     args: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match cmd.as_str() {
+        "diagnostic_arm_capture_setup_failure"
+        | "diagnostic_gpu_device_loss"
+        | "diagnostic_snapshot" => super::diagnostics::command(&cmd),
+        "shutdown_ack" => super::shutdown::acknowledge(&args),
+        "get_pending_recording" => super::shutdown::pending_recording(),
+        "recording_saved" => super::shutdown::recording_saved(&args),
+        "get_failed_recording" => super::shutdown::failed_recording(),
+        "release_failed_recording" => super::shutdown::release_failed_recording(&args),
         "check_bg_downloaded" => {
             let id = args["id"].as_str().unwrap_or("");
             bg_download::validate_catalog_background_id(id)?;
@@ -238,7 +253,7 @@ pub fn handle_ipc_command(
             super::take_pending_subtitle_drop_actions(),
         )
         .unwrap_or_else(|_| serde_json::json!([]))),
-        "read_subtitle_file_path" => handle_read_subtitle_file_path(&args),
+        "read_subtitle_file_path" => subtitle_import::handle_read_subtitle_file_path(&args),
         "generate_thumbnails" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
             let count = args["count"].as_u64().unwrap_or(20) as u32;
@@ -272,7 +287,9 @@ pub fn handle_ipc_command(
         }
         "show_in_folder" => {
             let path = args["path"].as_str().ok_or("Missing path")?;
-            std::process::Command::new("explorer")
+            let explorer =
+                crate::system_command::explorer_executable().map_err(|e| e.to_string())?;
+            std::process::Command::new(explorer)
                 .args(["/select,", &path.replace("/", "\\")])
                 .spawn()
                 .map_err(|e| e.to_string())?;
@@ -281,29 +298,8 @@ pub fn handle_ipc_command(
         "rename_file" => {
             let path_str = args["path"].as_str().ok_or("Missing path")?;
             let new_name = args["newName"].as_str().ok_or("Missing newName")?;
-            let path = std::path::PathBuf::from(path_str);
-            let new_name = path_validation::validate_file_name(new_name)?;
-            let metadata = std::fs::symlink_metadata(&path)
-                .map_err(|error| format!("Media file is unavailable: {error}"))?;
-            if !metadata.is_file() || path_validation::metadata_is_reparse(&metadata) {
-                return Err("Refusing to rename a non-regular media file".to_string());
-            }
-            let old_extension = path
-                .extension()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default();
-            let new_extension = std::path::Path::new(&new_name)
-                .extension()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default();
-            if old_extension.is_empty() || !old_extension.eq_ignore_ascii_case(new_extension) {
-                return Err("Renaming must preserve the media file extension".to_string());
-            }
-            let new_path = path.with_file_name(new_name);
-            if new_path.exists() {
-                return Err("A file with that name already exists".to_string());
-            }
-            std::fs::rename(&path, &new_path).map_err(|e| e.to_string())?;
+            let new_path =
+                managed_files::rename_media_file(std::path::Path::new(path_str), new_name)?;
             Ok(serde_json::json!(new_path.to_string_lossy().to_string()))
         }
         "delete_file" => {
@@ -316,9 +312,9 @@ pub fn handle_ipc_command(
             if !(10..=100).contains(&limit) {
                 return Err("Project limit must be between 10 and 100".to_string());
             }
-            let mut app = crate::APP.lock().unwrap();
-            app.config.max_screen_record_projects = limit;
-            crate::config::save_config(&app.config);
+            super::worker_settings::request(sgt_recorder_protocol::SettingsChange::ProjectLimit(
+                limit,
+            ))?;
             Ok(serde_json::Value::Null)
         }
         "set_recent_upload_limit" => {
@@ -326,9 +322,9 @@ pub fn handle_ipc_command(
             if !(4..=24).contains(&limit) {
                 return Err("Recent upload limit must be between 4 and 24".to_string());
             }
-            let mut app = crate::APP.lock().unwrap();
-            app.config.max_screen_record_recent_uploads = limit;
-            crate::config::save_config(&app.config);
+            super::worker_settings::request(sgt_recorder_protocol::SettingsChange::UploadLimit(
+                limit,
+            ))?;
             Ok(serde_json::Value::Null)
         }
         "pick_export_folder" => {
@@ -336,14 +332,6 @@ pub fn handle_ipc_command(
             let selected = native_export::pick_export_folder(initial_dir)?;
             Ok(match selected {
                 Some(path) => serde_json::json!(path),
-                None => serde_json::Value::Null,
-            })
-        }
-        "pick_audio_file" => {
-            let selected = crate::overlay::tts_playground::pick_step_audio_reference_audio()
-                .map_err(|e| e.to_string())?;
-            Ok(match selected {
-                Some(path) => serde_json::json!(path.display().to_string()),
                 None => serde_json::Value::Null,
             })
         }
@@ -395,9 +383,6 @@ pub fn handle_ipc_command(
             }
             Ok(serde_json::to_value(monitors).unwrap())
         }
-        "get_windows" => Ok(serde_json::Value::Array(
-            window_monitor::gather_window_infos()?,
-        )),
         "show_window_selector" => {
             // Fast: gather metadata only (no thumbnails) so the overlay opens instantly.
             let window_infos = window_monitor::gather_window_metadata()?;
@@ -425,7 +410,9 @@ pub fn handle_ipc_command(
                         continue;
                     }
                     let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-                    if let Some(data_url) = capture_window_thumbnail(hwnd) {
+                    if let Some(data_url) =
+                        window_monitor::capture_window_thumbnail_with_timeout(hwnd)
+                    {
                         super::window_selection::post_thumbnail_update(hwnd_val, data_url);
                     }
                 }
@@ -443,14 +430,12 @@ pub fn handle_ipc_command(
             super::audio_source_selection::show_audio_app_selector(is_dark, lang);
             Ok(serde_json::Value::Null)
         }
-        "start_recording" => recording::handle_start_recording(&args),
-        "stop_recording" => recording::handle_stop_recording(),
+        "start_recording" => super::shutdown::start_recording(&args),
+        "stop_recording" => super::shutdown::stop_recording(),
         "start_subtitle_generation" => subtitles::handle_start_subtitle_generation(&args),
         "get_subtitle_generation_capabilities" => {
             subtitles::handle_get_subtitle_generation_capabilities(&args)
         }
-        "prepare_qwen_local_subtitles" => subtitles::handle_prepare_qwen_local_subtitles(&args),
-        "prepare_parakeet_tdt_subtitles" => subtitles::handle_prepare_parakeet_tdt_subtitles(&args),
         "get_subtitle_generation_status" => subtitles::handle_get_subtitle_generation_status(&args),
         "cancel_subtitle_generation" => subtitles::handle_cancel_subtitle_generation(&args),
         "start_subtitle_translation" => subtitles::handle_start_subtitle_translation(&args),
@@ -461,6 +446,7 @@ pub fn handle_ipc_command(
             subtitles::handle_get_subtitle_translation_status(&args)
         }
         "cancel_subtitle_translation" => subtitles::handle_cancel_subtitle_translation(&args),
+        "allocate_narration_job_id" => job_registry::allocate_narration_job_id(&args),
         "start_subtitle_narration" => narration::handle_start_subtitle_narration(&args),
         "get_subtitle_narration_status" => narration::handle_get_subtitle_narration_status(&args),
         "cancel_subtitle_narration" => narration::handle_cancel_subtitle_narration(&args),
@@ -520,11 +506,17 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "close_window" => {
+            let override_id = args["subtitleOverrideId"]
+                .as_u64()
+                .unwrap_or(0)
+                .min(i32::MAX as u64) as usize;
             unsafe {
                 let hwnd = std::ptr::addr_of!(SR_HWND).read();
-                if !hwnd.is_invalid() {
-                    let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+                if hwnd.is_invalid() {
+                    return Err("Recorder window is unavailable".to_string());
                 }
+                PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(override_id), LPARAM(0))
+                    .map_err(|error| format!("Cannot close recorder: {error}"))?;
             }
             Ok(serde_json::Value::Null)
         }
@@ -545,37 +537,13 @@ pub fn handle_ipc_command(
     }
 }
 
-fn handle_read_subtitle_file_path(args: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let path = args["path"].as_str().ok_or("Missing path")?;
-    let path = std::path::Path::new(path);
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if extension != "srt" && extension != "vtt" {
-        return Err("Only .srt and .vtt subtitle files can be imported".to_string());
+#[cfg(test)]
+mod retired_command_tests {
+    #[test]
+    fn the_retired_window_list_command_is_unknown() {
+        assert_eq!(
+            super::handle_ipc_command("get_windows".to_string(), serde_json::json!({})),
+            Err("Unknown command: get_windows".to_string())
+        );
     }
-    const MAX_SUBTITLE_BYTES: u64 = 10 * 1024 * 1024;
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| format!("Subtitle file is unavailable: {error}"))?;
-    if metadata.len() > MAX_SUBTITLE_BYTES {
-        return Err("Subtitle file is too large".to_string());
-    }
-    let content = std::fs::read_to_string(path)
-        .map_err(|error| format!("Failed to read subtitle file: {error}"))?;
-    let fallback_name = if extension == "vtt" {
-        "subtitles.vtt"
-    } else {
-        "subtitles.srt"
-    };
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(fallback_name);
-    Ok(serde_json::json!({
-        "fileName": file_name,
-        "content": content,
-        "format": extension,
-    }))
 }

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"recovery_failure","custom_models":"unchanged","preset_observer":"not_started"},
+    {"event":"recovery_success","custom_models":"published","preset_observer":"may_start"}
+  ]
+}

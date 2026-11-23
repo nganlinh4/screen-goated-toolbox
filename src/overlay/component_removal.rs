@@ -9,7 +9,7 @@ const OWNER_STOP_INTERVAL: Duration = Duration::from_millis(20);
 /// keeps Screen Recorder from relaunching until the caller finishes removal.
 pub(crate) fn stop_audio_owners() -> Result<impl Drop> {
     let recorder_guard = crate::overlay::screen_record::stop_for_component_removal()?;
-    crate::overlay::tts_playground::stop_for_component_removal()?;
+    let tts_guard = crate::overlay::tts_playground::stop_for_component_removal()?;
     crate::overlay::recording::compositor_cancel();
     crate::overlay::stop_realtime_overlay();
     crate::api::tts::TTS_MANAGER.stop();
@@ -23,5 +23,15 @@ pub(crate) fn stop_audio_owners() -> Result<impl Drop> {
         }
         std::thread::sleep(OWNER_STOP_INTERVAL);
     }
-    Ok(recorder_guard)
+    struct OwnerGuards<R> {
+        _recorder: R,
+        _tts: crate::overlay::tts_playground::ComponentRemovalGuard,
+    }
+    impl<R> Drop for OwnerGuards<R> {
+        fn drop(&mut self) {}
+    }
+    Ok(OwnerGuards {
+        _recorder: recorder_guard,
+        _tts: tts_guard,
+    })
 }

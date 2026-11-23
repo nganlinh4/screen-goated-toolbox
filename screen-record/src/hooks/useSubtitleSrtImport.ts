@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from "react";
+import { importProjectLoadCurrent, importStartOwnerCurrent, type ImportProjectLoadResult, type ImportStartOwner } from './importProjectOwnership';
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
 import { projectManager } from "@/lib/projectManager";
 import { createAudioPlaceholderVideo } from "@/lib/mediaServer";
 import {
   importSubtitleFileIntoSegment,
   parseSubtitleFile,
+  readSubtitleFileText,
   type SubtitleFileFormat,
 } from "@/lib/subtitleSrt";
 import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
@@ -34,10 +36,11 @@ interface UseSubtitleImportOpts {
   getCurrentSegment?: () => VideoSegment | null;
   duration: number;
   getCurrentProjectId: () => string | null;
+  captureStartOwner?: () => ImportStartOwner;
   setSegment: (segment: VideoSegment | null) => void;
   setActivePanel: (panel: "zoom" | "background" | "cursor" | "text" | "subtitles") => void;
   setEditingSubtitleId: (id: string | null) => void;
-  onCreateSubtitleProject: (project: Project) => void | Promise<void>;
+  onCreateSubtitleProject: (project: Project, owner?: ImportStartOwner) => ImportProjectLoadResult | Promise<ImportProjectLoadResult>;
   onImportedIntoCurrentProject?: (subtitles: SubtitleSegment[]) => void;
   onError?: (message: string) => void;
 }
@@ -151,13 +154,16 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
     async (
       payload: SubtitleImportPayload,
       expectedProjectId: string | null,
+      expectedOwner?: ImportStartOwner,
     ) => {
+      const owner = expectedOwner === undefined ? opts.captureStartOwner?.() : expectedOwner;
+      if (!importStartOwnerCurrent(owner)) return;
       if (isImportingRef.current) return;
       isImportingRef.current = true;
       setIsImporting(true);
       const traceId = buildSubtitleImportTraceId();
       try {
-        if (opts.getCurrentProjectId() !== expectedProjectId) {
+        if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
           throw new Error("The open project changed while subtitles were importing");
         }
         const currentSegment = opts.getCurrentSegment?.() ?? opts.segment;
@@ -184,14 +190,14 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
           return;
         }
         const project = await createSubtitleProject(payload, subtitles);
-        if (opts.getCurrentProjectId() !== expectedProjectId) {
-          await projectManager.deleteProject(project.id);
+        if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
           throw new Error("The open project changed while subtitles were importing");
         }
-        await opts.onCreateSubtitleProject(project);
+        if (!importProjectLoadCurrent(await opts.onCreateSubtitleProject(project, owner)) || opts.getCurrentProjectId() !== project.id) return;
         opts.setEditingSubtitleId(subtitles[0]?.id ?? null);
         opts.setActivePanel("subtitles");
       } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         console.error(`[SubtitleImport:${traceId}] import failed`, error);
         opts.onError?.(`Subtitle import failed: ${String(error)}`);
       } finally {
@@ -206,8 +212,9 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
     async (
       payload: SubtitleImportPayload,
       expectedProjectId = opts.getCurrentProjectId(),
+      owner?: ImportStartOwner,
     ) => {
-      return importSubtitlePayloadForProject(payload, expectedProjectId);
+      return importSubtitlePayloadForProject(payload, expectedProjectId, owner);
     },
     [importSubtitlePayloadForProject, opts],
   );
@@ -215,12 +222,14 @@ export function useSubtitleImport(opts: UseSubtitleImportOpts) {
   const importSubtitleSrtFile = useCallback(
     async (file: File) => {
       const expectedProjectId = opts.getCurrentProjectId();
-      const content = await file.text();
+      const owner = opts.captureStartOwner?.();
+      if (!importStartOwnerCurrent(owner)) return;
+      const content = await readSubtitleFileText(file);
       await importSubtitlePayloadForProject({
         fileName: file.name,
         content,
         mimeType: file.type,
-      }, expectedProjectId);
+      }, expectedProjectId, owner);
     },
     [importSubtitlePayloadForProject, opts],
   );

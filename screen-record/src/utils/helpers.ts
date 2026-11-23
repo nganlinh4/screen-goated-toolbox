@@ -39,12 +39,6 @@ export function formatMonitorSummary(
   return monitor.is_primary ? `${base} ${t.monitorPrimaryShort}` : base;
 }
 
-export function formatMonitorDialogSummary(
-  monitor: Pick<MonitorLike, 'width' | 'height' | 'hz' | 'x' | 'y'>
-): string {
-  return `${monitor.width}×${monitor.height} · ${monitor.hz}Hz · ${monitor.x}, ${monitor.y}`;
-}
-
 export const sortMonitorsByPosition = <T extends MonitorLike>(
   monitors: T[],
   t: Pick<Translations, 'monitorDisplayName' | 'monitorDisplayNamePrimary'>

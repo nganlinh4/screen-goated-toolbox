@@ -1,13 +1,16 @@
 use std::collections::HashSet;
 
 use serde_json::{Value, json};
-use sgt_computer_control_protocol::{HostPrivilege, SetupPlan};
+use sgt_computer_control_protocol::{HostPrivilege, SetupPlan, SetupRequest};
 
 const TEST_CATALOG: &str = include_str!("../../phone_control_catalog.json");
 const TEST_PROMPT: &str = include_str!("../prompt_core.txt");
 const PLATFORM_DEVICE_TOKEN: &str = "{{PLATFORM_DEVICE}}";
-const CONTROLLER_RULES: &str = "ROUTING: highest-fidelity evidence. Accessible: observe, then act on current @id. Pixel-only: vision targets/marks. Prefer direct browser/system/file/integration providers. Raw input needs known focus/effect. Change route after typed failure.";
-const SESSION_RULES: &str = "Interpret communicative intent, not grammatical form. If the requested outcome is too uncertain to choose an effect safely, ask one concise clarification and do not act.";
+
+// The engine's own setup source compiled in-process, so host assembly is tested
+// against the plan production receives rather than a hand-copied stand-in.
+#[path = "../../../../../native/computer_control_engine/src/setup.rs"]
+mod engine_setup;
 
 fn test_plan(
     privilege: HostPrivilege,
@@ -15,34 +18,56 @@ fn test_plan(
     search: bool,
     integration_declarations: &[Value],
 ) -> SetupPlan {
-    let catalog: Value = serde_json::from_str(TEST_CATALOG).unwrap();
-    let mut declarations = catalog["functionDeclarations"].as_array().unwrap().clone();
-    declarations.extend_from_slice(integration_declarations);
-    let mut tools = Vec::new();
-    if search {
-        tools.push(json!({"googleSearch": {}}));
-    }
-    tools.push(json!({"functionDeclarations": declarations}));
-    let core = TEST_PROMPT.replace(PLATFORM_DEVICE_TOKEN, "Windows computer");
-    let privilege_text = match privilege {
-        HostPrivilege::Elevated => {
-            "PRIVILEGE: you are running ELEVATED (full administrator) - run_command has admin rights, so do system tasks directly."
-        }
-        HostPrivilege::Standard => {
-            "PRIVILEGE: you are running as a STANDARD user (not elevated). run_command still does most things; but admin-only tasks fail with Access Denied. Request the required consequential elevation at its effect boundary, then verify."
-        }
-    };
-    SetupPlan {
-        system_instruction: format!(
-            "{core}\n{CONTROLLER_RULES}\n{SESSION_RULES}\n{privilege_text}"
-        ),
-        tools: Value::Array(tools),
-        realtime_input_config: super::expected_realtime_input_config(voice),
-    }
+    engine_setup::build(SetupRequest {
+        privilege,
+        voice_mode: voice,
+        search_enabled: search,
+        integration_declarations: integration_declarations.to_vec(),
+    })
+    .expect("engine builds the setup plan")
 }
 
 fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Value {
     build_setup_with_context(resume, voice, search, None)
+}
+
+#[test]
+fn normal_initial_and_reconnect_setup_keep_search_voice_and_integrations() {
+    let declaration = json!({"name": "future_integration", "description": "Integration action",
+        "parameters": {"type": "object", "properties": {}}});
+    let mut tools = Vec::new();
+    for context in [None, Some("User: earlier request")] {
+        let setup = super::normal_setup_with_plan(context, vec![declaration.clone()], |request| {
+            assert!(request.voice_mode && request.search_enabled);
+            assert_eq!(
+                request.integration_declarations.as_slice(),
+                std::slice::from_ref(&declaration)
+            );
+            Ok(test_plan(
+                request.privilege,
+                request.voice_mode,
+                request.search_enabled,
+                &request.integration_declarations,
+            ))
+        })
+        .unwrap();
+        assert_eq!(setup["setup"]["tools"][0], json!({"googleSearch": {}}));
+        tools.push(setup["setup"]["tools"].clone());
+    }
+    assert_eq!(tools[0], tools[1]);
+}
+
+#[test]
+fn normal_setup_rejects_an_engine_plan_that_drops_search() {
+    let result = super::normal_setup_with_plan(None, Vec::new(), |request| {
+        Ok(test_plan(
+            request.privilege,
+            request.voice_mode,
+            false,
+            &request.integration_declarations,
+        ))
+    });
+    assert!(result.is_err());
 }
 
 fn build_setup_with_context(
@@ -457,4 +482,26 @@ fn search_fallback_keeps_the_complete_integration_catalog() {
                 .any(|item| item["name"] == "future_integration_tool")
         );
     }
+}
+
+#[test]
+fn setup_uses_low_thinking_and_high_media_resolution() {
+    let s = build_setup(None, false, false);
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/phone-control/model-chain.json"
+    )))
+    .expect("Phone Control model-chain fixture parses");
+    let live = &fixture["live_session"];
+    assert_eq!(
+        s["setup"]["model"],
+        format!("models/{}", live["api_model"].as_str().unwrap())
+    );
+    let gc = &s["setup"]["generationConfig"];
+    assert_eq!(gc["mediaResolution"], "MEDIA_RESOLUTION_HIGH");
+    assert_eq!(gc["maxOutputTokens"], 65536);
+    assert_eq!(gc["thinkingConfig"], live["thinking_config"]);
+    // The 3.1 trap: must NOT carry the legacy budget knob alongside the level.
+    assert!(gc["thinkingConfig"].get("thinkingBudget").is_none());
+    assert!(s["setup"]["tools"].is_array());
 }

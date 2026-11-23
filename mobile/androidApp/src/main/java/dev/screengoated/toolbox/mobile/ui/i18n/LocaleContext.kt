@@ -21,7 +21,8 @@ import java.util.Locale
  */
 fun Context.uiLocalized(): Context {
     val app = applicationContext as? SgtMobileApplication ?: return this
-    val tag = app.appContainer.repository.currentUiPreferences().uiLanguage.ifBlank { "en" }
+    val container = app.appContainerOrNull ?: return this
+    val tag = container.repository.currentUiPreferences().uiLanguage.ifBlank { "en" }
     val config = Configuration(resources.configuration)
     config.setLocale(Locale.forLanguageTag(tag))
     return createConfigurationContext(config)

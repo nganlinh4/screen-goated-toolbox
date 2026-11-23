@@ -48,7 +48,7 @@ pub(super) fn create_orb_window() {
         let host = match build_host(hwnd) {
             Ok(h) => h,
             Err(e) => {
-                crate::log_info!("[CCOrb] DComp host build failed: {e:?}");
+                cc_log!("[CCOrb] DComp host build failed: {e:?}");
                 let _ = DestroyWindow(hwnd);
                 ORB_HWND.store(0, Ordering::SeqCst);
                 ORB_INITIALIZING.store(false, Ordering::SeqCst);

@@ -8,7 +8,13 @@ internal data class AdaptiveCandidateRank(
         val distance = 6 - qualityTier.coerceIn(1, 6)
         var numerator = latencyMs.coerceAtLeast(0).toLong()
         repeat(distance) { numerator = (numerator * 3L).coerceAtMost(Long.MAX_VALUE / 2L) }
-        return numerator / (1L shl distance)
+        // Windows saturates the cost at the unsigned 32-bit maximum, so very
+        // slow candidates tie on cost and fall back to the tier/latency order.
+        return (numerator / (1L shl distance)).coerceAtMost(MAXIMUM_PRIORITY_COST)
+    }
+
+    private companion object {
+        const val MAXIMUM_PRIORITY_COST = 4_294_967_295L
     }
 
     fun outranksOrTies(other: AdaptiveCandidateRank): Boolean =
@@ -34,8 +40,10 @@ internal data class AdaptiveEditResult(
 internal fun PresetRetryChainKind.effectiveChain(
     settings: PresetRuntimeSettings,
     apiKeys: ApiKeys,
+    includeChosenModel: Boolean = false,
 ): List<String> {
-    val configured = configuredChain(settings)
+    val models = configuredChain(settings)
+    val configured = if (includeChosenModel) editablePriorityOrder(models, chosenAfter(settings)) else models
     val adaptive = settings.adaptiveModelPriority
     val enabled = when (this) {
         PresetRetryChainKind.IMAGE_TO_TEXT -> adaptive.imageToText
@@ -65,18 +73,36 @@ internal fun PresetRetryChainKind.adaptiveChain(
     )
     if (offered.isEmpty()) return reconciled
     val latencyById = offered.toMap()
-    return mergeAdaptiveModels(
-        configured = reconciled,
-        offered = offered.map(Pair<String, Int>::first),
-        pinned = overrides.pinned,
-        excluded = overrides.excluded,
-        protectedLocalLeaders = protectedLocalLeaders(),
+    return mergePriorityRows(
+        reconciled, offered.map(Pair<String, Int>::first), overrides, protectedLocalLeaders(),
     ) { id ->
         val model = PresetModelCatalog.getById(id)
         AdaptiveCandidateRank(
             qualityTier = model?.intelligenceTier ?: 4,
             latencyMs = latencyById[id] ?: model?.typicalLatencyMs ?: Int.MAX_VALUE,
         )
+    }
+}
+
+internal fun mergePriorityRows(
+    rows: List<String>,
+    offered: List<String>,
+    overrides: PresetLiveModelOverrides,
+    protectedLeaders: Int,
+    rankFor: (String) -> AdaptiveCandidateRank,
+): List<String> {
+    val chosen = rows.indexOf(CHOSEN_MODEL_ROW)
+    val prefix = rows.take(chosen.coerceAtLeast(0))
+    val merged = mergeAdaptiveModels(
+        configured = rows.filterNot { it == CHOSEN_MODEL_ROW },
+        offered = offered,
+        pinned = overrides.pinned + prefix,
+        excluded = overrides.excluded - prefix.toSet(),
+        protectedLocalLeaders = maxOf(protectedLeaders, prefix.size),
+        rankFor = rankFor,
+    )
+    return if (chosen < 0) merged else merged.toMutableList().apply {
+        add(chosen.coerceAtMost(size), CHOSEN_MODEL_ROW)
     }
 }
 

@@ -6,8 +6,12 @@ import {
   sortPointsByTime,
 } from './adjustableLineUtils';
 import { useAdjustableLineTrack } from './useAdjustableLineTrack';
+import { claimHoveredPointDelete, isDeleteKey, isEditableKeyTarget } from './timelineDeleteKeys';
 import { useZoomBlockRangeEditing } from './useZoomBlockRangeEditing';
 import { ZoomBlockLayer } from './ZoomBlockLayer';
+import type { TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
+import { ZOOM_INFLUENCE_POINT_SCALE } from './curvePointKeyboard';
+import { useSettings } from '@/hooks/useSettings';
 import {
   generateZoomFillPath,
   generateZoomPath,
@@ -29,6 +33,7 @@ interface ZoomTrackProps {
   onUpdateBlocks: (blocks: ZoomBlock[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  keyboardEdits?: TimelineKeyboardEdits;
 }
 
 export const ZoomTrack: React.FC<ZoomTrackProps> = ({
@@ -41,7 +46,9 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   onUpdateBlocks,
   beginBatch,
   commitBatch,
+  keyboardEdits,
 }) => {
+  const { t } = useSettings();
   const blocks = segment.zoomBlocks ?? [];
   const hasInfluenceCurve = segment.smoothMotionPath && segment.smoothMotionPath.length > 0;
   const points = segment.zoomInfluencePoints || [];
@@ -76,6 +83,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     handlePointPointerDown,
     handleTrackPointerMove,
     setHoveredSegmentIndices,
+    getPointKeyProps,
   } = useAdjustableLineTrack<ZoomInfluencePoint>({
     points,
     duration,
@@ -114,8 +122,14 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   // Bespoke point deletion: deleting an endpoint of a 2-point curve clears it
   // entirely; otherwise the hovered interior point is removed.
   React.useEffect(() => {
+    if (hoveredIdx === null) return;
+    return claimHoveredPointDelete();
+  }, [hoveredIdx]);
+
+  React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && hoveredIdx !== null) {
+      if (isEditableKeyTarget(e.target)) return;
+      if (isDeleteKey(e) && hoveredIdx !== null) {
         if (hoveredIdx === 0 || hoveredIdx === points.length - 1) {
           if (points.length === 2) onUpdateInfluencePoints([]);
           return;
@@ -147,7 +161,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
     if (activeIdx !== -1) {
       beginBatch();
-      startDraggingPoint(activeIdx, e.clientX, e.clientY, rect, points);
+      startDraggingPoint(activeIdx, e.clientX, e.clientY, e.currentTarget, points);
       return;
     }
 
@@ -186,7 +200,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
         e.clientY,
-        rect,
+        e.currentTarget,
         plan.startValue,
         plan.points,
       );
@@ -199,13 +213,12 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     newPoints = sortPointsByTime(newPoints);
     const newIdx = newPoints.indexOf(point);
     onUpdateInfluencePoints(newPoints);
-    startDraggingPoint(newIdx, e.clientX, e.clientY, rect, newPoints);
+    startDraggingPoint(newIdx, e.clientX, e.clientY, e.currentTarget, newPoints);
   };
 
   const onInfluencePointPointerDown = (e: React.PointerEvent, i: number) => {
     e.stopPropagation();
-    const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-    handlePointPointerDown(rect, e.clientX, e.clientY, i);
+    handlePointPointerDown(e.currentTarget.parentElement!, e.clientX, e.clientY, i);
   };
 
   const highlightedSegmentPath = getHighlightedSegmentPath({
@@ -305,6 +318,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 }}
                 onMouseLeave={() => setHoveredIdx(null)}
                 onPointerDown={(e) => onInfluencePointPointerDown(e, i)}
+                {...getPointKeyProps(i, `${t.timelineZoomInfluencePoint} ${i + 1}`, ZOOM_INFLUENCE_POINT_SCALE)}
               />
             ))}
           </div>
@@ -338,6 +352,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
         }}
         trackRef={trackRef}
         trackWidth={trackWidth}
+        keyboardEdits={keyboardEdits}
       />
     </div>
   );

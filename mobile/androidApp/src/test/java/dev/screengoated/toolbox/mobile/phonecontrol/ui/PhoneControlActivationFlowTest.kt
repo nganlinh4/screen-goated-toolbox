@@ -287,6 +287,39 @@ class PhoneControlActivationFlowTest {
             "android_activity_result_then_fresh_projection_attach",
             projectionPrompt.string("completionReceipt"),
         )
+        assertEquals(
+            "activation_or_exact_checkpoint_retained_across_recreation",
+            projectionPrompt.string("requestOwnership"),
+        )
+        assertEquals(
+            "one_process_wide_reservation_with_explicit_busy_retry",
+            projectionPrompt.string("consentAdmission"),
+        )
+        assertEquals(
+            "coalesce_same_defer_different_cancel_preempts",
+            projectionPrompt.string("inFlightReentry"),
+        )
+        assertEquals("reject_before_projection_start", projectionPrompt.string("staleConsent"))
+        assertEquals(
+            "retire_queued_or_await_admitted_terminal_receipt",
+            projectionPrompt.string("dispatchSettlement"),
+        )
+        assertEquals(
+            "retire_queued_start_and_discard_staged_replay",
+            projectionPrompt.string("serviceStop"),
+        )
+        assertEquals(
+            "private_receiver_delivery_sequence",
+            projectionPrompt.string("notificationStopOrdering"),
+        )
+        assertEquals(
+            "block_new_projection_until_destroyed_with_retry",
+            projectionPrompt.string("serviceTeardown"),
+        )
+        assertEquals(
+            "clear_unowned_without_clearing_newer_owner",
+            projectionPrompt.string("staleOrphan"),
+        )
         assertEquals("ongoing_notification_tap", projectionPrompt.string("fallback"))
         assertEquals(
             "discard_transient_checkpoint_then_normal_activation",
@@ -398,10 +431,10 @@ class PhoneControlActivationFlowTest {
         val powerPresentation = powerSelection.getValue("presentation").jsonObject
         assertEquals("compact_orb_card", powerPresentation.string("surface"))
         assertFalse(powerPresentation.boolean("explanatoryParagraph"))
-        assertEquals("sgt_adb", powerPresentation.string("recommendedNonRoot"))
+        assertEquals("none", powerPresentation.string("recommendedNonRoot"))
         assertEquals("purple_fill", powerPresentation.string("selectedMarker"))
         assertEquals(
-            "star_icon_without_selected_fill",
+            "none_when_provider_unavailable",
             powerPresentation.string("recommendedMarker"),
         )
         assertEquals(

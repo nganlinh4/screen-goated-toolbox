@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -14,10 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
-import android.util.DisplayMetrics
 import android.view.Display
-import android.view.Surface
-import android.view.WindowManager
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
@@ -82,6 +78,8 @@ internal object PhoneControlProjectionProvider {
             initialDimensions = dimensions,
             displayMetadata = { projectionDisplayMetadata(context) },
             onProjectionStopped = onProjectionStopped,
+            displayManager = context.getSystemService(DisplayManager::class.java),
+            currentDimensions = { projectionDimensions(context) },
         )
         return try {
             candidate.start()
@@ -133,6 +131,8 @@ private class ProjectionSession(
     initialDimensions: ProjectionDimensions,
     private val displayMetadata: () -> ProjectionDisplayMetadata,
     private val onProjectionStopped: () -> Unit,
+    private val displayManager: DisplayManager?,
+    private val currentDimensions: () -> ProjectionDimensions,
 ) {
     private val resourceLock = Any()
     private val closed = AtomicBoolean(false)
@@ -143,6 +143,11 @@ private class ProjectionSession(
     private var virtualDisplay: VirtualDisplay? = null
     private var pendingCapture: CompletableDeferred<PhoneControlProjectionFrameResult>? = null
     private var cachedFrame: CachedProjectionFrame? = null
+
+    // The newest frame that was not decoded yet. AUTO_MIRROR delivers frames
+    // only on change, so the last frame of a change must stay available for a
+    // capture that finds the screen static afterwards.
+    private var latestImage: RetainedProjectionImage? = null
     private var firstFrameLogged = false
     private var consecutiveDecodeFailures = 0
 
@@ -163,8 +168,28 @@ private class ProjectionSession(
         }
     }
 
+    // Below API 34 the platform reports no captured-content resize, so a
+    // rotation is followed through the default display instead.
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+
+        override fun onDisplayRemoved(displayId: Int) = Unit
+
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            val next = runCatching(currentDimensions).getOrNull() ?: return
+            val current = synchronized(resourceLock) { dimensions }
+            if (shouldFollowDisplayResize(Build.VERSION.SDK_INT, current.width, current.height, next.width, next.height)) {
+                resize(next.width, next.height)
+            }
+        }
+    }
+
     fun start() {
         projection.registerCallback(callback, handler)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            displayManager?.registerDisplayListener(displayListener, handler)
+        }
         synchronized(resourceLock) {
             check(!closed.get()) { "Projection stopped during startup." }
             val nextReader = createReader(dimensions)
@@ -211,11 +236,28 @@ private class ProjectionSession(
         if (fresh != null) return fresh
         return synchronized(resourceLock) {
             if (pendingCapture === request) pendingCapture = null
+            refreshCacheFromRetainedImageLocked()
             cachedFrame?.copyForCaller()
                 ?: PhoneControlProjectionFrameResult.Failure(
                     code = "projection_frame_unavailable",
                     retryable = true,
                 )
+        }
+    }
+
+    /** Decodes the newest undecoded frame into the cache. Caller holds [resourceLock]. */
+    private fun refreshCacheFromRetainedImageLocked() {
+        val retained = latestImage ?: return
+        latestImage = null
+        try {
+            if (closed.get()) return
+            val bitmap = retained.image.toBitmap()
+            cachedFrame?.bitmap?.recycle()
+            cachedFrame = CachedProjectionFrame(bitmap, retained.capturedAtMs, displayMetadata())
+        } catch (error: Throwable) {
+            Log.e(TAG, "projection_retained_frame_decode_failed", error)
+        } finally {
+            runCatching { retained.image.close() }
         }
     }
 
@@ -253,8 +295,11 @@ private class ProjectionSession(
             virtualDisplay = null
             reader = null
             cachedFrame = null
+            latestImage?.let { runCatching { it.image.close() } }
+            latestImage = null
             RetiredProjectionResources(display, imageReader, frame)
         }
+        runCatching { displayManager?.unregisterDisplayListener(displayListener) }
         runCatching { retired.reader?.setOnImageAvailableListener(null, null) }
         runCatching { retired.display?.release() }
         runCatching { retired.reader?.close() }
@@ -282,6 +327,8 @@ private class ProjectionSession(
             dimensions = next
             cachedFrame?.bitmap?.recycle()
             cachedFrame = null
+            latestImage?.let { runCatching { it.image.close() } }
+            latestImage = null
             pendingCapture?.complete(
                 PhoneControlProjectionFrameResult.Failure(
                     code = "projection_resized",
@@ -309,12 +356,22 @@ private class ProjectionSession(
         val image = runCatching { source.acquireLatestImage() }.getOrNull() ?: return
         val diagnostics = projectionImageDiagnostics(image)
         var decodedBitmap: Bitmap? = null
+        var retained = false
         try {
-            val shouldCopy = synchronized(resourceLock) {
-                !closed.get() && source === reader &&
-                    (pendingCapture != null || cachedFrame == null)
+            val disposition = synchronized(resourceLock) {
+                val next = projectionFrameDisposition(
+                    active = !closed.get() && source === reader,
+                    captureWaiting = pendingCapture != null,
+                    cacheEmpty = cachedFrame == null,
+                )
+                if (next == ProjectionFrameDisposition.RETAIN) {
+                    latestImage?.let { runCatching { it.image.close() } }
+                    latestImage = RetainedProjectionImage(image, SystemClock.elapsedRealtime())
+                    retained = true
+                }
+                next
             }
-            if (!shouldCopy) return
+            if (disposition != ProjectionFrameDisposition.DECODE) return
             val bitmap = image.toBitmap()
             decodedBitmap = bitmap
             val capturedAtMs = SystemClock.elapsedRealtime()
@@ -331,6 +388,9 @@ private class ProjectionSession(
                 }
                 cachedFrame?.bitmap?.recycle()
                 cachedFrame = CachedProjectionFrame(bitmap, capturedAtMs, metadata)
+                // Anything retained earlier is older than this decoded frame.
+                latestImage?.let { runCatching { it.image.close() } }
+                latestImage = null
                 decodedBitmap = null
                 pendingCapture = null
                 if (!firstFrameLogged) {
@@ -376,123 +436,15 @@ private class ProjectionSession(
                 ),
             )
         } finally {
-            runCatching { image.close() }
+            if (!retained) runCatching { image.close() }
         }
     }
 
     private companion object {
         const val TAG = "SGTPhoneControlProjection"
         const val DISPLAY_NAME = "SGT Phone Control"
-        const val MAX_IMAGES = 2
+        // One retained newest frame plus the two that acquireLatestImage needs.
+        const val MAX_IMAGES = 3
         const val FRESH_FRAME_WAIT_MS = 650L
-    }
-}
-
-private data class RetiredProjectionResources(
-    val display: VirtualDisplay?,
-    val reader: ImageReader?,
-    val frame: CachedProjectionFrame?,
-)
-
-private data class PublishedProjectionFrame(
-    val request: CompletableDeferred<PhoneControlProjectionFrameResult>?,
-    val callerBitmap: Bitmap?,
-)
-
-internal data class ProjectionImageDiagnostics(
-    val width: Int,
-    val height: Int,
-    val pixelStride: Int,
-    val rowStride: Int,
-    val bufferBytes: Int,
-)
-
-internal fun shouldSummarizeProjectionDecodeFailure(consecutiveFailures: Int): Boolean =
-    consecutiveFailures == 1 ||
-        consecutiveFailures % PROJECTION_DECODE_FAILURE_SUMMARY_INTERVAL == 0
-
-private fun projectionImageDiagnostics(image: Image): ProjectionImageDiagnostics {
-    val plane = runCatching { image.planes.firstOrNull() }.getOrNull()
-    return ProjectionImageDiagnostics(
-        width = runCatching { image.width }.getOrDefault(0),
-        height = runCatching { image.height }.getOrDefault(0),
-        pixelStride = runCatching { plane?.pixelStride ?: 0 }.getOrDefault(0),
-        rowStride = runCatching { plane?.rowStride ?: 0 }.getOrDefault(0),
-        bufferBytes = runCatching { plane?.buffer?.remaining() ?: 0 }.getOrDefault(0),
-    )
-}
-
-private const val PROJECTION_DECODE_FAILURE_SUMMARY_INTERVAL = 300
-
-private data class CachedProjectionFrame(
-    val bitmap: Bitmap,
-    val capturedAtMs: Long,
-    val metadata: ProjectionDisplayMetadata,
-) {
-    fun copyForCaller(): PhoneControlProjectionFrameResult.Success =
-        PhoneControlProjectionFrameResult.Success(
-            bitmap.copy(Bitmap.Config.ARGB_8888, true),
-            capturedAtMs,
-            metadata.rotation,
-            metadata.densityDpi,
-        )
-}
-
-private data class ProjectionDisplayMetadata(
-    val rotation: Int,
-    val densityDpi: Int,
-)
-
-private data class ProjectionDimensions(
-    val width: Int,
-    val height: Int,
-    val densityDpi: Int,
-)
-
-private fun projectionDimensions(context: Context): ProjectionDimensions {
-    val windowManager = context.getSystemService(WindowManager::class.java)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val bounds = windowManager.maximumWindowMetrics.bounds
-        return ProjectionDimensions(
-            width = bounds.width().coerceAtLeast(1),
-            height = bounds.height().coerceAtLeast(1),
-            densityDpi = context.resources.configuration.densityDpi,
-        )
-    }
-    @Suppress("DEPRECATION")
-    val metrics = DisplayMetrics().also(windowManager.defaultDisplay::getRealMetrics)
-    return ProjectionDimensions(
-        width = metrics.widthPixels.coerceAtLeast(1),
-        height = metrics.heightPixels.coerceAtLeast(1),
-        densityDpi = metrics.densityDpi,
-    )
-}
-
-private fun projectionDisplayMetadata(context: Context): ProjectionDisplayMetadata {
-    val displayManager = context.getSystemService(DisplayManager::class.java)
-    val windowManager = context.getSystemService(WindowManager::class.java)
-    @Suppress("DEPRECATION")
-    val rotation = displayManager
-        ?.getDisplay(Display.DEFAULT_DISPLAY)
-        ?.rotation
-        ?: runCatching { windowManager.defaultDisplay.rotation }
-            .getOrDefault(Surface.ROTATION_0)
-    return ProjectionDisplayMetadata(
-        rotation = rotation,
-        densityDpi = context.resources.configuration.densityDpi.coerceAtLeast(1),
-    )
-}
-
-private fun Image.toBitmap(): Bitmap {
-    val plane = planes.firstOrNull() ?: error("Projection image has no pixel plane")
-    val visiblePixels = copyVisibleRgbaBytes(
-        source = plane.buffer,
-        width = width,
-        height = height,
-        pixelStride = plane.pixelStride,
-        rowStride = plane.rowStride,
-    )
-    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-        it.copyPixelsFromBuffer(visiblePixels)
     }
 }

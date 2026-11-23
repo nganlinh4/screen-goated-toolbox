@@ -4,25 +4,71 @@ use anyhow::{Result, ensure};
 use windows::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
 
 pub(super) fn paint(hwnd: HWND, view: &View, scale: f32) -> Result<()> {
-    paint_checked(hwnd, view, scale, |_, _, _| {})
+    paint_checked(hwnd, view, scale, super::editor_font::create, |_, _, _| {})
+}
+
+/// Releases a GDI object on every exit path.
+struct OwnedObject(HGDIOBJ);
+impl Drop for OwnedObject {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteObject(self.0);
+        }
+    }
+}
+
+/// Deletes a memory drawing context on every exit path.
+struct MemoryDc(HDC);
+impl Drop for MemoryDc {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = DeleteDC(self.0);
+        }
+    }
+}
+
+/// Restores the object a drawing context held before a selection.
+struct Selection {
+    dc: HDC,
+    previous: HGDIOBJ,
+}
+impl Selection {
+    unsafe fn select(dc: HDC, object: HGDIOBJ) -> Self {
+        Self {
+            dc,
+            previous: unsafe { SelectObject(dc, object) },
+        }
+    }
+}
+impl Drop for Selection {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.previous);
+        }
+    }
 }
 
 fn paint_checked(
     hwnd: HWND,
     view: &View,
     scale: f32,
+    create_font: impl FnOnce(f32) -> Result<HFONT>,
     inspect: impl FnOnce(&[u32], i32, i32),
 ) -> Result<()> {
     let layout = Layout::new(view, scale);
     let bounds = layout.window;
     let width = bounds.right - bounds.left;
     let height = bounds.bottom - bounds.top;
+    // Guards drop in reverse declaration order: selections are restored before
+    // the bitmap, drawing context and font they reference are released.
+    let font = OwnedObject(create_font(scale)?.into());
     unsafe {
         let dc = CreateCompatibleDC(None);
         ensure!(
             !dc.is_invalid(),
             "cannot create region editor drawing context"
         );
+        let _dc_guard = MemoryDc(dc);
         let info = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -36,14 +82,10 @@ fn paint_checked(
             ..Default::default()
         };
         let mut bits = std::ptr::null_mut();
-        let bitmap = match CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
-            Ok(bitmap) => bitmap,
-            Err(error) => {
-                let _ = DeleteDC(dc);
-                return Err(error.into());
-            }
-        };
-        let old_bitmap = SelectObject(dc, bitmap.into());
+        let bitmap = OwnedObject(
+            CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0)?.into(),
+        );
+        let _bitmap_selection = Selection::select(dc, bitmap.0);
         let pixels = std::slice::from_raw_parts_mut(bits.cast::<u32>(), (width * height) as usize);
         pixels.fill(0);
         let local = |r: RECT| RECT {
@@ -55,8 +97,7 @@ fn paint_checked(
         super::editor_surface::draw(pixels, width, &layout, scale);
         let footer = local(layout.footer);
         let quit = local(layout.quit);
-        let font = super::editor_font::create(scale)?;
-        let old_font = SelectObject(dc, font.into());
+        let font_selection = Selection::select(dc, font.0);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, COLORREF(0x00ffffff));
         let labels = crate::gui::locale::LocaleText::get(&view.language).screen_translate;
@@ -109,8 +150,7 @@ fn paint_checked(
             &mut local(layout.quit),
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
-        SelectObject(dc, old_font);
-        let _ = DeleteObject(font.into());
+        drop(font_selection);
         let _ = GdiFlush();
         // GDI writes RGB, not alpha. Only painted pixels become opaque; the center stays zero.
         for pixel in pixels.iter_mut() {
@@ -148,7 +188,7 @@ fn paint_checked(
         if region_result.is_err() {
             let _ = DeleteObject(region.into());
         }
-        let result = region_result.and_then(|()| {
+        region_result.and_then(|()| {
             UpdateLayeredWindow(
                 hwnd,
                 None,
@@ -172,18 +212,78 @@ fn paint_checked(
                 ULW_ALPHA,
             )
             .map_err(Into::into)
-        });
-        SelectObject(dc, old_bitmap);
-        let _ = DeleteObject(bitmap.into());
-        let _ = DeleteDC(dc);
-        result
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::System::Threading::{GR_GDIOBJECTS, GetCurrentProcess, GetGuiResources};
     use windows::core::w;
+
+    fn editor_view() -> View {
+        View {
+            rect: RECT {
+                left: 100,
+                top: 100,
+                right: 700,
+                bottom: 300,
+            },
+            bounds: RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+            editing: true,
+            error: String::new(),
+            epoch: 1,
+            language: "en".into(),
+            hotkey: "Ctrl+F10".into(),
+        }
+    }
+
+    fn gdi_objects() -> u32 {
+        unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) }
+    }
+
+    #[test]
+    fn failed_paints_release_every_gdi_object() {
+        const ATTEMPTS: u32 = 256;
+        let view = editor_view();
+        let before = gdi_objects();
+        for _ in 0..ATTEMPTS {
+            // Injected font failure, then a failure after the drawing context,
+            // bitmap, font and selections exist (a null window rejects SetWindowRgn).
+            let font_error = paint_checked(
+                HWND::default(),
+                &view,
+                1.0,
+                |_| Err(anyhow::anyhow!("injected font failure")),
+                |_, _, _| panic!("font failure must stop before drawing"),
+            )
+            .unwrap_err();
+            assert_eq!(font_error.to_string(), "injected font failure");
+            let mut drawn = false;
+            let region_error = paint_checked(
+                HWND::default(),
+                &view,
+                1.0,
+                super::super::editor_font::create,
+                |_, _, _| drawn = true,
+            )
+            .unwrap_err();
+            assert!(drawn);
+            assert_eq!(
+                region_error.to_string(),
+                "cannot apply region editor input coverage"
+            );
+        }
+        // A leaked context and bitmap per failure would add 2 * ATTEMPTS objects.
+        let grown = gdi_objects().saturating_sub(before);
+        assert!(grown < ATTEMPTS / 2, "GDI objects grew by {grown}");
+    }
     #[test]
     fn native_surface_has_zero_alpha_center_and_no_input_coverage_there() -> Result<()> {
         unsafe {
@@ -201,35 +301,23 @@ mod tests {
                 None,
                 None,
             )?;
-            let view = View {
-                rect: RECT {
-                    left: 100,
-                    top: 100,
-                    right: 700,
-                    bottom: 300,
-                },
-                bounds: RECT {
-                    left: 0,
-                    top: 0,
-                    right: 1920,
-                    bottom: 1080,
-                },
-                editing: true,
-                error: String::new(),
-                epoch: 1,
-                language: "en".into(),
-                hotkey: "Ctrl+F10".into(),
-            };
+            let view = editor_view();
             let layout = Layout::new(&view, 1.0);
             let center = POINT {
                 x: 400 - layout.window.left,
                 y: 200 - layout.window.top,
             };
-            let result = paint_checked(hwnd, &view, 1.0, |pixels, width, _| {
-                assert_eq!(pixels[(center.y * width + center.x) as usize], 0);
-                assert!(pixels.iter().any(|p| *p >> 24 == 255));
-                assert!(pixels.iter().any(|p| (1..255).contains(&(*p >> 24))));
-            });
+            let result = paint_checked(
+                hwnd,
+                &view,
+                1.0,
+                super::super::editor_font::create,
+                |pixels, width, _| {
+                    assert_eq!(pixels[(center.y * width + center.x) as usize], 0);
+                    assert!(pixels.iter().any(|p| *p >> 24 == 255));
+                    assert!(pixels.iter().any(|p| (1..255).contains(&(*p >> 24))));
+                },
+            );
             let region = CreateRectRgn(0, 0, 0, 0);
             let copied = GetWindowRgn(hwnd, region);
             let interior = PtInRegion(region, center.x, center.y).as_bool();

@@ -13,7 +13,7 @@ use palette::Palette;
 
 use audio::SplashAudio;
 use eframe::egui::{self, Color32, Pos2, Vec2};
-use escape_overlay::{EscapeCircle, EscapeOverlay};
+use escape_overlay::{EscapeCircle, EscapeGrid, EscapeOverlay};
 use math::Vec3;
 use scene::{Cloud, MoonFeature, Voxel};
 use std::cell::RefCell;
@@ -23,6 +23,12 @@ use std::sync::{Arc, Mutex};
 const ANIMATION_DURATION: f32 = 3.6;
 const START_TRANSITION: f32 = 0.8;
 const EXIT_DURATION: f32 = 1.6;
+// An assembled splash left behind other windows exits quietly after this long.
+const AUTO_EXIT_DELAY: f64 = 10.0;
+/// Seconds without pointer movement after which even a focused splash leaves.
+const UNATTENDED_EXIT_DELAY: f64 = 30.0;
+// Redraw interval once assembled: the scene only drifts while it waits for a click.
+const IDLE_FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
 
 // Theme-independent voxel colours (per-palette colours live in `palette.rs`):
 // `C_WHITE` = the random white-sprinkle voxels, `C_SHADOW` = debris.
@@ -31,8 +37,33 @@ const C_SHADOW: Color32 = Color32::from_rgb(20, 20, 30);
 
 type DrawListEntry = (f32, Pos2, f32, Color32, bool, bool);
 
+/// Splash lines in the UI language. The author handle and the product
+/// wordmark are names and stay as they are.
+#[derive(Clone, Copy)]
+pub(super) struct SplashText {
+    click_prompt: &'static str,
+    translating: &'static str,
+    ocr: &'static str,
+    transcribing: &'static str,
+    ready: &'static str,
+}
+
+impl SplashText {
+    fn new(ui_language: &str) -> Self {
+        let shell = crate::gui::locale::LocaleText::get(ui_language).shell;
+        Self {
+            click_prompt: shell.splash_click_to_continue,
+            translating: shell.splash_loading_translating,
+            ocr: shell.splash_loading_ocr,
+            transcribing: shell.splash_loading_transcribing,
+            ready: shell.splash_ready,
+        }
+    }
+}
+
 pub struct SplashScreen {
     start_time: f64,
+    text: SplashText,
     voxels: Vec<Voxel>,
     clouds: Vec<Cloud>,
     moon_features: Vec<MoonFeature>,
@@ -41,8 +72,11 @@ pub struct SplashScreen {
     mouse_world_pos: Vec3,
     loading_text: String,
     exit_start_time: Option<f64>,
+    background_since: Option<f64>,
+    quiet_exit: bool,
     is_dark: bool,
     audio: Arc<Mutex<Option<SplashAudio>>>,
+    exit_audio_requested: bool,
     has_played_impact: bool,
     draw_list: RefCell<Vec<DrawListEntry>>,
     // Escape overlay — separate transparent window for voxels that fly beyond the main window
@@ -60,7 +94,8 @@ pub enum SplashStatus {
 }
 
 impl SplashScreen {
-    pub fn new(ctx: &egui::Context) -> Self {
+    pub fn new(ctx: &egui::Context, ui_language: &str) -> Self {
+        let text = SplashText::new(ui_language);
         let is_dark = ctx.global_style().visuals.dark_mode;
         // Roll a random, theme-coherent atmosphere for this launch.
         let palette_seed = std::time::SystemTime::now()
@@ -70,28 +105,24 @@ impl SplashScreen {
         let palette = palette::pick(is_dark, palette_seed);
         crate::log_info!("[Splash] atmosphere: {}", palette.name);
         let audio_container = Arc::new(Mutex::new(None));
-        let audio_container_clone = audio_container.clone();
-
-        std::thread::spawn(move || {
-            if let Some(audio) = SplashAudio::new()
-                && let Ok(mut lock) = audio_container_clone.lock()
-            {
-                *lock = Some(audio);
-            }
-        });
+        SplashAudio::open_in_background(audio_container.clone());
 
         let mut slf = Self {
             start_time: ctx.input(|i| i.time),
+            text,
             voxels: Vec::with_capacity(600),
             clouds: Vec::with_capacity(20),
             moon_features: Vec::with_capacity(100),
             init_done: false,
             mouse_influence: Vec2::ZERO,
             mouse_world_pos: Vec3::ZERO,
-            loading_text: "TRANSLATING...".to_string(),
+            loading_text: text.translating.to_string(),
             exit_start_time: None,
+            background_since: None,
+            quiet_exit: false,
             is_dark,
             audio: audio_container,
+            exit_audio_requested: false,
             has_played_impact: false,
             draw_list: RefCell::new(Vec::with_capacity(600)),
             escape_overlay: RefCell::new(None),
@@ -121,7 +152,10 @@ impl SplashScreen {
         let status = render::update(render::SplashUpdateContext {
             ctx,
             start_time: self.start_time,
+            text: self.text,
             exit_start_time: &mut self.exit_start_time,
+            background_since: &mut self.background_since,
+            quiet_exit: &mut self.quiet_exit,
             voxels: &mut self.voxels,
             clouds: &mut self.clouds,
             mouse_influence: &mut self.mouse_influence,
@@ -131,6 +165,7 @@ impl SplashScreen {
             audio: &self.audio,
             has_played_impact: &mut self.has_played_impact,
         });
+        self.sync_audio_stream();
 
         // Theme toggled mid-splash → roll a fresh palette of the new mood and
         // recolour the existing voxels in place (keeping their positions).
@@ -154,8 +189,9 @@ impl SplashScreen {
             }
         }
 
-        // Create escape overlay on first frame of exit
-        if self.exit_start_time.is_some() && !was_exiting {
+        // Create escape overlay on first frame of exit. A quiet exit happens
+        // behind other windows, so it must not fling voxels over them.
+        if self.exit_start_time.is_some() && !was_exiting && !self.quiet_exit {
             *self.escape_overlay.borrow_mut() = EscapeOverlay::new();
         }
 
@@ -165,6 +201,35 @@ impl SplashScreen {
         }
 
         status
+    }
+
+    /// Closes the output stream once nothing more can be heard, and reopens it
+    /// for the exit whoosh when the user dismisses the splash afterwards.
+    fn sync_audio_stream(&mut self) {
+        let exiting = self.exit_start_time.is_some();
+        let Ok(mut slot) = self.audio.lock() else {
+            return;
+        };
+        match slot.as_ref() {
+            Some(audio) => {
+                if !audio::needs_stream(exiting, self.quiet_exit, audio.intro_done()) {
+                    *slot = None;
+                }
+                self.exit_audio_requested |= exiting;
+            }
+            None if exiting && !self.quiet_exit && !self.exit_audio_requested => {
+                self.exit_audio_requested = true;
+                drop(slot);
+                SplashAudio::open_in_background(self.audio.clone());
+            }
+            None => {}
+        }
+    }
+
+    /// True when the splash left on its own while the window was in the
+    /// background; the caller must then leave the window where it is.
+    pub fn exited_quietly(&self) -> bool {
+        self.quiet_exit
     }
 
     pub fn paint(&self, ctx: &egui::Context, _theme_mode: &crate::config::ThemeMode) -> bool {
@@ -180,19 +245,20 @@ impl SplashScreen {
             clouds: &self.clouds,
             mouse_influence: self.mouse_influence,
             loading_text: &self.loading_text,
+            click_prompt: self.text.click_prompt,
             draw_list: &self.draw_list,
             tex: &self.pixel_tex,
         });
 
         // After paint fills draw_list, send escaped voxels to the overlay.
         if self.escape_overlay.borrow().is_some() {
-            self.update_escape_overlay(ctx);
+            self.update_escape_overlay(ctx, result.grid);
         }
 
-        result
+        result.theme_clicked
     }
 
-    fn update_escape_overlay(&self, ctx: &egui::Context) {
+    fn update_escape_overlay(&self, ctx: &egui::Context, grid: pixel::PixelGrid) {
         let viewport = ctx.input(|i| i.viewport().clone());
         let inner = viewport
             .inner_rect
@@ -260,6 +326,41 @@ impl SplashScreen {
             });
         }
 
-        overlay.update(&circles);
+        // Escaped voxels continue the window's pixel grid onto the desktop.
+        let escape_grid = EscapeGrid {
+            origin_x: (win_phys_x - overlay_ox).round() as i32,
+            origin_y: (win_phys_y - overlay_oy).round() as i32,
+            cell: grid.cell_px.max(1) as i32,
+        };
+        overlay.update(&circles, escape_grid);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SplashText;
+
+    fn lines(text: SplashText) -> [&'static str; 5] {
+        [
+            text.click_prompt,
+            text.translating,
+            text.ocr,
+            text.transcribing,
+            text.ready,
+        ]
+    }
+
+    #[test]
+    fn splash_lines_follow_the_ui_language() {
+        let english = SplashText::new("en");
+        assert_eq!(english.click_prompt, "CLICK ANYWHERE TO CONTINUE");
+        // English keeps the pixel font: every line is ASCII.
+        assert!(lines(english).iter().all(|line| line.is_ascii()));
+        for code in ["ko", "vi"] {
+            let localized = SplashText::new(code);
+            assert_ne!(localized.click_prompt, english.click_prompt, "{code}");
+            assert_ne!(localized.ready, english.ready, "{code}");
+            assert!(!localized.click_prompt.is_ascii(), "{code}");
+        }
     }
 }

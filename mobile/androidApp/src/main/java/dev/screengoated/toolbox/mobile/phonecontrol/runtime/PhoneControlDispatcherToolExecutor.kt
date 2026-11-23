@@ -73,11 +73,11 @@ internal class PhoneControlDispatcherToolExecutor(
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { jobContext.effectOwner.awaitTerminalEffects() }
                 val certainty = jobContext.effectOwner.terminalCertainty(mutating)
-                publishCompletion(cancelledExecution(request, certainty))
+                publishCompletion(cancelledExecution(request, certainty, jobContext.effectOwner.terminalEffectEvidence()))
             } catch (error: Throwable) {
                 withContext(NonCancellable) { jobContext.effectOwner.awaitTerminalEffects() }
                 val certainty = jobContext.effectOwner.terminalCertainty(mutating)
-                publishCompletion(failedExecution(request, certainty, error))
+                publishCompletion(failedExecution(request, certainty, error, jobContext.effectOwner.terminalEffectEvidence()))
             }
         }
         return DispatcherJob(
@@ -127,7 +127,7 @@ internal class PhoneControlDispatcherToolExecutor(
                         } else {
                             PhoneControlEffectCertainty.PROVEN_NO_EFFECT
                         }
-                        publishCompletion(cancelledExecution(request, terminalCertainty))
+                        publishCompletion(cancelledExecution(request, terminalCertainty, effectOwner.terminalEffectEvidence()))
                     }
                 }
             }
@@ -139,6 +139,7 @@ internal class PhoneControlDispatcherToolExecutor(
 private fun cancelledExecution(
     request: PhoneControlToolRequest,
     certainty: PhoneControlEffectCertainty,
+    evidence: kotlinx.serialization.json.JsonArray,
 ): PhoneControlToolExecutionResult = PhoneControlToolExecutionResult(
     response = kotlinx.serialization.json.buildJsonObject {
         put("code", "tool_cancelled")
@@ -156,6 +157,7 @@ private fun cancelledExecution(
         put("turn_id", request.turnId)
         put("response_generation", request.generation)
         put("terminal_cancellation_acknowledged", true)
+        if (evidence.isNotEmpty()) put("terminal_effect_evidence", evidence)
     },
     certainty = certainty,
 )
@@ -164,11 +166,13 @@ private fun failedExecution(
     request: PhoneControlToolRequest,
     certainty: PhoneControlEffectCertainty,
     error: Throwable,
+    evidence: kotlinx.serialization.json.JsonArray,
 ): PhoneControlToolExecutionResult = PhoneControlToolExecutionResult(
     response = kotlinx.serialization.json.buildJsonObject {
         put("code", "tool_execution_failed")
         put("message", "The admitted tool job failed before producing a normal receipt.")
         put("error_class", error.javaClass.simpleName)
+        if (evidence.isNotEmpty()) put("terminal_effect_evidence", evidence)
         put(
             "effect_status",
             when (certainty) {

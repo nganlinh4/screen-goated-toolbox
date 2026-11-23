@@ -4,5 +4,40 @@
   "idleCompletionMillis": 1200,
   "emptyChunkStartsOutput": false,
   "cancelBeforeOutput": "close_owned_socket",
-  "cancelDuringOutput": "close_owned_socket_without_late_chunks"
+  "cancelDuringOutput": "close_owned_socket_without_late_chunks",
+  "hardCompletionMillis": 90000,
+  "cases": [
+    {"name":"empty_chunks_keep_the_first_output_deadline","interactionIdle":false,"events":[
+      {"atMs":0,"kind":"text","text":"","expected":"pending"},
+      {"atMs":19999,"kind":"tick","expected":"pending"},
+      {"atMs":20000,"kind":"tick","expected":"first_output_timeout"}
+    ],"firstOutput":false},
+    {"name":"idle_deadline_follows_last_nonempty_chunk","interactionIdle":false,"events":[
+      {"atMs":0,"kind":"text","text":"first","expected":"pending"},
+      {"atMs":600,"kind":"text","text":"second","expected":"pending"},
+      {"atMs":1799,"kind":"text","text":"","expected":"pending"},
+      {"atMs":1800,"kind":"tick","expected":"complete"}
+    ],"firstOutput":true},
+    {"name":"first_output_releases_the_initial_deadline","interactionIdle":false,"events":[
+      {"atMs":19999,"kind":"text","text":"output","expected":"pending"},
+      {"atMs":20000,"kind":"tick","expected":"pending"},
+      {"atMs":21199,"kind":"tick","expected":"complete"}
+    ],"firstOutput":true},
+    {"name":"interaction_idle_keeps_its_hard_deadline","interactionIdle":true,"events":[
+      {"atMs":0,"kind":"text","text":"output","expected":"pending"},
+      {"atMs":1200,"kind":"tick","expected":"pending"},
+      {"atMs":90000,"kind":"tick","expected":"hard_timeout"}
+    ],"firstOutput":true},
+    {"name":"ordinary_close_preserves_completed_content","interactionIdle":false,"events":[
+      {"atMs":0,"kind":"text","text":"output","expected":"pending"},
+      {"atMs":1,"kind":"closed","expected":"complete"}
+    ],"firstOutput":true},
+    {"name":"interaction_idle_rejects_early_close","interactionIdle":true,"events":[
+      {"atMs":0,"kind":"text","text":"output","expected":"pending"},
+      {"atMs":1,"kind":"closed","expected":"closed"}
+    ],"firstOutput":true},
+    {"name":"explicit_completion_wins_the_same_tick_deadline","interactionIdle":true,"events":[
+      {"atMs":90000,"kind":"complete","expected":"complete"}
+    ],"firstOutput":false}
+  ]
 }

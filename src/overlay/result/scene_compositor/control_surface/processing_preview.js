@@ -2,7 +2,7 @@
 window.__SGT_PROCESSING_CONTROLS__ = (function() {
   const previews = new Map();
   function publish(id, rects) {
-    window.ipc.postMessage(JSON.stringify({ action: 'processing_control_regions', id, rects }));
+    window.ipc.postMessage(JSON.stringify({ action: 'processing_control_regions', id, rects, topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1' }));
   }
   function remove(id) {
     const preview = previews.get(id);
@@ -11,6 +11,7 @@ window.__SGT_PROCESSING_CONTROLS__ = (function() {
     window.__SGT_PROCESSING_CONTOURS__?.controlCutouts(id, []);
   }
   return {
+    invalidate() { for (const preview of previews.values()) preview.key = ''; },
     layout(group, effect, work) {
       const id = effect.id, scale = devicePixelRatio || 1;
       let preview = previews.get(id);

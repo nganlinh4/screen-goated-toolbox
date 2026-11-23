@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"ordinary","value":"image_1.png","valid":true},
+    {"name":"unicode","value":"사진 1.png","valid":true},
+    {"name":"empty","value":"","valid":false},
+    {"name":"blank","value":"  ","valid":false},
+    {"name":"current_directory","value":".","valid":false},
+    {"name":"parent_directory","value":"..","valid":false},
+    {"name":"relative_escape","value":"../other.txt","valid":false},
+    {"name":"backslash_escape","value":"..\\other.txt","valid":false},
+    {"name":"rooted","value":"/other.txt","valid":false},
+    {"name":"drive_or_stream","value":"C:other.txt","valid":false},
+    {"name":"control","value":"file\u0001.txt","valid":false}
+  ]
+}

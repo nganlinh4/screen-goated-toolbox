@@ -85,16 +85,6 @@
         "restates_output": false
       },
       {
-        "provider": "openrouter",
-        "api_model": "dots-studio/dots-3-note-preview:free",
-        "input_order": "text-first",
-        "media_resolution": "provider-default",
-        "sampling": "provider-default",
-        "max_output_tokens": null,
-        "structured_output": "strict-json-schema",
-        "restates_output": false
-      },
-      {
         "provider": "google",
         "api_model": "gemini-3.7-flash",
         "input_order": "image-first",
@@ -116,12 +106,12 @@
       },
       {
         "provider": "openrouter",
-        "api_model": "google/gemma-4-26b-a4b-it:free",
+        "api_model": "inclusionai/ling-3.2-flash:free",
         "input_order": "text-first",
         "media_resolution": "provider-default",
         "sampling": "provider-default",
         "max_output_tokens": null,
-        "structured_output": "json-object",
+        "structured_output": "strict-json-schema",
         "restates_output": false
       }
     ],

@@ -1,33 +1,39 @@
 use super::{storage, wide};
 use anyhow::{Context, Result, bail};
 use std::fs::OpenOptions;
+use std::os::windows::fs::FileExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use windows::Win32::Foundation::{FILETIME, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::System::Diagnostics::Debug::{
     EXCEPTION_POINTERS, MINIDUMP_EXCEPTION_INFORMATION, MiniDumpNormal, MiniDumpWithThreadInfo,
     MiniDumpWithUnloadedModules, MiniDumpWriteDump,
 };
 use windows::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CreateEventW, EVENT_MODIFY_STATE, GetCurrentProcess, GetCurrentThreadId,
-    GetExitCodeProcess, GetProcessTimes, INFINITE, OpenEventW, OpenProcess,
-    PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-    PROCESS_VM_READ, SYNCHRONIZATION_SYNCHRONIZE, SetEvent, WaitForMultipleObjects,
-    WaitForSingleObject,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CreateEventW, EVENT_MODIFY_STATE,
+    GetCurrentProcess, GetCurrentThreadId, GetExitCodeProcess, GetProcessTimes, INFINITE,
+    OpenEventW, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE, PROCESS_VM_READ, SYNCHRONIZATION_SYNCHRONIZE, SetEvent,
+    WaitForMultipleObjects, WaitForSingleObject,
 };
 use windows::core::{BOOL, PCWSTR};
 
 pub(super) const FLAG: &str = "--internal-crash-monitor";
 const SNAPSHOT_TIMEOUT_MS: u32 = 10_000;
+pub(super) const PANIC_DUMP: &str = "panic.dmp";
+pub(super) const LATEST_PANIC_DUMP: &str = "panic-latest.dmp";
 
 pub(super) struct Client {
     request: OwnedHandle,
     done: OwnedHandle,
-    path: std::path::PathBuf,
-    requested: AtomicU32,
+    /// Opened at startup: the exception filter may run with a corrupted heap,
+    /// so a request must not allocate, open files or flush to disk.
+    request_file: std::fs::File,
+    panic_dumps: AtomicU32,
+    native_dumped: AtomicBool,
     busy: std::sync::Mutex<()>,
 }
 
@@ -36,11 +42,19 @@ impl Client {
         let Ok(_guard) = self.busy.try_lock() else {
             return;
         };
-        let kind = if exception == 0 { 1 } else { 2 };
-        if self.requested.fetch_or(kind, Ordering::Relaxed) & kind != 0 {
+        // A caught panic must not use up the snapshot a later fatal one needs:
+        // the observer keeps the first panic dump and replaces a second slot
+        // with the newest, so the budget only bounds a panic storm.
+        let allowed = if exception == 0 {
+            self.panic_dumps.fetch_add(1, Ordering::Relaxed) < super::MAX_PANIC_REPORTS
+        } else {
+            !self.native_dumped.swap(true, Ordering::Relaxed)
+        };
+        if !allowed {
             return;
         }
-        if super::write_request(&self.path, unsafe { GetCurrentThreadId() }, exception).is_err() {
+        let request = encode_request(unsafe { GetCurrentThreadId() }, exception);
+        if !matches!(self.request_file.seek_write(&request, 0), Ok(REQUEST_LEN)) {
             return;
         }
         unsafe {
@@ -87,13 +101,12 @@ pub(super) fn start(identity: &storage::Identity, directory: &Path) -> Result<Cl
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW.0);
-    let mut child = command.spawn().context("start diagnostic observer")?;
-    if unsafe { WaitForSingleObject(handle(&done), SNAPSHOT_TIMEOUT_MS) } != WAIT_OBJECT_0 {
+        .stderr(Stdio::null());
+    let mut child = spawn_outside_job(&mut command).context("start diagnostic observer")?;
+    if let Err(error) = await_acknowledgement(&done, &child, SNAPSHOT_TIMEOUT_MS) {
         let _ = child.kill();
         let _ = child.wait();
-        bail!("diagnostic observer did not acknowledge startup");
+        return Err(error);
     }
     // Dropping Child keeps the independent observer alive. It owns a real
     // process handle before startup completes, so PID reuse cannot misattribute
@@ -102,10 +115,53 @@ pub(super) fn start(identity: &storage::Identity, directory: &Path) -> Result<Cl
     Ok(Client {
         request,
         done,
-        path: directory.join("snapshot.request"),
-        requested: AtomicU32::new(0),
+        request_file: OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(directory.join(REQUEST_FILE))
+            .context("open crash snapshot request")?,
+        panic_dumps: AtomicU32::new(0),
+        native_dumped: AtomicBool::new(false),
         busy: std::sync::Mutex::new(()),
     })
+}
+
+/// Startup continues only once the observer holds this process's handle, so
+/// even an immediate exit is observed. An observer that exits first cannot
+/// acknowledge, so stop waiting then instead of stalling for the full timeout.
+fn await_acknowledgement(
+    done: &OwnedHandle,
+    observer: &std::process::Child,
+    timeout_ms: u32,
+) -> Result<()> {
+    let observer = HANDLE(observer.as_raw_handle());
+    // `done` is first: an acknowledgement counts even if the observer then exited.
+    match unsafe { WaitForMultipleObjects(&[handle(done), observer], false, timeout_ms) } {
+        value if value == WAIT_OBJECT_0 => Ok(()),
+        value if value.0 == WAIT_OBJECT_0.0 + 1 => {
+            let mut code = 0;
+            unsafe { GetExitCodeProcess(observer, &mut code) }?;
+            bail!("diagnostic observer exited before acknowledging startup (0x{code:08X})")
+        }
+        WAIT_TIMEOUT => bail!("diagnostic observer did not acknowledge startup"),
+        value => bail!("diagnostic observer wait failed: {}", value.0),
+    }
+}
+
+/// The observer must outlive a kill-on-close job that its process is torn down
+/// with, or it cannot record that exit. A job that does not allow breakaway
+/// rejects the request, and the observer then starts inside it as before.
+fn spawn_outside_job(command: &mut Command) -> std::io::Result<std::process::Child> {
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    command.creation_flags(CREATE_NO_WINDOW.0 | CREATE_BREAKAWAY_FROM_JOB.0);
+    match command.spawn() {
+        Err(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED) => {
+            command.creation_flags(CREATE_NO_WINDOW.0);
+            command.spawn()
+        }
+        result => result,
+    }
 }
 
 pub(crate) fn run_if_requested() -> Option<i32> {
@@ -161,6 +217,10 @@ pub(super) fn run(session: &str) -> Result<()> {
     unsafe {
         SetEvent(handle(&done))?;
     }
+    // Hashed only after startup is acknowledged, off the observed process's
+    // critical path, and concurrently with any snapshot request.
+    let executable = identity.executable.clone();
+    let image_hash = std::thread::spawn(move || storage::image_sha256(&executable));
     loop {
         match unsafe {
             WaitForMultipleObjects(&[handle(&process), handle(&request)], false, INFINITE)
@@ -187,6 +247,11 @@ pub(super) fn run(session: &str) -> Result<()> {
     unsafe {
         GetExitCodeProcess(handle(&process), &mut code)?;
     }
+    let sha256 = match image_hash.join() {
+        Ok(Ok(hash)) => hash,
+        Ok(Err(error)) => format!("unavailable ({error:#})"),
+        Err(_) => "unavailable (hash thread panicked)".to_owned(),
+    };
     let intended = directory.join("exit-intent.txt").exists();
     let report = format!(
         "{}\npid={} role={} version={} sha256={}\nexit_code=0x{code:08X}\nexit_intent_recorded={intended}\n{}\n",
@@ -194,7 +259,7 @@ pub(super) fn run(session: &str) -> Result<()> {
         identity.pid,
         identity.role,
         identity.version,
-        identity.sha256,
+        sha256,
         if intended {
             "Exit intent is recorded separately; compare it with the observed status."
         } else {
@@ -221,21 +286,12 @@ pub(super) fn run(session: &str) -> Result<()> {
 }
 
 fn snapshot(process: HANDLE, pid: u32, directory: &Path) -> Result<()> {
-    let request = std::fs::read_to_string(directory.join("snapshot.request"))?;
-    let mut fields = request.split_whitespace();
-    let thread = fields
-        .next()
-        .context("missing snapshot thread")?
-        .parse::<u32>()?;
-    let pointer = fields
-        .next()
-        .context("missing exception pointer")?
-        .parse::<usize>()?;
-    let path = directory.join(if pointer == 0 {
-        "panic.dmp"
+    let (thread, pointer) = parse_request(&std::fs::read_to_string(directory.join(REQUEST_FILE))?)?;
+    let path = if pointer == 0 {
+        panic_dump_path(directory)?
     } else {
-        "native.dmp"
-    });
+        directory.join("native.dmp")
+    };
     let file = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -268,6 +324,54 @@ fn snapshot(process: HANDLE, pid: u32, directory: &Path) -> Result<()> {
         bail!("minidump exceeded the 32 MiB retained-file limit; text evidence is preserved");
     }
     Ok(())
+}
+
+const REQUEST_FILE: &str = "snapshot.request";
+/// A zero-padded `thread exception` line, so every request has one length and
+/// overwrites the previous one in place.
+pub(super) const REQUEST_LEN: usize = 32;
+
+pub(super) fn encode_request(thread: u32, exception: usize) -> [u8; REQUEST_LEN] {
+    fn digits(slot: &mut [u8], mut value: u64) {
+        for byte in slot.iter_mut().rev() {
+            *byte = b'0' + (value % 10) as u8;
+            value /= 10;
+        }
+    }
+    let mut request = [b' '; REQUEST_LEN];
+    digits(&mut request[..10], u64::from(thread));
+    digits(&mut request[11..31], exception as u64);
+    request[REQUEST_LEN - 1] = b'\n';
+    request
+}
+
+pub(super) fn parse_request(request: &str) -> Result<(u32, usize)> {
+    let mut fields = request.split_whitespace();
+    let thread = fields
+        .next()
+        .context("missing snapshot thread")?
+        .parse::<u32>()?;
+    let pointer = fields
+        .next()
+        .context("missing exception pointer")?
+        .parse::<usize>()?;
+    Ok((thread, pointer))
+}
+
+/// The first panic dump is kept as the origin; every later one replaces the
+/// newest-panic slot, so disk use stays bounded at two panic dumps.
+fn panic_dump_path(directory: &Path) -> Result<std::path::PathBuf> {
+    let origin = directory.join(PANIC_DUMP);
+    if !origin.exists() {
+        return Ok(origin);
+    }
+    let latest = directory.join(LATEST_PANIC_DUMP);
+    match std::fs::remove_file(&latest) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("replace newest panic minidump"),
+    }
+    Ok(latest)
 }
 
 fn open_process(
@@ -307,5 +411,38 @@ pub(super) fn process_may_be_alive(pid: u32, created: u64) -> bool {
         Err(error) => error
             .downcast_ref::<windows::core::Error>()
             .is_none_or(|error| error.code().0 as u32 != 0x80070057),
+    }
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn startup_handshake_stops_waiting_once_the_observer_exits() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let done = event(&format!("sgt-handshake-{nonce}"), "done", true).unwrap();
+        let mut observer = Command::new("cmd.exe")
+            .args(["/D", "/C", "exit 7"])
+            .creation_flags(CREATE_NO_WINDOW.0)
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let error = await_acknowledgement(&done, &observer, SNAPSHOT_TIMEOUT_MS).unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(format!("{error:#}").contains("(0x00000007)"), "{error:#}");
+        observer.wait().unwrap();
+
+        unsafe { SetEvent(handle(&done)).unwrap() };
+        await_acknowledgement(&done, &observer, 0).unwrap();
+        assert!(await_acknowledgement(&done, &observer, 0).is_err());
     }
 }

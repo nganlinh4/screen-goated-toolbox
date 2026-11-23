@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read back immutable local-ASR assets and emit checked host delivery data."""
+"""Read back the immutable ONNX runtime asset and emit checked host delivery data."""
 
 from __future__ import annotations
 
@@ -62,8 +62,8 @@ def main() -> int:
     if packages.get("schemaVersion") != 1 or packages.get("architecture") != "x64":
         raise ValueError("unsupported local-ASR packages manifest")
     expected = {entry["asset"]: entry for entry in packages["components"]}
-    if len(expected) != 2:
-        raise ValueError("local-ASR manifest must contain exactly two components")
+    if len(expected) != 1:
+        raise ValueError("local-ASR manifest must contain exactly the ONNX runtime component")
 
     release = fetch_json(
         f"https://api.github.com/repos/{OWNER}/{REPOSITORY}/releases/tags/{TAG}"

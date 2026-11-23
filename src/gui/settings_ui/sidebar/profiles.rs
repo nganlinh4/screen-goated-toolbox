@@ -6,6 +6,7 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::{AppTheme, space};
 use eframe::egui;
 
+#[derive(Clone, Copy)]
 enum ProfileAction {
     Switch(usize),
     Add,
@@ -16,6 +17,7 @@ enum ProfileAction {
 pub(super) struct ProfileRenderResponse {
     pub(super) changed: bool,
     pub(super) presets_changed: bool,
+    pub(super) active_profile_changed: bool,
 }
 
 pub fn render_profiles(
@@ -30,6 +32,7 @@ pub fn render_profiles(
 
     let mut changed = false;
     let mut presets_changed = false;
+    let mut active_profile_changed = false;
     let mut action = None;
     let editing_id = egui::Id::new("sidebar_profile_editing_id");
     let delete_confirm_id = egui::Id::new("sidebar_profile_delete_confirm_id");
@@ -252,6 +255,11 @@ pub fn render_profiles(
             config.active_preset_idx = idx.min(config.presets.len().saturating_sub(1));
         }
 
+        active_profile_changed = match action {
+            ProfileAction::Switch(idx) => idx != config.active_preset_profile_idx,
+            ProfileAction::Add => true,
+            ProfileAction::Delete(idx) => idx == config.active_preset_profile_idx,
+        };
         match action {
             ProfileAction::Switch(idx) => config.switch_preset_profile(idx),
             ProfileAction::Add => config.add_preset_profile_from_active(),
@@ -271,5 +279,6 @@ pub fn render_profiles(
     ProfileRenderResponse {
         changed,
         presets_changed,
+        active_profile_changed,
     }
 }

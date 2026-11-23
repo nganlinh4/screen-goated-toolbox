@@ -121,17 +121,26 @@ internal class PhoneControlUserInterfaceGoalQueue(
         pendingWorkCount: Int,
         userSpeaking: Boolean,
         send: (String) -> Boolean,
-        onSent: () -> Unit,
+        onSent: (userRequest: String?) -> Unit,
     ): Boolean = when (flush(phase, pendingWorkCount, userSpeaking, send)) {
         PhoneControlUiGoalFlush.REJECTED -> false
         PhoneControlUiGoalFlush.SENT -> {
-            onSent()
+            onSent(inFlightUserRequest())
             true
         }
         PhoneControlUiGoalFlush.NONE,
         PhoneControlUiGoalFlush.WAITING,
         -> true
     }
+
+    /**
+     * The in-flight goal's text when the user authored it. A conversational goal
+     * is the user's request for that turn; a silent setup goal is SGT's own text
+     * and never grants request scope.
+     */
+    fun inFlightUserRequest(): String? = inFlight.get()
+        ?.takeIf { it.presentation == PhoneControlUiGoalPresentation.CONVERSATIONAL }
+        ?.text
 
     fun observeTurnBoundary(interrupted: Boolean): PhoneControlUiGoalCompletion? {
         val active = inFlight.get() ?: return null
@@ -218,7 +227,7 @@ internal fun PhoneControlUserInterfaceGoalQueue.flushRuntimeGoal(
     pendingWorkCount: Int,
     userSpeaking: Boolean,
     sender: PhoneControlOutboundSender,
-    onSent: () -> Unit,
+    onSent: (userRequest: String?) -> Unit,
 ): Boolean = flushAtBoundary(
     phase = phase,
     pendingWorkCount = pendingWorkCount,

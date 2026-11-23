@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "feature": "phone-control-orb",
   "canonicalAsset": "src/overlay/computer_control/orb/orb.html",
   "androidAsset": "phone_control/orb.html",
@@ -45,27 +45,10 @@
       "updateIntervalMs": 80,
       "affectsSemantics": false
     },
-    "respondingEmotionClassifier": {
-      "provider": "taalas",
-      "cadenceMs": 1000,
-      "maximumInputCharacters": 600,
-      "failurePresentation": "keep_current_icon_silently",
-      "doesNotBlockSpeechOrTools": true,
-      "labels": [
-        "very_satisfied",
-        "satisfied",
-        "excited",
-        "content",
-        "calm",
-        "neutral",
-        "worried",
-        "stressed",
-        "frustrated",
-        "sad",
-        "dissatisfied",
-        "very_dissatisfied",
-        "extremely_dissatisfied"
-      ]
+    "respondingPresentation": {
+      "icon": "sentiment_neutral",
+      "replyTextSentToClassifier": false,
+      "doesNotBlockSpeechOrTools": true
     }
   },
   "stateLabels": [

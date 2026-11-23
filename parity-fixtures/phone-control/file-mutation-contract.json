@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 6,
   "feature": "phone-control-file-mutation",
   "invariants": {
     "sameCanonicalPathSerializedWithinProcess": true,
@@ -10,7 +10,10 @@
     "ordinaryDelimitedEditPreservesRecordShape": true,
     "ordinaryDelimitedEditPreservesFormulaCells": true,
     "formulaAndOrdinaryDataCannotChangeInOneEdit": true,
-    "unambiguousDelimitedSerializationRepairIsCrossPlatform": true,
+    "requestedReplacementGroupsAreAppliedVerbatimOrRejected": true,
+    "maxTotalReplacementOccurrences": 65536,
+    "finalByteLimitIncludesUtf8Bom": true,
+    "unpairedSurrogateNeverCommitted": true,
     "everyDedicatedFileWriteRequiresIndependentTargetScopeQuorum": true,
     "targetScopeQuorumMinimumPositiveVerdicts": 2,
     "targetScopeQuorumRejectsAnyNegativeVerdict": true,
@@ -20,13 +23,79 @@
     "ordinaryAndStructuralEditsShareCanonicalTargetScopeIdentity": true,
     "targetScopeAuthorizationDoesNotAuthorizeMutationContent": true,
     "authorizedTargetLeaseRevalidatedAtCommit": true,
+    "artifactSourceAndTargetPreparedBeforeTargetScopeCheck": true,
+    "artifactPreparationHasNoOutputFilesystemEffects": true,
+    "initiallyAbsentTargetStaysCreateOnlyWithOverwriteTrue": true,
+    "artifactExistingTargetLeaseIncludesObjectIdentityAndDigest": true,
+    "artifactParentLeaseRevalidatesObjectIdentityAtCommit": true,
+    "artifactStageFailurePreservesOriginalTarget": true,
+    "unverifiedPublicationCannotClaimSuccessOrAutomaticallyRollback": true,
+    "retainedRecoveryAndCreatedParentEffectsAreReported": true,
+    "cancellationPreventsPublicationAfterCommitAdmissionCloses": true,
+    "unsupportedAtomicPublicationHasNoUnsafeFallback": true,
+    "cleanupCannotDeleteNameThatHasLostOwnership": true,
+    "verifiedCommitMayReportRetainedNativeRecovery": true,
+    "failedObservationCannotProveEntryAbsentAfterAmbiguousPublication": true,
+    "attemptedParentEffectsRemainUncertainUntilVerified": true,
+    "terminalCancellationRetainsRecoveryEvidence": true,
     "structuralTokenIdentifiesExactBytesButDoesNotAuthorize": true,
     "structuralCommitRequiresIndependentUserRequestQuorum": true,
     "structuralQuorumMinimumPositiveVerdicts": 2,
     "structuralQuorumRejectsAnyNegativeVerdict": true,
     "structuralCommitRevalidatesHashTokenAndProposal": true
   },
+  "exactReplacementCases": [
+    {"name":"middle-of-csv-row-is-not-repaired", "path":"table.csv", "original":"alpha,Unknown,42\n", "replacements":[{"old_text":"alpha,Unknown","new_text":"alpha,Ready,43","expected_count":1}], "resultCode":"ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL", "unchanged":true},
+    {"name":"mixed-data-and-formula-groups-rejected", "path":"table.tsv", "original":"alpha\tUnknown\t=B2*12\n", "replacements":[{"old_text":"Unknown","new_text":"Ready","expected_count":1},{"old_text":"=B2*12","new_text":"=99","expected_count":1}], "resultCode":"ERR_TEXT_FILE_FORMULA_MIXED_EDIT", "unchanged":true},
+    {"name":"formula-raw-quoting-is-protected", "path":"table.csv", "original":"alpha,\"=A1\"\n", "replacements":[{"old_text":"\"=A1\"","new_text":"=A1","expected_count":1}], "resultCode":"ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL", "unchanged":true},
+    {"name":"missing-formula-group-is-not-omitted", "path":"table.tsv", "original":"alpha\tUnknown\t=B2*12\n", "replacements":[{"old_text":"Unknown","new_text":"Ready","expected_count":1},{"old_text":"=missing","new_text":"=99","expected_count":1}], "resultCode":"ERR_TEXT_FILE_MATCH_MISSING", "unchanged":true},
+    {"name":"valid-quoted-trailing-value-is-exact", "path":"table.csv", "original":"Label,Pending\n", "replacements":[{"old_text":"Label,Pending","new_text":"Label,\"Ready, detailed\"","expected_count":1}], "resultCode":"ok", "output":"Label,\"Ready, detailed\"\n"},
+    {"name":"extra-empty-fields-are-not-omitted", "path":"table.csv", "original":"Label,Pending\n", "replacements":[{"old_text":"Label,Pending","new_text":"Label,Ready,,","expected_count":1}], "resultCode":"ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL", "unchanged":true}
+  ],
+  "encodingCases": [
+    {"name":"unpaired-high-surrogate-rejected", "utf16Units":[55296], "androidResultCode":"ERR_TEXT_FILE_BAD_ARGUMENT", "windowsJsonRejected":true}
+  ],
+  "resourceCases": [
+    {"name":"too-many-replacement-occurrences", "originalUnit":"a", "repeatCount":65537, "replacementUnit":"b", "resultCode":"ERR_TEXT_FILE_REPLACEMENT_LIMIT"},
+    {"name":"oversized-expansion", "originalUnit":"a", "repeatCount":65536, "replacementUnit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "resultCode":"ERR_TEXT_FILE_TOO_LARGE"}
+  ],
   "cases": [
+    {
+      "name": "concurrent modifier with retained staging is preserved before exact commit",
+      "operation": "exact_replace_retaining_stage",
+      "expect": {"resultCode":"hash_mismatch", "effectMayHaveOccurred":true, "targetEffectMayHaveOccurred":false, "competingBytesOverwritten":false, "retainedStagingReported":true}
+    },
+    {
+      "name": "ambiguous publication with failed observation remains uncertain",
+      "operation": "save_artifact_publication_error",
+      "expect": {"resultCode":"ERR_FILE_TRANSACTION_UNVERIFIED", "effectMayHaveOccurred":true, "targetEffectMayHaveOccurred":true, "effectVerified":false}
+    },
+    {
+      "name": "artifact preparation leaves missing parents absent",
+      "operation": "prepare_artifact_save",
+      "expect": {"effectMayHaveOccurred": false, "parentDirectoriesCreated": 0}
+    },
+    {
+      "name": "same bytes on a different destination object invalidate the lease",
+      "operation": "save_artifact",
+      "overwrite": true,
+      "expect": {"resultCode":"ERR_FILE_TARGET_LEASE_CHANGED", "effectMayHaveOccurred":false, "competingBytesOverwritten":false}
+    },
+    {
+      "name": "failed artifact staging preserves the destination",
+      "operation": "save_artifact_stage_failure",
+      "expect": {"targetEffectMayHaveOccurred":false, "originalBytesPreserved":true}
+    },
+    {
+      "name": "late replacement race retains competing bytes for recovery",
+      "operation": "save_artifact_commit_race",
+      "expect": {"effectVerified":false, "effectMayHaveOccurred":true, "competingBytesRecoverable":true, "automaticRollback":false}
+    },
+    {
+      "name": "failed post-publication readback retains available original recovery",
+      "operation": "save_artifact_readback_failure",
+      "expect": {"effectVerified":false, "effectMayHaveOccurred":true, "originalBytesRecoverable":true}
+    },
     {
       "name": "concurrent create preserves one complete winner",
       "operation": "save_artifact",

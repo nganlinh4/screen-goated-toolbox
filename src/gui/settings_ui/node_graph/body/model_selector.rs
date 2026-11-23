@@ -37,11 +37,7 @@ pub fn show_model_and_settings(
     let mut auto_copy_triggered = false;
 
     // Row 1: Model
-    let model_label = match viewer.ui_language.as_str() {
-        "vi" => "Mô hình:",
-        "ko" => "모델:",
-        _ => "Model:",
-    };
+    let model_label = viewer.text.preset_editor.node_model_label;
     ui.label(model_label);
     let model_def = get_model_by_id(model);
     let display_name = model_def
@@ -75,12 +71,11 @@ pub fn show_model_and_settings(
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
 
             if viewer.use_ollama && is_ollama_scan_in_progress() {
-                let loading_text = match viewer.ui_language.as_str() {
-                    "vi" => "⏳ Đang quét các model local...",
-                    "ko" => "⏳ 로컬 모델 스캔 중...",
-                    _ => "⏳ Scanning local models...",
-                };
-                ui.label(egui::RichText::new(loading_text).weak().italics());
+                let loading_text = viewer.text.preset_editor.node_scanning_local_models;
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(egui::RichText::new(loading_text).weak().italics());
+                });
                 ui.separator();
             }
 
@@ -96,7 +91,11 @@ pub fn show_model_and_settings(
                         let is_selected = *model == m.id;
 
                         ui.horizontal(|ui| {
-                            crate::gui::model_performance::render_prefix(ui, &m);
+                            crate::gui::model_performance::render_prefix(
+                                ui,
+                                &m,
+                                &viewer.ui_language,
+                            );
                             crate::gui::icons::draw_icon_static(
                                 ui,
                                 crate::gui::icons::provider_icon(&m.provider),
@@ -130,14 +129,11 @@ pub fn show_model_and_settings(
         .unwrap_or(false);
 
     if uses_target_language_selector {
-        let label = match viewer.ui_language.as_str() {
-            "vi" => "Ngôn ngữ:",
-            "ko" => "언어:",
-            _ => "Language:",
-        };
+        let label = viewer.text.preset_editor.node_language_label;
         show_language_selector(
             ui,
             label,
+            viewer.text.preset_editor.node_language_search,
             1,
             "language1",
             language_vars,
@@ -161,14 +157,11 @@ pub fn show_model_and_settings(
                 .iter()
                 .map(|language| (language.value.as_str(), language.label.as_str())),
         );
-        let label = match viewer.ui_language.as_str() {
-            "vi" => "Ngôn ngữ đầu vào:",
-            "ko" => "입력 언어:",
-            _ => "Input language:",
-        };
+        let label = viewer.text.preset_editor.node_input_language_label;
         if super::super::utils::show_language_options_selector(
             ui,
             label,
+            viewer.text.preset_editor.node_language_search,
             INPUT_LANGUAGE_KEY,
             value,
             &options,
@@ -181,18 +174,10 @@ pub fn show_model_and_settings(
     if !model_is_non_llm(model) {
         // Row 2: Prompt Label + Add Tag Button
         ui.horizontal(|ui| {
-            let prompt_label = match viewer.ui_language.as_str() {
-                "vi" => "Lệnh:",
-                "ko" => "프롬프트:",
-                _ => "Prompt:",
-            };
+            let prompt_label = viewer.text.preset_editor.node_prompt_label;
             ui.label(prompt_label);
 
-            let btn_label = match viewer.ui_language.as_str() {
-                "vi" => "+ Ngôn ngữ",
-                "ko" => "+ 언어",
-                _ => "+ Language",
-            };
+            let btn_label = viewer.text.preset_editor.node_add_language;
             let lang_btn_bg = AppTheme::from_ui(ui).node_button_fill();
             let clicked = ui
                 .scope(|ui| {
@@ -208,18 +193,23 @@ pub fn show_model_and_settings(
         });
 
         // Row 3: Prompt TextEdit
-        if super::super::utils::show_prompt_editor(ui, "", "", prompt, PROMPT_EDITOR_WIDTH, 2) {
+        if super::super::utils::show_prompt_editor(
+            ui,
+            viewer.text.preset_editor.node_prompt_placeholder,
+            prompt,
+            PROMPT_EDITOR_WIDTH,
+            2,
+        ) {
             viewer.changed = true;
         }
 
         // Row 4+: Language Variables
         show_language_vars(
             ui,
-            &viewer.ui_language,
+            viewer.text.preset_editor.node_language_search,
             prompt,
             language_vars,
             &mut viewer.changed,
-            &mut viewer.language_search,
         );
     }
 
@@ -237,17 +227,9 @@ pub fn show_model_and_settings(
 
         if *show_overlay {
             let stream_label = if *streaming_enabled {
-                match viewer.ui_language.as_str() {
-                    "vi" => "Stream bật",
-                    "ko" => "스트림 켜짐",
-                    _ => "Stream on",
-                }
+                viewer.text.preset_editor.node_stream_on
             } else {
-                match viewer.ui_language.as_str() {
-                    "vi" => "Stream tắt",
-                    "ko" => "스트림 꺼짐",
-                    _ => "Stream off",
-                }
+                viewer.text.preset_editor.node_stream_off
             };
             let btn_bg = AppTheme::from_ui(ui).node_button_fill();
             if filled_button(ui, stream_label, btn_bg, egui::Color32::WHITE, 8).clicked() {

@@ -14,7 +14,10 @@ import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderExecution
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderReceiptDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderRouter
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.PhoneControlArtifactStoreException
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
+import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlTurnRecorder
+import dev.screengoated.toolbox.mobile.phonecontrol.session.validatedPhoneControlDeclarations
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +27,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 internal fun interface PhoneControlHandlerExecutor {
+    fun close() {}
+
     suspend fun execute(
         handler: PhoneControlHandler,
         job: PhoneControlToolJobContext,
@@ -33,6 +38,8 @@ internal fun interface PhoneControlHandlerExecutor {
 }
 
 internal fun interface PhoneControlToolDispatchBoundary {
+    fun close() {}
+
     suspend fun dispatch(
         job: PhoneControlToolJobContext,
         requestedTool: String,
@@ -77,9 +84,23 @@ internal class PhoneControlToolDispatcher(
         PhoneControlRepeatFailureGuard(),
     private val failureContext: PhoneControlFailureContext =
         PhoneControlFailureContext { TEST_FAILURE_CONTEXT },
-) : PhoneControlToolDispatchBoundary {
+    private val resourceBoundary: PhoneControlResourceBoundary? = null,
+) : PhoneControlToolDispatchBoundary, PhoneControlTurnRecorder {
+    override fun close() {
+        resourceBoundary?.close()
+        executor.close()
+    }
+    override fun turnStarted(turnId: Long, generation: Long) { resourceBoundary?.turnStarted(turnId, generation) }
+    override fun userTranscriptUpdated(turnId: Long, text: String) = Unit
+    override fun assistantTranscriptUpdated(turnId: Long, text: String) = Unit
+    override fun turnCompleted(turnId: Long, userText: String, assistantText: String) {
+        resourceBoundary?.turnCompleted(turnId, userText, assistantText)
+    }
+    override fun turnInterrupted(turnId: Long) { resourceBoundary?.turnInterrupted(turnId) }
+
     constructor(
         context: Context,
+        functionDeclarations: JsonArray,
         structuralAuthorization: PhoneControlStructuralEditAuthorization =
             PhoneControlStructuralEditAuthorization(context),
         resourceAuthorization: PhoneControlResourceAuthorizer =
@@ -100,12 +121,32 @@ internal class PhoneControlToolDispatcher(
             "${PhoneControlAccessibilityProvider.observationGeneration}:" +
                 PhoneControlAccessibilityProvider.currentVisualRevision
         },
+        resourceBoundary = PhoneControlResourceBoundary(
+            PhoneControlExactEditGuard(), resourceAuthorization,
+            declarationFor = validatedPhoneControlDeclarations(functionDeclarations)::get,
+            observedContext = ::androidResourceBoundaryContext,
+        ),
     )
 
     override suspend fun dispatch(
         job: PhoneControlToolJobContext,
         requestedTool: String,
         arguments: JsonObject,
+    ): PhoneControlToolExecution {
+        var authorization = BoundaryAuthorization()
+        val execution = resourceBoundary?.beforeAction(job, requestedTool, arguments)
+            ?: dispatchPrepared(job, requestedTool, arguments) {
+                authorization = resourceBoundary?.authorize(job, requestedTool, arguments) ?: BoundaryAuthorization()
+                authorization.rejected
+            }
+        return resourceBoundary?.finish(job, requestedTool, arguments, execution, authorization) ?: execution
+    }
+
+    private suspend fun dispatchPrepared(
+        job: PhoneControlToolJobContext,
+        requestedTool: String,
+        arguments: JsonObject,
+        authorize: suspend () -> PhoneControlToolExecution?,
     ): PhoneControlToolExecution {
         val spec = PhoneControlToolRegistry.resolve(requestedTool, arguments)
             ?: return unavailableToolResponse(
@@ -151,6 +192,7 @@ internal class PhoneControlToolDispatcher(
                 return providerPlanFailure(job, spec, decision)
             }
         }
+        authorize()?.let { return it }
         val execution = try {
             validateReceipt(
                 spec = spec,
@@ -161,6 +203,9 @@ internal class PhoneControlToolDispatcher(
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (error: PhoneControlArtifactStoreException) {
+            providerFailure(job, spec, handler, error.rejection.code, retryable = false,
+                message = "The session artifact store rejected the request: ${error.rejection.code}.")
         } catch (error: Throwable) {
             failureReporter.report(requestedTool, job.jobId, error)
             providerFailure(job, spec, handler)
@@ -199,6 +244,9 @@ internal class PhoneControlToolDispatcher(
         job: PhoneControlToolJobContext,
         spec: PhoneControlToolSpec,
         handler: PhoneControlHandler,
+        failureCode: String = "provider_failure",
+        retryable: Boolean = true,
+        message: String = "The provider failed before it could return a typed receipt.",
     ): PhoneControlToolExecution {
         val effect = if (handler.mutating) {
             EffectCertainty.MAY_HAVE_OCCURRED
@@ -212,16 +260,16 @@ internal class PhoneControlToolDispatcher(
                 capability = spec.capability,
                 provider = UNATTRIBUTED_PROVIDER,
                 providerState = CapabilityState.DEGRADED,
-                code = "provider_failure",
+                code = failureCode,
                 observationGeneration = 0,
                 effect = effect,
                 snapshotInvalidated = handler.mutating,
-                retryable = true,
+                retryable = retryable,
                 freshObservationRequired = handler.mutating,
                 data = buildJsonObject {
                     put(
                         "message",
-                        "The provider failed before it could return a typed receipt.",
+                        message,
                     )
                 },
             ),

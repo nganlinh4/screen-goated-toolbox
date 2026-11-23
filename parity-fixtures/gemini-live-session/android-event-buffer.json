@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "activeBuffer": {
+    "maxFrames": 128,
+    "maxUtf8Bytes": 8388608,
+    "overflow": "terminal_error",
+    "drainAcceptedBeforeError": false,
+    "discardIsExplicit": true
+  },
+  "cases": [
+    { "name": "frame_limit", "scenario": "frames", "accepted": 128, "next": "error" },
+    { "name": "byte_limit", "scenario": "bytes", "acceptedBytes": 8388608, "next": "error" },
+    { "name": "capacity_reclaimed", "scenario": "dequeue_then_enqueue", "next": "accepted" },
+    { "name": "terminal_observable_when_full", "scenario": "full_then_close", "next": "closed" },
+    { "name": "cancelled_wait", "scenario": "receiver_cancelled_before_dequeue", "next": "still_queued" }
+  ]
+}

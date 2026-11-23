@@ -14,24 +14,25 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use windows::Win32::Foundation::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
 
+use super::failure_notice::report_audio_failure;
 use super::utils::{WindowGuard, calculate_result_rects, create_streaming_overlay};
 use crate::APP;
 use crate::api::gemini_live::ready_session::{ConnectedLiveSocket, OpenOptions, ReadyLiveSession};
 use crate::config::Preset;
 use crate::model_config::{GEMINI_LIVE_API_MODEL_2_5, get_model_by_id};
-use crate::overlay::recording::AUDIO_INITIALIZING;
 use crate::overlay::result::update_window_text;
 
 fn open_ready_session(
     api_key: &str,
     model: &str,
     vocabulary: &[String],
-    cancelled: impl FnMut() -> bool,
+    resumption_handle: Option<&str>,
+    cancelled: impl Fn() -> bool,
 ) -> anyhow::Result<ReadyLiveSession> {
-    let setup = crate::api::gemini_transcribe::build_live_setup(model, vocabulary, None);
-    ConnectedLiveSocket::connect(api_key)?.activate_with(
+    let setup =
+        crate::api::gemini_transcribe::build_live_setup(model, vocabulary, resumption_handle);
+    ConnectedLiveSocket::connect_cancellable(api_key, &cancelled)?.activate_with(
         setup,
         OpenOptions {
             setup_timeout: Duration::from_secs(30),
@@ -43,18 +44,16 @@ fn open_ready_session(
 
 /// Real-time record and stream to Gemini Live WebSocket.
 /// Connects WebSocket FIRST, then streams audio in real-time during recording.
-pub fn record_and_stream_gemini_live(
+pub(crate) fn record_and_stream_gemini_live(
     preset: Preset,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
-    _target_window: Option<HWND>,
+    auto_paste: Arc<crate::overlay::utils::StreamingAutoPaste>,
+    recording_token: Arc<crate::overlay::result::ChainCancelToken>,
 ) {
     println!("[GeminiLiveStream] Starting real-time streaming...");
-    let auto_paste =
-        crate::overlay::utils::StreamingAutoPaste::new(preset.auto_paste, abort_signal.clone());
-
     // Create streaming overlay if enabled
     let streaming_hwnd = create_streaming_overlay(&preset);
     let _window_guard = streaming_hwnd.map(WindowGuard);
@@ -72,45 +71,55 @@ pub fn record_and_stream_gemini_live(
             app.config.realtime_custom_vocabulary.clone(),
         )
     };
-    let gemini_live_model = preset
-        .blocks
-        .iter()
-        .find(|block| block.block_type == "audio")
-        .and_then(|block| get_model_by_id(&block.model))
-        .map(|config| config.full_name.clone())
-        .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string());
+    let gemini_live_model = crate::overlay::process::chain::initial_audio_blocks(
+        &preset.blocks,
+        &preset.block_connections,
+        preset.graph_explicit,
+    )
+    .first()
+    .and_then(|index| preset.blocks.get(*index))
+    .and_then(|block| get_model_by_id(&block.model))
+    .map(|config| config.full_name.clone())
+    .unwrap_or_else(|| GEMINI_LIVE_API_MODEL_2_5.to_string());
 
     if gemini_api_key.trim().is_empty() {
-        eprintln!("[GeminiLiveStream] No API key");
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        report_audio_failure(&recording_token, &anyhow::anyhow!("NO_API_KEY:gemini"));
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
     // Connect WebSocket (Initializing state)
-    AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
+    crate::overlay::recording::set_initializing_if_current_recording(&recording_token, true);
     println!("[GeminiLiveStream] Connecting WebSocket...");
 
     let mut session = match open_ready_session(
         &gemini_api_key,
         &gemini_live_model,
         &custom_vocabulary,
+        None,
         || stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst),
     ) {
         Ok(session) => session,
         Err(e) => {
-            println!("[GeminiLiveStream] Connection/setup failed: {}", e);
-            AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            if !stop_signal.load(Ordering::SeqCst) && !abort_signal.load(Ordering::SeqCst) {
+                report_audio_failure(&recording_token, &e);
             }
+            crate::overlay::recording::set_initializing_if_current_recording(
+                &recording_token,
+                false,
+            );
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     };
 
-    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-    crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+    if stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst) {
+        let _ = session.close();
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
+        return;
+    }
+
+    crate::overlay::recording::mark_ready_if_current_recording(&recording_token);
     println!("[GeminiLiveStream] Setup complete, starting audio...");
 
     // Start audio capture
@@ -118,9 +127,7 @@ pub fn record_and_stream_gemini_live(
         Some(d) => d,
         None => {
             let _ = session.close();
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     };
@@ -139,7 +146,7 @@ pub fn record_and_stream_gemini_live(
         audio_buffer_clone,
         full_buffer_clone,
         pause_clone,
-        stop_signal.clone(),
+        (stop_signal.clone(), recording_token.clone()),
         &preset.audio_source,
     );
 
@@ -147,30 +154,39 @@ pub fn record_and_stream_gemini_live(
         Some(s) => s,
         None => {
             let _ = session.close();
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     };
 
+    if stop_signal.load(Ordering::SeqCst) || abort_signal.load(Ordering::SeqCst) {
+        let _ = session.close();
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
+        return;
+    }
+
     if stream.play().is_err() {
         let _ = session.close();
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
     println!("[GeminiLiveStream] Streaming audio...");
 
     // Run the main streaming loop
-    stream_loop::run_streaming_loop(stream_loop::StreamingLoopContext {
+    let stream_failure = stream_loop::run_streaming_loop(stream_loop::StreamingLoopContext {
         preset: &preset,
         session: &mut session,
-        api_key: &gemini_api_key,
+        reopen: &mut |handle, cancelled| {
+            open_ready_session(
+                &gemini_api_key,
+                &gemini_live_model,
+                &custom_vocabulary,
+                handle,
+                cancelled,
+            )
+        },
         model: &gemini_live_model,
-        vocabulary: &custom_vocabulary,
         audio_buffer: &audio_buffer,
         accumulated_text: &accumulated_text,
         transcribe_text: &mut transcribe_text,
@@ -180,8 +196,12 @@ pub fn record_and_stream_gemini_live(
         abort_signal: &abort_signal,
         overlay_hwnd,
         update_stream_text: &update_stream_text,
+        clock: &stream_loop::SystemClock,
     });
 
+    if let Some(error) = &stream_failure {
+        report_audio_failure(&recording_token, error);
+    }
     auto_paste.begin_drain();
     drop(stream);
     crate::overlay::screen_record::notify_external_audio_capture_released("gemini-live-stream");
@@ -205,6 +225,7 @@ pub fn record_and_stream_gemini_live(
             ),
             streaming_hwnd,
             abort_signal: &abort_signal,
+            clock: &stream_loop::SystemClock,
         });
     }
 
@@ -220,21 +241,23 @@ pub fn record_and_stream_gemini_live(
     let _ = session.close();
     auto_paste.finish();
     let final_text = accumulated_text.lock().unwrap().clone();
-    println!("[GeminiLiveStream] Result: '{}'", final_text);
 
-    if abort_signal.load(Ordering::SeqCst) || final_text.is_empty() {
-        unsafe {
-            if IsWindow(Some(overlay_hwnd)).as_bool() {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
+    if abort_signal.load(Ordering::SeqCst)
+        || recording_token.is_cancelled()
+        || final_text.is_empty()
+    {
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
     // Save to history
     {
         let app = APP.lock().unwrap();
-        app.history.save_audio(Vec::new(), final_text.clone());
+        app.history.save_audio_shared_cancellable(
+            Arc::from([]),
+            final_text.clone(),
+            recording_token.clone(),
+        );
     }
 
     let (rect, retrans) = calculate_result_rects(&preset);
@@ -250,7 +273,7 @@ pub fn record_and_stream_gemini_live(
         rect,
         retrans,
         overlay_hwnd,
-        true, // is_streaming_result: disable auto-paste for Gemini Live
+        crate::overlay::process::AudioResultMode::Streaming(recording_token),
     );
 }
 
@@ -289,9 +312,13 @@ fn build_audio_stream(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     full_buffer: Arc<Mutex<super::retention::AudioAttachment>>,
     pause_signal: Arc<AtomicBool>,
-    stop_signal: Arc<AtomicBool>,
+    session: (
+        Arc<AtomicBool>,
+        Arc<crate::overlay::result::ChainCancelToken>,
+    ),
     source: &str,
 ) -> Option<cpal::Stream> {
+    let (stop_signal, recording_token) = session;
     let diagnostics = super::capture_diagnostics::CaptureDiagnostics::new("preset-live", source);
     let callback_diagnostics = diagnostics.clone();
     let result = super::pcm_capture::build(
@@ -304,7 +331,8 @@ fn build_audio_stream(
             diagnostics: diagnostics.clone(),
         },
         move |pcm| {
-            crate::overlay::recording::update_audio_viz(
+            crate::overlay::recording::update_viz_if_current_recording(
+                &recording_token,
                 crate::api::gemini_transcribe::compute_i16_rms(&pcm),
             );
             if let Ok(mut buffer) = audio_buffer.lock() {

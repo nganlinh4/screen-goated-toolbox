@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "raw_prefix_limit_bytes": 1024,
+  "cases": [
+    {"name": "valid_utf8_ambiguous_legacy", "stdout_hex": "c3a9", "utf8_lossy": false, "text_exact": false, "raw_complete": true},
+    {"name": "mixed_utf8_and_legacy", "stdout_hex": "ed959cc7d1", "utf8_lossy": true, "text_exact": false, "raw_complete": true},
+    {"name": "empty_complete", "stdout_hex": "", "utf8_lossy": false, "text_exact": false, "raw_complete": true},
+    {"name": "empty_incomplete", "stdout_hex": "", "source_complete": false, "utf8_lossy": false, "text_exact": false, "raw_complete": false}
+  ]
+}

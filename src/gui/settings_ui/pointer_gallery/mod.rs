@@ -1,3 +1,4 @@
+mod apply_worker;
 mod backend;
 mod events;
 mod pointer_size;
@@ -6,13 +7,14 @@ mod worker;
 
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
+pub(crate) use backend::PointerCollectionSummary;
 use backend::{
-    CursorCollectionSpec, PointerCollectionSummary, cursor_base_size_bounds,
-    delete_all_downloaded_collections, expected_file_count, has_original_cursor_backup,
-    new_stop_signal, pointer_collection_summary, required_file_names,
-    restore_original_cursor_backup, start_download_all_missing,
+    CursorCollectionSpec, cursor_base_size_bounds, delete_all_downloaded_collections,
+    expected_file_count, has_original_cursor_backup, new_stop_signal, pointer_collection_summary,
+    required_file_names, start_download_all_missing,
 };
 use eframe::egui;
+use pointer_size::{restore_generation, restore_original_cursor};
 use preview::{
     PreviewLoader, PreviewTexture, preview_strip_width, render_collection_previews,
     render_status_label,
@@ -90,10 +92,23 @@ pub struct PointerGallery {
     pointer_size_loaded: bool,
     last_live_apply_size: Option<u32>,
     last_live_apply_secs: f64,
+    seen_restore_generation: u64,
+    /// Set once the pack Windows reports as active has been marked, or
+    /// when no gallery pack is active.
+    active_scheme_settled: bool,
+    apply_worker: Option<apply_worker::ApplyWorker>,
 }
 
-pub(crate) fn downloadable_collection_summary() -> PointerCollectionSummary {
-    pointer_collection_summary()
+pub(crate) fn scan_downloaded_collections() -> std::io::Result<PointerCollectionSummary> {
+    backend::scan_downloaded_collections()
+}
+
+pub(crate) fn inspect_cursor_backup() -> std::io::Result<bool> {
+    backend::inspect_cursor_backup()
+}
+
+pub(crate) fn downloading_collection_count() -> usize {
+    backend::downloading_collection_count()
 }
 
 pub(crate) fn start_download_all_collections() -> usize {
@@ -102,18 +117,14 @@ pub(crate) fn start_download_all_collections() -> usize {
 
 pub(crate) fn delete_downloaded_collections() -> Result<usize, String> {
     if has_original_cursor_backup() {
-        restore_original_cursor_backup()?;
+        restore_original_cursor()?;
         backend::delete_original_cursor_backup()?;
     }
     delete_all_downloaded_collections()
 }
 
-pub(crate) fn has_original_cursor_backup_file() -> bool {
-    has_original_cursor_backup()
-}
-
 pub(crate) fn restore_original_cursor_from_backup() -> Result<(), String> {
-    restore_original_cursor_backup()
+    restore_original_cursor()
 }
 
 impl Default for PointerGallery {
@@ -124,7 +135,7 @@ impl Default for PointerGallery {
 
 impl PointerGallery {
     pub fn new() -> Self {
-        let cache_root = crate::paths::app_local_data_dir().join("pointer-gallery");
+        let cache_root = crate::paths::app_runtime_local_data_dir().join("pointer-gallery");
 
         let collections = events::initial_collection_states();
 
@@ -145,6 +156,9 @@ impl PointerGallery {
             pointer_size_loaded: false,
             last_live_apply_size: None,
             last_live_apply_secs: 0.0,
+            seen_restore_generation: restore_generation(),
+            active_scheme_settled: false,
+            apply_worker: None,
         }
     }
 
@@ -153,10 +167,13 @@ impl PointerGallery {
             return;
         }
 
+        self.reconcile_with_restore();
         self.ensure_pointer_size_loaded();
         self.ensure_preload_started();
         self.poll_worker_events();
+        self.drain_apply_outcomes(ctx, text);
         self.sync_collections_from_disk(ctx);
+        self.adopt_applied_pack();
 
         // Upload any previews decoded on the background thread. Keep repainting
         // while decodes are still in flight so freshly-decoded icons appear.
@@ -215,9 +232,9 @@ impl PointerGallery {
                             )
                             .clicked()
                         {
-                            match restore_original_cursor_backup() {
+                            match restore_original_cursor() {
                                 Ok(()) => {
-                                    self.pointer_size_loaded = false;
+                                    self.reconcile_with_restore();
                                     self.ensure_pointer_size_loaded();
                                     self.status_message = Some((
                                         true,
@@ -403,7 +420,7 @@ impl PointerGallery {
         }
 
         if let Some(id) = pending_apply {
-            self.apply_collection(&id, text);
+            self.apply_collection(&id);
         }
     }
 }

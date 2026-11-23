@@ -250,9 +250,17 @@ pub fn get_init_script() -> &'static str {
     "#
 }
 
-pub fn get_lib_urls() -> (&'static str, &'static str) {
-    (
-        "https://unpkg.com/gridjs/dist/theme/mermaid.min.css",
-        "https://unpkg.com/gridjs/dist/gridjs.umd.js",
+pub fn get_lib_js() -> &'static str {
+    concat!(
+        "/*\n",
+        include_str!("../result/scene_compositor/vendor/GRIDJS-LICENSE.txt"),
+        "\n",
+        include_str!("../result/scene_compositor/vendor/PREACT-LICENSE.txt"),
+        "\n*/\n",
+        include_str!("../result/scene_compositor/vendor/gridjs-6.2.0.min.js")
     )
+}
+
+pub fn get_lib_css() -> &'static str {
+    include_str!("../result/scene_compositor/vendor/gridjs-6.2.0.min.css")
 }

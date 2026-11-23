@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import android.os.SystemClock
-import android.provider.Settings
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
@@ -15,6 +14,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.projection.PhoneControlProje
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.AndroidChromeCdpAuthority
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProviderRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
+import dev.screengoated.toolbox.mobile.phonecontrol.ui.isAccessibilityConfigured
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -25,15 +25,7 @@ import kotlinx.serialization.json.jsonPrimitive
 internal data class PhoneControlAuthorityCatalog(
     val providers: List<ProviderDefinition>,
     val routes: List<CapabilityRoute>,
-) {
-    val capabilitiesByProvider: Map<String, Set<String>> = buildMap {
-        routes.forEach { route ->
-            route.providerIds.forEach { providerId ->
-                put(providerId, get(providerId).orEmpty() + route.capability)
-            }
-        }
-    }
-}
+)
 
 internal data class PhoneControlProviderEvidence(
     val catalog: PhoneControlAuthorityCatalog,
@@ -70,19 +62,16 @@ internal data class PhoneControlProviderEvidence(
 }
 
 internal object PhoneControlProviderRegistry {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val catalogCache = PhoneControlAuthorityCatalogCache()
 
     fun probe(context: Context): PhoneControlProviderEvidence {
         val catalog = catalog(context)
         val timestamp = SystemClock.elapsedRealtime()
         val snapshots = catalog.providers.map { provider ->
             val probe = probeProvider(context, provider.id)
-            val capabilities = catalog.capabilitiesByProvider[provider.id].orEmpty()
-                .associateWith { emptySet<String>() }
             ProviderSnapshot(
                 providerId = provider.id,
                 state = probe.state,
-                supportedCapabilities = capabilities,
                 evidenceTimestampMs = timestamp,
                 requiredUserStep = probe.requiredUserStep,
             )
@@ -106,28 +95,10 @@ internal object PhoneControlProviderRegistry {
             ?.providerIds
             .orEmpty()
 
-    private fun catalog(context: Context): PhoneControlAuthorityCatalog {
-        val root = context.assets.open(GeneratedPhoneControlContract.AUTHORITY_MATRIX_ASSET_PATH)
+    private fun catalog(context: Context): PhoneControlAuthorityCatalog = catalogCache.get {
+        context.assets.open(GeneratedPhoneControlContract.AUTHORITY_MATRIX_ASSET_PATH)
             .bufferedReader()
-            .use { json.parseToJsonElement(it.readText()).jsonObject }
-        val providers = root.getValue("providers").jsonArray.map { element ->
-            val provider = element.jsonObject
-            ProviderDefinition(
-                id = provider.getValue("id").jsonPrimitive.content,
-                authority = provider.getValue("authority").jsonPrimitive.content,
-                optional = provider["optional"]?.jsonPrimitive?.booleanOrNull ?: true,
-            )
-        }
-        val routes = root.getValue("routes").jsonArray.map { element ->
-            val route = element.jsonObject
-            CapabilityRoute(
-                capability = route.getValue("capability").jsonPrimitive.content,
-                providerIds = route.getValue("providers").jsonArray.map {
-                    it.jsonPrimitive.content
-                },
-            )
-        }
-        return PhoneControlAuthorityCatalog(providers, routes)
+            .use { it.readText() }
     }
 
     private fun probeProvider(context: Context, id: String): Probe = when (id) {
@@ -176,7 +147,7 @@ internal object PhoneControlProviderRegistry {
 
     private fun probeAccessibility(context: Context): Probe = when {
         SgtAccessibilityService.isAvailable -> Probe(CapabilityState.READY)
-        isAccessibilityEnabled(context) -> Probe(
+        isAccessibilityConfigured(context) -> Probe(
             CapabilityState.DEGRADED,
             "Wait for the Accessibility service to reconnect or toggle it off and on.",
         )
@@ -236,15 +207,6 @@ internal object PhoneControlProviderRegistry {
         }
     }
 
-    private fun isAccessibilityEnabled(context: Context): Boolean {
-        val expected = "${context.packageName}/${SgtAccessibilityService::class.java.name}"
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ).orEmpty()
-        return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
-    }
-
     private data class Probe(
         val state: CapabilityState,
         val requiredUserStep: String? = null,
@@ -256,3 +218,36 @@ internal object PhoneControlProviderRegistry {
 
 internal fun mediaProjectionCapabilityState(isReady: Boolean): CapabilityState =
     if (isReady) CapabilityState.READY else CapabilityState.NEEDS_USER_STEP
+
+/** The authority matrix is a bundled asset, so it is read and parsed once per process. */
+internal class PhoneControlAuthorityCatalogCache {
+    @Volatile
+    private var cached: PhoneControlAuthorityCatalog? = null
+
+    fun get(readMatrix: () -> String): PhoneControlAuthorityCatalog =
+        cached ?: synchronized(this) {
+            cached ?: parsePhoneControlAuthorityCatalog(readMatrix()).also { cached = it }
+        }
+}
+
+internal fun parsePhoneControlAuthorityCatalog(matrix: String): PhoneControlAuthorityCatalog {
+    val root = Json.parseToJsonElement(matrix).jsonObject
+    val providers = root.getValue("providers").jsonArray.map { element ->
+        val provider = element.jsonObject
+        ProviderDefinition(
+            id = provider.getValue("id").jsonPrimitive.content,
+            authority = provider.getValue("authority").jsonPrimitive.content,
+            optional = provider["optional"]?.jsonPrimitive?.booleanOrNull ?: true,
+        )
+    }
+    val routes = root.getValue("routes").jsonArray.map { element ->
+        val route = element.jsonObject
+        CapabilityRoute(
+            capability = route.getValue("capability").jsonPrimitive.content,
+            providerIds = route.getValue("providers").jsonArray.map {
+                it.jsonPrimitive.content
+            },
+        )
+    }
+    return PhoneControlAuthorityCatalog(providers, routes)
+}

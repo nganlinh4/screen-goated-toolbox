@@ -1,5 +1,3 @@
-use crate::api::tts::TTS_MANAGER;
-
 use super::file_dialogs;
 use super::runtime::{PLAYBACK_TIMER, cache_get, cache_remove, persist_recent, sanitize};
 use super::runtime_playback::start_pcm_playback;
@@ -37,7 +35,8 @@ pub(super) fn start_mp3_export() {
     let id_seq: u64 = current
         .id
         .strip_prefix("clip-")
-        .and_then(|s| s.parse().ok())
+        .and_then(|s| s.parse::<u128>().ok())
+        .map(|id| id as u64)
         .unwrap_or(0);
     let default = format!("tts-playground-{}.mp3", sanitize(&current.voice_label));
     state::with_state(|s| {
@@ -104,7 +103,7 @@ pub(super) fn delete_recent(id: &str) {
             s.current = None;
             s.position_sec = 0.0;
             s.is_playing = false;
-            TTS_MANAGER.stop();
+            super::runtime_playback::stop_owned_playback();
             *PLAYBACK_TIMER.lock().unwrap() = None;
         }
     });

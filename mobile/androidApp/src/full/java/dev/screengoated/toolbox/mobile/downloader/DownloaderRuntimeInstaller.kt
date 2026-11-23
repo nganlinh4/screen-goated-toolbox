@@ -39,10 +39,18 @@ internal class DownloaderRuntimeInstaller(
     val ffmpegDirectory = File(versionDirectory, "packages/ffmpeg")
     private val identityFile = File(versionDirectory, ".identity")
 
-    fun isInstalled(): Boolean {
-        if (identityFile.readTextOrNull() != delivery.identity) return false
+    fun isInstalled(): Boolean = canRun(ytdlpFile)
+
+    fun canRun(executable: File): Boolean =
+        isNativeInstalled() && (executable != ytdlpFile || hasVerifiedBootstrap())
+
+    private fun hasVerifiedBootstrap(): Boolean {
         val ytdlp = delivery.artifact(DownloaderArtifactRole.YT_DLP)
-        if (!validFile(ytdlpFile, ytdlp.sizeBytes, ytdlp.sha256)) return false
+        return validFile(ytdlpFile, ytdlp.sizeBytes, ytdlp.sha256)
+    }
+
+    internal fun isNativeInstalled(): Boolean {
+        if (identityFile.readTextOrNull() != delivery.identity) return false
         return delivery.artifacts
             .filter { it.role != DownloaderArtifactRole.YT_DLP }
             .all { artifact ->
@@ -344,7 +352,7 @@ private fun safeTarget(root: File, relativePath: String): File {
     return target.toFile()
 }
 
-private fun safeDeleteTree(root: File, target: File) {
+internal fun safeDeleteTree(root: File, target: File) {
     if (!target.exists() && !Files.isSymbolicLink(target.toPath())) return
     val rootPath = root.toPath().toAbsolutePath().normalize()
     val targetPath = target.toPath().toAbsolutePath().normalize()
@@ -373,8 +381,8 @@ private fun moveDirectory(source: Path, target: Path) {
     }
 }
 
-private fun validFile(file: File, sizeBytes: Long, sha256: String): Boolean {
-    if (!file.isFile || file.length() != sizeBytes) return false
+internal fun validFile(file: File, sizeBytes: Long, sha256: String): Boolean {
+    if (!Files.isRegularFile(file.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) || file.length() != sizeBytes) return false
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(128 * 1024)
@@ -387,11 +395,11 @@ private fun validFile(file: File, sizeBytes: Long, sha256: String): Boolean {
     return digest.hex() == sha256
 }
 
-private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
+internal fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
 
 private fun File.readTextOrNull(): String? = runCatching { readText() }.getOrNull()
 
-private fun treeBytesNoFollow(root: File): Long = Files.walk(root.toPath()).use { paths ->
+internal fun treeBytesNoFollow(root: File): Long = Files.walk(root.toPath()).use { paths ->
     paths.filter { Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }
         .mapToLong { Files.readAttributes(it, BasicFileAttributes::class.java).size() }
         .sum()

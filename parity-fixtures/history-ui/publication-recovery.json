@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"prepared_without_publication","fault":"unsupported_publication","expected_write":"REJECTED","expected_read":"old","expected_resume":"COMMITTED"},
+    {"name":"uncertain_applied_publication","fault":"after_publication","expected_write":"UNAVAILABLE","expected_read":"new","expected_resume":"COMMITTED"},
+    {"name":"foreign_displaced_version","fault":"foreign_displaced","expected_write":"UNAVAILABLE","expected_read":null,"expected_resume":"UNAVAILABLE"},
+    {"name":"identical_bytes_new_identity","fault":"identical_displaced","expected_write":"UNAVAILABLE","expected_read":null,"expected_resume":"UNAVAILABLE"},
+    {"name":"foreign_installed_version","fault":"foreign_installed","expected_write":"UNAVAILABLE","expected_read":null,"expected_resume":"UNAVAILABLE"},
+    {"name":"partial_staging_write","fault":"partial_stage","expected_write":"UNAVAILABLE","expected_read":null,"expected_resume":"UNAVAILABLE"},
+    {"name":"torn_ownership_receipt","fault":"partial_receipt","expected_write":"UNAVAILABLE","expected_read":null,"expected_resume":"UNAVAILABLE"}
+  ]
+}

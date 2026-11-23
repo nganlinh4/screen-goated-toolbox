@@ -193,7 +193,7 @@ pub(super) fn persist_candidates(
 
 pub(super) fn emit_event(
     action: Option<super::super::super::telemetry::ActionTrace>,
-    event: &str,
+    event: &'static str,
     privacy: super::super::super::telemetry::Privacy,
     fields: Value,
 ) {
@@ -222,16 +222,39 @@ pub(super) fn write_artifact(
 
 pub(super) fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    file.write_all(bytes)
+    super::super::super::session_retention::persist(|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(bytes)
+    })
+    .unwrap_or_else(|| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "automatic session retention is disabled",
+        ))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::super::super::vision_reader::CandidateAttempt;
+
+    #[test]
+    fn private_vision_payload_never_creates_an_automatic_artifact() {
+        let _session = super::super::super::super::session_retention::start_session();
+        super::super::super::super::session_retention::current().forbid();
+        let path = std::env::temp_dir().join(format!(
+            "sgt-private-vision-{}-{}.txt",
+            std::process::id(),
+            super::super::super::super::telemetry::next_artifact_id()
+        ));
+        assert!(!path.exists());
+        let error = super::write_new(&path, b"private provider response").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn raw_candidates_are_replayable() {

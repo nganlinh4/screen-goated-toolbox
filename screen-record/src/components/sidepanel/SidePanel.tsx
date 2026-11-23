@@ -7,7 +7,9 @@ import type {
   SubtitleSegment,
 } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
+import { narrationProjectEpoch } from '@/hooks/narrationProjectOwnership';
 import type { SubtitleMethod } from '@/hooks/useSubtitleGeneration';
+import type { SubtitleSourceSnapshot } from '@/hooks/subtitleSourceOwnership';
 import type { SubtitleNarrationGroupPreview } from '@/hooks/useSubtitleNarration';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
 import { useSubtitleTranslation } from '@/hooks/useSubtitleTranslation';
@@ -37,6 +39,10 @@ const KEEP_ALIVE_PANEL_IDS = new Set<ActivePanel>(['background']);
 // SidePanel (Main Export)
 // ============================================================================
 interface SidePanelProps {
+  onPopulateS2sSubtitles?: import('@/hooks/useCompositionSubtitleEditor').S2sSubtitleWriter;
+  getNarrationSourceSnapshot: () => SubtitleSourceSnapshot;
+  projectResetKey: string | null;
+  currentProjectIdRef: React.MutableRefObject<string | null>;
   activePanel: ActivePanel;
   setActivePanel: (panel: ActivePanel) => void;
   segment: VideoSegment | null;
@@ -121,6 +127,10 @@ interface SidePanelProps {
 }
 
 export function SidePanel({
+  onPopulateS2sSubtitles,
+  getNarrationSourceSnapshot,
+  projectResetKey,
+  currentProjectIdRef,
   activePanel,
   setActivePanel,
   segment,
@@ -194,7 +204,6 @@ export function SidePanel({
   selectedTextIds,
   hasMouseData,
   onUpdateSegment,
-  onUpdateSegmentSilently,
   beginBatch,
   commitBatch
 }: SidePanelProps) {
@@ -297,6 +306,8 @@ export function SidePanel({
           onRemoveRecentUpload={onRemoveRecentUpload}
           onBackgroundUpload={onBackgroundUpload}
           isBackgroundUploadProcessing={isBackgroundUploadProcessing}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
         />
       );
     }
@@ -321,6 +332,8 @@ export function SidePanel({
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
           hasMouseData={hasMouseData}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
         />
       );
     }
@@ -383,6 +396,7 @@ export function SidePanel({
     if (panelId === 'audio') {
       return (
         <AudioPanel
+          projectId={projectResetKey}
           importedSegments={audioSegmentsForPanel ?? []}
           narrationSegments={narrationSegmentsForPanel ?? []}
           subtitleSegments={visibleSubtitlesForNarration ?? []}
@@ -402,6 +416,11 @@ export function SidePanel({
     if (panelId === 'narration') {
       return (
         <NarrationPanel
+          onPopulateS2sSubtitles={onPopulateS2sSubtitles}
+          getNarrationSourceSnapshot={getNarrationSourceSnapshot}
+          key={`${JSON.stringify(projectResetKey)}:${narrationProjectEpoch(currentProjectIdRef)}`}
+          projectId={projectResetKey}
+          currentProjectIdRef={currentProjectIdRef}
           segment={segment}
           composition={composition ?? null}
           activeClipId={activeClipId}
@@ -422,8 +441,6 @@ export function SidePanel({
           canUseMicSource={canUseMicSubtitleSource}
           canUseAudioSource={canUseAudioSubtitleSource}
           audioSegments={audioSegments}
-          onUpdateSegment={onUpdateSegment}
-          onUpdateSegmentSilently={onUpdateSegmentSilently}
         />
       );
     }

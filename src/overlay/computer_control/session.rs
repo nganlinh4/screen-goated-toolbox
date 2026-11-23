@@ -1,29 +1,44 @@
 //! Shared low-level session primitives for the Computer Control runtime and
 //! probe: API-key loading, WebSocket connect (endpoint version overridable via
-//! `CC_WS_BASE`), JSON send, and screenshot capture.
+//! `CC_WS_BASE` in debug builds only), JSON send, and screenshot capture.
 
 use anyhow::Result;
 use tungstenite::Message;
 
+mod connect;
+pub(super) use connect::connect_ws;
+mod errors;
+mod gpu_patch;
+pub(super) use errors::{
+    SessionFailureKind, SessionStopped, check_connection_attempt, failure_kind,
+};
+mod setup;
+pub(super) use setup::setup_frame_ready;
+mod view;
+pub(super) use view::View;
+
 pub(super) type Sock = tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>;
 
-/// Longest screenshot edge sent to the model (keeps JPEG + token cost sane).
-/// Overridable via `CC_MAX_DIM` for fidelity experiments.
-fn max_frame_dim() -> u32 {
-    std::env::var("CC_MAX_DIM")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&d| d >= 256)
-        .unwrap_or(1536)
+/// Marks an uncertain WebSocket write, independently of local validation errors.
+#[derive(Debug)]
+pub(super) struct SocketWriteFailure;
+
+impl std::fmt::Display for SocketWriteFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WebSocket write failed; delivery is uncertain")
+    }
 }
 
-/// Prefer the `GEMINI_API_KEY` env var (repo `.env`); fall back to app config.
+impl std::error::Error for SocketWriteFailure {}
+
+pub(super) fn is_socket_write_failure(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<SocketWriteFailure>())
+}
+
+/// Use the selected runtime's credential policy and configuration.
 pub(super) fn load_key() -> Result<String> {
-    let key = std::env::var("GEMINI_API_KEY")
-        .ok()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
-        .unwrap_or_else(|| crate::load_config().gemini_api_key.trim().to_string());
+    let configured = super::app_config::read(|config| config.gemini_api_key.clone());
+    let key = crate::api::provider_credentials::resolve("GEMINI_API_KEY", &configured);
     if key.is_empty() {
         anyhow::bail!("NO_API_KEY:gemini");
     }
@@ -54,34 +69,16 @@ fn api_key_error_code_text(message: &str) -> Option<&'static str> {
     None
 }
 
-/// Connect through the shared Gemini Live transport, but with the WS
-/// base URL overridable via `CC_WS_BASE` (for testing v1alpha vs v1beta).
-pub(super) fn connect_ws(api_key: &str) -> Result<Sock> {
-    let base = std::env::var("CC_WS_BASE").unwrap_or_else(|_| {
-        crate::api::gemini_live::transport::GEMINI_LIVE_WS_BASE_URL.to_string()
-    });
-    crate::api::gemini_live::transport::connect_websocket_to(&base, api_key)
-}
-
 pub(super) fn send(socket: &mut Sock, value: serde_json::Value) -> Result<()> {
-    socket.write(Message::Text(value.to_string().into()))?;
-    socket.flush()?;
+    socket
+        .write(Message::Text(value.to_string().into()))
+        .map_err(anyhow::Error::from)
+        .map_err(|error| error.context(SocketWriteFailure))?;
+    socket
+        .flush()
+        .map_err(anyhow::Error::from)
+        .map_err(|error| error.context(SocketWriteFailure))?;
     Ok(())
-}
-
-/// Capture the whole virtual screen and return the downscaled JPEG bytes.
-pub(super) fn capture_frame_jpeg() -> Result<Vec<u8>> {
-    let cap = capture_virtual()?;
-    let mut dynimg = image::DynamicImage::ImageRgb8(cap.rgb);
-    let max_dim = max_frame_dim();
-    let longest = dynimg.width().max(dynimg.height());
-    if longest > max_dim {
-        let scale = max_dim as f32 / longest as f32;
-        let nw = (dynimg.width() as f32 * scale).round().max(1.0) as u32;
-        let nh = (dynimg.height() as f32 * scale).round().max(1.0) as u32;
-        dynimg = dynimg.resize(nw, nh, image::imageops::FilterType::Triangle);
-    }
-    super::vision_contract::encode_jpeg(&dynimg)
 }
 
 /// The whole virtual screen as RGB, with its top-left origin in screen pixels.
@@ -89,28 +86,6 @@ pub(super) struct Capture {
     pub rgb: image::RgbImage,
     pub origin_x: i32,
     pub origin_y: i32,
-}
-
-/// A screen-pixel rectangle: the region the model is currently shown. All of the
-/// model's `click_at` / `zoom` coordinates (0-1000) are relative to THIS region.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct View {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-
-impl View {
-    /// Map a 0-1000 coordinate over this view to an absolute screen pixel.
-    pub fn to_screen_px(self, mx: f64, my: f64) -> (i32, i32) {
-        let max_x = self.w.saturating_sub(1).max(0) as f64;
-        let max_y = self.h.saturating_sub(1).max(0) as f64;
-        (
-            self.x + (mx.clamp(0.0, 1000.0) / 1000.0 * max_x).round() as i32,
-            self.y + (my.clamp(0.0, 1000.0) / 1000.0 * max_y).round() as i32,
-        )
-    }
 }
 
 /// Capture the whole virtual desktop into an RGB image (GDI BitBlt + GetDIBits).
@@ -172,7 +147,7 @@ pub(super) fn capture_virtual() -> Result<Capture> {
     };
     // GDI BitBlt returns BLACK for GPU-composited content (browser canvas/WebGL
     // games, hardware video). Best-effort: patch the ACTIVE window's real pixels in.
-    patch_foreground_gpu(&mut img, ox, oy);
+    gpu_patch::patch_foreground_gpu(&mut img, ox, oy);
     Ok(Capture {
         rgb: img,
         origin_x: ox,
@@ -206,96 +181,6 @@ fn region_avg(rgb: &image::RgbImage, x: i32, y: i32, w: i32, h: i32) -> u32 {
     sum.checked_div(n).map_or(255, |average| average as u32)
 }
 
-/// When the FOREGROUND window's region in the GDI capture is near-black (GDI missed
-/// its GPU content), re-capture just that window with `PrintWindow(PW_RENDERFULLCONTENT)`
-/// (which asks the window to render itself, capturing DirectComposition content) and
-/// patch its non-black pixels into `rgb`. Guarded so it can only ADD detail where GDI
-/// failed; it never overwrites a good capture. Pure hardware-overlay WebGL may still be
-/// black (that needs WGC).
-fn patch_foreground_gpu(rgb: &mut image::RgbImage, origin_x: i32, origin_y: i32) {
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::Graphics::Gdi::{
-        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC,
-        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject,
-    };
-    use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
-    const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(0x0000_0002);
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_invalid() {
-            return;
-        }
-        let mut r = RECT::default();
-        if GetWindowRect(hwnd, &mut r).is_err() {
-            return;
-        }
-        let (ww, wh) = (r.right - r.left, r.bottom - r.top);
-        if ww <= 0 || wh <= 0 {
-            return;
-        }
-        let (ix, iy) = (r.left - origin_x, r.top - origin_y); // window pos in image coords
-        if region_avg(rgb, ix, iy, ww, wh) >= 24 {
-            return; // GDI already captured it (not black) - nothing to fix
-        }
-
-        let hdc_screen = GetDC(None);
-        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-        let hbm = CreateCompatibleBitmap(hdc_screen, ww, wh);
-        let old = SelectObject(hdc_mem, hbm.into());
-        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
-        let mut bgra = vec![0u8; (ww as usize) * (wh as usize) * 4];
-        if ok {
-            let mut bmi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: ww,
-                    biHeight: -wh, // top-down
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            GetDIBits(
-                hdc_mem,
-                hbm,
-                0,
-                wh as u32,
-                Some(bgra.as_mut_ptr().cast()),
-                &mut bmi,
-                DIB_RGB_COLORS,
-            );
-        }
-        let _ = SelectObject(hdc_mem, old);
-        let _ = DeleteObject(hbm.into());
-        let _ = DeleteDC(hdc_mem);
-        let _ = ReleaseDC(None, hdc_screen);
-        if !ok {
-            return;
-        }
-        let (iw, ih) = (rgb.width() as i32, rgb.height() as i32);
-        for wy in 0..wh {
-            let py = iy + wy;
-            if !(0..ih).contains(&py) {
-                continue;
-            }
-            for wx in 0..ww {
-                let px = ix + wx;
-                if !(0..iw).contains(&px) {
-                    continue;
-                }
-                let idx = ((wy * ww + wx) * 4) as usize;
-                let (b, g, rr) = (bgra[idx], bgra[idx + 1], bgra[idx + 2]);
-                if b as u32 + g as u32 + rr as u32 > 12 {
-                    rgb.put_pixel(px as u32, py as u32, image::Rgb([rr, g, b]));
-                }
-            }
-        }
-    }
-}
-
 /// Crop a [`Capture`] to `view`, downscale so the SHORT edge is at most
 /// `max_short` (never upscale), overlay the Set-of-Mark label `grid`, then
 /// JPEG-encode. Returns (jpeg, clamped view) — the clamped view is the exact
@@ -308,28 +193,8 @@ pub(super) fn encode_view(
     marker: Option<(i32, i32)>,
     marks: Option<&[(i32, i32, u32)]>,
 ) -> Result<(Vec<u8>, View)> {
-    let iw = cap.rgb.width() as i32;
-    let ih = cap.rgb.height() as i32;
-    // View -> image coords (subtract virtual origin), clamped to the image.
-    let mut x = (view.x - cap.origin_x).clamp(0, iw.saturating_sub(1).max(0));
-    let mut y = (view.y - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
-    let mut w = view.w.clamp(1, iw - x);
-    let mut h = view.h.clamp(1, ih - y);
-    if w < 8 || h < 8 {
-        // Degenerate view -> fall back to the whole screen.
-        x = 0;
-        y = 0;
-        w = iw;
-        h = ih;
-    }
-    let clamped = View {
-        x: cap.origin_x + x,
-        y: cap.origin_y + y,
-        w,
-        h,
-    };
-    let sub =
-        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let clamped = view.clamped_to(cap.bounds()?);
+    let sub = crop_capture(cap, clamped);
     let dynimg = super::vision_contract::resize_to_short_edge(
         image::DynamicImage::ImageRgb8(sub),
         max_short,
@@ -371,14 +236,14 @@ pub(super) fn encode_view(
 /// an action — the only "did it register?" signal for canvas content the UIA tree
 /// can't see.
 pub(super) fn view_fingerprint(cap: &Capture, view: View) -> Vec<u8> {
-    let iw = cap.rgb.width() as i32;
-    let ih = cap.rgb.height() as i32;
-    let x = (view.x - cap.origin_x).clamp(0, iw.saturating_sub(1).max(0));
-    let y = (view.y - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
-    let w = view.w.clamp(1, iw - x);
-    let h = view.h.clamp(1, ih - y);
-    let sub =
-        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let Some(view) = cap
+        .bounds()
+        .ok()
+        .and_then(|bounds| view.intersection(bounds))
+    else {
+        return Vec::new();
+    };
+    let sub = crop_capture(cap, view);
     let small = image::imageops::resize(&sub, 32, 32, image::imageops::FilterType::Triangle);
     small
         .pixels()
@@ -394,10 +259,10 @@ pub(super) fn view_fingerprint(cap: &Capture, view: View) -> Vec<u8> {
 /// timer/animation elsewhere on screen.
 pub(super) fn region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> Vec<u8> {
     let v = View {
-        x: cx - half,
-        y: cy - half,
-        w: half * 2,
-        h: half * 2,
+        x: cx.saturating_sub(half),
+        y: cy.saturating_sub(half),
+        w: half.saturating_mul(2),
+        h: half.saturating_mul(2),
     };
     view_fingerprint(cap, v)
 }
@@ -406,14 +271,20 @@ pub(super) fn region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> 
 /// postcondition fingerprint, this preserves state changes expressed only by
 /// color and is used to fail closed before a grounded pointer effect.
 pub(super) fn target_region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i32) -> Vec<u8> {
-    let iw = cap.rgb.width() as i32;
-    let ih = cap.rgb.height() as i32;
-    let x = (cx - half - cap.origin_x).clamp(0, iw.saturating_sub(1).max(0));
-    let y = (cy - half - cap.origin_y).clamp(0, ih.saturating_sub(1).max(0));
-    let w = (half * 2).clamp(1, iw - x);
-    let h = (half * 2).clamp(1, ih - y);
-    let sub =
-        image::imageops::crop_imm(&cap.rgb, x as u32, y as u32, w as u32, h as u32).to_image();
+    let requested = View {
+        x: cx.saturating_sub(half),
+        y: cy.saturating_sub(half),
+        w: half.saturating_mul(2),
+        h: half.saturating_mul(2),
+    };
+    let Some(view) = cap
+        .bounds()
+        .ok()
+        .and_then(|bounds| requested.intersection(bounds))
+    else {
+        return Vec::new();
+    };
+    let sub = crop_capture(cap, view);
     image::imageops::resize(&sub, 24, 24, image::imageops::FilterType::Triangle)
         .pixels()
         .flat_map(|pixel| pixel.0)
@@ -421,7 +292,7 @@ pub(super) fn target_region_fingerprint(cap: &Capture, cx: i32, cy: i32, half: i
 }
 
 pub(super) fn target_fingerprint_matches(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() || !left.len().is_multiple_of(3) {
+    if left.is_empty() || left.len() != right.len() || !left.len().is_multiple_of(3) {
         return false;
     }
     let mut total_delta = 0_u64;
@@ -440,6 +311,12 @@ pub(super) fn target_fingerprint_matches(left: &[u8], right: &[u8]) -> bool {
     }
     let samples = left.len() / 3;
     total_delta <= samples as u64 * 30 && changed_samples * 100 <= samples * 28
+}
+
+fn crop_capture(cap: &Capture, view: View) -> image::RgbImage {
+    let x = (i64::from(view.x) - i64::from(cap.origin_x)) as u32;
+    let y = (i64::from(view.y) - i64::from(cap.origin_y)) as u32;
+    image::imageops::crop_imm(&cap.rgb, x, y, view.w as u32, view.h as u32).to_image()
 }
 
 /// Capture the screen now and fingerprint the box around (cx, cy) — the "before"

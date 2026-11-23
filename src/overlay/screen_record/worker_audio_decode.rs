@@ -82,6 +82,8 @@ mod tests {
                 .is_ok()
         );
         assert!(validate_output(&current.join("audio-decode-short.wav")).is_err());
-        assert!(validate_output(&current.join("other-00112233445566778899aabbccddeeff.wav")).is_err());
+        assert!(
+            validate_output(&current.join("other-00112233445566778899aabbccddeeff.wav")).is_err()
+        );
     }
 }

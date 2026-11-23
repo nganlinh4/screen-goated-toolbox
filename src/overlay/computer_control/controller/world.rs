@@ -19,10 +19,14 @@ pub struct IndexedElement {
     pub name: String,
     /// Current text/selection value, when the element holds one (passwords masked).
     pub value: Option<String>,
+    /// Bounded text observation, separate from a full value used by form gates.
+    pub value_preview: Option<String>,
     /// True when the control structurally accepts free-form text input. Roles such
     /// as `combobox` may be either editable or selection-only, so role alone is
     /// not sufficient to authorize `fill`.
     pub editable: bool,
+    /// The observed control was explicitly identified as a protected text field.
+    pub protected: bool,
     /// Ground-truth state when exposed: "checked"/"unchecked"/"expanded"/… .
     pub state: Option<String>,
     pub enabled: bool,
@@ -115,54 +119,89 @@ impl WorldState {
         self.elements
             .iter()
             .filter(|e| {
-                e.required && e.form == el.form && e.value.as_deref().unwrap_or("").is_empty()
+                e.required && e.form == el.form && e.value.as_deref().is_some_and(str::is_empty)
             })
             .map(|e| e.name.as_str())
+            .collect()
+    }
+
+    pub fn unobserved_required_in_form(&self, el: &IndexedElement) -> Vec<&str> {
+        self.elements
+            .iter()
+            .filter(|element| {
+                element.required && element.form == el.form && element.value.is_none()
+            })
+            .map(|element| element.name.as_str())
             .collect()
     }
 
     /// The compact text the model reads: one line per element,
     /// `@id role "name" [= value] [flags]`.
     pub fn to_model_text(&self) -> String {
-        let mut s = String::new();
+        use super::super::model_text_budget::{Lines, MAX_FIELD_BYTES, MAX_WORLD_BYTES, field};
+        let mut lines = Lines::new(MAX_WORLD_BYTES);
         if let Some(t) = &self.title {
-            s.push_str(&format!("PAGE: {t}"));
+            let mut title = format!("PAGE: {}", field(t, MAX_FIELD_BYTES));
             if let Some(u) = &self.url {
-                s.push_str(&format!("  <{}>", u.chars().take(90).collect::<String>()));
+                title.push_str(&format!("  <{}>", field(u, 360)));
             }
-            s.push('\n');
+            title.push('\n');
+            lines.push(&title);
         }
         if self.elements.is_empty() {
-            s.push_str("(no interactive elements found — the page may still be loading, or its content is in a canvas / cross-origin frame)");
-            return s;
+            lines.push("(no interactive elements found — the page may still be loading, or its content is in a canvas / cross-origin frame)");
+            return lines.finish();
         }
         for e in &self.elements {
-            s.push_str(&format!("@{} {} {:?}", e.id, e.role, e.name));
+            let mut line = format!(
+                "@{} {} {:?}",
+                e.id,
+                field(&e.role, 96),
+                field(&e.name, MAX_FIELD_BYTES)
+            );
             if let Some(v) = e.value.as_deref().filter(|v| !v.is_empty()) {
-                s.push_str(&format!(" = {:?}", v.chars().take(60).collect::<String>()));
+                line.push_str(&format!(" = {:?}", field(v, 240)));
+            } else if let Some(preview) = e.value_preview.as_deref() {
+                line.push_str(&format!(" ~ {:?} [text preview]", field(preview, 240)));
             }
-            let mut flags: Vec<&str> = Vec::new();
-            let req = e.value.as_deref().unwrap_or("").is_empty();
+            let mut flags: Vec<String> = Vec::new();
             if e.required {
-                flags.push(if req { "required·empty" } else { "required" });
+                flags.push(
+                    match e.value.as_deref() {
+                        Some("") => "required·empty",
+                        Some(_) => "required",
+                        None => "required·unobserved",
+                    }
+                    .to_string(),
+                );
             }
             if let Some(st) = &e.state {
-                flags.push(st);
+                flags.push(field(st, 96));
             }
             if !e.enabled {
-                flags.push("disabled");
+                flags.push("disabled".to_string());
             }
             if e.editable && !matches!(e.role.as_str(), "textbox" | "searchbox" | "spinbutton") {
-                flags.push("editable");
+                flags.push("editable".to_string());
+            }
+            if !e.editable && matches!(e.role.as_str(), "textbox" | "searchbox" | "spinbutton") {
+                flags.push("fill·unavailable".to_string());
             }
             if !flags.is_empty() {
-                s.push_str(&format!(" [{}]", flags.join(", ")));
+                line.push_str(&format!(" [{}]", flags.join(", ")));
             }
             if let Some(r) = &e.risk {
-                s.push_str(&format!(" ⚠ {r}"));
+                line.push_str(&format!(" ⚠ {}", field(r, MAX_FIELD_BYTES)));
             }
-            s.push('\n');
+            line.push('\n');
+            if !lines.push(&line) {
+                break;
+            }
         }
-        s
+        lines.finish()
     }
 }
+
+#[cfg(test)]
+#[path = "world_text_tests.rs"]
+mod text_tests;

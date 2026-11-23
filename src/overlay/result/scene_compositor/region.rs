@@ -1,6 +1,38 @@
+use std::cell::Cell;
 use windows::Win32::Foundation::{HWND, RECT};
 
-pub(super) fn update(hwnd: HWND, _redraw: bool) {
+thread_local! { static UPDATING: Cell<bool> = const { Cell::new(false) }; }
+pub(super) fn is_updating() -> bool {
+    UPDATING.with(Cell::get)
+}
+pub(super) struct UpdateGuard;
+impl UpdateGuard {
+    pub(super) fn acquire() -> Option<Self> {
+        if UPDATING.with(|value| value.replace(true)) {
+            None
+        } else {
+            Some(Self)
+        }
+    }
+}
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATING.with(|value| value.set(false));
+    }
+}
+
+pub(super) fn update(hwnd: HWND) {
+    if super::child::topology_transition::active() {
+        return;
+    }
+    if !super::child::topology::matches_display(hwnd) {
+        super::child::topology_transition::begin(hwnd);
+        return;
+    }
+    let Some(_guard) = UpdateGuard::acquire() else {
+        super::child::request_visual_region();
+        return;
+    };
     let target_hwnd = {
         let input_val = super::child::INPUT_SURFACE_HWND.load(std::sync::atomic::Ordering::SeqCst);
         if input_val != 0 {
@@ -9,7 +41,7 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
             hwnd
         }
     };
-    let cards = super::child::CARDS.lock().unwrap();
+    let cards = super::child::CARDS.lock().unwrap().clone();
     let button_regions = super::button_input::interactive_regions();
     let width = unsafe {
         windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
@@ -40,6 +72,10 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
         super::visual_region::hide(target_hwnd);
         crate::crash_report::exit(1, "renderer-visual-region-failed");
     }
+    if !super::visual_region::first_scene_painted() {
+        super::visual_region::hide(target_hwnd);
+        return;
+    }
     let applied = super::input_surface::update_input_regions(
         target_hwnd,
         &cards,
@@ -59,7 +95,7 @@ pub(super) fn update(hwnd: HWND, _redraw: bool) {
 }
 
 pub(super) fn resize_edge_width(dpi: u32) -> i32 {
-    6_u32.saturating_mul(dpi.max(96)).div_ceil(96) as i32
+    6_u32.saturating_mul(dpi.max(1)).div_ceil(96) as i32
 }
 
 pub(super) fn external_resize_rects(
@@ -114,6 +150,7 @@ mod tests {
         assert!(!compositor_owns_card_region(true));
         assert!(compositor_owns_card_region(false));
         assert_eq!(resize_edge_width(96), 6);
+        assert_eq!(resize_edge_width(72), 5);
         assert_eq!(resize_edge_width(144), 9);
 
         let edges = external_resize_rects(100, 200, 640, 480, resize_edge_width(144));

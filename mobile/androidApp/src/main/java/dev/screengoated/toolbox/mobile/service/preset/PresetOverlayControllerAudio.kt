@@ -3,14 +3,13 @@ package dev.screengoated.toolbox.mobile.service.preset
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.FileProvider
-import dev.screengoated.toolbox.mobile.MainActivity
+import dev.screengoated.toolbox.mobile.AudioPresetPermissionActivity
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
@@ -73,36 +72,33 @@ internal fun PresetOverlayController.launchAudioPreset(resolved: ResolvedPreset)
 internal fun PresetOverlayController.handleAudioCaptureFailure(
     resolved: ResolvedPreset,
     failure: PresetAudioCaptureFailure,
+    kind: AudioPresetLaunchKind = AudioPresetLaunchKind.CAPTURE,
+    inputWindowId: String? = null,
 ) {
     when (failure.reason) {
         PresetAudioCaptureFailureReason.RECORD_PERMISSION_REQUIRED,
         -> {
-            appContainer.audioPresetLaunchStore.set(
-                AudioPresetLaunchRequest(
-                    presetId = resolved.preset.id,
-                    kind = AudioPresetLaunchKind.CAPTURE,
-                ),
+            val request = AudioPresetLaunchRequest(
+                presetId = resolved.preset.id,
+                kind = kind,
+                ownerId = audioRecoveryOwnerId,
+                inputWindowId = inputWindowId,
             )
+            if (!appContainer.audioPresetLaunchStore.set(request)) return
             context.startActivity(
-                Intent(context, MainActivity::class.java).apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                    )
-                    putExtra(MainActivity.EXTRA_RESUME_PENDING_AUDIO_PRESET, true)
-                },
+                AudioPresetPermissionActivity.resumeCapturePresetIntent(context, request.requestId),
             )
         }
         PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED -> {
-            appContainer.audioPresetLaunchStore.set(
-                AudioPresetLaunchRequest(
-                    presetId = resolved.preset.id,
-                    kind = AudioPresetLaunchKind.CAPTURE,
-                ),
+            val request = AudioPresetLaunchRequest(
+                presetId = resolved.preset.id,
+                kind = kind,
+                ownerId = audioRecoveryOwnerId,
+                inputWindowId = inputWindowId,
             )
+            if (!appContainer.audioPresetLaunchStore.set(request)) return
             context.startActivity(
-                dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity.resumeCapturePresetIntent(context),
+                dev.screengoated.toolbox.mobile.ProjectionConsentProxyActivity.resumeCapturePresetIntent(context, request.requestId),
             )
         }
         PresetAudioCaptureFailureReason.CAPTURE_FAILED -> {

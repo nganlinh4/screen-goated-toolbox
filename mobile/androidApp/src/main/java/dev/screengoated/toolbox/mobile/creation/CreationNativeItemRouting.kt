@@ -1,7 +1,5 @@
 package dev.screengoated.toolbox.mobile.creation
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -11,6 +9,7 @@ internal fun routeCreationNativeItem(
     supportsInstruction: (String) -> Boolean,
 ): CreationNativeItem {
     if (tool != CreationTool.IMAGE_TO_3D) return item
+    if (!item.status?.jobId.isNullOrBlank()) return item
     val route = CreationContract.route3dMode(
         CreationGenerationMode.fromWireName(item.generationMode),
         item.polycount,
@@ -33,6 +32,9 @@ internal fun applyCreationRuntimeCapabilities(
     supportsInstruction: (String) -> Boolean,
 ): CreationNativeItem {
     if (tool != CreationTool.IMAGE_TO_3D) return item
+    if (!item.status?.jobId.isNullOrBlank()) {
+        return item.copy(allowsInstruction = item.instruction.isNotBlank() || supportsInstruction(item.generationMode))
+    }
     val allowed = supportsInstruction(item.generationMode)
     return if (item.allowsInstruction == allowed) {
         item
@@ -44,17 +46,19 @@ internal fun applyCreationRuntimeCapabilities(
     }
 }
 
+/** Answers each mode once; the underlying read parses the runtime manifest. */
+internal fun creationMemoizedInstructionSupport(
+    supportsInstruction: (String) -> Boolean,
+): (String) -> Boolean {
+    val answers = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    return { mode -> answers.getOrPut(mode) { supportsInstruction(mode) } }
+}
+
 internal fun creationSubmissionArgs(
     tool: CreationTool,
     item: CreationNativeItem,
 ) = buildJsonObject {
-    if (tool == CreationTool.IMAGE_CREATOR) {
-        if (item.referencePaths.isNotEmpty()) {
-            put("imagePaths", JsonArray(item.referencePaths.map(::JsonPrimitive)))
-        }
-    } else {
-        put("imagePath", item.sourcePath)
-    }
+    put("imagePath", item.sourcePath)
     put("generationMode", item.generationMode)
     if (tool == CreationTool.IMAGE_TO_3D) put("topology", item.topology)
     put("polycount", item.polycount)
@@ -66,7 +70,4 @@ internal fun creationSubmissionArgs(
     item.instruction
         .takeIf { item.allowsInstruction && it.isNotBlank() }
         ?.let { put("instruction", it.trim()) }
-    item.prompt.takeIf { tool == CreationTool.IMAGE_CREATOR }?.let {
-        put("prompt", it.trim())
-    }
 }

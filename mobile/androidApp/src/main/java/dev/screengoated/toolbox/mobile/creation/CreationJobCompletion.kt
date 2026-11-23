@@ -18,7 +18,18 @@ internal data class CreationContinuation(
     val revisionId: String = "",
     val supportedActions: List<String>? = null,
     val availableActions: List<String> = emptyList(),
+    val segmentationLevel: String = "detailed",
+    val generationMode: String = "quality",
+    val polycount: Int = CreationContract.DEFAULT_POLYCOUNT,
+    val autoSegment: Boolean = false,
+    val topology: String? = null,
+    val instruction: String? = null,
 )
+
+internal fun creationContinuationSegmentationLevel(
+    status: CreationJobStatus,
+    request: CreationWorkerRequest,
+): String = status.segmentationLevel ?: request.segmentationLevel
 
 internal data class FinishedCreation(
     val request: CreationWorkerRequest,
@@ -36,7 +47,6 @@ internal data class PreparedCreation(
     val event: CreationWorkerEvent,
     val stagingPath: String,
     val mimeType: String,
-    val imageDimensions: CreationImageDimensions?,
     val segmented: Boolean,
     val canSegment: Boolean,
     val faces: Long?,
@@ -45,6 +55,8 @@ internal data class PreparedCreation(
     val companionName: String? = null,
     val polygons: Long? = null,
     val quads: Long? = null,
+    /** Digest of the staging bytes taken before validation; delivery must match it. */
+    val validatedSha256: String? = null,
 )
 
 internal class CreationJobFinisher(
@@ -67,7 +79,9 @@ internal class CreationJobFinisher(
         val staging = files.sealReservedStagingFile(tool, request.outputPath)
         return try {
             require(staging.length() > 0L) { "Creation ended without an output file" }
-            var imageDimensions: CreationImageDimensions? = null
+            // The worker shares this UID and may still hold the file open, so pin the
+            // bytes before validating them; delivery re-hashes and must match.
+            val validatedSha256 = files.sha256(staging.absolutePath)
             val mime = when (tool) {
                 CreationTool.IMAGE_TO_3D -> {
                     CreationArtifactValidator.validateGlb(staging)
@@ -76,17 +90,6 @@ internal class CreationJobFinisher(
                 CreationTool.IMAGE_TO_SVG -> {
                     CreationArtifactValidator.validateSvg(staging)
                     "image/svg+xml"
-                }
-                CreationTool.IMAGE_CREATOR -> {
-                    require(event.mimeType == null || event.mimeType == "image/png") {
-                        "The image result is not a PNG image"
-                    }
-                    imageDimensions = CreationArtifactValidator.validatePng(
-                        staging,
-                        event.width,
-                        event.height,
-                    )
-                    "image/png"
                 }
             }
             val segmented = validatedCreationSegmentation(request, event)
@@ -104,7 +107,6 @@ internal class CreationJobFinisher(
                 event,
                 staging.absolutePath,
                 mime,
-                imageDimensions,
                 segmented,
                 canSegment,
                 event.faces.boundedCreationGeometryCount(tool),
@@ -113,6 +115,7 @@ internal class CreationJobFinisher(
                 event.downloadName,
                 event.polygons.boundedCreationGeometryCount(tool),
                 event.quads.boundedCreationGeometryCount(tool),
+                validatedSha256 = validatedSha256,
             )
         } catch (failure: Throwable) {
             if (dev.screengoated.toolbox.mobile.BuildConfig.DEBUG) {
@@ -134,7 +137,6 @@ internal class CreationJobFinisher(
         val event = prepared.event
         val segmented = prepared.segmented
         val canSegment = prepared.canSegment
-        val imageDimensions = prepared.imageDimensions
         val mime = prepared.mimeType
         val current = prepared.current
         val actions = event.availableActions.orEmpty()
@@ -146,10 +148,10 @@ internal class CreationJobFinisher(
             ?: actions
         val status = current.copy(
             stage = "done",
-            progressText = when (request.tool) {
-                CreationTool.IMAGE_TO_3D.wireName -> "Model ready."
-                CreationTool.IMAGE_TO_SVG.wireName -> "Vector ready"
-                else -> "Image ready"
+            progressText = when (CreationTool.fromWireName(request.tool)) {
+                CreationTool.IMAGE_TO_3D -> "Model ready."
+                CreationTool.IMAGE_TO_SVG -> "Vector ready"
+                null -> "Ready"
             },
             phase = "complete",
             progressRatio = 1.0,
@@ -158,8 +160,6 @@ internal class CreationJobFinisher(
             downloadPath = downloadPath,
             downloadName = downloadName,
             mimeType = mime,
-            width = imageDimensions?.width,
-            height = imageDimensions?.height,
             generationMode = request.generationMode,
             isSegmented = segmented,
             canSegment = canSegment,
@@ -186,9 +186,7 @@ internal class CreationJobFinisher(
                 ownerId = prepared.ownerId,
                 engineId = prepared.engineId,
                 token = token,
-                sourcePath = requireNotNull(request.imagePaths.singleOrNull()) {
-                    "Separation source is unavailable"
-                },
+                sourcePath = request.imagePath,
                 outputPath = published,
                 outputName = outputName,
                 createdAtMs = System.currentTimeMillis(),
@@ -196,7 +194,7 @@ internal class CreationJobFinisher(
                 revisionId = request.dispatchId,
                 supportedActions = supportedActions,
                 availableActions = actions,
-            )
+            ).withGeneration(request, status)
         }
         return FinishedCreation(request, status, segmented, published, continuation)
     }
@@ -208,12 +206,12 @@ internal class CreationJobFinisher(
     ) {
         val request = completed.request
         val tool = requireNotNull(CreationTool.fromWireName(request.tool))
-        val metadata = creationHistoryMetadata(completed, files::presentationHandle)
+        val metadata = creationHistoryMetadata(completed)
         history.record(
             request.dispatchId,
             tool,
-            request.imagePaths.firstOrNull()
-                ?.let(files::presentationHandle).orEmpty(),
+            request.imagePath
+                .let(files::presentationHandle),
             completed.publishedPath,
             completed.status.outputName ?: request.outputName,
             metadata,
@@ -226,7 +224,6 @@ internal class CreationJobFinisher(
 
 internal fun creationHistoryMetadata(
     completed: FinishedCreation,
-    presentationHandle: (String) -> String = { it },
 ) = buildJsonObject {
     val request = completed.request
     when (requireNotNull(CreationTool.fromWireName(request.tool))) {
@@ -237,7 +234,7 @@ internal fun creationHistoryMetadata(
             request.topology?.let { put("topology", it) }
             put("polycount", request.polycount)
             put("autoSegment", request.autoSegment)
-            put("segmentationLevel", request.segmentationLevel)
+            put("segmentationLevel", creationContinuationSegmentationLevel(completed.status, request))
             put("projectId", completed.status.projectId ?: request.dispatchId)
             completed.status.parentRevisionId?.let { put("parentRevisionId", it) }
             completed.status.revisionKind?.let { put("revisionKind", it) }
@@ -268,28 +265,13 @@ internal fun creationHistoryMetadata(
             put("model", request.model)
             put("backgroundMode", request.backgroundMode)
         }
-        CreationTool.IMAGE_CREATOR -> {
-            put("operation", request.operation)
-            put("prompt", requireNotNull(request.prompt))
-            put(
-                "referencePreviewPaths",
-                JsonArray(
-                    request.imagePaths
-                        .map(presentationHandle)
-                        .map(::JsonPrimitive),
-                ),
-            )
-            put("mimeType", "image/png")
-            completed.status.width?.let { put("width", it) }
-            completed.status.height?.let { put("height", it) }
-        }
     }
 }
 
 internal fun creationJobInputPathsReleasedAfterCommit(
     request: CreationWorkerRequest,
     retainedByContinuation: Boolean = false,
-): List<String> = if (retainedByContinuation) emptyList() else request.imagePaths
+): List<String> = if (retainedByContinuation) emptyList() else listOf(request.imagePath)
 
 internal fun validatedCreationSegmentation(
     request: CreationWorkerRequest,

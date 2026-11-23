@@ -25,6 +25,9 @@ pub(super) fn rpc_cleanup_until(
 
 fn rpc_with(type_: &str, extra: &mut Value) -> anyhow::Result<Value> {
     capabilities::require(rpc_capability(type_, extra))?;
+    if type_ != "frames" {
+        capabilities::require(capabilities::EFFECT_ADMISSION)?;
+    }
     extra["id"] = json!(bridge::next_request_id());
     extra["type"] = json!(type_);
     let response = bridge::request(extra.take())?;
@@ -42,6 +45,9 @@ fn rpc_with_epoch(
     cleanup_deadline: Option<Instant>,
 ) -> anyhow::Result<Value> {
     capabilities::require(rpc_capability(type_, extra))?;
+    if type_ != "frames" {
+        capabilities::require(capabilities::EFFECT_ADMISSION)?;
+    }
     extra["id"] = json!(bridge::next_request_id());
     extra["type"] = json!(type_);
     let response = match cleanup_deadline {

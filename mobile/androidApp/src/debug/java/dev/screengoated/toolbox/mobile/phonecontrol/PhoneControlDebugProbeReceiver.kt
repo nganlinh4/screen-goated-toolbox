@@ -15,6 +15,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlToolComp
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlToolController
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlToolRequest
 import dev.screengoated.toolbox.mobile.phonecontrol.tools.PhoneControlToolDispatcher
+import dev.screengoated.toolbox.mobile.phonecontrol.session.PhoneControlContractAssets
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -77,6 +78,8 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
     ) {
         var mutating = false
         var dispatchAdmitted = false
+        var scopedDispatcher: PhoneControlToolDispatcher? = null
+        var scopedTurn: Long? = null
         val executionTimeoutMs = boundedDebugProbeExecutionTimeoutMs(
             intent.getLongExtra(
                 EXTRA_EXECUTION_TIMEOUT_MS,
@@ -92,10 +95,18 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
             }
             val arguments = decodeArguments(intent.getStringExtra(EXTRA_ARGUMENTS_BASE64))
             val completions = Channel<PhoneControlToolCompletionEvent>(capacity = 1)
+            val dispatcher = PROBE_DISPATCHER.getOrCreate {
+                PhoneControlToolDispatcher(
+                    context.applicationContext,
+                    PhoneControlContractAssets.load(context.applicationContext, Json).functionDeclarations,
+                )
+            }
+            val turn = PROBE_TURNS.next()
+            scopedDispatcher = dispatcher
+            scopedTurn = turn
+            dispatcher.turnStarted(turn, turn)
             val executor = PhoneControlDispatcherToolExecutor(
-                boundary = PROBE_DISPATCHER.getOrCreate {
-                    PhoneControlToolDispatcher(context.applicationContext)
-                },
+                boundary = dispatcher,
                 scope = PROBE_SCOPE,
             )
             val controller = PhoneControlToolController(executor, PROBE_SCOPE, completions)
@@ -103,8 +114,8 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
                 id = operation.requestId,
                 name = tool,
                 arguments = arguments,
-                turnId = 1,
-                generation = 1,
+                turnId = turn,
+                generation = turn,
             )
             check(controller.dispatch(request) == PhoneControlToolAdmission.ACCEPTED) {
                 "debug probe production controller rejected an unowned request"
@@ -146,6 +157,8 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
                 message = error.message.orEmpty().take(MAX_ERROR_CHARS),
                 effectMayHaveOccurred = dispatchAdmitted && mutating,
             )
+        } finally {
+            scopedTurn?.let { scopedDispatcher?.turnInterrupted(it) }
         }
         operation.publishReceiptIfAllowed {
             writeAtomic(context, operation.requestId, response.toString())
@@ -186,6 +199,7 @@ class PhoneControlDebugProbeReceiver : BroadcastReceiver() {
         val PROBE_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val PROBE_ADMISSION = DebugProbeAdmission()
         val PROBE_DISPATCHER = DebugProbeDispatcherStore<PhoneControlToolDispatcher>()
+        val PROBE_TURNS = DebugProbeTurnSequence()
     }
 }
 

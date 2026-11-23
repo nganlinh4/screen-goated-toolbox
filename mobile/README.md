@@ -28,22 +28,50 @@ contract.
 
 Both derive `versionName` and default `versionCode` from root `Cargo.toml`.
 
-The Full downloader keeps only Android's required native executable launchers in
-the APK. Its pinned yt-dlp, Python, and FFmpeg payloads install on first use from
-`androidApp/delivery/downloader-runtime.json`; every response is accepted only
-at the declared byte count and SHA-256. The manifest uses an immutable official
-yt-dlp release and uniquely named Python/FFmpeg assets on the append-only
-`sgt-runtime-bundles` release. Mutable latest, nightly, and main-channel updates
-are not part of the runtime contract.
+The Full downloader keeps Android's native executable launchers in the APK.
+Python, FFmpeg, and the bootstrap yt-dlp install on first use from the verified
+`androidApp/delivery/downloader-runtime.json` contract. The app checks for
+official upstream stable yt-dlp updates independently. It verifies the tagged
+release's signed checksum and probes the candidate with the Android launcher
+before activation. Downloaded Tools shows the active version and offers a
+manual check. Active jobs retain their executable, and a failed update leaves
+the previous installation usable.
 
 ## Prerequisites
 
-- JDK 17.
+- JDK 21 (matching `gradle/gradle-daemon-jvm.properties`).
+- Python 3 with the Windows `py` launcher for Gradle's source/contract generators.
 - Android SDK and platform tools.
 - Android platform/build tools required by `androidApp/build.gradle.kts`.
-- For this checkout, `settings.gradle.kts` includes the `../../youtubedl-android` composite build; that repository must exist at the expected path relative to `mobile/`.
 
 Set `JAVA_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` for the local installation. Keep machine paths in untracked local configuration, not this README.
+
+## Android Video Downloader development
+
+The Full flavor uses SGT's public [youtubedl-android repository](https://github.com/nganlinh4/youtubedl-android).
+Run the clone command from the directory containing the SGT checkout.
+
+```sh
+git clone https://github.com/nganlinh4/youtubedl-android.git
+```
+
+```text
+<any parent folder>/
+  screen-goated-toolbox/
+    mobile/
+  youtubedl-android/
+```
+
+Gradle uses the sibling checkout for both the composite build and the bundled
+native launchers. To reproduce CI locally, use the commit pinned in the
+[Android CI workflow](../.github/workflows/development.yml).
+
+The [Android agent rules](AGENTS.md#owned-downloader-dependency) define ownership
+and push authority. For a fix in the shared library, follow these steps.
+
+1. Implement and verify the fix in `youtubedl-android`, then commit and push it to that repository's `origin`.
+2. Update the Android CI checkout pin to the pushed commit. If any native launcher bytes changed, update their sizes and SHA-256 hashes in the [launcher contract](androidApp/gradle/runtime-delivery.gradle.kts).
+3. With the sibling checkout at that commit, run the [Full unit tests and debug build](#build-and-test-on-windows).
 
 ## Build and test on Windows
 
@@ -92,7 +120,7 @@ Set `SGT_REPO_ROOT` only when the wrapper cannot discover the checkout.
 
 ## Device helper
 
-`scripts/sgtp.ps1` wraps wireless ADB connection, install, launch, and filtered logs. It reads `mobile/.sgtp.json`; update that machine/device-specific file when endpoint or APK location changes.
+`scripts/sgtp.ps1` wraps wireless ADB connection, install, launch, and filtered logs. It keeps the device endpoint and APK location in `%LOCALAPPDATA%\SGT-Development\sgtp.json` (or `SGT_SGTP_CONFIG`), outside the checkout; an older `mobile/.sgtp.json` is read once as a migration source.
 
 ```powershell
 .\scripts\sgtp.ps1 status
@@ -146,8 +174,9 @@ setup surfaces. The Shizuku probe then verifies the real install handoff when th
 package is absent; the harness still restores the original foreground app and
 device state afterward.
 
-The optional **SGT Bridge** provider is built into both distributions and is the
-recommended non-root authority route. It keeps
+The optional **SGT Bridge** provider is built into both distributions. It is
+currently unavailable because its wireless command endpoint cannot be verified.
+Other authority choices remain available. It keeps
 its ADB private key non-exportable in Android Keystore, discovers only the
 device-local wireless-debugging services, and runs its bounded command client in
 a private app process; it never opens a LAN command listener. The compact orb
@@ -157,7 +186,7 @@ minimum API level is 29). Upstream states that libadb has not
 received a security audit, so the dependency threat model remains an explicit
 release-review item even though real-device pairing, reconnect, cancellation,
 revoke, projection-resume, and credentialed Chrome CDP target
-bind/read/verified-close checks now support the product recommendation.
+bind/read/verified-close checks do not establish server identity.
 
 Use `scripts/invoke-phone-control-probe.ps1` only against an installed debug
 package. Physical targets require `-AllowPhysicalDevice`; registry-classified
@@ -224,59 +253,13 @@ The script verifies its source archives against the build manifest before it
 copies anything. Full asset merging fails when the delivery manifest is absent
 or violates the immutable URL/identity contract.
 
-### Moonshine model delivery checkpoint
+## Play on-demand delivery
 
-Moonshine Tiny, Small, and Medium models are optional downloads. The app first
-requests the exact content-addressed SGT bundle pinned in the packaged
-`androidApp/src/main/assets/moonshine-model-delivery.json`; the upstream
-per-file endpoint is a fallback transport only, and every accepted file must
-match the build-pinned size and SHA-256 contract.
-
-Prepare the three deterministic bundles from an audited model directory, then
-verify their entries locally:
-
-```powershell
-py -3 .\mobile\scripts\package-moonshine-models.py --models-dir <model-directory>
-py -3 .\mobile\scripts\verify-moonshine-model-release.py --local-only
-```
-
-Upload only the three newly named ZIPs to the existing append-only
-`sgt-runtime-bundles` release. Never replace an existing asset. Before building
-the release that publishes this manifest, read every uploaded asset back and
-verify its size, archive hash, exact seven model files, and notices:
-
-```powershell
-py -3 .\mobile\scripts\verify-moonshine-model-release.py
-```
-
-Do not publish when the remote verification fails. If model bytes or notices
-change, regenerate the source contract, bundles, asset identities, and pinned
-delivery manifest together.
-
-## Play on-demand native delivery
-
-The `play` bundle keeps large native payloads out of the base module and delivers
-the ASR/ORT engines through on-demand dynamic features
-under `feature_*`. The `full` artifact downloads those exact native runtime
-archives from the SGT runtime-bundles release and verifies their declared size
-and SHA-256 before installation. Phone Control has no
+The `play` bundle keeps the large creation runtime out of the base module in the
+on-demand `feature_creation_runtime` module. Android ships no offline speech
+engine; `docs/OFFLINE-ENGINES.md` describes where one would plug in. Phone Control has no
 flavor-specific grounding runtime; both distributions use the same current-frame
 vision contract, catalog, provider routes, and authority.
-
-The shared native archive authority is
-`../parity-fixtures/phone-control/native-runtime-contract.json`. Each Full
-download uses the contract's unique `downloadUrl`, exact archive size/SHA-256,
-and exact member identities; Play stages the checked-in archive bytes into its
-matching on-demand module. After changing ORT, Moonshine, or Sherpa, upload a new
-content-addressed asset without replacing an older one and run:
-
-```powershell
-.\gradlew.bat verifyNativeRuntimeArchives --console=plain
-py -3 ..\scripts\verify_update_catalog_sources.py
-```
-
-Reduced ORT candidates additionally require the physical arm64 transcription
-gate in `scripts/smoke-ort-runtime.ps1` before replacing `libs/ort-runtime.zip`.
 
 The Image-to-3D result viewer is built from the canonical Windows viewer source
 with `npm run build:viewer` in `3d-generator-ui/`. Its deterministic

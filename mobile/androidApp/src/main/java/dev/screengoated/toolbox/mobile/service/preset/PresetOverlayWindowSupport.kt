@@ -102,6 +102,22 @@ internal class OverlayInputFocusCoordinator(
     }
 }
 
+/**
+ * Page-world `sgtAndroid` bridge for non-result overlay windows. It is visible to every frame
+ * and origin, so those windows pass pageWorldBridge = true and never keep a web page loaded.
+ */
+internal fun installPageWorldBridge(view: WebView, onMessage: (String) -> Unit) {
+    view.addJavascriptInterface(
+        object {
+            @android.webkit.JavascriptInterface
+            fun postMessage(message: String) {
+                view.post { onMessage(message) }
+            }
+        },
+        "sgtAndroid",
+    )
+}
+
 internal fun createOverlayWebViewClient(
     appContext: Context,
     logTag: String,
@@ -110,6 +126,10 @@ internal fun createOverlayWebViewClient(
     onRenderProcessGone: (WebView?, android.webkit.RenderProcessGoneDetail?) -> Boolean = { _, _ -> false },
     onMainFrameNavigationFailure: (OverlayNavigationFailure) -> Unit,
     onPageFinished: (String?) -> Unit,
+    onMainFrameNavigation: (WebView?, WebResourceRequest) -> Boolean = { _, _ -> false },
+    interceptRequest: (WebResourceRequest) -> WebResourceResponse? = { null },
+    onPageStarted: (WebView?) -> Unit = {},
+    pageWorldBridge: Boolean = false,
 ): WebViewClient {
     return object : WebViewClient() {
         override fun shouldOverrideUrlLoading(
@@ -117,11 +137,16 @@ internal fun createOverlayWebViewClient(
             request: WebResourceRequest?,
         ): Boolean {
             val url = request?.url?.toString().orEmpty()
-            if (url.isBlank()) {
-                return false
+            if (request != null && request.isForMainFrame && onMainFrameNavigation(view, request)) {
+                return true
             }
-            if (isManagedWebViewUrl(url)) {
-                return false
+            when (overlayNavigationPolicy(url, request?.hasGesture() == true, pageWorldBridge)) {
+                OverlayNavigationPolicy.MANAGED -> return false
+                OverlayNavigationPolicy.BLOCK -> {
+                    Log.w(logTag, "Blocked external navigation (local resource scheme or no user gesture)")
+                    return true
+                }
+                OverlayNavigationPolicy.EXTERNAL_INTENT -> Unit
             }
             val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -132,7 +157,14 @@ internal fun createOverlayWebViewClient(
             } catch (_: ActivityNotFoundException) {
                 Log.w(logTag, "No activity found for external url=$url")
                 true
+            } catch (error: RuntimeException) {
+                Log.w(logTag, "External navigation refused url=$url", error)
+                true
             }
+        }
+
+        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+            return request?.let(interceptRequest) ?: super.shouldInterceptRequest(view, request)
         }
 
         override fun onPageStarted(
@@ -140,6 +172,7 @@ internal fun createOverlayWebViewClient(
             url: String?,
             favicon: android.graphics.Bitmap?,
         ) {
+            onPageStarted(view)
             onMessageLog("pageStarted url=${url ?: "null"}")
         }
 
@@ -210,6 +243,28 @@ internal fun createOverlayWebViewClient(
             return onRenderProcessGone(view, detail)
         }
     }
+}
+
+internal enum class OverlayNavigationPolicy { MANAGED, EXTERNAL_INTENT, BLOCK }
+
+/**
+ * [pageWorldBridge]: the view exposes `sgtAndroid` through addJavascriptInterface (every
+ * frame, every origin), so it may only ever show bundled pages; web links go to the browser.
+ */
+internal fun overlayNavigationPolicy(
+    url: String,
+    hasUserGesture: Boolean,
+    pageWorldBridge: Boolean = false,
+): OverlayNavigationPolicy = when {
+    url.isBlank() -> OverlayNavigationPolicy.MANAGED
+    pageWorldBridge && isWebUrl(url) ->
+        if (hasUserGesture) OverlayNavigationPolicy.EXTERNAL_INTENT else OverlayNavigationPolicy.BLOCK
+    isManagedWebViewUrl(url) -> OverlayNavigationPolicy.MANAGED
+    // Local file/content URIs cannot be handed to another app (FileUriExposedException,
+    // or an unintended grant of app-private content), even with a gesture.
+    isLocalResourceUrl(url) -> OverlayNavigationPolicy.BLOCK
+    hasUserGesture -> OverlayNavigationPolicy.EXTERNAL_INTENT
+    else -> OverlayNavigationPolicy.BLOCK
 }
 
 internal fun handleOverlayHostMessage(
@@ -304,14 +359,21 @@ internal fun configureOverlayWebView(
     configureOverlayWebViewRendering(webView)
 }
 
+private fun isLocalResourceUrl(url: String): Boolean {
+    val scheme = url.substringBefore(':', missingDelimiterValue = "").trim().lowercase()
+    return scheme == "file" || scheme == "content"
+}
+
+private fun isWebUrl(url: String): Boolean =
+    url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
+
 private fun isManagedWebViewUrl(url: String): Boolean {
-    return url.startsWith("http://") ||
-        url.startsWith("https://") ||
+    return isWebUrl(url) ||
         url.startsWith("file:///android_asset/") ||
         url.startsWith("about:")
 }
 
-private fun saveMediaToDownloads(
+internal fun saveMediaToDownloads(
     appContext: Context,
     filename: String,
     mimeType: String,
@@ -334,7 +396,9 @@ private fun saveMediaToDownloads(
         val finalizeValues = ContentValues().apply {
             put(MediaStore.MediaColumns.IS_PENDING, 0)
         }
-        resolver.update(insertedUri, finalizeValues, null, null)
+        check(resolver.update(insertedUri, finalizeValues, null, null) > 0) {
+            "Could not finalize download."
+        }
     } catch (error: Throwable) {
         insertedUri?.let { resolver.delete(it, null, null) }
         throw error

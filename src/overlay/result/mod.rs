@@ -69,35 +69,82 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, PostMessageW, SW_HIDE, ShowWindow, WM_CLOSE,
 };
 
-// Helper to check if any window is currently refining/editing
-pub fn is_any_refine_active() -> bool {
-    let states = WINDOW_STATES.lock().unwrap();
-    states
-        .values()
-        .any(|state| state.refine_session.is_editing())
+pub(crate) fn active_refine_session() -> anyhow::Result<Option<(crate::win_types::SendHwnd, u64)>> {
+    let states = WINDOW_STATES
+        .try_lock()
+        .map_err(|_| anyhow::anyhow!("The refine destination is unavailable"))?;
+    unique_refine_session(states.iter().filter_map(|(hwnd, state)| {
+        state.refine_session.edit_id().map(|id| {
+            (
+                crate::win_types::SendHwnd(HWND(*hwnd as *mut std::ffi::c_void)),
+                id,
+            )
+        })
+    }))
 }
 
-// Helper to get the parent HWND of the active refine session
-pub fn get_active_refine_parent() -> Option<HWND> {
-    let states = WINDOW_STATES.lock().unwrap();
-    states
-        .iter()
-        .find(|(_, state)| state.refine_session.is_editing())
-        .map(|(hwnd, _)| HWND(*hwnd as *mut std::ffi::c_void))
+fn unique_refine_session(
+    mut sessions: impl Iterator<Item = (crate::win_types::SendHwnd, u64)>,
+) -> anyhow::Result<Option<(crate::win_types::SendHwnd, u64)>> {
+    let first = sessions.next();
+    anyhow::ensure!(
+        sessions.next().is_none(),
+        "The refine destination is ambiguous"
+    );
+    Ok(first)
+}
+
+pub(crate) fn insert_refine_text_for_session(hwnd: HWND, session: u64, text: &str) {
+    let session_matches = {
+        let states = WINDOW_STATES.lock().unwrap();
+        states
+            .get(&(hwnd.0 as isize))
+            .and_then(|state| state.refine_session.edit_id())
+            == Some(session)
+    };
+    if session_matches {
+        scene_compositor::set_refine_text(hwnd, session, text, true);
+    }
+}
+
+pub(crate) fn is_current_refine_session(hwnd: HWND, session: u64) -> bool {
+    WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&(hwnd.0 as isize))
+        .is_some_and(|state| state.refine_session.edit_id() == Some(session))
+}
+
+pub(crate) fn replace_refine_text_for_session(hwnd: HWND, session: u64, text: &str) {
+    let changed = WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get_mut(&(hwnd.0 as isize))
+        .is_some_and(|state| {
+            state.refine_session.edit_id() == Some(session) && state.refine_session.set_draft(text)
+        });
+    if changed {
+        scene_compositor::set_refine_text(hwnd, session, text, false);
+    }
 }
 
 // Helper to update refine text
 pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
     // An overwrite is already complete; insertion is resolved against the live DOM caret
     // and returns through the typed draft update event.
-    if !is_insert {
-        let hwnd_key = hwnd.0 as isize;
+    let session = {
         let mut states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get_mut(&hwnd_key) {
-            state.refine_session.set_draft(text);
-        }
+        states.get_mut(&(hwnd.0 as isize)).and_then(|state| {
+            let session = state.refine_session.edit_id()?;
+            if !is_insert {
+                state.refine_session.set_draft(text);
+            }
+            Some(session)
+        })
+    };
+    if let Some(session) = session {
+        scene_compositor::set_refine_text(hwnd, session, text, is_insert);
     }
-    scene_compositor::set_refine_text(hwnd, text, is_insert);
 }
 
 /// Trigger copy action on a result window
@@ -259,10 +306,13 @@ pub fn trigger_speaker(hwnd: HWND) {
             "[TTS] Stopping current speech (request_id: {})",
             current_tts_id
         );
-        crate::api::tts::TTS_MANAGER.stop();
+        crate::api::tts::TTS_MANAGER.stop_if_active(current_tts_id);
         {
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd_key) {
+            if let Some(state) = states
+                .get_mut(&hwnd_key)
+                .filter(|state| state.tts_request_id == current_tts_id)
+            {
                 state.tts_request_id = 0;
                 state.tts_loading = false;
             }
@@ -273,24 +323,11 @@ pub fn trigger_speaker(hwnd: HWND) {
             "[TTS] Starting speech - text length: {} chars",
             full_text.len()
         );
-        {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd_key) {
-                state.tts_loading = true;
-            }
-        }
-
         let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd_key);
         crate::log_info!(
             "[TTS] TTS_MANAGER.speak returned request_id: {}",
             request_id
         );
-        {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd_key) {
-                state.tts_request_id = request_id;
-            }
-        }
     } else {
         crate::log_info!("[TTS] ERROR: full_text is empty - nothing to speak");
     }
@@ -353,16 +390,17 @@ pub fn trigger_close_group(hwnd: HWND) {
 
     restore::remember_last_closed(&group_hwnds);
 
-    // Signal all tokens in the group
-    {
+    // Snapshot tokens before cancelling: admitted effects can acquire WINDOW_STATES.
+    let tokens: Vec<_> = {
         let states = WINDOW_STATES.lock().unwrap();
-        for (h, _) in &group {
-            if let Some(state) = states.get(&(h.0 as isize))
-                && let Some(ref token) = state.cancellation_token
-            {
-                token.cancel();
-            }
-        }
+        group
+            .iter()
+            .filter_map(|(h, _)| states.get(&(h.0 as isize)))
+            .filter_map(|state| state.cancellation_token.clone())
+            .collect()
+    };
+    for token in tokens {
+        token.cancel();
     }
 
     request_close_targets(&group_hwnds);
@@ -371,18 +409,21 @@ pub fn trigger_close_group(hwnd: HWND) {
 /// Trigger close all windows on screen.
 /// Signals all cancellation tokens to stop streaming, then posts WM_CLOSE to each window.
 pub fn trigger_close_all() {
-    let targets: Vec<HWND> = {
+    let (targets, tokens): (Vec<HWND>, Vec<_>) = {
         let states = WINDOW_STATES.lock().unwrap();
-        for state in states.values() {
-            if let Some(ref token) = state.cancellation_token {
-                token.cancel();
-            }
-        }
-        states
+        let targets = states
             .keys()
             .map(|&k| HWND(k as *mut std::ffi::c_void))
-            .collect()
+            .collect();
+        let tokens = states
+            .values()
+            .filter_map(|state| state.cancellation_token.clone())
+            .collect();
+        (targets, tokens)
     };
+    for token in tokens {
+        token.cancel();
+    }
 
     restore::remember_last_closed(&targets);
 
@@ -398,5 +439,24 @@ fn request_close_targets(targets: &[HWND]) {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod destination_tests {
+    use super::unique_refine_session;
+    use crate::win_types::SendHwnd;
+    use windows::Win32::Foundation::HWND;
+
+    #[test]
+    fn refine_destination_requires_one_exact_edit_session() {
+        assert!(unique_refine_session(std::iter::empty()).unwrap().is_none());
+        let first = (SendHwnd(HWND(17_usize as *mut std::ffi::c_void)), 23);
+        let second = (SendHwnd(HWND(19_usize as *mut std::ffi::c_void)), 29);
+        let (window, session) = unique_refine_session([first].into_iter()).unwrap().unwrap();
+        assert_eq!(window.as_isize(), first.0.as_isize());
+        assert_eq!(session, first.1);
+        assert!(unique_refine_session([first, second].into_iter()).is_err());
+        assert!(unique_refine_session([second, first].into_iter()).is_err());
     }
 }

@@ -3,10 +3,9 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.RequestContractCandidateClient
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.ResourceAuthorizationDecision
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidFileProvider
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.testFileProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.ExactReplacement
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.FileMutationTargetLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.sha256
 import java.io.File
 import kotlinx.coroutines.test.runTest
@@ -36,7 +35,7 @@ class StructuralEditToolCoordinatorTest {
             Result.success(positive())
         }
 
-        val result = scenario.coordinator.execute(scenario.args(), scenario.request)
+        val result = scenario.coordinator.execute(PhoneControlToolJobContext(1, "structure-test", 1), scenario.args(), scenario.request)
 
         assertFailure(result, "ERR_TEXT_FILE_STRUCTURE_CHANGE")
         assertEquals(0, candidateCalls)
@@ -51,7 +50,7 @@ class StructuralEditToolCoordinatorTest {
         scenario.authorization.recordRequest("remove the extra CSV column")
         val token = scenario.preflightToken()
 
-        val result = scenario.coordinator.execute(scenario.args(token), scenario.request)
+        val result = scenario.coordinator.execute(PhoneControlToolJobContext(1, "structure-test", 1), scenario.args(token), scenario.request)
 
         val failure = assertFailure(
             result,
@@ -75,7 +74,7 @@ class StructuralEditToolCoordinatorTest {
         scenario.authorization.recordRequest("change values and preserve the CSV shape")
         val token = scenario.preflightToken()
 
-        val result = scenario.coordinator.execute(scenario.args(token), scenario.request)
+        val result = scenario.coordinator.execute(PhoneControlToolJobContext(1, "structure-test", 1), scenario.args(token), scenario.request)
 
         assertFailure(
             result,
@@ -91,7 +90,7 @@ class StructuralEditToolCoordinatorTest {
         val token = scenario.preflightToken()
 
         val result = scenario.coordinator.execute(
-            scenario.args(token),
+            PhoneControlToolJobContext(1, "structure-test", 1), scenario.args(token),
             scenario.request,
         ) as AndroidProviderResult.Success
 
@@ -131,9 +130,9 @@ class StructuralEditToolCoordinatorTest {
             file = file,
             authorization = authorization,
             coordinator = StructuralEditToolCoordinator(
-                AndroidFileProvider { null },
+                testFileProvider { null },
                 authorization,
-                resourceAuthorization = { _, _ ->
+                resourceAuthorization = { _, prepared ->
                     ResourceAuthorizationDecision(
                         authorized = true,
                         code = "ok",
@@ -142,11 +141,7 @@ class StructuralEditToolCoordinatorTest {
                             put("authorized", true)
                             put("positive_verdicts", 2)
                         },
-                        targetLease = FileMutationTargetLease(
-                            canonicalPath = file.canonicalPath,
-                            existedBefore = true,
-                            expectedSha256 = request.expectedSha256,
-                        ),
+                        targetLease = prepared.targetLease,
                     )
                 },
             ),
@@ -194,7 +189,7 @@ class StructuralEditToolCoordinatorTest {
         }
 
         suspend fun preflightToken(): String {
-            val result = coordinator.execute(args(), request) as AndroidProviderResult.Failure
+            val result = coordinator.execute(PhoneControlToolJobContext(1, "structure-test", 1), args(), request) as AndroidProviderResult.Failure
             return result.data.getValue("structural_change_token").jsonPrimitive.content
         }
     }

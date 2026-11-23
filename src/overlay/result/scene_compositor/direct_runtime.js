@@ -1,5 +1,4 @@
 (function() {
-    var gridRuntime = null;
     var shapeLayout = window.__SGT_SHAPE_LAYOUT__;
 
     function createRuntime(entry, callbacks) {
@@ -436,7 +435,7 @@
             // inherited per-body animation so it cannot compete for the same filter.
             if (options.sourceReplacement) finishBodyPresentation();
             if (firstRender) body.style.opacity = '0';
-            if (options.sourceReplacement) body.innerHTML = options.html;
+            if (options.sourceReplacement) body.replaceChildren(window.__SGT_SAFE_FRAGMENT__(options.html));
             else window.__SGT_PATCH_BODY__(body, options.html);
             if (!options.sourceReplacement) {
                 body.style.overflowX = 'hidden';
@@ -457,19 +456,7 @@
 
         function ensureGridRuntime() {
             if (typeof gridjs !== 'undefined') return Promise.resolve();
-            if (gridRuntime) return gridRuntime;
-            gridRuntime = new Promise(function(resolve, reject) {
-                var link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.href = '__SGT_GRID_CSS_URL__';
-                document.head.appendChild(link);
-                var script = document.createElement('script');
-                script.src = '__SGT_GRID_JS_URL__';
-                script.onload = resolve;
-                script.onerror = function() { reject(new Error('Grid runtime failed to load')); };
-                document.head.appendChild(script);
-            });
-            return gridRuntime;
+            return Promise.reject(new Error('Grid runtime is unavailable'));
         }
 
         function initGrids() {

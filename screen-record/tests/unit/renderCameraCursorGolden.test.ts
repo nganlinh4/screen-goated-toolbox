@@ -20,6 +20,7 @@ import type {
   VideoSegment,
   ZoomBlock,
 } from "@/types/video";
+import { getVideoPlacementRect } from "@/lib/videoGeometry";
 
 // The TS preview is the CANONICAL source of the render math. This test proves
 // the committed cross-language golden was produced by the current TS code; the
@@ -45,10 +46,22 @@ describe("render-camera-cursor golden (TS canonical side)", () => {
       it(`reproduces case "${c.name}"`, () => {
         const seg = fixtureSegmentToTs(c.segment);
         for (const s of c.samples) {
-          const state = calculateCurrentZoomStateInternal(s.t, seg, c.view, c.view);
+          const g = c.geometry;
+          const state = calculateCurrentZoomStateInternal(s.t, seg, g?.viewW ?? c.view,
+            g?.viewH ?? c.view, g?.srcCropW, g?.srcCropH, g?.scale);
           expect(state.zoomFactor).toBeCloseToAbs(s.zoom, TOL);
           expect(state.positionX).toBeCloseToAbs(s.posX, TOL);
           expect(state.positionY).toBeCloseToAbs(s.posY, TOL);
+          if (s.bounds) {
+            const rect = getVideoPlacementRect(g.viewW, g.viewH, g.srcCropW, g.srcCropH, g.scale);
+            const bounds = [
+              (1 - state.zoomFactor) * state.positionX + state.zoomFactor * rect.left / g.viewW,
+              (1 - state.zoomFactor) * state.positionY + state.zoomFactor * rect.top / g.viewH,
+              state.zoomFactor * rect.width / g.viewW,
+              state.zoomFactor * rect.height / g.viewH,
+            ];
+            bounds.forEach((value, i) => expect(value).toBeCloseToAbs(s.bounds[i], TOL));
+          }
         }
       });
     }

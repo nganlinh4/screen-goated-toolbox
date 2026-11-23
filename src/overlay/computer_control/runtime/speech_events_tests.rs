@@ -33,29 +33,47 @@ fn playback_echo_onset_does_not_open_a_fresh_input_epoch() {
     let mut tracker = UserAudioTracker::default();
     let mut transcript = InputTranscriptAssembler::default();
     assert!(transcript.merge("committed request").unwrap().starts_turn);
-    if tracker.update_for_local_epoch(true, 0.5, 960, true) {
+    if tracker
+        .update_for_local_epoch(
+            true,
+            0.5,
+            960,
+            true,
+            super::super::input_activity::LocalInputPhase::Collecting,
+        )
+        .begin_epoch
+    {
         transcript.begin_epoch();
     }
     assert!(!transcript.merge("speaker echo").unwrap().starts_turn);
 }
 
 #[test]
-fn non_playback_voiced_onset_opens_a_fresh_input_epoch() {
+fn non_playback_voiced_onset_keeps_an_open_input_epoch() {
     let mut tracker = UserAudioTracker::default();
     let mut transcript = InputTranscriptAssembler::default();
     assert!(transcript.merge("committed request").unwrap().starts_turn);
-    if tracker.update_for_local_epoch(true, 0.5, 960, false) {
+    if tracker
+        .update_for_local_epoch(
+            true,
+            0.5,
+            960,
+            false,
+            super::super::input_activity::LocalInputPhase::Collecting,
+        )
+        .begin_epoch
+    {
         transcript.begin_epoch();
     }
     let next = transcript.merge("new request").unwrap();
-    assert!(next.starts_turn);
-    assert_eq!(next.text, "new request");
+    assert!(!next.starts_turn);
+    assert_eq!(next.text, "committed request new request");
 }
 
 #[test]
 fn typed_output_transcript_is_never_content_filtered() {
     let mut state = Reader::default();
-    transcript(&mut state, "{\"spoken\":true}", None);
+    transcript(&mut state, "{\"spoken\":true}");
     assert_eq!(state.reply, "{\"spoken\":true}");
     assert_eq!(state.reasoning, state.reply);
     assert_eq!(state.reply_utterance_id, state.assistant_utterance_id);
@@ -64,7 +82,7 @@ fn typed_output_transcript_is_never_content_filtered() {
 #[test]
 fn barge_in_keeps_caption_correlated_to_the_interrupted_utterance() {
     let mut state = Reader::default();
-    transcript(&mut state, "partial reply", None);
+    transcript(&mut state, "partial reply");
     let owner = state.assistant_utterance_id;
     super::interrupted(&mut state, None);
     assert!(state.assistant_utterance_id.is_none());
@@ -176,4 +194,25 @@ fn input_transcript_starts_new_turn_only_when_lifecycle_opens_an_epoch() {
     assert!(!transcript.merge("second").unwrap().starts_turn);
     transcript.begin_epoch();
     assert!(transcript.merge("new turn").unwrap().starts_turn);
+}
+
+#[test]
+fn transcript_overlap_counts_characters_and_preserves_cumulative_revisions() {
+    for (initial, incoming, expected) in [
+        ("prefix abc", "abcdef", "prefix abcdef"),
+        ("abc", "cde", "abc cde"),
+        ("prefix 🌒🌓🌔", "🌒🌓🌔 suffix", "prefix 🌒🌓🌔 suffix"),
+        ("prefix 🌒", "🌒 suffix", "prefix 🌒 🌒 suffix"),
+        ("prefix 🌒🌓", "🌒🌓 suffix", "prefix 🌒🌓 🌒🌓 suffix"),
+        ("cumulative request", "cumulative", "cumulative request"),
+        ("first", "second", "first second"),
+    ] {
+        let mut assembler = InputTranscriptAssembler::default();
+        assembler.merge(initial).unwrap();
+        let epoch = assembler.epoch();
+        let update = assembler.merge(incoming).unwrap();
+        assert_eq!(update.text, expected);
+        assert!(!update.starts_turn);
+        assert_eq!(assembler.epoch(), epoch);
+    }
 }

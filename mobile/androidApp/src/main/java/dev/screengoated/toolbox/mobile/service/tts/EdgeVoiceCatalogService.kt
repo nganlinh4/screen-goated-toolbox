@@ -69,10 +69,6 @@ class EdgeVoiceCatalogService(
         }
     }
 
-    fun voicesForLanguage(languageCode: String): List<EdgeVoice> {
-        return state.value.byLanguage[languageCode.lowercase()] ?: emptyList()
-    }
-
     private fun CachedEdgeVoiceCatalog.toState(): EdgeVoiceCatalogState {
         val byLanguage = voices
             .groupBy { it.locale.substringBefore('-').lowercase() }

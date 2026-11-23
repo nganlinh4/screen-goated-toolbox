@@ -6,6 +6,7 @@ use sgt_computer_control_protocol::{
     McpCatalogPlan, McpCatalogRequest, McpNormalizedTool, McpQuarantinedTool,
 };
 
+mod decl_name;
 mod schema;
 
 pub(super) fn normalize(request: McpCatalogRequest) -> Result<McpCatalogPlan> {
@@ -36,7 +37,7 @@ pub(super) fn normalize(request: McpCatalogRequest) -> Result<McpCatalogPlan> {
                     continue;
                 }
             };
-            let name = schema::unique_decl_name(&integration.id, &tool.name, &mut seen);
+            let name = decl_name::unique_decl_name(&integration.id, &tool.name, &mut seen);
             normalized.push(McpNormalizedTool {
                 integration_index,
                 tool_index,

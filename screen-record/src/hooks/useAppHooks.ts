@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@/lib/ipc';
 import { useSettings } from '@/hooks/useSettings';
 import { sortMonitorsByPosition } from '@/utils/helpers';
@@ -21,33 +21,6 @@ export interface Hotkey {
   code: number;
   name: string;
   modifiers: number;
-}
-
-export interface WindowInfo {
-  id: string;
-  title: string;
-  processName: string;
-  isAdmin: boolean;
-  iconDataUrl?: string | null;
-  previewDataUrl?: string | null;
-}
-
-// ============================================================================
-// useThrottle
-// ============================================================================
-export function useThrottle<Args extends unknown[]>(
-  callback: (...args: Args) => void,
-  limit: number,
-) {
-  const lastRunRef = useRef<number>(0);
-
-  return useCallback((...args: Args) => {
-    const now = Date.now();
-    if (now - lastRunRef.current >= limit) {
-      callback(...args);
-      lastRunRef.current = now;
-    }
-  }, [callback, limit]);
 }
 
 // ============================================================================
@@ -147,25 +120,4 @@ export function useMonitors() {
   }, [t]);
 
   return { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors };
-}
-
-// ============================================================================
-// useWindows
-// ============================================================================
-export function useWindows() {
-  const [windows, setWindows] = useState<WindowInfo[]>([]);
-  const [showWindowSelect, setShowWindowSelect] = useState(false);
-
-  const getWindows = useCallback(async () => {
-    try {
-      const wins = await invoke<WindowInfo[]>('get_windows');
-      setWindows(wins);
-      return wins;
-    } catch (err) {
-      notifyUserError('windowLoadFailed', err);
-      return [];
-    }
-  }, []);
-
-  return { windows, showWindowSelect, setShowWindowSelect, getWindows };
 }

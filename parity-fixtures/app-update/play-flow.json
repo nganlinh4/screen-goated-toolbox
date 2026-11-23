@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"accepted","returned":true,"throws":false,"accepted":true},
+    {"name":"declined","returned":false,"throws":false,"accepted":false},
+    {"name":"failed","returned":false,"throws":true,"accepted":false}
+  ]
+}

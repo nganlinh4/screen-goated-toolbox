@@ -58,11 +58,17 @@ internal class PhoneControlSessionPayloadQueue(
 
     fun next(): PhoneControlQueuedPayload? = synchronized(lock) { queued.peekFirst() }
 
-    fun markSent(payload: PhoneControlQueuedPayload) = synchronized(lock) {
-        val head = queued.peekFirst() ?: error("no session payload is pending")
-        check(head === payload) { "only the FIFO head can be acknowledged" }
+    /**
+     * Acknowledges the head returned by [next]. Another thread may discard or
+     * clear that head while it is on the wire; then nothing is removed and the
+     * call returns false instead of failing the sender.
+     */
+    fun markSent(payload: PhoneControlQueuedPayload): Boolean = synchronized(lock) {
+        val head = queued.peekFirst()
+        if (head !== payload) return@synchronized false
         queued.removeFirst()
         queuedUtf8Bytes -= head.utf8Bytes
+        true
     }
 
     fun prepareReconnect(resumptionHandle: String?): Boolean = synchronized(lock) {

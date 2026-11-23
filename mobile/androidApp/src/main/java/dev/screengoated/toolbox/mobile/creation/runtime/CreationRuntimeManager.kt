@@ -65,7 +65,7 @@ internal fun isCompatibleCreationRuntimeManifest(
     val capabilities = parseCreationRuntimeCapabilities(value) ?: return false
     if (expected != null) {
         if (capabilities.runtimeVersion != expected.runtimeVersion ||
-            capabilities.features != expected.features
+            !capabilities.features.containsAll(expected.features)
         ) return false
     }
     return true
@@ -100,7 +100,7 @@ private fun parseCreationRuntimeCapabilities(value: String): CreationRuntimeCapa
             require(feature.isNotEmpty() && add(feature))
         }
     }
-    require(features == CREATION_RUNTIME_FEATURES)
+    require(features.containsAll(CREATION_RUNTIME_FEATURES))
     val tools = requireNotNull(manifest.optJSONObject("tools"))
     require(tools.keys().asSequence().toSet() == setOf(IMAGE_TO_3D_TOOL))
     val threeD = requireNotNull(tools.optJSONObject(IMAGE_TO_3D_TOOL))
@@ -136,4 +136,4 @@ private const val GENERATION_MODES = "generationModes"
 private const val OPTIONAL_INSTRUCTION = "optionalInstruction"
 private val CREATION_GENERATION_MODES = setOf("fast", "quality")
 private val CREATION_RUNTIME_FEATURES =
-    setOf("image_to_3d", "image_to_svg", "image_creator")
+    setOf("image_to_3d", "image_to_svg")

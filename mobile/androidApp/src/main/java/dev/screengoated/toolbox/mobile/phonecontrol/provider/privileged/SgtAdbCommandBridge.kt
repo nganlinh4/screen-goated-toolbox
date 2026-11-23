@@ -2,8 +2,10 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
 import android.content.Context
 import android.os.Build
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,7 @@ internal data class SgtAdbBridgeProbe(
 internal enum class SgtAdbBridgeCondition {
     READY,
     API_UNSUPPORTED,
+    PEER_AUTHENTICATION_UNAVAILABLE,
     NOT_PAIRED,
     CONNECTING,
     WIRELESS_DEBUGGING_UNAVAILABLE,
@@ -66,6 +69,7 @@ internal object SgtAdbCommandBridge {
     private var reconnectGeneration = 0L
 
     fun probe(context: Context): SgtAdbBridgeProbe {
+        if (!SgtAdbPeerTrust.isAvailable()) return unavailableProbe(context)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return SgtAdbBridgeProbe(
                 CapabilityState.UNSUPPORTED,
@@ -90,11 +94,13 @@ internal object SgtAdbCommandBridge {
         SgtAdbPairingStore.isPaired(context) && SgtAdbKeyStore.exists()
 
     fun requestReconnect(context: Context) {
+        if (!SgtAdbPeerTrust.isAvailable()) return
         reconnectRequest(context.applicationContext)
     }
 
     suspend fun reconnect(context: Context): SgtAdbBridgeProbe =
-        reconnectRequest(context.applicationContext).await()
+        if (!SgtAdbPeerTrust.isAvailable()) unavailableProbe(context)
+        else reconnectRequest(context.applicationContext).await()
 
     suspend fun awaitReady(context: Context): SgtAdbBridgeProbe {
         val current = probe(context)
@@ -137,6 +143,7 @@ internal object SgtAdbCommandBridge {
         context: Context,
         pairingCode: CharArray,
     ): SgtAdbBridgeProbe = pairingMutex.withLock {
+        if (!SgtAdbPeerTrust.isAvailable()) return@withLock unavailableProbe(context)
         var remote: IPhoneControlAdbService? = null
         var dispatched = false
         try {
@@ -168,7 +175,18 @@ internal object SgtAdbCommandBridge {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean = true,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult {
+        if (!SgtAdbPeerTrust.isAvailable()) {
+            val guidance = unavailableProbe(context).requiredUserStep
+            return PrivilegedCommandResult.Failure(
+                code = "peer_authentication_unavailable",
+                message = guidance.orEmpty(),
+                state = CapabilityState.UNSUPPORTED,
+                providerGuidance = guidance,
+                effectMayHaveOccurred = false,
+            )
+        }
         val service = try {
             awaitRemote(context)
         } catch (cancelled: CancellationException) {
@@ -204,24 +222,27 @@ internal object SgtAdbCommandBridge {
             cancellation.close()
             throw CancellationException()
         }
+        var dispatchStarted = false
         return try {
-            if (!effectLease.tryReserveDispatch(effectMayChangeUserState)) {
-                throw CancellationException()
-            }
-            val raw = withContext(Dispatchers.IO) {
-                service.runCommand(
+            runSgtAdbDispatch(
+                dispatcher = Dispatchers.IO,
+                beforeDispatch = beforeDispatch,
+                reserve = { effectLease.tryReserveDispatch(effectMayChangeUserState) },
+            ) {
+                dispatchStarted = true
+                val raw = service.runCommand(
                     operationId,
                     program,
                     args.toTypedArray(),
                     cwd,
                     timeoutMs,
                 )
+                json.parseToJsonElement(raw).jsonObject
             }
-            PrivilegedCommandResult.Success(json.parseToJsonElement(raw).jsonObject)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            bridgeFailure(error, effectMayChangeUserState)
+            bridgeFailure(error, dispatchStarted && effectMayChangeUserState)
         } finally {
             effectLease.close()
             cancellation.close()
@@ -230,6 +251,13 @@ internal object SgtAdbCommandBridge {
 
     suspend fun openBrowserTunnel(context: Context): BrowserTunnelResult =
         withContext(Dispatchers.IO) {
+            if (!SgtAdbPeerTrust.isAvailable()) {
+                return@withContext BrowserTunnelResult.Failure(
+                    state = CapabilityState.UNSUPPORTED,
+                    code = "peer_authentication_unavailable",
+                    requiredUserStep = unavailableProbe(context).requiredUserStep,
+                )
+            }
             try {
                 val raw = awaitRemote(context).openBrowserTunnel(CONNECT_TIMEOUT_MS)
                 val guidance = parseProbe(raw).requiredUserStep ?: RECONNECT_GUIDANCE
@@ -303,6 +331,12 @@ internal object SgtAdbCommandBridge {
         cachedProbe.set(BRIDGE_UNAVAILABLE_PROBE)
     }
 
+    private fun unavailableProbe(context: Context) = SgtAdbBridgeProbe(
+        CapabilityState.UNSUPPORTED,
+        SgtAdbBridgeCondition.PEER_AUTHENTICATION_UNAVAILABLE,
+        requiredUserStep = context.uiLocalized().getString(R.string.phone_control_sgt_adb_unavailable),
+    )
+
     private fun persistPairingProbe(
         context: Context,
         parsed: SgtAdbBridgeProbe,
@@ -354,6 +388,7 @@ internal object SgtAdbCommandBridge {
         val code = data["code"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val condition = when (code) {
             "ready" -> SgtAdbBridgeCondition.READY
+            "peer_authentication_unavailable" -> SgtAdbBridgeCondition.PEER_AUTHENTICATION_UNAVAILABLE
             "wireless_debugging_unavailable",
             "pairing_endpoint_unavailable",
             "pairing_failed",
@@ -382,6 +417,7 @@ internal object SgtAdbCommandBridge {
             ?.takeIf(::isSgtAdbDeviceIdentity)
         val guidance = when (condition) {
             SgtAdbBridgeCondition.READY -> null
+            SgtAdbBridgeCondition.PEER_AUTHENTICATION_UNAVAILABLE -> null
             SgtAdbBridgeCondition.PAIRING_STATE_PERSIST_FAILED,
             SgtAdbBridgeCondition.AUTHORITY_VERIFICATION_FAILED,
             SgtAdbBridgeCondition.AUTHORIZATION_REJECTED,

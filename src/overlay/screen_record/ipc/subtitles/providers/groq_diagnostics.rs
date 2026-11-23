@@ -44,6 +44,13 @@ impl GroqTranscriptDiagnostics {
     }
 }
 
+/// The API model a suspicious chunk is retried with once, as the catalog's
+/// `quality_retry_model_id` for this Groq endpoint names it.
+pub(super) fn quality_retry_model(model_name: &str) -> Option<String> {
+    let retry_id = crate::model_config::generated_quality_retry_model_id("groq", model_name)?;
+    crate::model_config::get_model_by_id_with_custom(retry_id, &[]).map(|model| model.full_name)
+}
+
 fn finite_min(values: impl Iterator<Item = f64>) -> Option<f64> {
     values.filter(|value| value.is_finite()).reduce(f64::min)
 }
@@ -61,6 +68,15 @@ fn display_metric(value: Option<f64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turbo_chunks_retry_on_the_catalog_quality_model() {
+        assert_eq!(
+            quality_retry_model("whisper-large-v3-turbo").as_deref(),
+            Some("whisper-large-v3")
+        );
+        assert_eq!(quality_retry_model("whisper-large-v3"), None);
+    }
 
     #[test]
     fn retries_only_quality_failures_with_likely_speech() {

@@ -92,7 +92,7 @@ fn record_element(
         let attribute = attribute.map_err(|_| expansion_error())?;
         let key = String::from_utf8_lossy(attribute.key.as_ref()).to_ascii_lowercase();
         let value = attribute
-            .decode_and_unescape_value(decoder)
+            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, decoder)
             .map_err(|_| expansion_error())?;
         if key == "id" {
             id = Some(value.to_string());

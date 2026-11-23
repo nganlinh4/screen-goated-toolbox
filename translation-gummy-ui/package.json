@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "node --test ../ui-shared/drag-hold.test.ts src/*.test.ts",
     "dev": "vite",
     "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
     "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
@@ -11,6 +12,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   },

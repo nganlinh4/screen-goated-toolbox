@@ -160,3 +160,88 @@ fn signed_offer_removes_stale_nvidia_rows_without_touching_other_providers() {
             .all(|model| model.id != "nvidia-nemotron-3-super-120b-text")
     );
 }
+
+#[test]
+fn the_feed_in_use_is_reported_with_its_publication_time() {
+    let payload = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/model-feed/published-feed.json"
+    ));
+    let signature = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/model-feed/published-feed.json.sig"
+    ));
+    let feed = parse_verified(payload, signature).unwrap();
+    let line = feed_in_use_line(&feed);
+    assert!(line.contains("generated 2026-08-20T07:33:26Z"), "{line}");
+    assert!(line.starts_with("[Model feed] using nvidia feed"), "{line}");
+}
+
+fn feed_generated_at(generated_at: &str) -> AvailabilityFeed {
+    AvailabilityFeed {
+        schema_version: 3,
+        control_version: 1,
+        availability_gate_version: 1,
+        provider: "nvidia".to_string(),
+        generated_at: generated_at.to_string(),
+        models: Vec::new(),
+    }
+}
+
+fn instant(text: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+}
+
+#[test]
+fn a_feed_stops_steering_routing_once_publication_has_stopped() {
+    let feed = feed_generated_at("2026-10-18T00:00:00Z");
+    assert!(feed.is_current_at(instant("2026-10-18T02:00:00Z")));
+    assert!(feed.is_current_at(instant("2026-10-19T00:00:00Z")));
+    assert!(!feed.is_current_at(instant("2026-10-19T00:00:01Z")));
+    assert!(!feed_generated_at("not a time").is_current_at(instant("2026-10-18T00:00:00Z")));
+}
+
+#[test]
+fn an_unparseable_publication_time_rejects_the_whole_feed() {
+    let error = super::super::validate(&feed_generated_at("x")).expect_err("time must parse");
+    assert!(error.to_string().contains("RFC 3339"), "{error}");
+    assert!(super::super::validate(&feed_generated_at("2026-10-18T00:00:00Z")).is_ok());
+}
+
+#[test]
+fn refresh_refuses_an_expired_or_replayed_publication() {
+    let now = instant("2026-10-18T03:00:00Z");
+    let cached = feed_generated_at("2026-10-18T02:00:00Z");
+    let replay = feed_generated_at("2026-10-18T00:00:00Z");
+    let newer = feed_generated_at("2026-10-18T02:17:00Z");
+    let expired = feed_generated_at("2026-10-16T00:00:00Z");
+
+    assert!(accept_refresh(&replay, Some(&cached), now).is_err());
+    assert!(accept_refresh(&expired, None, now).is_err());
+    assert!(accept_refresh(&newer, Some(&cached), now).is_ok());
+    assert!(accept_refresh(&cached, Some(&cached), now).is_ok());
+    assert!(accept_refresh(&replay, None, now).is_ok());
+}
+
+#[test]
+fn discovery_is_projected_once_per_loaded_feed() {
+    let memo = DiscoveredMemo(std::sync::Mutex::new(None));
+    let mut published = feed_generated_at("2026-08-28T00:00:00Z");
+    published.models.push(crate::model_feed::FeedModel {
+        id: "nvidia/not-in-this-build".to_string(),
+        control: Some(super::super::FeedControl::Plain),
+        modality: Some("text".to_string()),
+        p50_ms: Some(900),
+        success_rate: 1.0,
+        runs: 24,
+    });
+    let feed = Arc::new(published.clone());
+    let first = memo.for_feed(&feed);
+    assert_eq!(first.len(), 1);
+    assert!(Arc::ptr_eq(&first, &memo.for_feed(&feed)));
+
+    let refreshed = Arc::new(published);
+    assert!(!Arc::ptr_eq(&first, &memo.for_feed(&refreshed)));
+}

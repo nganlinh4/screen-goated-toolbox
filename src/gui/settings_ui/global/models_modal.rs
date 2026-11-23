@@ -138,13 +138,9 @@ pub fn render_models_modal(
                         usage_stats,
                         text,
                         &config.ui_language,
-                        providers.groq,
-                        providers.gemini,
-                        providers.openrouter,
-                        providers.nvidia,
-                        providers.ollama,
+                        providers,
                         &config.custom_models,
-                        body_height,
+                        layout,
                     ),
                     ModelsTab::Custom => {
                         if render_custom_models_body(ui, config, text, body_height) {

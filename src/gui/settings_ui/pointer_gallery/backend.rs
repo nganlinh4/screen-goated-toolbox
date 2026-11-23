@@ -1,5 +1,4 @@
 use super::GalleryEvent;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,13 +7,16 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 mod catalog;
+mod cursor_backup;
+mod registry_values;
 mod scaled;
 mod sources;
 mod summary;
 mod system;
 pub(super) use catalog::CursorCollectionSpec;
 use catalog::collections as catalog_collections;
-use catalog::{CollectionSource, REGISTRY_FILE_MAP, REQUIRED_FILES, SCHEME_FILE_ORDER};
+use catalog::{CollectionSource, REGISTRY_FILE_MAP, REQUIRED_FILES};
+use cursor_backup::CursorBackup;
 use scaled::scaled_cursor_file_map_for_size;
 use sources::{preload_missing_from_github, preload_missing_from_rar, preload_missing_from_zip};
 use summary::invalidate_summary_cache;
@@ -29,13 +31,6 @@ pub(crate) struct PointerCollectionSummary {
     pub downloaded_bytes: u64,
 }
 
-#[derive(Serialize, Deserialize)]
-struct CursorBackup {
-    values: HashMap<String, String>,
-    #[serde(default)]
-    cursor_base_size: Option<u32>,
-}
-
 const CURSOR_BASE_SIZE_MIN: u32 = 16;
 const CURSOR_BASE_SIZE_MAX: u32 = 128;
 const CURSOR_BASE_SIZE_DEFAULT: u32 = 32;
@@ -43,7 +38,7 @@ const ACCESSIBILITY_CURSOR_SIZE_MIN: u32 = 1;
 const ACCESSIBILITY_CURSOR_SIZE_MAX: u32 = 15;
 
 fn cache_root() -> PathBuf {
-    crate::paths::app_local_data_dir().join("pointer-gallery")
+    crate::paths::app_runtime_local_data_dir().join("pointer-gallery")
 }
 
 fn backup_path() -> PathBuf {
@@ -55,25 +50,29 @@ fn downloading_ids() -> &'static Mutex<HashSet<String>> {
     IDS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn set_downloading(id: &str, downloading: bool) {
+/// Exclusive ownership of one collection's download folder; released on drop.
+struct DownloadClaim(&'static str);
+
+impl Drop for DownloadClaim {
+    fn drop(&mut self) {
+        downloading_ids().lock().unwrap().remove(self.0);
+        invalidate_summary_cache();
+    }
+}
+
+fn claim_download(id: &'static str) -> Option<DownloadClaim> {
     {
         let mut ids = downloading_ids().lock().unwrap();
-        if downloading {
-            ids.insert(id.to_string());
-        } else {
-            ids.remove(id);
+        if !ids.insert(id.to_string()) {
+            return None;
         }
     }
     invalidate_summary_cache();
+    Some(DownloadClaim(id))
 }
 
-fn start_downloading_if_idle(id: &str) -> bool {
-    let mut ids = downloading_ids().lock().unwrap();
-    if ids.contains(id) {
-        return false;
-    }
-    ids.insert(id.to_string());
-    true
+fn is_downloading(id: &str) -> bool {
+    downloading_ids().lock().unwrap().contains(id)
 }
 
 fn is_collection_complete(spec: CursorCollectionSpec, cache_root: &Path) -> bool {
@@ -104,49 +103,84 @@ pub(crate) fn pointer_collection_summary() -> PointerCollectionSummary {
     summary::pointer_collection_summary()
 }
 
+pub(crate) fn scan_downloaded_collections() -> std::io::Result<PointerCollectionSummary> {
+    summary::scan_downloaded_collections()
+}
+
+pub(crate) fn inspect_cursor_backup() -> std::io::Result<bool> {
+    summary::ensure_directory_or_missing(&cache_root())?;
+    match fs::symlink_metadata(backup_path()) {
+        Ok(meta) if meta.file_type().is_file() && !summary::is_reparse(&meta) => Ok(true),
+        Ok(_) => Err(std::io::Error::other("unsafe cursor backup")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) fn downloading_collection_count() -> usize {
+    downloading_ids().lock().unwrap().len()
+}
+
+/// Downloads every missing pack on one worker that Clean All can cancel and
+/// wait for, instead of one untracked thread per collection.
 pub(crate) fn start_download_all_missing() -> usize {
     let root = cache_root();
-    let mut started = 0usize;
-
-    for spec in catalog_collections().iter().copied() {
-        if is_collection_complete(spec, &root) {
-            continue;
-        }
-
-        if !start_downloading_if_idle(spec.id) {
-            continue;
-        }
-
-        let root_for_thread = root.clone();
-        thread::spawn(move || {
-            let (tx, _rx) = mpsc::channel();
-            let stop = AtomicBool::new(false);
-            let _ = preload_collection(spec, &root_for_thread, &tx, &stop);
-        });
-
-        started += 1;
+    let missing = catalog_collections()
+        .iter()
+        .copied()
+        .filter(|spec| !is_collection_complete(*spec, &root) && !is_downloading(spec.id))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return 0;
     }
-
+    let stop = new_stop_signal();
+    let Ok(activity) = crate::install_activity::register(stop.clone()) else {
+        return 0;
+    };
+    let started = missing.len();
+    thread::spawn(move || {
+        let _activity = activity;
+        let (tx, _rx) = mpsc::channel();
+        for spec in missing {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            let _ = preload_collection(spec, &root, &tx, &stop);
+        }
+    });
     started
 }
 
+/// Rendered previews live beside the packs and are derived from them.
+pub(super) const PREVIEW_CACHE_DIR: &str = ".preview-cache";
+
 pub(crate) fn delete_all_downloaded_collections() -> Result<usize, String> {
-    let root = cache_root();
-    let mut deleted = 0usize;
-
-    for spec in catalog_collections().iter().copied() {
-        let dir = spec.local_dir(&root);
-        if dir.exists() {
-            fs::remove_dir_all(&dir)
-                .map_err(|error| format!("Failed to delete '{}': {error}", dir.display()))?;
-            deleted += 1;
-        }
-    }
-
+    let deleted = delete_all_collections_in(&cache_root())?;
     if deleted > 0 {
         invalidate_summary_cache();
     }
+    Ok(deleted)
+}
 
+fn delete_all_collections_in(root: &Path) -> Result<usize, String> {
+    let mut deleted = 0usize;
+    for spec in catalog_collections().iter().copied() {
+        let mut removed = false;
+        for dir in [spec.local_dir(root), spec.legacy_dir(root)] {
+            if dir.exists() {
+                fs::remove_dir_all(&dir)
+                    .map_err(|error| format!("Failed to delete '{}': {error}", dir.display()))?;
+                removed = true;
+            }
+        }
+        deleted += usize::from(removed);
+    }
+    match fs::remove_dir_all(root.join(PREVIEW_CACHE_DIR)) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(format!("Failed to delete cursor previews: {error}"));
+        }
+        _ => {}
+    }
     Ok(deleted)
 }
 
@@ -165,6 +199,25 @@ pub(crate) fn delete_original_cursor_backup() -> Result<(), String> {
 
 pub(crate) fn has_original_cursor_backup() -> bool {
     backup_path().exists()
+}
+
+/// The scheme Windows reports as active, which survives app restarts and
+/// identifies a pack this gallery applied earlier.
+#[cfg(target_os = "windows")]
+pub(super) fn active_cursor_scheme() -> Option<String> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey("Control Panel\\Cursors")
+        .and_then(|key| key.get_value::<String, _>(""))
+        .ok()
+        .filter(|name| !name.is_empty())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn active_cursor_scheme() -> Option<String> {
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -211,7 +264,7 @@ pub(super) fn apply_cursor_base_size(_size: u32) -> Result<u32, String> {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
+pub(super) fn restore_original_cursor_backup() -> Result<(), String> {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
 
@@ -242,7 +295,7 @@ pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
+pub(super) fn restore_original_cursor_backup() -> Result<(), String> {
     Err("Cursor restore is only supported on Windows.".to_string())
 }
 
@@ -252,11 +305,18 @@ pub(super) fn preload_collection(
     tx: &Sender<GalleryEvent>,
     stop_signal: &AtomicBool,
 ) -> Result<HashMap<String, PathBuf>, String> {
-    set_downloading(spec.id, true);
-    let result = preload_collection_inner(spec, cache_root, tx, stop_signal);
-    set_downloading(spec.id, false);
-    invalidate_summary_cache();
-    result
+    // A worker that is still winding down owns the folder until it notices
+    // its stop signal; two writers would delete each other's temp files.
+    let _claim = loop {
+        if let Some(claim) = claim_download(spec.id) {
+            break claim;
+        }
+        if stop_signal.load(Ordering::Relaxed) {
+            return Ok(HashMap::new());
+        }
+        thread::sleep(std::time::Duration::from_millis(50));
+    };
+    preload_collection_inner(spec, cache_root, tx, stop_signal)
 }
 
 fn preload_collection_inner(
@@ -303,7 +363,7 @@ fn preload_collection_inner(
     });
 
     match spec.source {
-        CollectionSource::GithubApi(api_urls) => preload_missing_from_github(
+        CollectionSource::Github(source) => preload_missing_from_github(
             spec,
             &local_dir,
             tx,
@@ -311,9 +371,9 @@ fn preload_collection_inner(
             &mut files,
             &mut downloaded,
             total,
-            api_urls,
+            source,
         )?,
-        CollectionSource::ZipArchive { url, subdir } => preload_missing_from_zip(
+        CollectionSource::ZipArchive { url, subdir, pin } => preload_missing_from_zip(
             spec,
             &local_dir,
             tx,
@@ -323,8 +383,9 @@ fn preload_collection_inner(
             total,
             url,
             subdir,
+            pin,
         )?,
-        CollectionSource::RarArchive { url, subdir } => preload_missing_from_rar(
+        CollectionSource::RarArchive { url, subdir, pin } => preload_missing_from_rar(
             spec,
             &local_dir,
             tx,
@@ -334,6 +395,7 @@ fn preload_collection_inner(
             total,
             url,
             subdir,
+            pin,
         )?,
     }
 
@@ -405,10 +467,7 @@ fn backup_current_cursor_settings_if_needed() -> Result<(), String> {
         values,
         cursor_base_size: Some(read_cursor_base_size_from_registry(&cursors_key)),
     };
-    let bytes = serde_json::to_vec_pretty(&payload)
-        .map_err(|e| format!("Failed encoding backup: {}", e))?;
-    fs::write(&backup, bytes).map_err(|e| format!("Failed writing backup file: {}", e))?;
-    Ok(())
+    cursor_backup::write(&backup, &payload)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -442,18 +501,11 @@ pub(super) fn apply_downloaded_collection(
     let clamped_size = clamp_cursor_base_size(desired_cursor_base_size);
     let effective_files = scaled_cursor_file_map_for_size(files, clamped_size, live_preview_only);
 
-    for (value_name, file_name) in REGISTRY_FILE_MAP {
-        if live_preview_only && value_name != "Arrow" {
-            continue;
-        }
-        let Some(path) = effective_files
-            .get(file_name)
-            .or_else(|| files.get(file_name))
-        else {
-            return Err(format!("Cannot apply pack, missing file '{}'", file_name));
-        };
+    for (value_name, path) in
+        registry_values::cursor_values(files, &effective_files, live_preview_only)?
+    {
         cursors_key
-            .set_value(value_name, &to_registry_path(path))
+            .set_value(value_name, &path)
             .map_err(|e| format!("Failed writing '{}': {}", value_name, e))?;
     }
 
@@ -480,16 +532,7 @@ pub(super) fn apply_downloaded_collection(
     let (schemes_key, _) = hkcu
         .create_subkey("Control Panel\\Cursors\\Schemes")
         .map_err(|e| format!("Failed to open HKCU scheme key: {}", e))?;
-    let scheme_value = SCHEME_FILE_ORDER
-        .iter()
-        .map(|name| {
-            effective_files
-                .get(*name)
-                .map(|path| to_registry_path(path))
-                .ok_or_else(|| format!("Missing file '{}'", name))
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(",");
+    let scheme_value = registry_values::scheme_list(&effective_files)?;
     schemes_key
         .set_value(spec.scheme_name, &scheme_value)
         .map_err(|e| format!("Failed writing scheme list: {}", e))?;
@@ -504,6 +547,14 @@ pub(super) fn new_stop_signal() -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
 }
 
+/// Stops whichever worker owns `current` and gives the next worker its own
+/// flag, so resuming can never revive a predecessor that is still winding down.
+pub(super) fn replace_stop_signal(current: &mut Arc<AtomicBool>) -> Arc<AtomicBool> {
+    current.store(true, Ordering::Relaxed);
+    *current = new_stop_signal();
+    current.clone()
+}
+
 #[cfg(not(target_os = "windows"))]
 pub(super) fn apply_downloaded_collection(
     _spec: CursorCollectionSpec,
@@ -514,6 +565,5 @@ pub(super) fn apply_downloaded_collection(
     Err("Applying cursor packs is only supported on Windows.".to_string())
 }
 
-fn to_registry_path(path: &Path) -> String {
-    path.to_string_lossy().replace('/', "\\")
-}
+#[cfg(test)]
+mod download_gate_tests;

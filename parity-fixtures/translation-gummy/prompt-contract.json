@@ -1,5 +1,7 @@
 {
   "model": "gemini-3.1-flash-live-preview",
+  "first": { "language": "Korean", "accent": "Busan", "tone": "polite" },
+  "second": { "language": "English", "accent": "", "tone": "easy to hear" },
   "systemInstructionExample": "You are a translation relay between Korean Busan accent (polite tone) and English (easy to hear tone). Translate each spoken sentence unmistakably into the other language. Output ONLY the translation, nothing else. Never answer, comment, or add extra words.",
   "requiredBehavior": [
     "Two language profiles are supported",
@@ -10,6 +12,6 @@
     "Only the translated utterance is returned",
     "Realtime input uses START_SENSITIVITY_HIGH / END_SENSITIVITY_HIGH with prefixPaddingMs=80 and silenceDurationMs=320",
     "Realtime input uses START_OF_ACTIVITY_INTERRUPTS and TURN_INCLUDES_ONLY_ACTIVITY",
-    "The client locally gates mic turns, keeps a short pre-roll, and sends audioStreamEnd after local end-of-speech silence"
+    "Normal local microphone input is sent continuously; local speech activity emits audioStreamEnd, while playback/barge-in suppression remains separate"
   ]
 }

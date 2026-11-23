@@ -155,7 +155,7 @@ internal class GeminiTtsProvider(
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
         val startedAt = elapsedRealtime()
-        logTiming("▶ START request: '${request.text.take(30)}...'")
+        logTiming("▶ START request")
         val setupPayload = buildSetupPayload(request)
         val textPayload = buildTextPayload(request.text)
 
@@ -173,7 +173,7 @@ internal class GeminiTtsProvider(
             }
 
             val ready = try {
-                activateWhileCurrent(session, setupPayload, isStale)
+                activateWhileCurrent(session, setupPayload, request, isStale)
             } catch (error: GeminiLiveSessionException) {
                 session.close()
                 if (usingWarmSession && warmRetryAvailable && error.failure.isRetryableBeforeContent()) {
@@ -204,10 +204,14 @@ internal class GeminiTtsProvider(
             }
 
             val textSent = try {
-                ready.trySend(textPayload)
+                dispatchTtsPayload(request, isStale) { ready.trySend(textPayload) }
             } catch (error: Throwable) {
                 ready.close()
                 throw error
+            }
+            if (textSent == null) {
+                ready.close()
+                return
             }
             if (!textSent) {
                 ready.close()
@@ -244,10 +248,14 @@ internal class GeminiTtsProvider(
     private suspend fun activateWhileCurrent(
         session: GeminiLiveConnectedSession,
         setupPayload: String,
+        request: TtsRequest,
         isStale: () -> Boolean,
     ): GeminiLiveReadySession? = supervisorScope {
         val activation = async {
-            session.activate(setupPayload, SETUP_TIMEOUT_MS)
+            session.activate(setupPayload, SETUP_TIMEOUT_MS) { send ->
+                dispatchTtsPayload(request, isStale, send)
+                    ?: throw TtsSetupRetiredException()
+            }
         }
         while (!activation.isCompleted && !isStale()) {
             delay(STALE_POLL_MS)
@@ -256,7 +264,11 @@ internal class GeminiTtsProvider(
             activation.cancelAndJoin()
             null
         } else {
-            activation.await()
+            try {
+                activation.await()
+            } catch (cancelled: CancellationException) {
+                if (cancelled is TtsSetupRetiredException || isStale() || !request.canDispatch()) null else throw cancelled
+            }
         }
     }
 
@@ -290,7 +302,15 @@ internal class GeminiTtsProvider(
     ) {
         session.use {
             var firstAudioLogged = false
+            // Windows bounds a generation at 90 s after the text is sent; a socket
+            // that stays open without finishing the turn must not stall the queue.
+            val deadlineAt = textSentAt + GEMINI_TTS_GENERATION_TIMEOUT_MS
             while (!isStale()) {
+                if (elapsedRealtime() >= deadlineAt) {
+                    logTiming("  GENERATION TIMED OUT$warmLabel: ${elapsedRealtime() - startedAt}ms")
+                    sink.offer(ProviderAudioEvent.Error(GEMINI_TTS_TIMEOUT_MESSAGE))
+                    return
+                }
                 when (val result = session.receive(timeoutMs = 250L)) {
                     is GeminiLiveReceiveResult.Frame -> {
                         result.frame.audioParts.forEach { inlineData ->
@@ -397,9 +417,15 @@ internal class GeminiTtsProvider(
     private companion object {
         private const val SETUP_TIMEOUT_MS = 10_000L
         private const val STALE_POLL_MS = 50L
-        private const val WARM_SOCKET_MAX_AGE_MS = Long.MAX_VALUE
+        // Windows `WARM_SOCKET_MAX_AGE` (src/api/tts/worker/mod.rs).
+        private const val WARM_SOCKET_MAX_AGE_MS = 86_400_000L
     }
 }
+
+internal const val GEMINI_TTS_GENERATION_TIMEOUT_MS = 90_000L
+internal const val GEMINI_TTS_TIMEOUT_MESSAGE = "Gemini TTS generation timed out."
+
+private class TtsSetupRetiredException : CancellationException("TTS session retired")
 
 private fun GeminiLiveSessionFailure.isRetryableBeforeContent(): Boolean = when (this) {
     is GeminiLiveSessionFailure.Server -> retryable

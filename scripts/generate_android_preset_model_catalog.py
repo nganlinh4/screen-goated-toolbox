@@ -17,8 +17,6 @@ PROVIDER_MAP = {
     "gemini-live": "GEMINI_LIVE",
     "ollama": "OLLAMA",
     "qrserver": "QRSERVER",
-    "parakeet": "PARAKEET",
-    "moonshine": "MOONSHINE",
     "taalas": "TAALAS",
 }
 
@@ -262,6 +260,12 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
     defaults = manifest["defaults"]
     aliases = manifest["realtime_transcription_aliases"]
     realtime_options = manifest["realtime_transcription_options"]
+    engines = manifest["realtime_transcription_engines"]
+    on_device_selectors = [
+        selector
+        for selector, engine in engines.items()
+        if engine["on_device_engine"] is not None
+    ]
     live_translation_providers = manifest["live_translation_providers"]
     tts_gemini_models = manifest["tts_gemini_models"]
 
@@ -281,6 +285,13 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         "data class GeneratedRealtimeTranscriptionOption(",
         "    val id: String,",
         "    val label: String,",
+        ")",
+        "",
+        "/** Catalog-owned engine facts for one canonical realtime transcription selector. */",
+        "data class GeneratedRealtimeTranscriptionEngine(",
+        "    /** On-device engine family, or null for a cloud (network) selector. */",
+        "    val onDeviceEngine: String?,",
+        "    val platforms: Set<String>,",
         ")",
         "",
         "sealed interface GeneratedLiveThinkingConfig {",
@@ -304,8 +315,6 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         f"    const val TRANSCRIPTION_GEMINI_S2S = {kotlin_string(constants['gemini_live_s2s_model_id'])}",
         f"    const val TRANSCRIPTION_GEMINI_TRANSLATE = {kotlin_string(constants['gemini_live_translate_model_id'])}",
         f"    const val TRANSCRIPTION_GEMINI_TRANSCRIBE = {kotlin_string(constants['gemini_transcribe_model_id'])}",
-        '    const val TRANSCRIPTION_PARAKEET = "parakeet"',
-        '    const val TRANSCRIPTION_MOONSHINE = "moonshine-local"',
         f"    const val GEMINI_LIVE_API_MODEL_2_5 = {kotlin_string(constants['gemini_live_api_model_2_5'])}",
         f"    const val GEMINI_LIVE_API_MODEL_3_1 = {kotlin_string(constants['gemini_live_api_model_3_1'])}",
         f"    const val GEMINI_LIVE_TRANSLATE_API_MODEL = {kotlin_string(constants['gemini_live_translate_api_model'])}",
@@ -389,6 +398,23 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         [
             "    )",
             "",
+            "    fun realtimeTranscriptionEngine(canonicalId: String): GeneratedRealtimeTranscriptionEngine? =",
+            "        when (canonicalId) {",
+        ]
+    )
+    for selector, engine in engines.items():
+        on_device = engine["on_device_engine"]
+        platforms = ", ".join(kotlin_string(item) for item in engine["platforms"])
+        lines.append(
+            f"            {kotlin_string(selector)} -> GeneratedRealtimeTranscriptionEngine("
+            f"onDeviceEngine = {'null' if on_device is None else kotlin_string(on_device)}, "
+            f"platforms = setOf({platforms}))"
+        )
+    lines.extend(
+        [
+            "            else -> null",
+            "        }",
+            "",
             "    fun normalizeTranscriptionModelId(modelId: String): String {",
             "        return when (modelId) {",
         ]
@@ -405,23 +431,14 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
             "",
             "    fun defaultTranscriptionProvider(modelId: String = DEFAULT_TRANSCRIPTION_PROVIDER_ID): ProviderDescriptor {",
             "        return when (normalizeTranscriptionModelId(modelId)) {",
-            "            TRANSCRIPTION_PARAKEET -> ProviderDescriptor(",
-            "                id = TRANSCRIPTION_PARAKEET,",
-            '                model = "realtime_eou_120m-v1-onnx",',
-            "            )",
-            "",
-            "            TRANSCRIPTION_MOONSHINE,",
-            '            "moonshine-tiny-streaming",',
-            '            "moonshine-small-streaming",',
-            '            "moonshine-medium-streaming",',
-            '            "zipformer",',
-            "            -> ProviderDescriptor(",
-            "                id = modelId,",
-            '                model = modelId,',
-            "            )",
-            "",
         ]
     )
+    # On-device selectors carry no API model; the canonical selector is the model.
+    for selector in on_device_selectors:
+        lines.append(
+            f"            {kotlin_string(selector)} -> ProviderDescriptor("
+            f"id = {kotlin_string(selector)}, model = {kotlin_string(selector)})"
+        )
     for model in manifest["models"]:
         if model["provider"] == "gemini-live" and model["model_type"] == "Audio" and model["enabled"]:
             lines.extend([

@@ -1,10 +1,17 @@
 use super::state::*;
 use super::window::start_audio_thread;
 use crate::APP;
-use std::sync::atomic::Ordering;
+use crate::overlay::store_support::now_ms;
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+thread_local! {
+    static VISUAL_OWNER: RefCell<super::lifecycle::VisualOwner> = RefCell::default();
+}
+static NEXT_SHOW_TIMER: AtomicUsize = AtomicUsize::new(1_000);
 
 pub unsafe extern "system" fn recording_wnd_proc(
     hwnd: HWND,
@@ -22,21 +29,34 @@ pub unsafe extern "system" fn recording_wnd_proc(
                 push_visual_state();
                 LRESULT(0)
             }
-            WM_TIMER if wparam.0 == 2 || wparam.0 == 99 => {
+            WM_TIMER if wparam.0 >= 1_000 => {
                 let _ = KillTimer(Some(hwnd), wparam.0);
-                let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
+                let session = VISUAL_OWNER.with(|owner| owner.borrow_mut().take_timer(wparam.0));
+                if let Some(session) = session
+                    && is_current_recording_id(session)
+                {
+                    show_visual(hwnd);
+                }
                 LRESULT(0)
             }
             WM_APP_REAL_SHOW => {
-                show_visual(hwnd);
+                schedule_show(hwnd, wparam.0, 20);
                 LRESULT(0)
             }
             WM_APP_HIDE => {
-                hide_visual(hwnd);
+                if is_visual_owner(wparam.0) && is_current_recording_id(wparam.0) {
+                    hide_visual(hwnd);
+                }
                 LRESULT(0)
             }
             WM_APP_UPDATE_STATE => {
                 push_visual_state();
+                LRESULT(0)
+            }
+            WM_APP_SESSION_CLOSE => {
+                if is_visual_owner(wparam.0) && is_current_recording_id(wparam.0) {
+                    hide_visual(hwnd);
+                }
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -54,12 +74,17 @@ pub unsafe extern "system" fn recording_wnd_proc(
 }
 
 fn begin_session(hwnd: HWND, preset_idx: usize) {
-    AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
-    AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-    AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst);
-    AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst);
-    CURRENT_RMS.store(0, Ordering::Relaxed);
-    start_audio_thread(hwnd, preset_idx);
+    let Some(session) = start_audio_thread(hwnd, preset_idx) else {
+        crate::log_info!("[Recording] preset {preset_idx} no longer exists; show ignored");
+        return;
+    };
+    let previous = VISUAL_OWNER.with(|owner| owner.borrow_mut().begin(session));
+    unsafe {
+        let _ = KillTimer(Some(hwnd), 1);
+        if let Some(timer) = previous {
+            let _ = KillTimer(Some(hwnd), timer);
+        }
+    }
     RECORDING_STATE.store(2, Ordering::SeqCst);
 
     let (hidden, subtext) = {
@@ -79,10 +104,8 @@ fn begin_session(hwnd: HWND, preset_idx: usize) {
     if hidden {
         crate::overlay::status_compositor::recording_hide();
     } else {
-        crate::overlay::status_compositor::recording_prepare(recording_rect(), subtext);
-        unsafe {
-            let _ = SetTimer(Some(hwnd), 99, 500, None);
-        }
+        crate::overlay::status_compositor::recording_prepare(recording_rect(), subtext, session);
+        schedule_show(hwnd, session, 500);
     }
 }
 
@@ -98,17 +121,56 @@ fn show_visual(hwnd: HWND) {
 }
 
 fn hide_visual(hwnd: HWND) {
+    let timer = VISUAL_OWNER.with(|owner| {
+        let mut owner = owner.borrow_mut();
+        owner
+            .current()
+            .and_then(|session| owner.retire(session))
+            .flatten()
+    });
     unsafe {
         let _ = KillTimer(Some(hwnd), 1);
-        let _ = KillTimer(Some(hwnd), 2);
-        let _ = KillTimer(Some(hwnd), 99);
+        if let Some(timer) = timer {
+            let _ = KillTimer(Some(hwnd), timer);
+        }
     }
     crate::overlay::status_compositor::recording_hide();
     RECORDING_STATE.store(1, Ordering::SeqCst);
 }
 
+fn is_visual_owner(session: usize) -> bool {
+    VISUAL_OWNER.with(|owner| owner.borrow().current() == Some(session))
+}
+
+fn schedule_show(hwnd: HWND, session: usize, delay_ms: u32) {
+    if !is_current_recording_id(session) {
+        return;
+    }
+    let Ok(timer) = NEXT_SHOW_TIMER.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+        next.checked_add(1)
+    }) else {
+        return;
+    };
+    let hidden = CURRENT_RECORDING_HIDDEN.load(Ordering::SeqCst);
+    let previous = VISUAL_OWNER.with(|owner| owner.borrow_mut().schedule(session, timer, hidden));
+    let Some(previous) = previous else {
+        return;
+    };
+    unsafe {
+        if let Some(previous) = previous {
+            let _ = KillTimer(Some(hwnd), previous);
+        }
+        if SetTimer(Some(hwnd), timer, delay_ms, None) == 0 {
+            let session = VISUAL_OWNER.with(|owner| owner.borrow_mut().take_timer(timer));
+            if session.is_some_and(is_current_recording_id) {
+                show_visual(hwnd);
+            }
+        }
+    }
+}
+
 fn push_visual_state() {
-    let state = if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+    let state = if is_current_recording_stopped() {
         "processing"
     } else if AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst) {
         "paused"
@@ -131,12 +193,12 @@ fn push_visual_state() {
 }
 
 fn handle_close(hwnd: HWND) {
-    if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) || AUDIO_ABORT_SIGNAL.load(Ordering::SeqCst) {
-        hide_visual(hwnd);
-        return;
-    }
     let elapsed = now_ms().saturating_sub(LAST_SHOW_TIME.load(Ordering::SeqCst));
-    if elapsed >= 2_000 {
+    if super::lifecycle::manual_close_allowed(
+        is_current_recording_stopped(),
+        AUDIO_ABORT_SIGNAL.load(Ordering::SeqCst),
+        elapsed,
+    ) {
         hide_visual(hwnd);
     }
 }
@@ -157,13 +219,6 @@ fn recording_rect() -> crate::overlay::status_compositor::protocol::PhysicalRect
         rect.right - rect.left,
         rect.bottom - rect.top,
     )
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 pub unsafe extern "system" fn recording_hook_proc(

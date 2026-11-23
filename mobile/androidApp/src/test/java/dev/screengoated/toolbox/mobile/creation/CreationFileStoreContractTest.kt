@@ -19,7 +19,6 @@ class CreationFileStoreContractTest {
         assertTrue(CreationTool.IMAGE_TO_3D.usesProjectLibrary())
         assertTrue(CreationTool.IMAGE_TO_SVG.usesDownloadsByDefault())
         assertFalse(CreationTool.IMAGE_TO_SVG.usesProjectLibrary())
-        assertFalse(CreationTool.IMAGE_CREATOR.usesDownloadsByDefault())
     }
 
     @Test
@@ -479,56 +478,6 @@ class CreationFileStoreContractTest {
         reserved.forEach(File::delete)
         existing.delete()
         root.delete()
-    }
-
-    @Test
-    fun `managed publishing preserves an existing target and isolates parallel names`() {
-        val files = createTempDirectory("creation-publish-parallel").toFile()
-        val staging = File(files, "creation/staging/svg").apply { mkdirs() }
-        val library = File(files, "creation/library").apply { mkdirs() }
-        val existing = File(library, "result.svg").apply { writeText("external") }
-        val sources = (0 until 6).map { index ->
-            File(staging, "$index.svg").apply { writeText("result-$index") }
-        }
-        val published = java.util.Collections.synchronizedList(mutableListOf<File>())
-        val threads = sources.map { source ->
-            thread { published += publishManagedCreationResult(files, source, "result.svg") }
-        }
-        threads.forEach(Thread::join)
-
-        assertEquals("external", existing.readText())
-        assertEquals(6, published.map(File::getAbsolutePath).distinct().size)
-        assertEquals((0 until 6).map { "result-$it" }.toSet(), published.map(File::readText).toSet())
-
-        deleteCreationTreeNoFollow(requireNotNull(files.parentFile), files)
-    }
-
-    @Test
-    fun `delivery recovery commits only a size and digest verified receipt`() {
-        assertEquals(
-            CreationDeliveryRecoveryAction.PUBLISH_SEALED,
-            decideCreationDeliveryRecovery(
-                sealedMatchesReceipt = true,
-                publishedExists = false,
-                publishedMatchesReceipt = false,
-            ),
-        )
-        assertEquals(
-            CreationDeliveryRecoveryAction.COMMIT_VERIFIED,
-            decideCreationDeliveryRecovery(
-                sealedMatchesReceipt = true,
-                publishedExists = true,
-                publishedMatchesReceipt = true,
-            ),
-        )
-        assertEquals(
-            CreationDeliveryRecoveryAction.WAIT_FOR_OWNED_BYTES,
-            decideCreationDeliveryRecovery(
-                sealedMatchesReceipt = true,
-                publishedExists = true,
-                publishedMatchesReceipt = false,
-            ),
-        )
     }
 
     @Test

@@ -255,7 +255,7 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         );
 
         // Update bubble center in JS for correct collapse direction
-        let panel_w_css = (panel_w as f32 / scale) as i32;
+        let panel_w_css = physical_to_css(panel_w, scale);
         let bx = if side == "left" {
             bubble_size / 2
         } else {
@@ -421,8 +421,7 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
         });
 
         // Check if theme changed and inject new CSS if needed
-        let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
-        if last_dark != is_dark {
+        if panel_theme_changed(is_dark) {
             let new_css = generate_panel_css(is_dark);
             let escaped_css = escape_js(&new_css);
             PANEL_WEBVIEW.with(|wv| {
@@ -434,7 +433,6 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
                     let _ = webview.evaluate_script(&script);
                 }
             });
-            LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
         }
 
         let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
@@ -446,7 +444,7 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
         let bx = if side == "left" {
             bubble_size / 2
         } else {
-            (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
+            physical_to_css(panel_width_physical, scale) + (bubble_size / 2) + 4
         };
         let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
 
@@ -459,5 +457,21 @@ pub(super) unsafe fn refresh_panel_layout_and_content(
                 let _ = webview.evaluate_script(&script);
             }
         });
+    }
+}
+
+/// Converts a physical length to CSS pixels in floating point, so 125% and
+/// 150% scales are not truncated to 100%.
+fn physical_to_css(physical: i32, scale: f32) -> i32 {
+    (physical as f32 / scale).round() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fractional_scales_convert_panel_width_to_css_pixels() {
+        assert_eq!(super::physical_to_css(500, 1.25), 400);
+        assert_eq!(super::physical_to_css(450, 1.5), 300);
+        assert_eq!(super::physical_to_css(400, 1.0), 400);
     }
 }

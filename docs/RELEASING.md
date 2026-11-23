@@ -207,8 +207,8 @@ $packageCargoTarget = Join-Path $env:SGT_DEV_CACHE_ROOT "cargo\package"
 New-Item -ItemType Directory -Path $componentPackageRoot -Force | Out-Null
 ```
 
-For a release containing Image-to-3D, Image-to-SVG, or image creation/editing,
-build the separately tracked runtime first. Android consumes its platform
+For a release containing Image-to-3D or Image-to-SVG, build the separately
+tracked runtime first. Android consumes its platform
 runtime distributions directly; Windows packages that exact runtime together
 with the Creation interface as one product archive. Update either tracked
 contract only after remote read-back. Each capability is active only when its
@@ -224,9 +224,11 @@ Android host builds until every item is complete:
 2. Rebuild both Android creation-runtime distributions when their packaged
    bytes can change. Rebuild only the affected deterministic platform package.
 3. Regenerate the affected platform manifest and a combined delivery candidate.
-   The candidate must advertise exactly `image_to_3d`, `image_to_svg`, and
-   `image_creator`; its `hostVersion` must equal the root `Cargo.toml` package
+   The candidate advertises the shipped features `image_to_3d` and
+   `image_to_svg`; its `hostVersion` must equal the root `Cargo.toml` package
    version. Preserve the latest verified identity for an unaffected platform.
+   The host accepts a signed contract that carries additional feature entries,
+   so an older published contract keeps working.
 4. Upload every rebuilt runtime under a new, uniquely versioned asset name on
    the existing GitHub runtime-bundles release. Never replace or delete an asset
    referenced by a released host; older signed hosts must keep resolving the
@@ -239,8 +241,9 @@ Android host builds until every item is complete:
    Windows product at `component-delivery/windows/creation-v1.json`.
 
 Creation runtime source and its build procedure are maintained outside this
-repository. Follow that repository's release instructions; this public host
-accepts only the resulting reviewed, immutable delivery contract.
+repository. Follow that repository's release instructions; it runs the staging,
+packaging and publish steps below, and this public host accepts only the
+resulting reviewed, immutable delivery contract.
 
 ```powershell
 .\scripts\build-component-candidate.ps1 -Component creation -Stage
@@ -255,34 +258,6 @@ The same runtime version and feature handshake must feed Windows, Android Full,
 and Android Play. Tracked contracts are build inputs, so ordinary and canonical
 builds resolve identical immutable locations and integrity metadata. Missing or
 invalid delivery data is a compile-time failure, never a local fallback.
-
-### Mandatory Android native-ASR runtime checkpoint
-
-Android Full downloads ORT, Moonshine, and Sherpa on first use; Android Play
-delivers the same reviewed bytes in on-demand feature modules. Their shared
-authority is `parity-fixtures/phone-control/native-runtime-contract.json`.
-
-When any native runtime changes:
-
-1. Rebuild it from its pinned source contract. A reduced ORT build must also run
-   `mobile/scripts/smoke-ort-runtime.ps1` on a physical arm64 device and produce
-   the expected representative transcript before its archive can be adopted.
-2. Package deterministically, assign a new content-addressed runtime-bundles
-   asset name, and update the exact archive/member sizes and SHA-256 values plus
-   `downloadUrl`. Never overwrite the legacy fixed-name assets.
-3. Upload the new asset without `--clobber`, then verify the checked-in archives
-   and all remote identities:
-
-```powershell
-cd mobile
-.\gradlew.bat verifyNativeRuntimeArchives --console=plain
-cd ..
-py -3 .\scripts\verify_update_catalog_sources.py
-```
-
-Do not accept a successful native link as runtime evidence. The physical ORT
-smoke, ELF64/AArch64 export and dependency checks, 16 KB `PT_LOAD` alignment,
-deterministic archive identity, and remote read-back must all pass.
 
 Whenever mini-app, worker, runtime, or packaged frontend source changes, rerun
 that component's checkpoint below even if the host API did not change. Upload
@@ -407,45 +382,17 @@ payload and does not download one during startup. Each optional native feature
 ensures this component at first use and retains its lease for the full native or
 worker lifetime.
 
-### Mandatory Qwen3 CUDA runtime checkpoint
+### Mandatory ONNX/DirectML runtime checkpoint
 
-Qwen3 uses one small runtime/notices pack and two content-addressed libtorch
-packs, each below GitHub's per-asset limit. The selected runtime inventory and
-all required notices are exact files in the delivery manifest.
-
-```powershell
-.\scripts\build-qwen3-runtime-pack.ps1 `
-  -OutputDir (Join-Path $componentPackageRoot "sgt_qwen3_runtime")
-# Upload only the three new ZIPs listed in sgt_qwen3_runtime.packages.json.
-py -3 .\scripts\verify_qwen3_runtime_release.py `
-  --packages (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.packages.json") `
-  --output (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json")
-py -3 .\scripts\verify_tracked_delivery.py `
-  (Join-Path $componentPackageRoot "sgt_qwen3_runtime\sgt_qwen3_runtime.delivery.json") `
-  .\component-delivery\windows\qwen-runtime-v1.json
-```
-
-The verifier hashes the uploaded bytes before emitting host delivery data.
-Never replace either split libtorch pack, even when a newer host stops using it.
-The canonical host build always rebuilds the small runtime/notices pack and
-compares it with this reviewed contract. When the pinned libtorch source archive
-is present, it also reproduces both split packs; when it is absent, it validates
-the exact tracked asset and file inventory instead of downloading gigabytes of
-unchanged release inputs. Run the full command above whenever the selected
-libtorch version or inventory changes.
-
-### Mandatory local ASR checkpoint
-
-Local ASR ships a standalone x64 worker and a separate ONNX/DirectML runtime;
-the latter depends on the VC component. Build and package them explicitly, then
-upload only their new content-addressed ZIPs and read them back before building
-the host:
+The ONNX/DirectML runtime (contract `local-asr-v1.json`, kept under its
+historical name) is used by Screen Translate; it depends on the VC component.
+Build and package it explicitly, then upload only its new content-addressed ZIP
+and read it back before building the host:
 
 ```powershell
 .\scripts\build-local-asr-packs.ps1 `
-  -OutputDir (Join-Path $componentPackageRoot "sgt_local_asr") `
-  -CargoTargetDir $packageCargoTarget
-# Upload only the two new ZIPs listed in sgt_local_asr.packages.json.
+  -OutputDir (Join-Path $componentPackageRoot "sgt_local_asr")
+# Upload only the new ZIP listed in sgt_local_asr.packages.json.
 py -3 .\scripts\verify_local_asr_release.py `
   --packages (Join-Path $componentPackageRoot "sgt_local_asr\sgt_local_asr.packages.json") `
   --output (Join-Path $componentPackageRoot "sgt_local_asr\sgt_local_asr.delivery.json")
@@ -454,10 +401,10 @@ py -3 .\scripts\verify_tracked_delivery.py `
   .\component-delivery\windows\local-asr-v1.json
 ```
 
-`build.ps1` never builds or embeds these native packages. It downloads and
+`build.ps1` never builds or embeds this native package. It downloads and
 hashes every immutable asset named by the tracked delivery contract, then fails
 before compiling the host if the published bytes do not match. Rebuild the
-packages only when their source or inventory changes.
+package only when its inventory changes.
 
 ### Mandatory Screen Recorder checkpoint
 
@@ -532,12 +479,17 @@ After every referenced component checkpoint above is green:
 
 1. Increment `sequence` in
    `component-delivery/update-catalog-v1.sources.json`; a published sequence is
-   immutable and is never reused for different source bytes.
+   immutable and is never reused for different source bytes. Do this with the
+   tracked contract change itself, not at release: a downloaded catalog
+   overrides compiled contracts only at an equal or higher sequence.
 2. Set host compatibility bounds deliberately. A host outside the range rejects
-   the catalog and continues using its compiled delivery contracts.
+   the catalog and continues using its compiled delivery contracts. A component
+   that changes a host protocol must start at the first host version speaking
+   it, so released hosts keep their compatible component.
 3. Run `py -3 scripts/verify_update_catalog_sources.py`. It must read back every
    SGT-owned `sgt-runtime-bundles` asset and match its recorded size and GitHub
-   SHA-256 digest.
+   SHA-256 digest, and it rejects a sequence that is already published with
+   different contents or is older than the newest published one.
 4. Commit and push the reviewed sources, then run the
    `Publish component catalog` workflow. The signing key exists only as the
    repository secret `SGT_UPDATE_CATALOG_P256_PRIVATE_KEY_PEM_BASE64`.
@@ -567,7 +519,15 @@ Smoke-test the x64 artifact on suitable hardware. GitHub publishes the x64 artif
 
 ## 6. Build Android
 
-The release wrapper always builds the signed full-flavor APK. `-IncludeAab` also builds the Play AAB:
+The release wrapper always builds the signed full-flavor APK. `-IncludeAab` also builds the Play AAB
+through `:androidApp:verifyPlayReleaseCompliance`, so the AAB is copied only after the Play
+base-module gate passes. The wrapper takes `JAVA_HOME` from the environment and the SDK from
+`ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `sdk.dir` in `mobile/local.properties`, and stops with a
+clear error when they are missing.
+Signing passwords are not in tracked source: set `SGT_RELEASE_STORE_PASSWORD` and
+`SGT_RELEASE_KEY_PASSWORD`, or put `sgt.release.storePassword` / `sgt.release.keyPassword` in
+`~/.gradle/gradle.properties`. Without them the signed packaging tasks fail instead of emitting an
+unsigned artifact.
 
 ```powershell
 .\mobile\build-release.ps1 -IncludeAab

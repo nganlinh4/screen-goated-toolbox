@@ -147,6 +147,9 @@ internal class ResourceLaunchToolHandler(
         uri: Uri,
         packageName: String?,
     ): PhoneControlToolExecution {
+        if (isOwnContentAuthority(uri.authority, context.packageName)) {
+            return privateResourceRefusal(job)
+        }
         val mime = context.contentResolver.getType(uri) ?: BINARY_MIME
         return appResult(job, app.openResource(uri, mime, "content_uri", packageName))
     }
@@ -164,6 +167,9 @@ internal class ResourceLaunchToolHandler(
                 "invalid_arguments",
                 "The resource path could not be normalized.",
             )
+        }
+        if (canonical.isWithinAnyRoot(appPrivateStorageRoots(context))) {
+            return privateResourceRefusal(job)
         }
         if (canonical.exists()) {
             val ordinaryUri = ordinaryResourceUri(canonical)
@@ -285,6 +291,15 @@ internal class ResourceLaunchToolHandler(
             )
         }.getOrNull()
     }
+
+    private fun privateResourceRefusal(job: PhoneControlToolJobContext): PhoneControlToolExecution =
+        failure(
+            job,
+            APP_PROVIDER,
+            CapabilityState.READY,
+            "resource_permission_denied",
+            "SGT never shares its own private storage with another app.",
+        )
 
     private fun selectedElevatedProvider(): PrivilegedCommandProvider? {
         val selected = PhoneControlPowerPreferences.current(context)?.elevatedProviderId

@@ -15,22 +15,22 @@ class CreationDispatchQueueTest {
         repeat(10) { index ->
             assertTrue(
                 queue.offer(
-                    CreationPendingDispatch("job-$index", CreationTool.IMAGE_CREATOR),
+                    CreationPendingDispatch("job-$index", CreationTool.IMAGE_TO_SVG),
                 ),
             )
         }
 
-        assertEquals(10, queue.count(CreationTool.IMAGE_CREATOR))
+        assertEquals(10, queue.count(CreationTool.IMAGE_TO_SVG))
         assertEquals((0 until 10).map { "job-$it" }, queue.snapshot().map { it.jobId })
     }
 
     @Test
     fun `queue capacity is enforced per product tool`() {
         val queue = CreationDispatchQueue(maximumQueuedPerTool = 2)
-        assertTrue(queue.offer(CreationPendingDispatch("image-1", CreationTool.IMAGE_CREATOR)))
-        assertTrue(queue.offer(CreationPendingDispatch("image-2", CreationTool.IMAGE_CREATOR)))
-        assertFalse(queue.offer(CreationPendingDispatch("image-3", CreationTool.IMAGE_CREATOR)))
         assertTrue(queue.offer(CreationPendingDispatch("svg-1", CreationTool.IMAGE_TO_SVG)))
+        assertTrue(queue.offer(CreationPendingDispatch("svg-2", CreationTool.IMAGE_TO_SVG)))
+        assertFalse(queue.offer(CreationPendingDispatch("svg-3", CreationTool.IMAGE_TO_SVG)))
+        assertTrue(queue.offer(CreationPendingDispatch("3d-1", CreationTool.IMAGE_TO_3D)))
     }
 
     @Test
@@ -92,10 +92,10 @@ class CreationDispatchQueueTest {
 
     @Test
     fun `terminal rerun receives fresh job and dispatch identities`() {
-        val firstJob = newCreationJobId(CreationTool.IMAGE_CREATOR, 1_000, 1)
-        val firstDispatch = newCreationDispatchId(CreationTool.IMAGE_CREATOR, 1_000, 2)
-        val rerunJob = newCreationJobId(CreationTool.IMAGE_CREATOR, 1_000, 3)
-        val rerunDispatch = newCreationDispatchId(CreationTool.IMAGE_CREATOR, 1_000, 4)
+        val firstJob = newCreationJobId(CreationTool.IMAGE_TO_SVG, 1_000, 1)
+        val firstDispatch = newCreationDispatchId(CreationTool.IMAGE_TO_SVG, 1_000, 2)
+        val rerunJob = newCreationJobId(CreationTool.IMAGE_TO_SVG, 1_000, 3)
+        val rerunDispatch = newCreationDispatchId(CreationTool.IMAGE_TO_SVG, 1_000, 4)
 
         assertTrue(firstJob != rerunJob)
         assertTrue(firstDispatch != rerunDispatch)

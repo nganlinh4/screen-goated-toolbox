@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"statuses": [], "expected": "proven_no_effect"},
+    {"statuses": ["proven_no_effect"], "expected": "proven_no_effect"},
+    {"statuses": ["verified", "proven_no_effect"], "expected": "verified"},
+    {"statuses": ["verified", "verified"], "expected": "verified"},
+    {"statuses": ["verified", "may_have_occurred"], "expected": "may_have_occurred"},
+    {"statuses": ["may_have_occurred", "verified"], "expected": "may_have_occurred"},
+    {"statuses": ["verified", "unknown"], "expected": "may_have_occurred"},
+    {"statuses": ["verified", null], "expected": "may_have_occurred"},
+    {"statuses": ["unknown"], "expected": "may_have_occurred"},
+    {"statuses": ["unrecognized"], "expected": "may_have_occurred"}
+  ]
+}

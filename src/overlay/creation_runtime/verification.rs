@@ -1,6 +1,5 @@
 use super::{hide_command_window, process_query, shared_runtime_path};
 use serde_json::{Value, json};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -23,7 +22,7 @@ pub(crate) fn status() -> Value {
 }
 
 fn query(command_name: &str, timeout: Duration, generation: usize) -> Option<Value> {
-    let mut command = Command::new(shared_runtime_path()?);
+    let mut command = super::configured_command(shared_runtime_path()?).ok()?;
     command.args(["--parent-pid", &std::process::id().to_string()]);
     hide_command_window(&mut command);
     let input = format!(

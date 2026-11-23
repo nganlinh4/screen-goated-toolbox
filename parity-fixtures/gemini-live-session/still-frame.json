@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "maxLongEdge": 768,
+  "rounding": "nearest, at least 1",
+  "cases": [
+    { "name": "small_selection_is_never_shrunk", "input": [320, 60], "output": [320, 60] },
+    { "name": "one_pixel_is_unchanged", "input": [1, 1], "output": [1, 1] },
+    { "name": "half_pixel_rounds_up", "input": [1536, 61], "output": [768, 31] },
+    { "name": "at_budget_is_unchanged", "input": [768, 10], "output": [768, 10] },
+    { "name": "qhd_screen", "input": [2560, 1440], "output": [768, 432] },
+    { "name": "full_hd_screen", "input": [1920, 1080], "output": [768, 432] },
+    { "name": "portrait", "input": [1000, 3000], "output": [256, 768] },
+    { "name": "thin_strip_keeps_one_pixel", "input": [4000, 1], "output": [768, 1] }
+  ]
+}

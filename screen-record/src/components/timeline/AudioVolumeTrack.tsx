@@ -13,6 +13,8 @@ import {
 } from "./audioVolumeTrackGeometry";
 import { SoftAudioSegmentBlock } from "./SoftAudioSegmentBlock";
 import { useAdjustableLineTrack } from "./useAdjustableLineTrack";
+import { VOLUME_POINT_SCALE } from "./curvePointKeyboard";
+import { useSettings } from "@/hooks/useSettings";
 
 /**
  * Shared volume-curve track used by both the mic and device audio lanes.
@@ -32,6 +34,8 @@ export interface AudioVolumeTrackProps {
   geometry: VolumeTrackGeometry;
   rangePx: number;
   classNamePrefix: string;
+  /** Lane name used for accessible labels, for example "Mic". */
+  laneName: string;
   tone: string;
   colorVariable: string;
   /**
@@ -47,6 +51,7 @@ export interface AudioVolumeTrackProps {
   offsetSec?: number;
   beginBatch: () => void;
   commitBatch: () => void;
+  getPlayheadTime?: () => number;
 }
 
 export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
@@ -59,6 +64,7 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
   geometry,
   rangePx,
   classNamePrefix,
+  laneName,
   tone,
   colorVariable,
   hoveredRingClass,
@@ -66,7 +72,9 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
   offsetSec,
   beginBatch,
   commitBatch,
+  getPlayheadTime,
 }) => {
+  const { t } = useSettings();
   const {
     hoveredIdx,
     setHoveredIdx,
@@ -80,6 +88,7 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
     handlePointPointerDown,
     handleTrackPointerMove,
     setHoveredSegmentIndices,
+    getPointKeyProps,
   } = useAdjustableLineTrack<AudioGainPoint>({
     points,
     duration,
@@ -111,13 +120,12 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
     const clickX = e.clientX - rect.left;
     const time = (clickX / rect.width) * duration;
     e.stopPropagation();
-    handleTrackPointerDown(e, rect, time);
+    handleTrackPointerDown(e, e.currentTarget, time);
   };
 
   const onPointPointerDown = (e: React.PointerEvent, i: number) => {
     e.stopPropagation();
-    const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-    handlePointPointerDown(rect, e.clientX, e.clientY, i);
+    handlePointPointerDown(e.currentTarget.parentElement!, e.clientX, e.clientY, i);
   };
 
   const highlightedSegmentPath = getHighlightedVolumeSegmentPath({
@@ -137,6 +145,7 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
     return (
       <SoftAudioSegmentBlock
         classNamePrefix={classNamePrefix}
+        laneName={laneName}
         duration={duration}
         points={points}
         isAvailable={isAvailable}
@@ -145,6 +154,7 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
         onUpdatePoints={onUpdatePoints}
         beginBatch={beginBatch}
         commitBatch={commitBatch}
+        getPlayheadTime={getPlayheadTime}
       />
     );
   }
@@ -273,6 +283,7 @@ export const AudioVolumeTrack: React.FC<AudioVolumeTrackProps> = ({
               }}
               onMouseLeave={() => setHoveredIdx(null)}
               onPointerDown={(e) => onPointPointerDown(e, i)}
+              {...getPointKeyProps(i, `${t.timelineVolumePoint} ${i + 1}`, VOLUME_POINT_SCALE)}
             />
           ))}
         </div>

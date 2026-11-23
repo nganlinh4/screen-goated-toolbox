@@ -43,7 +43,8 @@ export function buildSubtitleSrt(
 
   return filtered
     .map((subtitle, index) => {
-      const text = subtitle.text.replace(/\r\n/g, '\n').trim();
+      // A blank line ends an SRT cue, so paragraph breaks collapse to line breaks.
+      const text = subtitle.text.replace(/\r\n?/g, '\n').trim().replace(/\n[ \t]*(?:\n[ \t]*)+/g, '\n');
       return `${index + 1}\n${formatSrtTime(subtitle.startTime)} --> ${formatSrtTime(subtitle.endTime)}\n${text}`;
     })
     .join('\n\n');
@@ -170,8 +171,9 @@ export function parseSubtitleVtt(
   const subtitles: SubtitleSegment[] = [];
   let index = 0;
 
+  // The header runs until the first blank line (title, Kind:, X-TIMESTAMP-MAP=...).
   if (lines[index]?.trim().replace(/^\uFEFF/, '').startsWith('WEBVTT')) {
-    index += 1;
+    index = skipVttBlock(lines, index + 1);
   }
 
   while (index < lines.length) {
@@ -189,7 +191,8 @@ export function parseSubtitleVtt(
     }
 
     let timingLine = lines[index].trim();
-    if (!timingLine.includes('-->') && index + 1 < lines.length) {
+    // A cue identifier sits directly above its timing line, never across a blank line.
+    if (!timingLine.includes('-->') && lines[index + 1]?.trim()) {
       index += 1;
       timingLine = lines[index].trim();
     }
@@ -302,11 +305,12 @@ export function importSubtitleFileIntoSegment(
 
 
 function formatSrtTime(totalSeconds: number): string {
-  const clamped = Math.max(0, totalSeconds);
-  const hours = Math.floor(clamped / 3600);
-  const minutes = Math.floor((clamped % 3600) / 60);
-  const seconds = Math.floor(clamped % 60);
-  const milliseconds = Math.round((clamped - Math.floor(clamped)) * 1000);
+  // Round once on the whole value so 2.9996 s carries into 00:00:03,000.
+  const totalMs = Math.round(Math.max(0, totalSeconds) * 1000);
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const seconds = Math.floor((totalMs % 60_000) / 1000);
+  const milliseconds = totalMs % 1000;
   return [
     hours.toString().padStart(2, '0'),
     minutes.toString().padStart(2, '0'),
@@ -376,13 +380,18 @@ function stripSubtitleMarkup(text: string): string {
   return text
     .replace(/<\d{1,2}:\d{2}:\d{2}\.\d{1,3}>/g, '')
     .replace(/<\/?[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+    // One pass, so an escaped reference such as &amp;lt; decodes to &lt;, not <.
+    .replace(/&(nbsp|amp|lt|gt|quot|#39);/g, (_, name: string) => SUBTITLE_ENTITIES[name]);
 }
+
+const SUBTITLE_ENTITIES: Record<string, string> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+};
 
 function clampTime(value: number, duration: number): number {
   if (duration <= 0) return Math.max(0, value);
@@ -392,4 +401,19 @@ function clampTime(value: number, duration: number): number {
 function sanitizeFileStem(fileStem: string): string {
   const normalized = fileStem.trim().replace(/[\\/:*?"<>|]+/g, '-');
   return normalized || 'subtitles';
+}
+
+/**
+ * Decodes a subtitle file the way the host file reader does: subtitle tools
+ * often write UTF-16 with a BOM, which Blob.text() would read as UTF-8 garbage.
+ * A BOM is stripped; BOM-less text is UTF-8 with invalid bytes replaced.
+ */
+export async function readSubtitleFileText(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe
+    ? 'utf-16le'
+    : bytes[0] === 0xfe && bytes[1] === 0xff
+      ? 'utf-16be'
+      : 'utf-8';
+  return new TextDecoder(encoding).decode(bytes);
 }

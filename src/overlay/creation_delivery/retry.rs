@@ -1,3 +1,4 @@
+use crate::overlay::store_support::now_ms;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -11,19 +12,22 @@ pub(crate) fn schedule_reconciliation(product: &str) {
     if super::validate_product(product).is_err() {
         return;
     }
-    let has_pending = super::DELIVERY_LOCK
-        .lock()
+    let has_pending = crate::overlay::creation_lifecycle::try_acquire_delivery()
         .map_err(|_| ())
-        .and_then(|_guard| {
-            super::load_store(&super::journal_path())
-                .map(|store| {
-                    store.entries.iter().any(|entry| entry.product == product)
-                        || store
-                            .cancellations
-                            .iter()
-                            .any(|entry| entry.product == product)
-                })
-                .map_err(|_| ())
+        .and_then(|guard| {
+            if let Some(_guard) = guard {
+                super::load_store(&super::journal_path())
+                    .map(|store| {
+                        store.entries.iter().any(|entry| entry.product == product)
+                            || store
+                                .cancellations
+                                .iter()
+                                .any(|entry| entry.product == product)
+                    })
+                    .map_err(|_| ())
+            } else {
+                Ok(true)
+            }
         })
         .unwrap_or(true);
     if !has_pending {
@@ -88,15 +92,6 @@ pub(super) fn retry_start_delay_ms(now: u64, not_before: u64) -> u64 {
 
 fn retry_owner_should_restart(has_pending: bool) -> bool {
     has_pending
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

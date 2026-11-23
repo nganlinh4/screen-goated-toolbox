@@ -16,6 +16,8 @@ use tungstenite::Message;
 
 use super::server_frame::{LiveServerFrame, parse_server_frame};
 #[cfg(not(feature = "recorder-worker"))]
+use super::transport::connect_websocket_cancellable;
+#[cfg(all(test, not(feature = "recorder-worker")))]
 use super::transport::connect_websocket_to;
 use super::transport::{LiveSocket, connect_websocket, is_transient_socket_read_error};
 
@@ -133,9 +135,18 @@ impl ConnectedLiveSocket {
         Ok(Self::from_socket(connect_websocket(api_key)?))
     }
 
-    /// Connect to an alternate Gemini Live endpoint, primarily for protocol
-    /// probes and endpoint-version testing.
+    /// Connect to the canonical endpoint, abandoning the bounded connection
+    /// setup as soon as `cancelled` turns true. Host-only: the recorder worker never connects this way.
     #[cfg(not(feature = "recorder-worker"))]
+    pub fn connect_cancellable(api_key: &str, cancelled: &impl Fn() -> bool) -> Result<Self> {
+        Ok(Self::from_socket(connect_websocket_cancellable(
+            api_key, cancelled,
+        )?))
+    }
+
+    /// Connect to an alternate Gemini Live endpoint, for the test-only
+    /// protocol probes and endpoint-version checks.
+    #[cfg(all(test, not(feature = "recorder-worker")))]
     pub fn connect_to(base_url: &str, api_key: &str) -> Result<Self> {
         Ok(Self::from_socket(connect_websocket_to(base_url, api_key)?))
     }
@@ -146,9 +157,13 @@ impl ConnectedLiveSocket {
         Self { socket }
     }
 
+    pub(crate) fn shutdown_handle(&self) -> Result<std::net::TcpStream> {
+        Ok(self.socket.get_ref().get_ref().try_clone()?)
+    }
+
     /// Send setup and wait for its structural acknowledgment using default
-    /// timeouts and no cancellation source.
-    #[cfg(not(feature = "recorder-worker"))]
+    /// timeouts and no cancellation source (test-only probes).
+    #[cfg(all(test, not(feature = "recorder-worker")))]
     pub fn activate(self, setup: Value) -> Result<ReadyLiveSession> {
         self.activate_with(setup, OpenOptions::default(), || false)
     }
@@ -255,6 +270,10 @@ pub struct ReadyLiveSession {
 }
 
 impl ReadyLiveSession {
+    pub(crate) fn shutdown_handle(&self) -> Result<std::net::TcpStream> {
+        Ok(self.socket.get_ref().get_ref().try_clone()?)
+    }
+
     /// Send and flush one JSON protocol payload.
     pub fn send_json(&mut self, payload: &Value) -> Result<()> {
         ensure!(!self.closed, "Gemini Live session is closed");
@@ -292,7 +311,7 @@ impl ReadyLiveSession {
     }
 
     /// Inspect fixture-session wire frames without changing production parsing.
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "recorder-worker")))]
     pub fn poll_observed(&mut self, observe: impl FnMut(&str)) -> Result<LivePoll> {
         self.poll_with_observer(observe)
     }

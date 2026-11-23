@@ -36,6 +36,7 @@ pub(super) fn flush_audio(
     buffer: &Arc<Mutex<Vec<i16>>>,
     pending_audio: &mut Vec<i16>,
     input_turn: &mut LocalInputTurnState,
+    owner: &Arc<std::sync::atomic::AtomicBool>,
 ) -> anyhow::Result<()> {
     {
         let mut guard = buffer.lock().unwrap();
@@ -45,9 +46,14 @@ pub(super) fn flush_audio(
     }
 
     while pending_audio.len() >= CHUNK_SAMPLES {
+        if owner.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(());
+        }
         let chunk: Vec<i16> = pending_audio.drain(..CHUNK_SAMPLES).collect();
         let rms = calculate_rms(&chunk);
-        super::super::publish_audio_level(calculate_audio_level(&chunk));
+        if !super::publish_audio_owned(owner, calculate_audio_level(&chunk)) {
+            return Ok(());
+        }
         if input_turn.activity.observe(rms, Instant::now()) {
             if !input_turn.turn_active {
                 input_turn.turn_active = true;

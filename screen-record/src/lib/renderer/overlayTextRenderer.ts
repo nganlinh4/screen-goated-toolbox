@@ -96,14 +96,31 @@ function applyColorOpacity(color: string, opacity: number): string {
   return color;
 }
 
+// Intl.Segmenter is ES2022; the project's lib is ES2020, so type the one call used.
+type GraphemeSegmenter = { segment(text: string): Iterable<{ segment: string }> };
+const SegmenterConstructor = (Intl as unknown as {
+  Segmenter?: new (locale: undefined, options: { granularity: 'grapheme' }) => GraphemeSegmenter;
+}).Segmenter;
+const graphemeSegmenter = SegmenterConstructor
+  ? new SegmenterConstructor(undefined, { granularity: 'grapheme' })
+  : null;
+
+/** User-perceived characters; letter spacing must never split an emoji or a combining sequence. */
+function graphemes(text: string): string[] {
+  return graphemeSegmenter
+    ? Array.from(graphemeSegmenter.segment(text), (part) => part.segment)
+    : Array.from(text);
+}
+
 function measureTextLine(
   ctx: CanvasRenderingContext2D,
   line: string,
   letterSpacing: number,
 ): number {
   const baseWidth = ctx.measureText(line).width;
-  if (letterSpacing !== 0 && line.length > 1) {
-    return baseWidth + letterSpacing * (line.length - 1);
+  const characterCount = letterSpacing !== 0 ? graphemes(line).length : 0;
+  if (characterCount > 1) {
+    return baseWidth + letterSpacing * (characterCount - 1);
   }
   return baseWidth;
 }
@@ -116,7 +133,7 @@ function breakWordByWidth(
 ): string[] {
   const parts: string[] = [];
   let current = '';
-  for (const char of Array.from(word)) {
+  for (const char of graphemes(word)) {
     const next = current + char;
     if (current && measureTextLine(ctx, next, letterSpacing) > maxWidth) {
       parts.push(current);
@@ -384,8 +401,9 @@ export function drawTextOverlay(
       ctx.lineJoin = 'round';
       ctx.miterLimit = 2;
       ctx.lineWidth = style.stroke.width;
-      ctx.strokeStyle = applyColorOpacity(style.stroke.color, style.stroke.opacity);
-      if (letterSpacing !== 0 && line.length > 1) {
+      // Stroke opacity is already in globalAlpha; baking it into the colour too squared it.
+      ctx.strokeStyle = style.stroke.color;
+      if (letterSpacing !== 0 && graphemes(line).length > 1) {
         drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, layout.lineWidths[i], true);
       } else {
         ctx.textAlign = textAlign;
@@ -394,7 +412,7 @@ export function drawTextOverlay(
       ctx.globalAlpha = savedAlpha;
     }
 
-    if (letterSpacing !== 0 && line.length > 1) {
+    if (letterSpacing !== 0 && graphemes(line).length > 1) {
       ctx.fillStyle = style.color;
       drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, layout.lineWidths[i]);
     } else {
@@ -433,13 +451,13 @@ export function drawTextWithSpacing(
   }
 
   let cx = startX;
-  for (let i = 0; i < text.length; i++) {
+  for (const character of graphemes(text)) {
     if (strokeOnly) {
-      ctx.strokeText(text[i], cx, y);
+      ctx.strokeText(character, cx, y);
     } else {
-      ctx.fillText(text[i], cx, y);
+      ctx.fillText(character, cx, y);
     }
-    cx += ctx.measureText(text[i]).width + spacing;
+    cx += ctx.measureText(character).width + spacing;
   }
 }
 

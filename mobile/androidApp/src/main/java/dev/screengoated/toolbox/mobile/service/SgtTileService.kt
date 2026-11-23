@@ -9,6 +9,8 @@ import android.provider.Settings
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.MainActivity
 
 internal enum class BubbleTileAction {
     STOP,
@@ -32,10 +34,19 @@ class SgtTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        val container = (application as SgtMobileApplication).appContainerOrNull
+        if (container == null) {
+            updateState(Tile.STATE_INACTIVE)
+            launchRecovery()
+            return
+        }
         when (bubbleTileAction(BubbleService.isRunning, Settings.canDrawOverlays(this))) {
             BubbleTileAction.STOP -> {
                 Log.i(TAG, "tile_click action=stop")
-                stopService(Intent(this, BubbleService::class.java))
+                val store = container.audioPresetLaunchStore
+                store.stopCurrentOwnerThen {
+                    stopService(Intent(this, BubbleService::class.java))
+                }
                 updateState(Tile.STATE_INACTIVE)
             }
             BubbleTileAction.REQUEST_OVERLAY_PERMISSION -> {
@@ -78,6 +89,18 @@ class SgtTileService : TileService() {
         }
     }
 
+    private fun launchRecovery() {
+        val intent = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startActivityAndCollapse(
+                PendingIntent.getActivity(this, RECOVERY_REQUEST_CODE, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
+            )
+        } else {
+            startLegacyActivityAndCollapse(intent)
+        }
+    }
+
     @SuppressLint("StartActivityAndCollapseDeprecated")
     @Suppress("DEPRECATION")
     private fun startLegacyActivityAndCollapse(intent: Intent) {
@@ -92,6 +115,7 @@ class SgtTileService : TileService() {
     companion object {
         private const val TAG = "SgtTileService"
         private const val PERMISSION_REQUEST_CODE = 4201
+        private const val RECOVERY_REQUEST_CODE = 4202
 
         fun requestStateRefresh(context: android.content.Context) {
             TileService.requestListeningState(

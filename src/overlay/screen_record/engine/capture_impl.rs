@@ -160,79 +160,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             target_id_print
         );
 
-        SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
-        AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
-        MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-        WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-        let device_audio_source = if !flags.device_audio_enabled {
-            audio_engine::DeviceAudioCaptureSource::Disabled
-        } else if flags.device_audio_mode == "app" {
-            flags
-                .device_audio_app_pid
-                .map(audio_engine::DeviceAudioCaptureSource::SingleApp)
-                .unwrap_or(audio_engine::DeviceAudioCaptureSource::SystemOutput)
-        } else {
-            audio_engine::DeviceAudioCaptureSource::SystemOutput
-        };
-        let start = Instant::now();
-        audio_engine::record_audio(
-            audio_handle,
-            start,
-            SHOULD_STOP_AUDIO.clone(),
-            AUDIO_ENCODING_FINISHED.clone(),
-            device_audio_source,
-        );
-        if flags.mic_enabled {
-            MIC_AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
-            match audio_engine::record_mic_audio_sidecar(
-                mic_audio_path.to_string_lossy().to_string(),
-                start,
-                SHOULD_STOP_AUDIO.clone(),
-                MIC_AUDIO_ENCODING_FINISHED.clone(),
-                &MIC_AUDIO_START_OFFSET_MS,
-            ) {
-                Ok(()) => {
-                    *MIC_AUDIO_PATH.lock().unwrap() =
-                        Some(mic_audio_path.to_string_lossy().to_string());
-                }
-                Err(error) => {
-                    MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-                    *MIC_AUDIO_PATH.lock().unwrap() = None;
-                    eprintln!("[MicCapture] {}", error);
-                }
-            }
-        } else {
-            MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-            *MIC_AUDIO_PATH.lock().unwrap() = None;
-        }
-        if flags.webcam_enabled {
-            WEBCAM_ENCODING_FINISHED.store(false, Ordering::SeqCst);
-            match super::super::webcam_capture::record_webcam_video_sidecar(
-                webcam_video_path.to_string_lossy().to_string(),
-                start,
-                SHOULD_STOP_AUDIO.clone(),
-                WEBCAM_ENCODING_FINISHED.clone(),
-                &WEBCAM_VIDEO_START_OFFSET_MS,
-            ) {
-                Ok(()) => {
-                    *WEBCAM_VIDEO_PATH.lock().unwrap() =
-                        Some(webcam_video_path.to_string_lossy().to_string());
-                }
-                Err(error) => {
-                    WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-                    *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
-                    eprintln!("[WebcamCapture] {}", error);
-                }
-            }
-        } else {
-            WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-            *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
-        }
-
-        ENCODER_ACTIVE.store(true, Ordering::SeqCst);
-        ENCODING_FINISHED.store(false, Ordering::SeqCst);
-        let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
-
+        // Every fallible GPU step runs before any audio, mic, or webcam sidecar
+        // starts: an error past this point would leave them recording with no
+        // handler whose Drop could stop them.
         let is_window_capture = flags.target_type == "window";
         // Keep WGC callbacks light for both window and monitor capture. The
         // callback stages the newest frame into VRAM; a pump thread submits
@@ -296,6 +226,82 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         } else {
             None
         };
+        super::super::diagnostics::fail_capture_setup_if_armed().map_err(std::io::Error::other)?;
+        SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
+        AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+        WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+        let device_audio_source = if !flags.device_audio_enabled {
+            audio_engine::DeviceAudioCaptureSource::Disabled
+        } else if flags.device_audio_mode == "app" {
+            flags
+                .device_audio_app_pid
+                .map(audio_engine::DeviceAudioCaptureSource::SingleApp)
+                .unwrap_or(audio_engine::DeviceAudioCaptureSource::SystemOutput)
+        } else {
+            audio_engine::DeviceAudioCaptureSource::SystemOutput
+        };
+        let start = Instant::now();
+        // Keystrokes share the timeline that video, audio, and cursor use.
+        super::super::input_capture::set_timeline_origin(start);
+        audio_engine::record_audio(
+            audio_handle,
+            start,
+            SHOULD_STOP_AUDIO.clone(),
+            AUDIO_ENCODING_FINISHED.clone(),
+            device_audio_source,
+        );
+        if flags.mic_enabled {
+            MIC_AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+            match audio_engine::record_mic_audio_sidecar(
+                mic_audio_path.to_string_lossy().to_string(),
+                start,
+                SHOULD_STOP_AUDIO.clone(),
+                MIC_AUDIO_ENCODING_FINISHED.clone(),
+                &MIC_AUDIO_START_OFFSET_MS,
+            ) {
+                Ok(()) => {
+                    *MIC_AUDIO_PATH.lock().unwrap() =
+                        Some(mic_audio_path.to_string_lossy().to_string());
+                }
+                Err(error) => {
+                    MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+                    *MIC_AUDIO_PATH.lock().unwrap() = None;
+                    eprintln!("[MicCapture] {}", error);
+                }
+            }
+        } else {
+            MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            *MIC_AUDIO_PATH.lock().unwrap() = None;
+        }
+        if flags.webcam_enabled {
+            WEBCAM_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+            match super::super::webcam_capture::record_webcam_video_sidecar(
+                webcam_video_path.to_string_lossy().to_string(),
+                start,
+                SHOULD_STOP_AUDIO.clone(),
+                WEBCAM_ENCODING_FINISHED.clone(),
+                &WEBCAM_VIDEO_START_OFFSET_MS,
+            ) {
+                Ok(()) => {
+                    *WEBCAM_VIDEO_PATH.lock().unwrap() =
+                        Some(webcam_video_path.to_string_lossy().to_string());
+                }
+                Err(error) => {
+                    WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+                    *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
+                    eprintln!("[WebcamCapture] {}", error);
+                }
+            }
+        } else {
+            WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            *WEBCAM_VIDEO_PATH.lock().unwrap() = None;
+        }
+
+        ENCODER_ACTIVE.store(true, Ordering::SeqCst);
+        ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
+
         let pump_stop = Arc::new(AtomicBool::new(false));
         let pump_submitted = Arc::new(AtomicUsize::new(0));
         let pump_dropped = Arc::new(AtomicUsize::new(0));

@@ -2,15 +2,27 @@ use super::*;
 use std::sync::mpsc;
 
 #[test]
-fn connection_replacement_retires_an_open_final_response_to_idle() {
+fn connection_replacement_keeps_accepted_terminal_without_fabricating_speech() {
     let mut state = Reader::default();
     begin_final_response(&mut state, true);
-    assert!(retire_for_connection_replacement(&mut state));
-    assert!(!state.terminal_drain);
+    assert!(!retire_for_connection_replacement(&mut state));
+    assert!(state.terminal_drain);
+    assert!(state.terminal_accepted);
+    assert!(!state.terminal_final_response_delivered);
     assert!(!state.terminal_response.is_open());
     assert!(!state.active);
     assert!(!state.awaiting);
     assert!(!retire_for_connection_replacement(&mut state));
+}
+
+#[test]
+fn connection_replacement_retires_an_unaccepted_terminal_response() {
+    let mut state = Reader::default();
+    begin_final_response(&mut state, false);
+    assert!(retire_for_connection_replacement(&mut state));
+    assert!(!state.terminal_drain);
+    assert!(!state.active);
+    assert!(!state.awaiting);
 }
 
 #[test]
@@ -29,7 +41,8 @@ fn connection_replacement_preserves_an_already_delivered_completion_receipt() {
     assert!(state.terminal_drain);
     assert!(state.terminal_accepted);
     assert!(state.terminal_final_response_delivered);
-    assert!(super::super::scripted::has_accepted_completion(&state));
+    assert!(state.turn_summary_emitted);
+    assert_eq!(state.terminal_effectful_dropped_events, 0);
     assert!(!state.active);
     assert!(!state.awaiting);
 }
@@ -151,7 +164,6 @@ fn silent_action_boundary_closes_without_manufacturing_speech() {
     assert!(!state.terminal_final_response_delivered);
     assert!(state.reply.is_empty());
     assert!(state.history.is_empty());
-    assert!(!super::super::scripted::turn_outcome_acceptable(&state));
     assert_eq!(
         exec_rx.try_recv().expect("turn-retirement job queued").name,
         super::super::RETIRE_TURN

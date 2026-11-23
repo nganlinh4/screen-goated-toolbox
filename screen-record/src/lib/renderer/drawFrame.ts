@@ -177,6 +177,9 @@ export async function drawFrame(
     const zoomState = state.calculateCurrentZoomState(
       frameTime, renderSegment, canvas.width, canvas.height, srcW, srcH, scale,
     );
+    // Only the presented preview frame seeds preview drag/wheel edits; motion-blur
+    // sub-samples and export frames never overwrite it.
+    if (!isExportMode) state.recordPresentedZoomState(zoomState);
 
     // Supersample to keep zoom crisp
     const zf = zoomState?.zoomFactor ?? 1;

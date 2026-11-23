@@ -8,7 +8,7 @@
     "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
     "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
     "build": "tsc --noEmit && vite build",
-    "test": "node --test ../ui-shared/creation-history-order.test.ts src/async-asset-cache.test.ts src/explicit-submission.test.ts src/poll-presentation.test.ts src/queue-dispatch.test.ts src/settings-control.test.ts src/svg-asset-loader.test.ts src/svg-canvas-input.test.ts src/svg-display-policy.test.ts src/svg-security.test.ts",
+    "test": "node --test ../ui-shared/creation-history-order.test.ts ../ui-shared/creation-error-code.test.ts ../ui-shared/creation-poll-state.test.ts ../ui-shared/coalesced-task.test.ts src/*.test.ts",
     "preview": "vite preview"
   },
   "devDependencies": {

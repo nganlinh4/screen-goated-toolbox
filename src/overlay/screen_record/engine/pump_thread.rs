@@ -11,8 +11,8 @@ use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemIntero
 use windows_capture::{SendDirectX, encoder::VideoEncoder, monitor::Monitor};
 
 use super::types::{
-    AUDIO_ENCODING_FINISHED, DEFAULT_TARGET_FPS, ENCODING_FINISHED, MIC_AUDIO_ENCODING_FINISHED,
-    NO_READY_VRAM_FRAME, SHOULD_STOP, SHOULD_STOP_AUDIO, VramFrame,
+    AUDIO_ENCODING_FINISHED, DEFAULT_TARGET_FPS, ENCODING_FINISHED, FINALIZATION_ERROR,
+    MIC_AUDIO_ENCODING_FINISHED, NO_READY_VRAM_FRAME, SHOULD_STOP, SHOULD_STOP_AUDIO, VramFrame,
 };
 
 /// Resolve the capture dimensions for a window target, with multiple fallbacks.
@@ -155,6 +155,8 @@ pub(crate) fn spawn_frame_pump(
                 if let Some(enc) = encoder_shared.lock().take() {
                     if let Err(e) = enc.finish() {
                         eprintln!("pump thread video encoder finalize error: {}", e);
+                        *FINALIZATION_ERROR.lock() =
+                            Some(format!("Video finalization failed: {e}"));
                     }
                     ENCODING_FINISHED.store(true, Ordering::SeqCst);
                 }

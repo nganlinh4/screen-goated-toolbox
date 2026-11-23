@@ -1,3 +1,7 @@
+import { narrationProjectEpoch } from './narrationProjectOwnership';
+import { invalidateSubtitleSaveEditor } from './subtitleCompletedPersistence';
+import type { TimelineWriteOwner } from './timelineWriteOwner';
+import { audioSaveFailure, useAudioCompositionPersistence } from './useAudioCompositionPersistence';
 import {
   startTransition,
   useCallback,
@@ -28,8 +32,9 @@ import {
   applyLiveNarrationSegments,
   clearLiveNarrationSegments,
 } from "@/lib/liveNarrationStreamStore";
+import { preserveNarrationGroupEdits } from "@/lib/narrationGroupTakes";
+import { excludeDeletedNarrationTakes } from "@/lib/narrationBatchRetirements";
 import type { VideoController } from "@/lib/videoController";
-
 type CompositionSetter = (
   value:
     | ProjectComposition
@@ -95,58 +100,16 @@ export function useTimelineWorkspaceComposition({
   videoControllerRef,
   videoRef,
 }: TimelineWorkspaceCompositionOptions) {
-  const compositionPersistChainRef = useRef<Promise<void>>(Promise.resolve());
   const hasDeferredNarrationEditorFlushRef = useRef(false);
-
-  const applyCurrentComposition = useCallback(
-    (nextComposition: ProjectComposition, reason: string) => {
-      setComposition(nextComposition);
-
-      const projectId =
-        currentProjectIdRef.current ??
-        currentProjectDataRef.current?.id ??
-        currentProjectId ??
-        null;
-      if (!projectId) {
-        void logToHost(`[AudioImport][Frontend] skip composition persist reason="${reason}" no-project`);
-        return;
-      }
-
-      const writeIntent = projectManager.createEditorWriteIntent(projectId);
-      const persistTask = compositionPersistChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          await projectManager.updateProject(
-            projectId,
-            { composition: nextComposition },
-            writeIntent,
-          );
-        });
-      compositionPersistChainRef.current = persistTask;
-      void persistTask
-        .then(() => loadProjects())
-        .catch((error) => {
-          console.warn("[AudioImport] Failed to persist composition", error);
-          void logToHost(
-            `[AudioImport][Frontend] composition persist failed reason="${reason}" project="${projectId}" error="${String(error)}"`,
-          );
-        });
-    },
-    [
-      currentProjectDataRef,
-      currentProjectId,
-      currentProjectIdRef,
-      loadProjects,
-      setComposition,
-      setCurrentProjectData,
-    ],
-  );
+  const applyCurrentComposition = useAudioCompositionPersistence({
+    currentProjectDataRef, currentProjectId, currentProjectIdRef, loadProjects, setComposition,
+  });
 
   const updateCurrentMusicSegments = useCallback(
     (
       updater: (segments: ImportedAudioSegment[]) => ImportedAudioSegment[],
       reason: string,
-      options: { persist: boolean } = { persist: false },
+      options: { persist: boolean; owner?: TimelineWriteOwner } = { persist: false },
     ) => {
       const baseComposition = currentProjectDataRef.current?.composition ?? composition ?? null;
       if (!baseComposition) {
@@ -160,8 +123,7 @@ export function useTimelineWorkspaceComposition({
       };
 
       if (options.persist) {
-        applyCurrentComposition(nextComposition, reason);
-        return;
+        return applyCurrentComposition(nextComposition, reason, options.owner);
       }
 
       setCompositionSilently(nextComposition);
@@ -238,6 +200,18 @@ export function useTimelineWorkspaceComposition({
       segments: NarrationSegment[],
       replaceSubtitleIds: string[],
     ) => {
+      const projectId = currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? currentProjectId;
+      if (projectId) {
+        const accepted = excludeDeletedNarrationTakes(projectId, segments);
+        if (segments.length > 0 && accepted.length === 0) return;
+        if (accepted.length !== segments.length) {
+          const removed = new Set(segments.filter((item) => !accepted.includes(item))
+            .flatMap((item) => item.sourceSubtitleIds?.length ? item.sourceSubtitleIds : item.sourceSubtitleId ? [item.sourceSubtitleId] : []));
+          const kept = new Set(accepted.flatMap((item) => item.sourceSubtitleIds?.length ? item.sourceSubtitleIds : item.sourceSubtitleId ? [item.sourceSubtitleId] : []));
+          replaceSubtitleIds = replaceSubtitleIds.filter((id) => !removed.has(id) || kept.has(id));
+        }
+        segments = accepted;
+      }
       const wasPlaying = Boolean(videoRef.current && !videoRef.current.paused);
       const baseComposition =
         currentProjectDataRef.current?.composition ?? composition ?? null;
@@ -273,7 +247,7 @@ export function useTimelineWorkspaceComposition({
           if (sourceIds.length === 0) return true;
           return !sourceIds.some((id) => replaceSet.has(id));
         }),
-        ...segments,
+        ...preserveNarrationGroupEdits(baseComposition.narrationSegments ?? [], segments),
       ].sort((left, right) => left.startTime - right.startTime);
 
       let nextComposition: ProjectComposition = {
@@ -304,6 +278,9 @@ export function useTimelineWorkspaceComposition({
         ) ?? nextComposition;
       }
 
+      // This live path deliberately avoids a React state write while playing.
+      // Retire any transaction based on the previous project before replacing it.
+      invalidateSubtitleSaveEditor(currentProjectIdRef);
       currentProjectDataRef.current = currentProjectDataRef.current
         ? {
             ...currentProjectDataRef.current,
@@ -314,11 +291,6 @@ export function useTimelineWorkspaceComposition({
         : currentProjectDataRef.current;
 
       if (wasPlaying && (segments.length > 0 || replaceSubtitleIds.length > 0)) {
-        const projectId =
-          currentProjectIdRef.current ??
-          currentProjectDataRef.current?.id ??
-          currentProjectId ??
-          null;
         applyLiveNarrationSegments(projectId, segments, replaceSubtitleIds);
         hasDeferredNarrationEditorFlushRef.current = true;
         return;
@@ -404,26 +376,23 @@ export function useTimelineWorkspaceComposition({
       nextDuration: number,
       reason: string,
       rawVideoPath?: string,
+      owner?: TimelineWriteOwner,
     ) => {
-      setSegment(nextSegment);
-      setEditorPreviewDuration(nextDuration);
-      if (nextComposition) setComposition(nextComposition);
-      if (rawVideoPath !== undefined) {
-        handleEditorRawVideoPathChange(rawVideoPath);
-      }
-
-      const currentProject = currentProjectDataRef.current;
-      if (currentProject) {
-        const nextProject = {
-          ...currentProject,
-          composition: nextComposition ?? currentProject.composition,
-          duration: nextDuration,
-          rawVideoPath: rawVideoPath ?? currentProject.rawVideoPath,
-          segment: nextSegment,
-        };
-        currentProjectDataRef.current = nextProject;
-        setCurrentProjectData(nextProject);
-      }
+      if (owner && !owner.isCurrent()) throw new Error('The timeline changed while audio was importing');
+      const publish = () => {
+        setSegment(nextSegment);
+        setEditorPreviewDuration(nextDuration);
+        if (nextComposition) setComposition(nextComposition);
+        if (rawVideoPath !== undefined) handleEditorRawVideoPathChange(rawVideoPath);
+        const currentProject = currentProjectDataRef.current;
+        if (currentProject) {
+          const nextProject = { ...currentProject, composition: nextComposition ?? currentProject.composition,
+            duration: nextDuration, rawVideoPath: rawVideoPath ?? currentProject.rawVideoPath, segment: nextSegment };
+          currentProjectDataRef.current = nextProject;
+          setCurrentProjectData(nextProject);
+        }
+      };
+      if (!owner) publish();
 
       const projectId =
         currentProjectIdRef.current ??
@@ -437,7 +406,7 @@ export function useTimelineWorkspaceComposition({
 
       try {
         const writeIntent = projectManager.createEditorWriteIntent(projectId);
-        await projectManager.updateProject(
+        const applied = await projectManager.updateProject(
           projectId,
           {
             composition: nextComposition ?? undefined,
@@ -446,11 +415,22 @@ export function useTimelineWorkspaceComposition({
             ...(rawVideoPath !== undefined ? { rawVideoPath } : {}),
           },
           writeIntent,
+          owner?.isCurrent,
+          owner?.onInvalidated,
+          owner?.audioFence,
         );
-        await loadProjects();
+        if (!applied && owner) throw new Error(owner.isCurrent()
+          ? 'The timeline changed while audio was saving'
+          : 'The open project changed while audio was saving');
       } catch (error) {
         console.warn(`[TimelineDuration] persist failed reason="${reason}"`, error);
+        if (owner) throw audioSaveFailure(error);
+        return false;
       }
+      if (owner && !owner.isCurrent()) return false;
+      if (owner) publish();
+      await loadProjects().catch((error) => console.warn(`[TimelineDuration] refresh failed reason="${reason}"`, error));
+      return true;
     },
     [
       currentProjectDataRef,
@@ -467,6 +447,11 @@ export function useTimelineWorkspaceComposition({
 
   const updatePlaceholderProjectDuration = useCallback(
     async (requestedDuration: number, reason: string) => {
+      const ownerId = currentProjectIdRef.current;
+      const ownerEpoch = narrationProjectEpoch(currentProjectIdRef);
+      const isCurrent = () => ownerId !== null && currentProjectIdRef.current === ownerId
+        && narrationProjectEpoch(currentProjectIdRef) === ownerEpoch;
+      if (!isCurrent()) return;
       const currentSegment = segmentRef.current;
       if (!currentSegment) return;
       const currentComposition =
@@ -489,6 +474,7 @@ export function useTimelineWorkspaceComposition({
           nextDuration,
           "placeholder-project-duration",
         );
+        if (!isCurrent()) return;
         nextRawVideoPath = placeholder.path;
         nextSegment = { ...nextSegment, mediaMode: undefined };
         nextComposition = {
@@ -519,19 +505,23 @@ export function useTimelineWorkspaceComposition({
         reason,
         nextRawVideoPath,
       );
+      if (!isCurrent()) return;
       if (nextRawVideoPath) {
         const mediaUrl = await getMediaServerUrl(nextRawVideoPath);
+        if (!isCurrent()) return;
         const loadedUrl = await videoControllerRef.current?.loadVideo({
           videoUrl: mediaUrl,
           initialTime: Math.min(currentTime, nextDuration),
           debugLabel: "placeholder-project-duration",
         });
+        if (!isCurrent()) return;
         setCurrentVideo(loadedUrl ?? mediaUrl);
       }
     },
     [
       composition,
       currentProjectDataRef,
+      currentProjectIdRef,
       currentTime,
       persistTimelineWorkspaceState,
       segmentRef,

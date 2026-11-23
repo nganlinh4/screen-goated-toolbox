@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PreparedResourceMutation
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidFileProvider
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
@@ -14,6 +15,7 @@ internal class StructuralEditToolCoordinator(
     private val resourceAuthorization: PhoneControlResourceAuthorizer,
 ) {
     suspend fun execute(
+        job: PhoneControlToolJobContext,
         args: JsonObject,
         request: ExactEditRequest,
     ): AndroidProviderResult {
@@ -27,11 +29,11 @@ internal class StructuralEditToolCoordinator(
         if (preflight is AndroidProviderResult.Failure) return preflight
 
         val preflightData = (preflight as AndroidProviderResult.Success).data
-        return executeResourceScopedMutation(
+        return files.withTarget(request.path) { target -> executeResourceScopedMutation(
             tool = "edit_text_file_structure",
-            arguments = args,
+            prepared = PreparedResourceMutation("edit_text_file_structure", target),
             authorizer = resourceAuthorization,
-        ) { targetLease ->
+        ) { stillAuthorized ->
             val decision = structuralAuthorization.evaluate(args, preflightData)
             if (!decision.authorized) {
                 AndroidProviderResult.Failure(
@@ -45,18 +47,19 @@ internal class StructuralEditToolCoordinator(
                 )
             } else {
                 files.commitStructuralAfterAuthorization(
-                    request.path,
+                    target,
                     request.expectedSha256,
                     request.replacements,
                     checkNotNull(token) {
                         "A successful structural preflight must attest its supplied token"
                     },
-                    targetLease,
+                    job.effectOwner,
+                    stillAuthorized,
                 ).withMutationEvidence(
                     "request_contract_authorization",
                     decision.data,
                 )
             }
-        }
+        } }
     }
 }

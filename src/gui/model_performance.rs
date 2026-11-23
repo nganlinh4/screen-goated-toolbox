@@ -26,11 +26,11 @@ pub fn format_latency_ms(milliseconds: Option<u32>) -> String {
     }
 }
 
-pub fn render_prefix(ui: &mut egui::Ui, model: &ModelConfig) {
+pub fn render_prefix(ui: &mut egui::Ui, model: &ModelConfig, ui_language: &str) {
     let source = model
         .performance_source
         .as_deref()
-        .unwrap_or("Performance not measured");
+        .unwrap_or_else(|| not_measured(ui_language));
     render_prefix_values(
         ui,
         model.intelligence_tier,
@@ -39,8 +39,14 @@ pub fn render_prefix(ui: &mut egui::Ui, model: &ModelConfig) {
     );
 }
 
-pub fn render_unknown_prefix(ui: &mut egui::Ui) {
-    render_prefix_values(ui, None, None, "Performance not measured");
+pub fn render_unknown_prefix(ui: &mut egui::Ui, ui_language: &str) {
+    render_prefix_values(ui, None, None, not_measured(ui_language));
+}
+
+fn not_measured(ui_language: &str) -> &'static str {
+    crate::gui::locale::LocaleText::get(ui_language)
+        .model_catalog
+        .performance_not_measured
 }
 
 fn render_prefix_values(
@@ -125,6 +131,13 @@ mod tests {
             );
         }
         assert_eq!(format_latency_ms(None), "—");
+    }
+
+    #[test]
+    fn an_unmeasured_model_is_described_in_the_ui_language() {
+        assert_eq!(super::not_measured("en"), "Performance not measured");
+        assert_ne!(super::not_measured("ko"), super::not_measured("en"));
+        assert_ne!(super::not_measured("vi"), super::not_measured("en"));
     }
 
     #[test]

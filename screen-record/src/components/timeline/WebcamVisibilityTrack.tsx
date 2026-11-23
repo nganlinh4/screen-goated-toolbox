@@ -7,6 +7,8 @@ import {
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
 import { useTrackRangeSelect } from './useTrackRangeSelect';
+import { useSettings } from '@/hooks/useSettings';
+import { rangeLaneKeys, type TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 
 interface WebcamVisibilityTrackProps {
   segment: VideoSegment;
@@ -18,6 +20,7 @@ interface WebcamVisibilityTrackProps {
     type: "start" | "end" | "body",
     offset?: number,
   ) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddWebcamSegment?: (atTime?: number) => void;
   onDeleteWebcamSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
@@ -31,12 +34,14 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
   isAvailable,
   onWebcamClick,
   onHandleDragStart,
+  keyboardEdits,
   onAddWebcamSegment,
   onDeleteWebcamSegments,
   onSelectionChange,
   clearSignal,
   onEmptyClick,
 }) => {
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: "split"; x: number; time: number; seg: CursorVisibilitySegment }
     | { type: "add"; x: number }
@@ -50,7 +55,7 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
 
   const {
     selectedIds, rangeSelect, trackRef, isDraggingRange,
-    onSegmentPointerDown,
+    onSegmentPointerDown, addSegmentSelection,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
   } = useTrackRangeSelect(
     segments,
@@ -87,6 +92,12 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
     setHoverState({ type: "add", x });
   };
 
+  const segmentKeys = rangeLaneKeys({
+    lane: 'webcam', name: t.trackWebcam, startLabel: t.timelineSegmentStart, endLabel: t.timelineSegmentEnd,
+    duration: safeDuration, keyboardEdits, selectedIds, onSelect: (id) => addSegmentSelection(id),
+    onDelete: onDeleteWebcamSegments, onSplit: onWebcamClick, onAdd: onAddWebcamSegment,
+  });
+
   const rangeLeft = rangeSelect ? Math.min(rangeSelect.startX, rangeSelect.endX) : 0;
   const rangeWidth = rangeSelect ? Math.abs(rangeSelect.endX - rangeSelect.startX) : 0;
 
@@ -102,9 +113,12 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
-      {segments.map((segmentRange) => (
+      {segments.map((segmentRange, segIndex) => {
+        const keys = segmentKeys(segmentRange, segIndex);
+        return (
         <div
           key={segmentRange.id}
+          {...keys.body}
           onPointerDown={(e) => {
             e.stopPropagation();
             onSegmentPointerDown();
@@ -124,16 +138,19 @@ export const WebcamVisibilityTrack: React.FC<WebcamVisibilityTrackProps> = ({
           <div className="webcam-visibility-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
             <span className="webcam-visibility-segment-icon text-[10px] text-[var(--timeline-webcam-color)] truncate">●</span>
           </div>
-          <div className="webcam-visibility-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="webcam-visibility-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.start}
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "start"); }}>
             <div className="webcam-visibility-handle-bar timeline-handle-pill" />
           </div>
-          <div className="webcam-visibility-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="webcam-visibility-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.end}
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(segmentRange.id, "end"); }}>
             <div className="webcam-visibility-handle-bar timeline-handle-pill" />
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {rangeSelect && rangeWidth > 2 && (
         <div className="webcam-range-select timeline-range-select absolute pointer-events-none z-5"

@@ -48,29 +48,15 @@ def extract_concat_includes(source_file: Path, marker: str) -> str:
     return "".join(read(source_file.parent / path) for path in paths)
 
 
-def extract_quoted_strings(source: str, marker: str, count: int) -> list[str]:
-    marker_index = source.find(marker)
-    if marker_index < 0:
-        raise ValueError(f"Missing marker: {marker}")
-    values = re.findall(r'"([^"]*)"', source[marker_index:])[:count]
-    if len(values) != count:
-        raise ValueError(f"Missing quoted strings for: {marker}")
-    return values
-
-
 def extract_match_arm_asset(source_file: Path, arm_name: str) -> str:
+    """Read an icon arm by snake_case name: `"close" =>` or enum `Self::Close =>`."""
     source = read(source_file)
-    pattern = re.compile(
-        rf'"{re.escape(arm_name)}"\s*=>\s*\{{\s*r(#+)"(.*?)"\1\s*\}}',
-        re.DOTALL,
-    )
-    match = pattern.search(source)
+    variant = "".join(part.capitalize() for part in arm_name.split("_"))
+    arm = rf'(?:"{re.escape(arm_name)}"|Self::{re.escape(variant)})\s*=>\s*'
+    match = re.search(arm + r'\{\s*r(#+)"(.*?)"\1\s*\}', source, re.DOTALL)
     if match is not None:
         return match.group(2)
-    include = re.search(
-        rf'"{re.escape(arm_name)}"\s*=>\s*include_str!\("([^"]+)"\)',
-        source,
-    )
+    include = re.search(arm + r'include_str!\("([^"]+)"\)', source)
     if include is not None:
         return read(source_file.parent / include.group(1))
     raise ValueError(f"Missing string asset match arm: {arm_name}")
@@ -79,6 +65,10 @@ def extract_match_arm_asset(source_file: Path, arm_name: str) -> str:
 def generate(args: argparse.Namespace) -> None:
     output = args.output / "preset_overlay"
     output.mkdir(parents=True, exist_ok=True)
+    if getattr(args, "text_input_source", None):
+        from preset_overlay_text_input import generate as generate_text_input
+        generate_text_input(args.text_input_source, output, extract_raw_string,
+                            lambda name: extract_match_arm_asset(args.icons_source, name), write)
     selection_source = getattr(args, "selection_source", None)
     if selection_source:
         selection = extract_raw_string(read(selection_source), "pub fn get_html(")
@@ -120,17 +110,21 @@ def generate(args: argparse.Namespace) -> None:
     )
 
     grid_source = read(args.grid_source)
-    grid_css_url, grid_js_url = extract_quoted_strings(
-        grid_source,
-        "pub fn get_lib_urls() -> (&'static str, &'static str) {",
-        2,
+    lib_js = grid_source.split("pub fn get_lib_js()", 1)[1].split("pub fn get_lib_css()", 1)[0]
+    js_includes = re.findall(r'include_str!\("([^"]+)"\)', lib_js)
+    css_includes = re.findall(
+        r'include_str!\("([^"]+)"\)', grid_source.split("pub fn get_lib_css()", 1)[1]
     )
+    if len(js_includes) != 3 or len(css_includes) != 1:
+        raise ValueError("Unexpected canonical Grid.js library definition")
+    licenses = "\n".join(read(args.grid_source.parent / path) for path in js_includes[:2])
+    js = read(args.grid_source.parent / js_includes[2])
+    css = read(args.grid_source.parent / css_includes[0])
+    write(output / "windows_gridjs_lib.js", f"/*\n{licenses}\n*/\n{js}")
+    write(output / "windows_gridjs_lib.css", css)
     write(
-        output / "windows_gridjs_urls.json",
-        "{\n"
-        f'  "cssUrl": {json.dumps(grid_css_url)},\n'
-        f'  "jsUrl": {json.dumps(grid_js_url)}\n'
-        "}",
+        output / "windows_result_dom_patch.js",
+        read(args.grid_source.parent / "../result/scene_compositor/dom_patch_runtime.js"),
     )
     write(
         output / "windows_gridjs.css",
@@ -219,6 +213,7 @@ def generate(args: argparse.Namespace) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection-source", type=Path)
+    parser.add_argument("--text-input-source", type=Path)
     for name in (
         "fit_source",
         "css_source",

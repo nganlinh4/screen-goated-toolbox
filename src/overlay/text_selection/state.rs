@@ -3,7 +3,7 @@
 
 use std::sync::{
     Arc, LazyLock, Mutex, Once,
-    atomic::{AtomicBool, AtomicIsize, Ordering},
+    atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -108,8 +108,9 @@ pub static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 pub static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
 // CONTINUOUS MODE HOTKEY TRACKING
-pub static mut TRIGGER_VK_CODE: u32 = 0;
-pub static mut TRIGGER_MODIFIERS: u32 = 0;
+// Written by the hotkey thread and read by the keyboard hook and worker threads.
+pub static TRIGGER_VK_CODE: AtomicU32 = AtomicU32::new(0);
+pub static TRIGGER_MODIFIERS: AtomicU32 = AtomicU32::new(0);
 pub static IS_HOTKEY_HELD: AtomicBool = AtomicBool::new(false);
 pub static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 pub static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
@@ -156,10 +157,8 @@ pub fn reset_selection_internal_state() {
     CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
     HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
     IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-    unsafe {
-        TRIGGER_VK_CODE = 0;
-        TRIGGER_MODIFIERS = 0;
-    }
+    TRIGGER_VK_CODE.store(0, Ordering::SeqCst);
+    TRIGGER_MODIFIERS.store(0, Ordering::SeqCst);
 }
 
 /// Reset UI state in WebView

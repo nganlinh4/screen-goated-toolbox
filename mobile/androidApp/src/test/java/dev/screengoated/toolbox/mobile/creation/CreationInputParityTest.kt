@@ -26,6 +26,7 @@ class CreationInputParityTest {
         val data = fixture("parity-fixtures/image-to-3d/android-state.json")
         val stages = data.getJSONArray("activeStages")
         for (index in 0 until stages.length()) {
+            assertEquals(true, creationStageIsBusy(stages.getString(index)))
             assertEquals(CreationNativeStage.RUNNING, CreationJobStatus(stage = stages.getString(index), progressText = "").toNativeStage())
         }
         val cases = data.getJSONArray("topologyCases")
@@ -45,7 +46,7 @@ class CreationInputParityTest {
                 entries.put(modes.getString(mode), JSONObject().put("optionalInstruction", false))
             }
             val manifest = JSONObject().put("contractVersion", 1).put("runtimeVersion", "1")
-                .put("features", org.json.JSONArray(listOf("image_to_3d", "image_to_svg", "image_creator")))
+                .put("features", org.json.JSONArray(listOf("image_to_3d", "image_to_svg", "future_tool")))
                 .put("tools", JSONObject().put("image_to_3d", JSONObject().put("generationModes", entries))).toString()
             assertEquals(row.toString(), row.getBoolean("compatible"), isCompatibleCreationRuntimeManifest(manifest))
             if (row.getBoolean("compatible")) {

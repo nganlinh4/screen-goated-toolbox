@@ -1,0 +1,17 @@
+{
+  "topologyCases": [
+    {"mode":"quality", "autoSegment":false, "topology":null, "expected":"quad"},
+    {"mode":"quality", "autoSegment":false, "topology":"triangle", "expected":"triangle"},
+    {"mode":"quality", "autoSegment":false, "topology":"quad", "expected":"quad"},
+    {"mode":"quality", "autoSegment":true, "topology":null, "expected":"triangle"},
+    {"mode":"quality", "autoSegment":true, "topology":"triangle", "expected":"triangle"},
+    {"mode":"quality", "autoSegment":true, "topology":"quad", "expected":null},
+    {"mode":"quality", "autoSegment":false, "topology":"invalid", "expected":null},
+    {"mode":"fast", "autoSegment":false, "topology":null, "expected":"triangle"},
+    {"mode":"fast", "autoSegment":false, "topology":"triangle", "expected":"triangle"},
+    {"mode":"fast", "autoSegment":false, "topology":"quad", "expected":null}
+  ],
+  "segmentationLevels": ["simple", "balanced", "detailed"],
+  "legacySegmentationLevel": "detailed",
+  "invalidSegmentationLevel": "unsupported"
+}

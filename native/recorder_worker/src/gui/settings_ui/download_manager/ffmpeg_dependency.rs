@@ -1,7 +1,7 @@
 use std::fmt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 const FFMPEG_ENV: &str = "SGT_FFMPEG_PATH";
 const FFMPEG_REQUEST_EVENT_ENV: &str = "SGT_FFMPEG_REQUEST_EVENT";
@@ -9,7 +9,25 @@ const FFMPEG_READY_EVENT_ENV: &str = "SGT_FFMPEG_READY_EVENT";
 const FFMPEG_FAILURE_EVENT_ENV: &str = "SGT_FFMPEG_FAILURE_EVENT";
 const FFMPEG_COMPONENT_ID: &str = "ffmpeg-x64";
 
-static PROVIDED_FFMPEG: OnceLock<Result<ProvidedFfmpeg, FfmpegCapabilityError>> = OnceLock::new();
+/// The host's contract, read (and scrubbed from the environment) once.
+static CONTRACT: OnceLock<Result<Contract, FfmpegCapabilityError>> = OnceLock::new();
+/// Only a verified, locked FFmpeg is cached; a failed resolution is retried on
+/// the next request, so one transient failure never disables FFmpeg for the
+/// rest of the worker session.
+static PROVIDED_FFMPEG: Mutex<Option<ProvidedFfmpeg>> = Mutex::new(None);
+
+#[derive(Clone, Debug)]
+struct Contract {
+    path: PathBuf,
+    deferred: Option<DeferredEvents>,
+}
+
+#[derive(Clone, Debug)]
+struct DeferredEvents {
+    request: String,
+    ready: String,
+    failure: String,
+}
 
 struct ProvidedFfmpeg {
     path: PathBuf,
@@ -50,13 +68,11 @@ pub fn ensure_ffmpeg_with_badge() -> Result<PathBuf, FfmpegCapabilityError> {
 }
 
 pub fn ensure_ffmpeg_with_badge_message(_message: &str) -> Result<PathBuf, FfmpegCapabilityError> {
-    match PROVIDED_FFMPEG.get_or_init(load_provided_ffmpeg) {
-        Ok(provided) => Ok(provided.path.clone()),
-        Err(error) => Err(error.clone()),
-    }
+    let contract = CONTRACT.get_or_init(read_contract).clone()?;
+    resolve_with_cache(&PROVIDED_FFMPEG, &contract)
 }
 
-fn load_provided_ffmpeg() -> Result<ProvidedFfmpeg, FfmpegCapabilityError> {
+fn read_contract() -> Result<Contract, FfmpegCapabilityError> {
     let configured = std::env::var_os(FFMPEG_ENV).map(PathBuf::from);
     let request_event = std::env::var(FFMPEG_REQUEST_EVENT_ENV).ok();
     let ready_event = std::env::var(FFMPEG_READY_EVENT_ENV).ok();
@@ -67,19 +83,40 @@ fn load_provided_ffmpeg() -> Result<ProvidedFfmpeg, FfmpegCapabilityError> {
         std::env::remove_var(FFMPEG_READY_EVENT_ENV);
         std::env::remove_var(FFMPEG_FAILURE_EVENT_ENV);
     }
-    let configured = configured.ok_or(FfmpegCapabilityError::Missing)?;
-    match (request_event, ready_event, failure_event) {
-        (Some(request), Some(ready), Some(failure)) => {
-            request_deferred_capability(&request, &ready, &failure)?;
-        }
-        (None, None, None) => {}
+    let path = configured.ok_or(FfmpegCapabilityError::Missing)?;
+    let deferred = match (request_event, ready_event, failure_event) {
+        (Some(request), Some(ready), Some(failure)) => Some(DeferredEvents {
+            request,
+            ready,
+            failure,
+        }),
+        (None, None, None) => None,
         _ => {
             return Err(FfmpegCapabilityError::Invalid(
                 "incomplete deferred FFmpeg capability contract".to_string(),
             ));
         }
+    };
+    Ok(Contract { path, deferred })
+}
+
+/// Holding the cache lock across the host round trip serializes requests, so
+/// the host broker only ever answers one outstanding request.
+fn resolve_with_cache(
+    cache: &Mutex<Option<ProvidedFfmpeg>>,
+    contract: &Contract,
+) -> Result<PathBuf, FfmpegCapabilityError> {
+    let mut cached = cache.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(provided) = cached.as_ref() {
+        return Ok(provided.path.clone());
     }
-    validate_and_lock(&configured)
+    if let Some(events) = &contract.deferred {
+        request_deferred_capability(&events.request, &events.ready, &events.failure)?;
+    }
+    let provided = validate_and_lock(&contract.path)?;
+    let path = provided.path.clone();
+    *cached = Some(provided);
+    Ok(path)
 }
 
 fn request_deferred_capability(
@@ -89,7 +126,7 @@ fn request_deferred_capability(
 ) -> Result<(), FfmpegCapabilityError> {
     use windows::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
     use windows::Win32::System::Threading::{
-        EVENT_ALL_ACCESS, OpenEventW, SetEvent, WaitForMultipleObjects,
+        EVENT_ALL_ACCESS, OpenEventW, ResetEvent, SetEvent, WaitForMultipleObjects,
     };
     use windows::core::PCWSTR;
 
@@ -111,6 +148,8 @@ fn request_deferred_capability(
     let ready_handle = windows::Win32::Foundation::HANDLE(ready.as_raw_handle());
     let failure_handle = windows::Win32::Foundation::HANDLE(failure.as_raw_handle());
     unsafe {
+        // A previous failed attempt leaves the manual-reset failure event set.
+        let _ = ResetEvent(failure_handle);
         SetEvent(request_handle).map_err(|error| {
             FfmpegCapabilityError::Invalid(format!("request FFmpeg capability: {error}"))
         })?;
@@ -217,12 +256,12 @@ mod tests {
     #[test]
     fn deferred_contract_requests_host_verification_before_opening_ffmpeg() {
         let source = include_str!("ffmpeg_dependency.rs");
-        let load_start = source.find("fn load_provided_ffmpeg()").unwrap();
+        let load_start = source.find("fn resolve_with_cache(").unwrap();
         let request_start = source.find("fn request_deferred_capability(").unwrap();
         let load = &source[load_start..request_start];
         assert!(
             load.find("request_deferred_capability(").unwrap()
-                < load.find("validate_and_lock(&configured)").unwrap()
+                < load.find("validate_and_lock(&contract.path)").unwrap()
         );
         let validate_start = source.find("fn validate_and_lock(").unwrap();
         let request = &source[request_start..validate_start];
@@ -231,5 +270,32 @@ mod tests {
                 < request.find("WaitForMultipleObjects(&[").unwrap()
         );
         assert!(source.contains("host could not provide a verified FFmpeg capability"));
+    }
+
+    #[test]
+    fn failed_resolution_is_retried_and_only_success_is_cached() {
+        let mut random = [0u8; 8];
+        getrandom::fill(&mut random).unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "sgt-ffmpeg-retry-{}-{}",
+            std::process::id(),
+            u64::from_ne_bytes(random)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let contract = Contract {
+            path: dir.join("ffmpeg.exe"),
+            deferred: None,
+        };
+        let cache = Mutex::new(None);
+        assert!(resolve_with_cache(&cache, &contract).is_err());
+        assert!(cache.lock().unwrap().is_none());
+
+        std::fs::write(&contract.path, b"stub").unwrap();
+        let resolved = resolve_with_cache(&cache, &contract).unwrap();
+        assert!(resolved.ends_with("ffmpeg.exe"));
+        assert_eq!(resolve_with_cache(&cache, &contract).unwrap(), resolved);
+
+        drop(cache);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

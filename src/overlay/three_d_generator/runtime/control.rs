@@ -1,17 +1,6 @@
 use std::path::PathBuf;
 
-use super::{
-    JobStatus, RuntimeOperation, STATE, default_output_dir, idle_status, job_status, schedule_next,
-    status_is_busy,
-};
-
-struct CancelCandidate {
-    job_id: String,
-    previous_status: JobStatus,
-    operation: RuntimeOperation,
-    request_fingerprint: String,
-    pid: Option<u32>,
-}
+use super::STATE;
 
 pub(in crate::overlay::three_d_generator) fn remap_result_path(previous: &str, current: &str) {
     let current_name = PathBuf::from(current)
@@ -76,16 +65,19 @@ pub(in crate::overlay::three_d_generator) fn forget_result_path(path: &str) {
 }
 
 pub(in crate::overlay::three_d_generator) fn is_known_result_path(path: &std::path::Path) -> bool {
-    let known_in_session = STATE.lock().is_ok_and(|state| {
-        state.jobs.values().any(|status| {
-            status
-                .output_path
-                .as_deref()
-                .and_then(|value| std::fs::canonicalize(value).ok())
-                .as_deref()
-                == Some(path)
+    let session_paths = STATE
+        .lock()
+        .map(|state| {
+            state
+                .jobs
+                .values()
+                .filter_map(|status| status.output_path.clone())
+                .collect::<Vec<_>>()
         })
-    });
+        .unwrap_or_default();
+    let known_in_session = session_paths
+        .iter()
+        .any(|value| std::fs::canonicalize(value).ok().as_deref() == Some(path));
     known_in_session
         || crate::overlay::generation_history::list("3d").is_ok_and(|entries| {
             entries.iter().any(|entry| {
@@ -94,153 +86,6 @@ pub(in crate::overlay::three_d_generator) fn is_known_result_path(path: &std::pa
         })
 }
 
-pub(in crate::overlay::three_d_generator) fn cancel_job(job_id: Option<&str>) -> JobStatus {
-    cancel_jobs(job_id, false).1
-}
-
-pub(in crate::overlay::three_d_generator) fn cancel_for_shutdown() -> bool {
-    cancel_jobs(None, true).0
-}
-
-fn cancel_jobs(job_id: Option<&str>, shutdown: bool) -> (bool, JobStatus) {
-    let (candidates, mut durable) = {
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        let targets: Vec<String> = match job_id {
-            Some(job_id) => vec![job_id.to_string()],
-            None => state
-                .jobs
-                .iter()
-                .filter(|(_, status)| {
-                    status.stage == "queued"
-                        || status_is_busy(&status.stage)
-                        || shutdown && status.stage == "cancelling"
-                })
-                .map(|(job_id, _)| job_id.clone())
-                .collect(),
-        };
-        let target_count = targets.len();
-        let mut candidates = Vec::new();
-        for target in targets {
-            let Some(previous_status) = state.jobs.get(&target).cloned() else {
-                continue;
-            };
-            if previous_status.stage != "queued"
-                && !status_is_busy(&previous_status.stage)
-                && !(shutdown && previous_status.stage == "cancelling")
-            {
-                continue;
-            }
-            let Some(operation) = state.operations.get(&target).cloned() else {
-                continue;
-            };
-            let Some(request_fingerprint) = state.request_fingerprints.get(&target).cloned() else {
-                continue;
-            };
-            if previous_status.stage != "cancelling"
-                && let Some(status) = state.jobs.get_mut(&target)
-            {
-                status.stage = "cancelling".to_string();
-                status.progress_text = "Cancelling.".to_string();
-                status.error = None;
-            }
-            candidates.push(CancelCandidate {
-                job_id: target.clone(),
-                previous_status,
-                operation,
-                request_fingerprint,
-                pid: state.pids.get(&target).copied(),
-            });
-        }
-        let complete = candidates.len() == target_count;
-        (candidates, complete)
-    };
-    let mut pids_to_kill = std::collections::HashSet::new();
-    for candidate in candidates {
-        let cancelled = crate::overlay::creation_delivery::cancel_dispatch(
-            crate::overlay::creation_delivery::CancelledDelivery {
-                product: "3d",
-                job_id: candidate.job_id.clone(),
-                dispatch_id: candidate.operation.dispatch_id().to_string(),
-                request_fingerprint: candidate.request_fingerprint,
-                output_name: candidate.operation.output_name().to_string(),
-            },
-        )
-        .is_ok();
-        durable &= cancelled;
-        let mut kill = shutdown.then_some(candidate.pid).flatten();
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        if state
-            .jobs
-            .get(&candidate.job_id)
-            .is_some_and(|status| status.stage == "cancelling")
-        {
-            if cancelled {
-                if let Some(status) = state.jobs.get_mut(&candidate.job_id) {
-                    status.stage = "cancelled".to_string();
-                    status.progress_text = "Cancelled.".to_string();
-                    status.error = None;
-                }
-                state.operations.remove(&candidate.job_id);
-                state.request_fingerprints.remove(&candidate.job_id);
-                state.deadlines.remove(&candidate.job_id);
-                state.recovered_jobs.remove(&candidate.job_id);
-                state.pending_completions.remove(&candidate.job_id);
-                kill = state.pids.remove(&candidate.job_id).or(kill);
-            } else if shutdown {
-                kill = state.pids.remove(&candidate.job_id).or(kill);
-            } else {
-                state
-                    .jobs
-                    .insert(candidate.job_id.clone(), candidate.previous_status);
-            }
-        }
-        drop(state);
-        if let Some(pid) = kill {
-            pids_to_kill.insert(pid);
-        }
-    }
-    if shutdown {
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        pids_to_kill.extend(state.pids.drain().map(|(_, pid)| pid));
-    } else {
-        schedule_next();
-    }
-    for pid in pids_to_kill {
-        crate::overlay::creation_recovery::terminate_process_tree(pid);
-    }
-    let status = STATE
-        .lock()
-        .ok()
-        .and_then(|state| {
-            job_id
-                .and_then(|job_id| state.jobs.get(job_id).cloned())
-                .or_else(|| state.latest_status())
-        })
-        .unwrap_or_else(idle_status);
-    (durable, status)
-}
-
-pub(in crate::overlay::three_d_generator) fn open_output(
-    kind: &str,
-    requested_path: Option<&str>,
-) -> Result<(), String> {
-    let path = requested_path
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| job_status(None).output_path.map(PathBuf::from))
-        .map(Ok)
-        .unwrap_or_else(default_output_dir)?;
-    let target = if kind == "folder" {
-        if path.is_file() {
-            path.parent()
-                .map(PathBuf::from)
-                .map(Ok)
-                .unwrap_or_else(default_output_dir)?
-        } else {
-            path
-        }
-    } else {
-        path
-    };
-    open::that(&target).map_err(|_| "The selected result could not be opened.".to_string())
-}
+pub(in crate::overlay::three_d_generator) use super::cancellation::{
+    cancel_for_shutdown, cancel_job,
+};

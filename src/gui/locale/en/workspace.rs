@@ -7,6 +7,8 @@ pub(super) fn get() -> WorkspaceLocaleText {
         max_items_label: "Max Items:",
         cc_memory_max_label: "Computer Control Memory:",
         history_empty: "No history yet.",
+        history_write_failed: "History could not be saved. Previous results were kept. Try the action again.",
+        history_load_failed: "History could not be loaded. Existing data was kept. Check storage and restart the app.",
         clear_all_history_btn: "Clear All",
         view_image_btn: "View Image",
         listen_audio_btn: "Listen Audio",
@@ -27,5 +29,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         search_synthesizing: "SYNTHESIZING INFO...",
         search_analyzed_sources: "Analyzed {} sources",
         search_processing: "Processing and summarizing results...",
+        history_show_more: "Show more",
+        history_show_less: "Show less",
     }
 }

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::mem::zeroed;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -19,9 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::types::{
     CURSOR_DEBUG_ENABLED, CURSOR_GRAB_LEARN_WINDOW_MS, CURSOR_SIGNATURE_CACHE,
-    CUSTOM_GRAB_SIGNATURES, DEFAULT_GRAB_SIGNATURE, LAST_CURSOR_DEBUG,
-    LAST_UNKNOWN_RELEASED_SIGNATURE, SYSTEM_CURSOR_HANDLES, SYSTEM_CURSOR_SIGNATURES,
-    SystemCursorHandles,
+    CUSTOM_GRAB_SIGNATURES, LAST_CURSOR_DEBUG, LAST_UNKNOWN_RELEASED_SIGNATURE,
+    SYSTEM_CURSOR_HANDLES, SYSTEM_CURSOR_SIGNATURES, SystemCursorHandles,
 };
 
 pub(crate) fn get_cursor_type(is_clicked: bool) -> String {
@@ -88,7 +86,7 @@ pub(crate) fn get_cursor_type(is_clicked: bool) -> String {
                 } else if should_learn_custom_grab_signature(&signature, is_clicked) {
                     let should_persist = {
                         let mut set = CUSTOM_GRAB_SIGNATURES.lock();
-                        set.insert(signature.clone())
+                        set.len() < MAX_LEARNED_GRAB_SIGNATURES && set.insert(signature.clone())
                     };
                     if should_persist {
                         println!("[CursorDetect] learn-grab-signature {}", signature);
@@ -189,29 +187,39 @@ pub(crate) fn load_system_cursor_signatures() -> HashMap<String, &'static str> {
     signatures
 }
 
+/// Learned grab cursors are few per user; the cap keeps the persisted file and
+/// the per-sample lookup bounded no matter how many cursors an app cycles.
+const MAX_LEARNED_GRAB_SIGNATURES: usize = 64;
+
+/// Versioned with the bitmap hash: signatures from the previous
+/// `DefaultHasher` scheme can never match again, so that file is ignored.
 fn grab_signatures_file_path() -> PathBuf {
-    crate::paths::app_local_data_dir()
+    crate::paths::app_runtime_local_data_dir()
         .join("recordings")
-        .join("cursor_grab_signatures.json")
+        .join("cursor_grab_signatures.v2.json")
 }
 
 pub(crate) fn load_grab_signatures() -> HashSet<String> {
-    let mut out = HashSet::new();
-    out.insert(DEFAULT_GRAB_SIGNATURE.to_string());
+    fs::read_to_string(grab_signatures_file_path())
+        .map(|text| parse_grab_signatures(&text))
+        .unwrap_or_default()
+}
 
-    let path = grab_signatures_file_path();
-    let Ok(text) = fs::read_to_string(&path) else {
-        return out;
-    };
-    let Ok(saved) = serde_json::from_str::<Vec<String>>(&text) else {
-        return out;
-    };
-    for sig in saved {
-        if !sig.trim().is_empty() {
-            out.insert(sig);
-        }
-    }
-    out
+fn parse_grab_signatures(text: &str) -> HashSet<String> {
+    serde_json::from_str::<Vec<String>>(text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|signature| !signature.trim().is_empty())
+        .take(MAX_LEARNED_GRAB_SIGNATURES)
+        .collect()
+}
+
+/// FNV-1a 64: stable across Rust releases, unlike `DefaultHasher`, so
+/// persisted signatures keep matching after a toolchain update.
+fn stable_hash(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 fn persist_grab_signatures() {
@@ -301,14 +309,12 @@ fn hash_bitmap_bits(hbitmap: HBITMAP, bitmap: &BITMAP) -> Option<String> {
             return None;
         }
 
-        let mut hasher = DefaultHasher::new();
-        pixels.hash(&mut hasher);
         Some(format!(
             "{}x{}@{}bpp#{:016x}",
             bitmap.bmWidth,
             bitmap.bmHeight,
             bitmap.bmBitsPixel,
-            hasher.finish()
+            stable_hash(&pixels)
         ))
     }
 }
@@ -379,5 +385,27 @@ pub(crate) fn any_mouse_button_down() -> bool {
         (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0
             || (GetAsyncKeyState(VK_RBUTTON.0 as i32) as u16 & 0x8000) != 0
             || (GetAsyncKeyState(VK_MBUTTON.0 as i32) as u16 & 0x8000) != 0
+    }
+}
+
+#[cfg(test)]
+mod grab_signature_tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_hash_is_the_stable_fnv1a_function() {
+        assert_eq!(stable_hash(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(stable_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
+
+    #[test]
+    fn persisted_signatures_are_bounded_and_skip_blanks() {
+        let saved: Vec<String> = (0..MAX_LEARNED_GRAB_SIGNATURES + 10)
+            .map(|index| format!("sig-{index}"))
+            .chain([" ".to_string()])
+            .collect();
+        let loaded = parse_grab_signatures(&serde_json::to_string(&saved).unwrap());
+        assert_eq!(loaded.len(), MAX_LEARNED_GRAB_SIGNATURES);
+        assert!(parse_grab_signatures("not json").is_empty());
     }
 }

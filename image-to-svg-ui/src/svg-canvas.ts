@@ -1,6 +1,13 @@
 import { t } from "./i18n";
 import type { Item } from "./types";
-import { applyDelta, deltaBytes, elementPath, pushUndo } from "./svg-edit-history";
+import {
+  beginSvgSave,
+  elementPath,
+  noteSvgEdit,
+  pushUndo,
+  settleSavedSvg,
+  stepEditHistory,
+} from "./svg-edit-history";
 import { bindSvgCanvasGestures, bindSvgCanvasKeyboard } from "./svg-canvas-input";
 import {
   EDITABLE_SELECTOR,
@@ -446,6 +453,7 @@ export class SvgCanvasController {
   }
 
   private commitLiveEdit(item: Item) {
+    noteSvgEdit(item);
     item.saveError = false;
     item.dirty = true;
     this.syncEditorUi();
@@ -478,30 +486,19 @@ export class SvgCanvasController {
   }
 
   private undoCurrentEdit() {
-    const item = this.options.getSelected();
-    const delta = item?.undoStack?.pop();
-    if (!item || !delta || !this.activeSvg) return;
-    const result = applyDelta(this.activeSvg, delta, false);
-    if (!result.applied) return;
-    this.selectedShape = result.selected;
-    item.redoStack ||= [];
-    item.redoStack.push(delta);
-    item.undoBytes = Math.max(0, (item.undoBytes || 0) - deltaBytes(delta));
-    item.redoBytes = (item.redoBytes || 0) + deltaBytes(delta);
-    this.commitLiveEdit(item);
+    this.stepCurrentEdit(false);
   }
 
   private redoCurrentEdit() {
+    this.stepCurrentEdit(true);
+  }
+
+  private stepCurrentEdit(forward: boolean) {
     const item = this.options.getSelected();
-    const delta = item?.redoStack?.pop();
-    if (!item || !delta || !this.activeSvg) return;
-    const result = applyDelta(this.activeSvg, delta, true);
+    if (!item || !this.activeSvg) return;
+    const result = stepEditHistory(this.activeSvg, item, forward);
     if (!result.applied) return;
     this.selectedShape = result.selected;
-    item.undoStack ||= [];
-    item.undoStack.push(delta);
-    item.redoBytes = Math.max(0, (item.redoBytes || 0) - deltaBytes(delta));
-    item.undoBytes = (item.undoBytes || 0) + deltaBytes(delta);
     this.commitLiveEdit(item);
   }
 
@@ -509,22 +506,16 @@ export class SvgCanvasController {
     const item = this.options.getSelected();
     if (!item?.dirty || !item.outputPath) return;
     const svg = this.serializeActiveSvg(item);
+    const revision = beginSvgSave(item);
     this.saveEdits.classList.add("saving");
     this.saveEdits.disabled = true;
     try {
       await this.options.invoke("save_svg_edits", { path: item.outputPath, svg });
-      item.svgText = svg;
       item.svgPreviewUrl = undefined;
       this.options.cacheVector(item, svg);
       this.options.invalidateVectorPreview(item);
-      item.dirty = false;
-      item.saveError = false;
-      item.undoStack = [];
-      item.redoStack = [];
-      item.undoBytes = 0;
-      item.redoBytes = 0;
-      item.undoBaselineLost = false;
-      item.editLimitReached = false;
+      // Edits made while the write was in flight are not in `svg`; keep them.
+      settleSavedSvg(item, svg, revision);
     } catch {
       item.saveError = true;
     } finally {

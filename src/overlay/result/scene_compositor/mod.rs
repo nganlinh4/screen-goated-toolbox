@@ -17,6 +17,7 @@ mod gesture;
 mod html;
 mod input_surface;
 mod isolated_server;
+mod localization;
 mod mailbox;
 #[cfg(test)]
 mod native_verification;
@@ -38,16 +39,17 @@ pub use controls::{
     set_refine_text, sync as sync_controls, sync_all as sync_all_controls,
     update_cached_refine_draft,
 };
+pub(crate) use delivery::update_locale;
 pub use parent::{
-    defer_window_sync, go_back, go_forward, raise_window, register_window, remove_window,
-    sync_geometry, sync_window, update_theme, warmup,
+    defer_window_sync, raise_window, register_window, remove_window, sync_geometry, sync_window,
+    update_theme, warmup,
 };
 pub(crate) use processing::ProcessingGlow;
 pub(crate) use scene_groups::{
     SourceCardHandle, SourceCardSpec, SourceGroupHandle, SourceGroupRestoreSnapshot,
     group_ids as source_group_ids, is_group_alive as source_group_is_alive, move_source_group,
-    prewarm_source_group, remove_source_group, restore_snapshot as source_group_restore_snapshot,
-    reveal_source_card,
+    prewarm_source_group, register_retirement_wake as register_source_group_retirement_wake,
+    remove_source_group, restore_snapshot as source_group_restore_snapshot, reveal_source_card,
 };
 pub(crate) use supervisor::{recover_after_failure_and_wait, restart_and_wait, wait_until_ready};
 pub(crate) use sync_scheduler::queue_window_sync;
@@ -76,7 +78,7 @@ fn host_x_for_mode(virtual_x: i32, width: i32, offscreen: bool) -> i32 {
 }
 
 pub(crate) fn is_child_process() -> bool {
-    std::env::args().any(|arg| arg == CHILD_FLAG)
+    std::env::args_os().any(|arg| arg == CHILD_FLAG)
 }
 
 pub(crate) fn run_child() -> anyhow::Result<()> {

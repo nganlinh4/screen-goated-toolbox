@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service
 
+import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
@@ -50,6 +51,7 @@ internal data class S2sSegment(
     val energeticFrames: Int,
     val speechLikeFrames: Int,
     val activeMs: Long,
+    val playbackEpoch: Long? = null,
 ) {
     val audioMs: Int get() = samples.size * 1000 / 16_000
 }
@@ -91,6 +93,13 @@ internal sealed interface S2sRaceEvent {
         override val generation: Long,
         override val attempt: Int,
     ) : S2sRaceEvent
+
+    data class Fatal(
+        override val segmentId: Long,
+        override val generation: Long,
+        override val attempt: Int,
+        val error: Throwable,
+    ) : S2sRaceEvent
 }
 
 internal sealed interface S2sEvent {
@@ -126,11 +135,13 @@ internal sealed interface S2sEvent {
         override val generation: Long,
         val audioMs: Int,
         val queuedAtMs: Long,
+        val playbackEpoch: Long? = null,
     ) : S2sEvent
 }
 
 internal data class SegmentPlayback(
     var audioMs: Int,
+    var playbackEpoch: Long? = null,
     var queuedAtMs: Long = 0L,
     val audioChunks: ArrayDeque<ByteArray> = ArrayDeque(),
     var sourceText: String = "",
@@ -278,15 +289,11 @@ internal fun targetLanguageCode(language: String): String {
         "filipino",
         "tagalog" -> "fil"
         "norwegian" -> "no"
-        else -> {
-            if (isBcp47Like(trimmed)) {
-                normalizeBcp47Code(trimmed)
-            } else {
-                dev.screengoated.toolbox.mobile.model.LanguageCatalog.codeForName(trimmed)
-                    .lowercase(Locale.US)
-                    .ifBlank { "en" }
-            }
-        }
+        // Names resolve before the code-shape test: "Lao", "Ewe", "Twi" and "Ido"
+        // are both picker names and three-letter shapes, and BCP-47 needs their
+        // two-letter codes. Mirrors Windows live_translate_target_language_code.
+        else -> LanguageCatalog.exactCodeForName(trimmed)?.lowercase(Locale.US)
+            ?: if (isBcp47Like(trimmed)) normalizeBcp47Code(trimmed) else "en"
     }
 }
 

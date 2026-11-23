@@ -6,8 +6,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -92,11 +90,10 @@ internal class PhoneControlToolController(
                 queueTerminal(
                     record,
                     PhoneControlToolExecutionResult(
-                        response = buildJsonObject {
-                            put("code", "tool_dispatch_failed")
-                            put("message", error.message ?: "The tool dispatcher failed.")
-                            put("effect", "proven_no_effect")
-                        },
+                        response = provenNoEffectRejection(
+                            code = "tool_dispatch_failed",
+                            message = error.message ?: "The tool dispatcher failed.",
+                        ),
                         certainty = PhoneControlEffectCertainty.PROVEN_NO_EFFECT,
                     ),
                 )
@@ -161,11 +158,10 @@ internal class PhoneControlToolController(
         queueTerminal(
             record,
             PhoneControlToolExecutionResult(
-                response = buildJsonObject {
-                    put("code", "tool_cancelled")
-                    put("message", "The tool job was cancelled before dispatch.")
-                    put("effect", "proven_no_effect")
-                },
+                response = provenNoEffectRejection(
+                    code = "tool_cancelled",
+                    message = "The tool job was cancelled before dispatch.",
+                ),
                 certainty = PhoneControlEffectCertainty.PROVEN_NO_EFFECT,
             ),
         )

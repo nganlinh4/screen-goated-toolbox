@@ -96,8 +96,12 @@ function getFrameDimensions(
     return { width: captureWidth, height: captureHeight };
   }
 
-  const fallbackWidth = Math.max(1, ...positions.map((position) => Math.abs(position.x)));
-  const fallbackHeight = Math.max(1, ...positions.map((position) => Math.abs(position.y)));
+  let fallbackWidth = 1;
+  let fallbackHeight = 1;
+  for (const position of positions) {
+    fallbackWidth = Math.max(fallbackWidth, Math.abs(position.x));
+    fallbackHeight = Math.max(fallbackHeight, Math.abs(position.y));
+  }
   return { width: fallbackWidth, height: fallbackHeight };
 }
 
@@ -180,10 +184,12 @@ export function generateCursorVisibility(
 ): CursorVisibilitySegment[] {
   const t0 = performance.now();
   const timelineStart = 0;
-  const inferredEnd = Math.max(
-    segment.trimEnd || 0,
-    ...(mousePositions.length > 0 ? mousePositions.map(p => p.timestamp) : [0])
-  );
+  let inferredEnd = segment.trimEnd || 0;
+  if (timelineDuration == null) {
+    for (const position of mousePositions) {
+      inferredEnd = Math.max(inferredEnd, position.timestamp);
+    }
+  }
   const timelineEnd = Math.max(timelineStart, timelineDuration ?? inferredEnd);
 
   // Filter positions to full timeline range (independent from trim segments)

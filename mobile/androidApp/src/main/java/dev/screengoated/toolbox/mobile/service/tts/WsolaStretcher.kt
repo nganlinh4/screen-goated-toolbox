@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.service.tts
 
+import dev.screengoated.toolbox.mobile.service.FloatSampleBuffer
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -21,28 +22,15 @@ internal class WsolaStretcher(sampleRate: Int) {
         0.5f * (1f - cos(2f * PI.toFloat() * t))
     }
 
-    private val inputBuffer = ArrayList<Float>(8192)
-    private val outputOverlap = ArrayList<Float>(frameSize)
+    private val inputBuffer = FloatSampleBuffer(8192)
+    private val outputOverlap = FloatSampleBuffer(frameSize)
     private var lastSpeed = 1.0
 
     fun stretch(input: ShortArray, speedRatio: Double): ShortArray {
-        if (abs(speedRatio - 1.0) < 0.05 || input.isEmpty()) {
-            if (outputOverlap.isNotEmpty()) {
-                val flushed = ShortArray(outputOverlap.size + input.size)
-                for (i in outputOverlap.indices) {
-                    flushed[i] = outputOverlap[i].coerceIn(-32768f, 32767f).toInt().toShort()
-                }
-                outputOverlap.clear()
-                input.copyInto(flushed, outputOverlap.size)
-                return flushed
-            }
-            return input
-        }
+        if (input.isEmpty()) return ShortArray(0)
+        if (abs(speedRatio - 1.0) < 0.05) return finish() + input
 
-        if (abs(speedRatio - lastSpeed) > 0.15) {
-            inputBuffer.clear()
-            outputOverlap.clear()
-        }
+        val prefix = if (abs(speedRatio - lastSpeed) > 0.15) finish() else ShortArray(0)
         lastSpeed = speedRatio
 
         inputBuffer.ensureCapacity(inputBuffer.size + input.size)
@@ -51,7 +39,7 @@ internal class WsolaStretcher(sampleRate: Int) {
         }
 
         if (inputBuffer.size < frameSize + searchRange) {
-            return ShortArray(0)
+            return prefix
         }
 
         val targetAnalysisHop = (hopSize * speedRatio).roundToInt().coerceAtLeast(1)
@@ -83,22 +71,43 @@ internal class WsolaStretcher(sampleRate: Int) {
         }
 
         val completeLen = min(outputPos, output.size)
+        if (completeLen == 0) return prefix
 
         outputOverlap.clear()
         if (completeLen < output.size) {
-            for (i in completeLen until output.size) {
+            for (i in completeLen until min(output.size, completeLen + hopSize)) {
                 outputOverlap.add(output[i])
             }
         }
 
         val consumed = min(inputPos, inputBuffer.size)
         if (consumed > 0) {
-            inputBuffer.subList(0, consumed).clear()
+            inputBuffer.dropFirst(consumed)
         }
 
-        return ShortArray(completeLen) { i ->
+        return prefix + ShortArray(completeLen) { i ->
             output[i].coerceIn(-32768f, 32767f).toInt().toShort()
         }
+    }
+
+    /** Finish the current stream, crossfading the last overlap into its raw tail. */
+    fun finish(): ShortArray {
+        val tailStart = if (outputOverlap.isEmpty()) 0 else hopSize.coerceAtMost(inputBuffer.size)
+        val result = ShortArray(inputBuffer.size - tailStart) { index ->
+            val raw = inputBuffer[tailStart + index]
+            val value = if (index < outputOverlap.size) {
+                outputOverlap[index] + raw * (1f - window[hopSize + index])
+            } else raw
+            value.coerceIn(-32768f, 32767f).toInt().toShort()
+        }
+        reset()
+        return result
+    }
+
+    fun reset() {
+        inputBuffer.clear()
+        outputOverlap.clear()
+        lastSpeed = 1.0
     }
 
     private fun findBestOffset(inputPos: Int, targetHop: Int): Int {

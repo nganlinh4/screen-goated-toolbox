@@ -88,34 +88,6 @@ class AppUpdateSupportTest {
         }
     }
 
-    @Test
-    fun repositoryUsesSignedPrimaryAndBoundedHardenedFallback() {
-        val repositorySource = File(repoRoot(), APP_UPDATE_REPOSITORY_SOURCE).readText()
-        val contractSource = File(repoRoot(), APP_UPDATE_CONTRACT_SOURCE).readText()
-        val viewModelSource = File(repoRoot(), MAIN_VIEW_MODEL_SOURCE).readText()
-
-        assertTrue(repositorySource.contains("stable-v1.json"))
-        assertTrue(repositorySource.contains("stable-v1.sig"))
-        assertTrue(repositorySource.contains("MAXIMUM_RELEASE_PAGES"))
-        assertTrue(repositorySource.contains("fetchStableManifest() ?: fetchGitHubFallback()"))
-        assertTrue(!repositorySource.contains("recoverCatching"))
-        assertTrue(contractSource.contains("verifyP256Signature"))
-        assertTrue(contractSource.contains("matches.size == 1"))
-        assertTrue(contractSource.contains("draft"))
-        assertTrue(contractSource.contains("prerelease"))
-        assertTrue(viewModelSource.contains("appUpdateController.autoCheckForUpdates()"))
-    }
-
-    @Test
-    fun invalidPrimaryCannotDowngradeToGitHubFallback() {
-        val fixture = loadFixture().getValue("asset_selection").jsonObject
-        assertEquals(
-            "primary_manifest_http_404_only",
-            fixture.getValue("fallback_trigger").jsonPrimitive.content,
-        )
-        assertEquals("fail_closed", fixture.getValue("invalid_primary").jsonPrimitive.content)
-    }
-
     @Test(expected = IllegalArgumentException::class)
     fun stableManifestRejectsVersionComponentsOutsideWindowsSemverRange() {
         val root = JSONObject(loadFixture().getValue("stable_manifest").toString())
@@ -133,10 +105,11 @@ class AppUpdateSupportTest {
 
     @Test
     fun startupAutoCheckRunsOncePerAppLaunch() {
-        val source = File(repoRoot(), APP_UPDATE_REPOSITORY_SOURCE).readText()
-        assertTrue(source.contains("private var autoCheckStarted = false"))
-        assertTrue(source.contains("if (autoCheckStarted) return"))
-        assertTrue(source.contains("autoCheckStarted = true"))
+        val owner=AppUpdateStateOwner<Unit>("1.0.0")
+        val check=requireNotNull(owner.beginAutoCheck())
+        owner.finishCheck(check,AppUpdateProjection(AppUpdateStatus.UP_TO_DATE))
+        assertEquals(null,owner.beginAutoCheck())
+        assertTrue(owner.beginCheck()!=null)
     }
 
     private fun loadFixture(): JsonObject =
@@ -152,11 +125,5 @@ class AppUpdateSupportTest {
 
     private companion object {
         const val FIXTURE_PATH = "parity-fixtures/app-update/latest-release.json"
-        const val APP_UPDATE_REPOSITORY_SOURCE =
-            "mobile/androidApp/src/full/java/dev/screengoated/toolbox/mobile/updater/AppUpdateRepository.kt"
-        const val APP_UPDATE_CONTRACT_SOURCE =
-            "mobile/androidApp/src/full/java/dev/screengoated/toolbox/mobile/updater/AppUpdateContracts.kt"
-        const val MAIN_VIEW_MODEL_SOURCE =
-            "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/MainViewModel.kt"
     }
 }

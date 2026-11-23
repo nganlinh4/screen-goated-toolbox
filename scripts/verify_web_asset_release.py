@@ -24,17 +24,17 @@ def request_bytes(url: str) -> bytes:
         return response.read()
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    # The packager writes into a managed-cache job folder, so both manifests
+    # are named explicitly instead of defaulting into the checkout.
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--packages",
-        default="local-runtime-bundles/sgt_web_assets/sgt_web_assets.packages.json",
-    )
-    parser.add_argument(
-        "--output",
-        default="local-runtime-bundles/sgt_web_assets/sgt_web_assets.delivery.json",
-    )
-    args = parser.parse_args()
+    parser.add_argument("--packages", required=True)
+    parser.add_argument("--output", required=True)
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     repo = Path(__file__).resolve().parents[1]
     packages_path = require_repo_or_managed_cache(
         repo, repo / args.packages, "web-asset package manifest"

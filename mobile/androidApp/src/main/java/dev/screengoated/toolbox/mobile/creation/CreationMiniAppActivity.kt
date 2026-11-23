@@ -26,39 +26,16 @@ class CreationMiniAppActivity : ComponentActivity() {
     private val imagePicker = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
+        if (!::viewModel.isInitialized || !::tool.isInitialized) return@registerForActivityResult
         Log.d("CreationImageImport", "Picker returned ${uris.size} image(s)")
         if (uris.isEmpty()) return@registerForActivityResult
         lifecycleScope.launch {
             runCatching {
-                val maximum = if (tool == CreationTool.IMAGE_CREATOR) {
-                    val configurableReferences = viewModel.state.value.selectedItem
-                        ?.takeIf {
-                            !it.submitted && it.stage == CreationNativeStage.DRAFT
-                        }
-                        ?.referencePaths
-                        ?.size
-                        ?: 0
-                    CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES -
-                        configurableReferences
-                } else {
-                    CreationContract.MAXIMUM_PICKER_BATCH_IMAGES
-                }
-                val existingReferences = if (tool == CreationTool.IMAGE_CREATOR) {
-                    viewModel.state.value.selectedItem
-                        ?.takeIf {
-                            !it.submitted && it.stage == CreationNativeStage.DRAFT
-                        }
-                        ?.referencePaths
-                        .orEmpty()
-                } else {
-                    emptyList()
-                }
                 withContext(Dispatchers.IO) {
                     CreationJobManager.get(this@CreationMiniAppActivity).files.importImages(
                         uris,
                         tool,
-                        maximum,
-                        existingReferences,
+                        CreationContract.MAXIMUM_PICKER_BATCH_IMAGES,
                     )
                 }
             }.onSuccess { paths ->
@@ -74,11 +51,16 @@ class CreationMiniAppActivity : ComponentActivity() {
     private val outputPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        uri?.let(viewModel::rememberOutputDirectory)
+        if (::viewModel.isInitialized) uri?.let(viewModel::rememberOutputDirectory)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val container = (application as SgtMobileApplication).appContainerOrNull
+        if (container == null) {
+            finish()
+            return
+        }
         tool = CreationTool.fromWireName(intent.getStringExtra(EXTRA_TOOL)) ?: run {
             finish()
             return
@@ -95,7 +77,7 @@ class CreationMiniAppActivity : ComponentActivity() {
             this,
             CreationNativeViewModelFactory(application, tool, ownerId),
         )[CreationNativeViewModel::class.java]
-        val preferences = (application as SgtMobileApplication).appContainer.repository
+        val preferences = container.repository
             .currentUiPreferences()
         val locale = MobileLocaleText.forLanguage(preferences.uiLanguage)
 

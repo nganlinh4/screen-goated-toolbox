@@ -6,6 +6,7 @@ import type { TtsMethod, TtsMode } from "./types";
 import { ProviderPanel } from "./Providers";
 import { Studio } from "./Studio";
 import { Select } from "./components";
+import { MaterialSymbol } from "./MaterialSymbol";
 
 export function App() {
   useThemeAttr();
@@ -31,8 +32,6 @@ export function App() {
         mode={s.mode}
         strings={{
           ttsClone: s.strings.modeTtsClone,
-          audioEdit: s.strings.modeAudioEdit,
-          referenceLibrary: s.strings.modeReferenceLibrary,
           s2s: s.strings.modeS2S,
         }}
       />
@@ -44,12 +43,8 @@ export function App() {
               <ProviderPanel />
             </>
           )}
-          {s.mode === "AudioEdit" && <ProviderPanel forceMode="AudioEdit" />}
           {s.mode === "SpeechToSpeech" && (
             <ProviderPanel forceMode="SpeechToSpeech" />
-          )}
-          {s.mode === "ReferenceLibrary" && (
-            <ProviderPanel forceMode="ReferenceLibrary" />
           )}
         </section>
         <aside className="tts-studio flex shrink-0 basis-[min(42%,360px)] min-w-[280px] flex-col">
@@ -85,18 +80,14 @@ function Header({ title }: { title: string }) {
           ariaLabel="Minimize"
           onClick={() => void ttsApi.minimizeWindow()}
         >
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
-            <path d="M5 13v-2h14v2z" />
-          </svg>
+          <MaterialSymbol name="remove" className="h-3 w-3" />
         </WindowButton>
         <WindowButton
           ariaLabel="Close"
           onClick={() => void ttsApi.closeWindow()}
           danger
         >
-          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
-            <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />
-          </svg>
+          <MaterialSymbol name="close" className="h-3 w-3" />
         </WindowButton>
       </div>
     </header>
@@ -106,9 +97,7 @@ function Header({ title }: { title: string }) {
 /** Small accent waveform mark (Material Symbols "graphic_eq") — replaces the generic 🔊 emoji. */
 function WaveMark() {
   return (
-    <svg viewBox="0 0 24 24" className="tts-wave-mark h-3.5 w-4 text-accent" fill="currentColor" aria-hidden>
-      <path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z" />
-    </svg>
+    <MaterialSymbol name="graphicEq" className="tts-wave-mark h-3.5 w-4 text-accent" />
   );
 }
 
@@ -146,16 +135,12 @@ function ModeBar({
   mode: TtsMode;
   strings: {
     ttsClone: string;
-    audioEdit: string;
-    referenceLibrary: string;
     s2s: string;
   };
 }) {
   const tabs: Array<{ id: TtsMode; label: string }> = [
     { id: "SpeechToSpeech", label: strings.s2s },
     { id: "TtsClone", label: strings.ttsClone },
-    { id: "AudioEdit", label: strings.audioEdit },
-    { id: "ReferenceLibrary", label: strings.referenceLibrary },
   ];
   return (
     <nav className="tts-mode-bar bg-surface-container px-4 pb-2.5 pt-1">
@@ -194,11 +179,6 @@ function MethodPicker({
     { id: "GeminiLive", label: strings.methodGemini },
     { id: "EdgeTTS", label: strings.methodEdge },
     { id: "GoogleTranslate", label: strings.methodGoogle },
-    { id: "StepAudioEditX", label: strings.methodStepAudio },
-    { id: "MagpieMultilingual", label: strings.methodMagpie },
-    { id: "Kokoro", label: strings.methodKokoro },
-    { id: "Supertonic", label: strings.methodSupertonic },
-    { id: "VieneuTts", label: strings.methodVieneu },
   ];
   return (
     <div className="tts-method-picker flex items-center gap-3 rounded-lg bg-surface-soft px-3.5 py-2.5 shadow-elevation-2">

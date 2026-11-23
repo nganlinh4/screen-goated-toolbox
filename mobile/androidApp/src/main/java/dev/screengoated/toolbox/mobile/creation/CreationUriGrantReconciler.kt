@@ -148,6 +148,10 @@ internal class CreationUriGrantLedger(private val context: Context) {
 }
 
 internal fun CreationFileStore.reconcilePersistedUriGrants() {
+    if (runCatching {
+            readCreationSvgEditReceipts(File(context.filesDir, "creation/state/svg-edits.json"))
+        }.isFailure
+    ) return
     val required = creationRequiredPersistedUriGrants(
         context.filesDir,
         leasedSourceHandles(),
@@ -203,6 +207,12 @@ internal fun creationRequiredPersistedUriGrants(
     collectCreationGrantKeys(
         File(filesDir, "creation/state/history-renames.json"),
         CREATION_RENAME_INDEX_MAX_BYTES,
+        mutableSetOf(),
+        output,
+    )
+    collectCreationGrantKeys(
+        File(filesDir, "creation/state/svg-edits.json"),
+        4L * 1024 * 1024,
         mutableSetOf(),
         output,
     )

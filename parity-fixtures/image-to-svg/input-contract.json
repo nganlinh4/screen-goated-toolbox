@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "windows": {"maximumBytes": 4490000, "minimumDimension": 1},
   "errors": {"image_too_large": "choose", "image_invalid": "choose", "validation_unavailable": "retry"},
   "dismissSubmits": false,
@@ -9,5 +9,16 @@
     {"width":1,"height":1,"bytes":4490000,"error":null},
     {"width":1,"height":1,"bytes":4490001,"error":"image_too_large"},
     {"width":0,"height":1,"bytes":100,"error":"image_invalid"}
+  ],
+  "validationActions": [
+    {"name":"dismiss_invalid","checks":["image_invalid"],"actions":["dismiss"],"submits":false,"chooses":0},
+    {"name":"choose_replacement","checks":["image_too_large"],"actions":["choose"],"submits":false,"chooses":1},
+    {"name":"retry_then_accept","checks":["validation_unavailable",null],"actions":["retry"],"submits":true,"chooses":0}
+  ],
+  "cancellationOutcomes": [
+    {"stage":"cancelled","terminal":true,"canSubmit":true,"keepsPublishedResult":false},
+    {"stage":"cancelling","terminal":false,"canSubmit":false,"keepsPublishedResult":false},
+    {"stage":"done","terminal":true,"canSubmit":true,"keepsPublishedResult":true},
+    {"stage":"failed","terminal":true,"canSubmit":true,"keepsPublishedResult":false}
   ]
 }

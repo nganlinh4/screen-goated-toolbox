@@ -77,14 +77,14 @@ pub(crate) fn render_model_combo_from_models(
 ) -> bool {
     let selected = models.iter().find(|model| model.id == *model_id);
     if let Some(model) = selected {
-        crate::gui::model_performance::render_prefix(ui, model);
+        crate::gui::model_performance::render_prefix(ui, model, ui_language);
         draw_icon_static(
             ui,
             provider_icon(&model.provider),
             Some(crate::gui::icons::ICON_MD),
         );
     } else {
-        crate::gui::model_performance::render_unknown_prefix(ui);
+        crate::gui::model_performance::render_unknown_prefix(ui, ui_language);
     }
 
     let mut changed = false;
@@ -126,7 +126,7 @@ pub(crate) fn render_model_combo_from_models(
                     .filter(|model| compatible_with_chain(model, chain_kind))
                 {
                     ui.horizontal(|ui| {
-                        crate::gui::model_performance::render_prefix(ui, model);
+                        crate::gui::model_performance::render_prefix(ui, model, ui_language);
                         draw_icon_static(
                             ui,
                             provider_icon(&model.provider),

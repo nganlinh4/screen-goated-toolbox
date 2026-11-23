@@ -123,7 +123,7 @@
     },
     {
       "name": "edit_text_file",
-      "description": "Exact-replace bounded UTF-8 text by current hash/count with an atomic verified result. Use for normal content/data edits; CSV/TSV record shape and formula bytes are immutable and auto-preserved.",
+      "description": "Exact-replace bounded UTF-8 text by current hash/count with an atomic verified result. All requested groups apply verbatim or fail without writing. Ordinary CSV/TSV edits must leave record shape and formula bytes unchanged.",
       "parameters": {"type":"object","properties":{"path":{"type":"string"},"expected_sha256":{"type":"string","description":"Exact sha256 from a current read_text_file call."},"replacements":{"type":"array","minItems":1,"items":{"type":"object","properties":{"old_text":{"type":"string"},"new_text":{"type":"string"},"expected_count":{"type":"integer"}},"required":["old_text","new_text","expected_count"]}}},"required":["path","expected_sha256","replacements"]}
     },
     {

@@ -7,35 +7,29 @@ use std::time::{Duration, Instant};
 mod ai_runtime;
 mod backgrounds;
 mod cleanup;
+mod component_row;
 mod computer_control;
+mod keyed_cache;
+mod legacy_offline;
 mod mcp;
 mod model_card;
-mod model_sections;
 mod pointer_packs;
 mod recorder;
+mod recovery;
 mod screen_text_detector;
+mod status_cache;
 mod three_d_generator;
-mod tts_models;
 mod utils;
 mod video_downloader;
 mod web_apps;
-mod zipformer;
 
 use self::{
-    backgrounds::render_background_downloads_section,
-    computer_control::render_computer_control_card,
-    mcp::render_mcp_card,
-    model_sections::{
-        render_kokoro_card, render_parakeet_card, render_qwen3_card, render_supertonic_card,
-    },
-    pointer_packs::render_pointer_pack_downloads_section,
-    recorder::render_recorder_card,
+    ai_runtime::render_shared_runtimes_card, backgrounds::render_background_downloads_section,
+    computer_control::render_computer_control_card, mcp::render_mcp_card,
+    pointer_packs::render_pointer_pack_downloads_section, recorder::render_recorder_card,
     screen_text_detector::render as render_screen_text_detector_card,
     three_d_generator::render_three_d_generator_card,
-    tts_models::{render_magpie_card, render_step_audio_card, render_vieneu_card},
-    video_downloader::render_video_downloader_card,
-    web_apps::render_web_apps_card,
-    zipformer::render_zipformer_section,
+    video_downloader::render_video_downloader_card, web_apps::render_web_apps_card,
 };
 
 const SECTION_TIMING_WARN_MS: f64 = 12.0;
@@ -83,6 +77,10 @@ pub fn render_downloaded_tools_modal(
     text: &LocaleText,
 ) {
     if *show_modal {
+        let repaint = ctx.clone();
+        crate::install_progress::set_repaint_callback(Some(std::sync::Arc::new(move || {
+            repaint.request_repaint()
+        })));
         let mut open = true;
         let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
 
@@ -137,14 +135,12 @@ pub fn render_downloaded_tools_modal(
                     .show(ui, |ui| {
                         ui.add_space(8.0);
 
+                        recovery::render(ui);
+
                         ui.columns(2, |columns| {
                             columns[0].vertical(|ui| {
-                                time_downloaded_tools_section("parakeet-card", || {
-                                    render_parakeet_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("qwen3-card", || {
-                                    render_qwen3_card(ui, text)
+                                time_downloaded_tools_section("shared-runtimes", || {
+                                    render_shared_runtimes_card(ui, text)
                                 });
                                 ui.add_space(8.0);
                                 time_downloaded_tools_section("backgrounds", || {
@@ -184,29 +180,8 @@ pub fn render_downloaded_tools_modal(
                                 time_downloaded_tools_section("screen-recorder", || {
                                     render_recorder_card(ui, text)
                                 });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("zipformer", || {
-                                    render_zipformer_section(ui, download_manager, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("kokoro", || {
-                                    render_kokoro_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("supertonic-tts", || {
-                                    render_supertonic_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("step-audio-tts", || {
-                                    render_step_audio_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("magpie-tts", || {
-                                    render_magpie_card(ui, text)
-                                });
-                                ui.add_space(8.0);
-                                time_downloaded_tools_section("vieneu-tts", || {
-                                    render_vieneu_card(ui, text)
+                                time_downloaded_tools_section("legacy-offline", || {
+                                    legacy_offline::render(ui, text)
                                 });
                             });
                         });

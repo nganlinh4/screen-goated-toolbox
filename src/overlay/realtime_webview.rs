@@ -2,6 +2,8 @@ pub mod app_selection;
 mod child;
 pub mod controller;
 mod document;
+pub(crate) mod download;
+mod event_worker;
 mod ipc;
 mod layout;
 mod mailbox;
@@ -11,6 +13,8 @@ pub mod protocol;
 pub(crate) mod smoke;
 pub mod state;
 mod supervisor;
+pub(crate) mod target_change;
+mod text_edit;
 mod text_input_focus;
 pub mod webview;
 mod webview_failure;
@@ -22,7 +26,7 @@ pub use state::*;
 pub(crate) const CHILD_FLAG: &str = "--internal-realtime-compositor";
 
 pub(crate) fn is_child_process() -> bool {
-    std::env::args().any(|argument| argument == CHILD_FLAG)
+    std::env::args_os().any(|argument| argument == CHILD_FLAG)
 }
 
 pub(crate) fn run_child() -> anyhow::Result<()> {

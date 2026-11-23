@@ -1,14 +1,28 @@
 package dev.screengoated.toolbox.mobile.service.tts
 
-import dev.screengoated.toolbox.mobile.service.websocket.BlockingWebSocketSession
-import dev.screengoated.toolbox.mobile.service.websocket.WebSocketEvent
 import okhttp3.OkHttpClient
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Request
-import org.json.JSONObject
+import okhttp3.Response
+import java.io.IOException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+
+private const val DEFAULT_EDGE_VOICE = "en-US-AriaNeural"
+
+/** Null means retired before dispatch; false means the transport rejected the payload. */
+internal fun dispatchTtsPayload(request: TtsRequest, isStale: () -> Boolean, send: () -> Boolean): Boolean? {
+    var accepted: Boolean? = null
+    request.dispatchIfCurrent {
+        if (!isStale()) accepted = send()
+    }
+    return accepted
+}
 
 internal class EdgeTtsProvider(
     private val httpClient: OkHttpClient,
@@ -33,120 +47,116 @@ internal class EdgeTtsProvider(
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$CHROMIUM_FULL_VERSION Safari/537.36 Edg/$CHROMIUM_FULL_VERSION")
             .build()
 
-        BlockingWebSocketSession(httpClient, socketRequest).use { session ->
-            if (!session.awaitOpen(10_000)) {
-                val failEvent = session.poll(0)
-                val reason = if (failEvent is WebSocketEvent.Failure) failEvent.throwable.message else "timeout"
-                sink.offer(ProviderAudioEvent.Error("Edge TTS websocket failed: $reason"))
+        val lease = EdgeConnectionLease.acquire()
+        if (lease == null) {
+            if (!isStale()) sink.offer(ProviderAudioEvent.Error("Edge TTS connection capacity is busy."))
+            return
+        }
+        var ownedSession: EdgeSocketSession? = null
+        try {
+            val admitted = dispatchTtsPayload(request, isStale) {
+                ownedSession = EdgeSocketSession(httpClient, socketRequest, lease)
+                true
+            }
+            if (admitted == null) {
+                lease.release()
                 return
             }
+            val session = checkNotNull(ownedSession)
+            session.use {
+                when (val opening = session.state.awaitOpen(isStale)) {
+                    is EdgeOutcome.Failure -> { if (!isStale()) sink.offer(ProviderAudioEvent.Error(opening.message)); return }
+                    is EdgeOutcome.Cancelled -> return
+                    else -> Unit
+                }
+                val configMessage =
+                    "X-Timestamp:${edgeHeaderTimestamp()}\r\n" +
+                        "Content-Type:application/json; charset=utf-8\r\n" +
+                        "Path:speech.config\r\n\r\n" +
+                        "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
 
-            val configMessage =
-                "X-Timestamp:${edgeHeaderTimestamp()}\r\n" +
-                    "Content-Type:application/json; charset=utf-8\r\n" +
-                    "Path:speech.config\r\n\r\n" +
-                    "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
+                if (!sendEdgePayload(session, request, isStale, sink, configMessage, false)) return
+                val ssml = buildEdgeSsml(
+                    text = request.text,
+                    voiceName = voiceName,
+                    pitch = settings.pitch,
+                    rate = settings.rate,
+                    volume = settings.volume,
+                )
+                val ssmlMessage =
+                    "X-RequestId:$connectionId\r\n" +
+                        "Content-Type:application/ssml+xml\r\n" +
+                        "X-Timestamp:${edgeSsmlTimestamp()}Z\r\n" +
+                        "Path:ssml\r\n\r\n$ssml"
+                if (!sendEdgePayload(session, request, isStale, sink, ssmlMessage, true)) return
 
-            if (!session.sendText(configMessage)) {
-
-                sink.offer(ProviderAudioEvent.Error("Edge TTS config payload was rejected."))
-                return
-            }
-
-            val ssml = buildEdgeSsml(
-                text = request.text,
-                voiceName = voiceName,
-                pitch = settings.pitch,
-                rate = settings.rate,
-                volume = settings.volume,
-            )
-            val ssmlMessage =
-                "X-RequestId:$connectionId\r\n" +
-                    "Content-Type:application/ssml+xml\r\n" +
-                    "X-Timestamp:${edgeSsmlTimestamp()}Z\r\n" +
-                    "Path:ssml\r\n\r\n$ssml"
-            if (!session.sendText(ssmlMessage)) {
-
-                sink.offer(ProviderAudioEvent.Error("Edge TTS SSML payload was rejected."))
-                return
-            }
-
-            val mp3Data = ArrayList<Byte>()
-            while (!isStale()) {
-                when (val event = session.poll(250)) {
-                    null -> Unit
-                    is WebSocketEvent.Binary -> {
-                        val bytes = event.payload.toByteArray()
-                        if (bytes.size >= 2) {
-                            val headerLength = ((bytes[0].toInt() and 0xFF) shl 8) or (bytes[1].toInt() and 0xFF)
-                            val audioStart = 2 + headerLength
-                            if (bytes.size > audioStart) {
-                                val header = bytes.copyOfRange(2, audioStart)
-                                if (header.toString(StandardCharsets.UTF_8).contains("Path:audio")) {
-                                    bytes.copyOfRange(audioStart, bytes.size).forEach(mp3Data::add)
-                                }
-                            }
-                        }
-                    }
-
-                    is WebSocketEvent.Text -> {
-
-                        if (event.payload.contains("Path:turn.end")) {
-
-                            emitDecodedMp3(mp3Data.toByteArray(), sink)
-                            return
-                        }
-                    }
-
-                    is WebSocketEvent.Failure -> {
-
-                        sink.offer(ProviderAudioEvent.Error(event.throwable.message ?: "Edge TTS websocket failed."))
-                        return
-                    }
-
-                    WebSocketEvent.Closed -> {
-
-                        emitDecodedMp3(mp3Data.toByteArray(), sink)
-                        return
-                    }
+                when (val result = session.state.awaitResult(isStale)) {
+                    is EdgeOutcome.Complete -> emitDecodedMp3(result.mp3, request, isStale, sink)
+                    is EdgeOutcome.Failure -> if (!isStale()) sink.offer(ProviderAudioEvent.Error(result.message))
+                    EdgeOutcome.Cancelled -> Unit
                 }
             }
-
+        } catch (error: Exception) {
+            if (!isStale()) sink.offer(ProviderAudioEvent.Error("Edge TTS connection failed."))
+            if (error is InterruptedException) Thread.currentThread().interrupt()
+        } finally {
+            if (ownedSession == null) lease.release() else ownedSession.close()
         }
     }
 
-    private fun resolveVoice(request: TtsRequest): String {
-        val detectedLanguage = languageDetector.detectIso639_1(request.text)
-        val configs = request.settingsSnapshot.edgeSettings.voiceConfigs
-        val matched = configs.firstOrNull {
-            it.languageCode.equals(detectedLanguage, ignoreCase = true)
+    private fun sendEdgePayload(
+        session: EdgeSocketSession,
+        request: TtsRequest,
+        isStale: () -> Boolean,
+        sink: LinkedBlockingDeque<ProviderAudioEvent>,
+        payload: String,
+        requestPayload: Boolean,
+    ): Boolean {
+        val outcome = session.state.currentOutcome()
+        if (outcome is EdgeOutcome.Failure) {
+            if (!isStale()) sink.offer(ProviderAudioEvent.Error(outcome.message))
+            return false
         }
-        val voice = matched?.voiceName ?: DEFAULT_EDGE_VOICE
+        if (outcome != null) return false
+        var sent: Boolean? = null
+        val admitted = request.dispatchIfCurrent {
+            if (!isStale()) sent = session.state.sendIfActive(requestPayload) { session.send(payload) }
+        }
+        if (!admitted || isStale()) return false
+        if (sent != true) {
+            val failure = session.state.currentOutcome() as? EdgeOutcome.Failure
+            sink.offer(ProviderAudioEvent.Error(failure?.message ?: "Edge TTS payload was rejected."))
+            return false
+        }
+        return true
+    }
 
-        return voice
+    private fun resolveVoice(request: TtsRequest): String {
+        return resolveEdgeVoice(request) { languageDetector.detectIso639_1(request.text) }
     }
 
     private fun emitDecodedMp3(
         mp3: ByteArray,
+        request: TtsRequest,
+        isStale: () -> Boolean,
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
-
+        if (isStale()) return
         val pcm = try {
             mp3Decoder.decodeToMonoPcm24k(mp3)
         } catch (e: Exception) {
-
-            sink.offer(ProviderAudioEvent.Error("Edge TTS MP3 decode failed: ${e.message}"))
+            if (!isStale()) sink.offer(ProviderAudioEvent.Error("Edge TTS MP3 decode failed: ${e.message}"))
             return
         }
-
+        if (isStale()) return
         if (pcm.isEmpty()) {
             sink.offer(ProviderAudioEvent.Error("Edge TTS did not return playable audio."))
             return
         }
-        chunkBytes(pcm, CHUNK_BYTES).forEach { chunk ->
-            sink.offer(ProviderAudioEvent.PcmData(chunk))
+        for (chunk in chunkBytes(pcm, CHUNK_BYTES)) {
+            if (dispatchTtsPayload(request, isStale) { sink.offer(ProviderAudioEvent.PcmData(chunk)) } != true) return
         }
-        sink.offer(ProviderAudioEvent.End)
+        dispatchTtsPayload(request, isStale) { sink.offer(ProviderAudioEvent.End) }
     }
 
     private fun buildEdgeSsml(
@@ -200,9 +210,16 @@ internal class EdgeTtsProvider(
         private const val EDGE_ORIGIN = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
         private const val CHROMIUM_FULL_VERSION = "143.0.3650.75"
         private const val SEC_MS_GEC_VERSION = "1-$CHROMIUM_FULL_VERSION"
-        private const val DEFAULT_EDGE_VOICE = "en-US-AriaNeural"
         private const val CHUNK_BYTES = 24_000
     }
+}
+
+internal fun resolveEdgeVoice(request: TtsRequest, detectLanguage: () -> String): String {
+    request.edgeVoiceOverride?.let { return it }
+    val detectedLanguage = detectLanguage()
+    return request.settingsSnapshot.edgeSettings.voiceConfigs.firstOrNull {
+        it.languageCode.equals(detectedLanguage, ignoreCase = true)
+    }?.voiceName ?: DEFAULT_EDGE_VOICE
 }
 
 internal class GoogleTranslateTtsProvider(
@@ -212,6 +229,7 @@ internal class GoogleTranslateTtsProvider(
 ) {
     fun stream(
         request: TtsRequest,
+        isStale: () -> Boolean,
         sink: LinkedBlockingDeque<ProviderAudioEvent>,
     ) {
         val languageCode = languageDetector.detectIso639_1(request.text)
@@ -228,22 +246,76 @@ internal class GoogleTranslateTtsProvider(
             .build()
 
         runCatching {
-            httpClient.newCall(httpRequest).execute().use { response ->
-                check(response.isSuccessful) { "Google TTS HTTP ${response.code}" }
-                val mp3Bytes = response.body.bytes()
-                val pcm = mp3Decoder.decodeToMonoPcm24k(mp3Bytes)
-                check(pcm.isNotEmpty()) { "Google TTS audio decode failed." }
-                chunkBytes(pcm, CHUNK_BYTES).forEach { chunk ->
-                    sink.offer(ProviderAudioEvent.PcmData(chunk))
-                }
-                sink.offer(ProviderAudioEvent.End)
+            val call = httpClient.newCall(httpRequest)
+            val handoff = TtsHttpResponseHandoff()
+            val submitted = dispatchTtsPayload(request, isStale) {
+                call.enqueue(handoff)
+                true
             }
+            if (submitted == null) return
+            var received = false
+            val mp3Bytes = try {
+                handoff.await(isStale).also { received = it != null }
+            } finally {
+                handoff.abandon()
+                if (!received) call.cancel()
+            } ?: return
+            if (isStale()) return
+            val pcm = mp3Decoder.decodeToMonoPcm24k(mp3Bytes)
+            if (isStale()) return
+            check(pcm.isNotEmpty()) { "Google TTS audio decode failed." }
+            chunkBytes(pcm, CHUNK_BYTES).forEach { chunk ->
+                sink.offer(ProviderAudioEvent.PcmData(chunk))
+            }
+            sink.offer(ProviderAudioEvent.End)
         }.onFailure { error ->
-            sink.offer(ProviderAudioEvent.Error(error.message ?: "Google Translate TTS failed."))
+            if (!isStale()) sink.offer(ProviderAudioEvent.Error(error.message ?: "Google Translate TTS failed."))
         }
     }
 
     private companion object {
         private const val CHUNK_BYTES = 24_000
+    }
+}
+
+/** Owns response reading until cancellation or delivery of the complete body. */
+internal class TtsHttpResponseHandoff : Callback {
+    private val lock = Any()
+    private val result = LinkedBlockingQueue<Result<ByteArray>>(1)
+    private var abandoned = false
+
+    override fun onFailure(call: Call, e: IOException) = deliver(Result.failure(e))
+
+    override fun onResponse(call: Call, response: Response) {
+        if (synchronized(lock) { abandoned }) {
+            response.close()
+            return
+        }
+        val value = runCatching {
+            response.use {
+                check(it.isSuccessful) { "Google TTS HTTP ${it.code}" }
+                it.body.bytes()
+            }
+        }
+        deliver(value)
+    }
+
+    private fun deliver(value: Result<ByteArray>) = synchronized(lock) {
+        if (!abandoned) result.offer(value)
+        Unit
+    }
+
+    fun await(isStale: () -> Boolean): ByteArray? {
+        while (!isStale()) {
+            val value = result.poll(50, TimeUnit.MILLISECONDS) ?: continue
+            if (isStale()) return null
+            return value.getOrThrow()
+        }
+        return null
+    }
+
+    fun abandon() = synchronized(lock) {
+        abandoned = true
+        result.clear()
     }
 }

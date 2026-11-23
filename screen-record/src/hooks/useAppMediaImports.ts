@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type {
   ImportedAudioSegment,
   Project,
@@ -10,10 +10,18 @@ import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import { useVideoImport } from "@/hooks/useVideoImport";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
 import { useSubtitleImport } from "@/hooks/useSubtitleSrtImport";
-import { invoke, logToHost } from "@/lib/ipc";
+import { logToHost } from "@/lib/ipc";
 import { createAudioPlaceholderVideo, getMediaServerUrl } from "@/lib/mediaServer";
 import { getTimelineContentEnd, resizeSegmentDuration } from "@/lib/timelineDuration";
 import type { VideoController } from "@/lib/videoController";
+import { appendAudioSegments } from "@/lib/audioSegmentTime";
+import { beginAudioImportWrite, finishAudioImportWrite } from '@/lib/audioImportWriteFence';
+import { captureImportStartOwner, importStartOwnerCurrent } from './importProjectOwnership';
+import { isSubtitleSaveEditorActive, subscribeSubtitleSaveInvalidation } from './subtitleCompletedPersistence';
+import { AudioSavedNotPublishedError, AudioSavedPreviewError, type TimelineWriteOwner } from './timelineWriteOwner';
+import { clearAudioImportRecovery, currentAudioRecoveryEditor, registerAudioRecoveryEditor, retainAudioImportRecovery,
+  type AudioRecoveryEditor, type AudioRecoveryRequest } from './audioImportRecovery';
+import { isNarrationProjectLoading, narrationProjectEpoch } from './narrationProjectOwnership';
 
 type CompositionSetter = (
   value:
@@ -36,15 +44,17 @@ interface AppMediaImportsOptions {
   currentTime: number;
   duration: number;
   isPlaceholderBackedProject: boolean;
+  loadedClipIdRef?: MutableRefObject<string | null>;
   persistTimelineWorkspaceState: (
     nextSegment: VideoSegment,
     nextComposition: ProjectComposition | null,
     nextDuration: number,
     reason: string,
     rawVideoPath?: string,
-  ) => Promise<void>;
+    owner?: TimelineWriteOwner,
+  ) => Promise<boolean | void>;
   projects: {
-    handleLoadProject: (projectId: string) => Promise<unknown>;
+    handleLoadProject: (projectId: string) => Promise<import('./useProjects').ProjectLoadResult>;
     loadProjects: () => Promise<unknown>;
     setShowProjectsDialog: (show: boolean) => void;
   };
@@ -62,8 +72,8 @@ interface AppMediaImportsOptions {
   updateCurrentMusicSegments: (
     updater: (segments: ImportedAudioSegment[]) => ImportedAudioSegment[],
     reason: string,
-    options?: { persist: boolean },
-  ) => void;
+    options?: { persist: boolean; owner?: TimelineWriteOwner },
+  ) => void | Promise<boolean | void>;
   videoControllerRef: MutableRefObject<VideoController | undefined>;
 }
 
@@ -73,7 +83,7 @@ export function useAppMediaImports({
   currentProjectIdRef,
   currentTime,
   duration,
-  isPlaceholderBackedProject,
+  loadedClipIdRef,
   persistTimelineWorkspaceState,
   projects,
   segment,
@@ -81,7 +91,6 @@ export function useAppMediaImports({
   selectedSubtitleIdsRef,
   selectedTextIdsRef,
   setActivePanel,
-  setComposition,
   setCurrentVideo,
   setEditingSubtitleId,
   setError,
@@ -90,65 +99,88 @@ export function useAppMediaImports({
   updateCurrentMusicSegments,
   videoControllerRef,
 }: AppMediaImportsOptions) {
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  const captureMountedOwner = () => {
+    const owner = captureImportStartOwner(currentProjectIdRef);
+    return owner ? () => mountedRef.current && owner() : null;
+  };
   const { isImporting, importVideo, importVideoPath } = useVideoImport({
-    onProjectCreated: async (project) => {
+    captureStartOwner: captureMountedOwner,
+    onProjectCreated: async (project, owner) => {
       projects.setShowProjectsDialog(false);
       await projects.loadProjects();
-      await projects.handleLoadProject(project.id);
+      if (!importStartOwnerCurrent(owner)) return false;
+      const activated = await projects.handleLoadProject(project.id);
+      return typeof activated === 'function' && activated() ? activated : false;
     },
   });
 
-  const { isImporting: isImportingAudio, importAudio, importAudios, importAudioPaths } =
-    useImportedAudioImport({
-      getCurrentProjectId: () =>
-        currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
-      onAttachToCurrentProject: async (segments, expectedProjectId) => {
+  const attachToCurrentProject = async (input: ImportedAudioSegment[], expectedProjectId: string,
+    owner?: () => boolean, recovery?: AudioRecoveryRequest): Promise<void> => {
+        const segments = input.map((segment) => ({ ...segment }));
+        const originalClipId = recovery ? recovery.clipId : loadedClipIdRef?.current;
+        const epoch = recovery?.epoch ?? narrationProjectEpoch(currentProjectIdRef);
+        const isCurrent = () => mountedRef.current && currentProjectIdRef.current === expectedProjectId && (owner?.() ?? true)
+          && !isNarrationProjectLoading(currentProjectIdRef) && narrationProjectEpoch(currentProjectIdRef) === epoch
+          && loadedClipIdRef?.current === originalClipId && (!recovery || isSubtitleSaveEditorActive(currentProjectIdRef));
+        if (!isCurrent()) throw new Error('The open project changed while audio was importing');
+        const audioFence = recovery?.fence ?? beginAudioImportWrite(expectedProjectId);
+        const request: AudioRecoveryRequest = { fence: audioFence, projectId: expectedProjectId, epoch, clipId: originalClipId, segments };
+        const attempt = async (): Promise<void> => {
+        let didPublish = false;
+        try {
+        let saved = audioFence.committed;
+        for (let attemptNumber = 0; ; attemptNumber += 1) {
+        const baseProject = currentProjectDataRef.current;
+        const baseEditorSegment = segmentRef.current;
+        const baseLoadedClipId = loadedClipIdRef?.current;
+        const writeOwner: TimelineWriteOwner = { isCurrent: () => isCurrent()
+          && currentProjectDataRef.current === baseProject && segmentRef.current === baseEditorSegment,
+          onInvalidated: (listener) => subscribeSubtitleSaveInvalidation(currentProjectIdRef, listener), audioFence };
         const assertProjectUnchanged = () => {
-          if (currentProjectIdRef.current !== expectedProjectId) {
+          if (!isCurrent()) {
             throw new Error("The open project changed while audio was importing");
           }
         };
+        const appendMissing = (existing: ImportedAudioSegment[]) => {
+          const existingIds = new Set(existing.map((item) => item.id));
+          return appendAudioSegments(existing, segments.filter((item) => !existingIds.has(item.id)));
+        };
+        try {
         assertProjectUnchanged();
-        if (isPlaceholderBackedProject && segmentRef.current) {
+        if (segmentRef.current && (baseProject?.composition ?? composition)?.placeholderVideoForAudio) {
+          if (originalClipId && originalClipId !== 'root') throw new Error('Select the root clip before attaching audio.');
+          const baseSegment = segmentRef.current;
           const baseComposition =
             currentProjectDataRef.current?.composition ?? composition ?? null;
           if (!baseComposition) return;
           const existingSegments = baseComposition.audioSegments ?? [];
-          const appendStart = existingSegments.reduce((maxEnd, segment) => {
-            const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
-            return Math.max(maxEnd, segment.startTime + visibleDuration);
-          }, 0);
-          let cursor = appendStart;
-          const placedSegments = segments.map((segment) => {
-            const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
-            const placed = { ...segment, startTime: cursor };
-            cursor += visibleDuration;
-            return placed;
-          });
-          const nextAudioSegments = [...existingSegments, ...placedSegments];
+          const nextAudioSegments = appendMissing(existingSegments);
           const nextDuration = Math.max(
             duration,
-            segmentRef.current.trimEnd,
+            baseProject?.duration ?? 0,
+            baseSegment.trimEnd,
             getTimelineContentEnd(
-              segmentRef.current,
+              baseSegment,
               nextAudioSegments,
               baseComposition.narrationSegments,
             ),
             1,
           );
           const nextSegment = {
-            ...resizeSegmentDuration(segmentRef.current, nextDuration),
+            ...resizeSegmentDuration(baseSegment, nextDuration),
             mediaMode: undefined,
           };
           const placeholder = await createAudioPlaceholderVideo(
             nextDuration,
             "attach-audio-to-placeholder-project",
           );
-          if (currentProjectIdRef.current !== expectedProjectId) {
-            await invoke("delete_file", { path: placeholder.path }).catch(
-              () => undefined,
-            );
+          if (currentProjectIdRef.current !== expectedProjectId || owner?.() === false) {
             assertProjectUnchanged();
+          }
+          if (segmentRef.current !== baseSegment || (currentProjectDataRef.current?.composition ?? composition ?? null) !== baseComposition) {
+            throw new Error("The timeline changed while audio was importing");
           }
           const nextComposition = {
             ...baseComposition,
@@ -170,59 +202,111 @@ export function useAppMediaImports({
             placeholderVideoForSubtitles: baseComposition.placeholderVideoForSubtitles,
             timelineOnly: false,
           };
-          await persistTimelineWorkspaceState(
+          const published = await persistTimelineWorkspaceState(
             nextSegment,
             nextComposition,
             nextDuration,
             "attach-audio-to-placeholder-project",
             placeholder.path,
+            writeOwner,
           );
-          assertProjectUnchanged();
-          const mediaUrl = await getMediaServerUrl(placeholder.path);
-          assertProjectUnchanged();
-          const loadedUrl = await videoControllerRef.current?.loadVideo({
-            videoUrl: mediaUrl,
-            initialTime: currentTime,
-            debugLabel: "attach-audio-to-placeholder-project",
-          });
-          assertProjectUnchanged();
-          setCurrentVideo(loadedUrl ?? mediaUrl);
-          setSubtitleSource("audio");
+          const visible = currentProjectDataRef.current?.composition?.audioSegments ?? [];
+          if (!audioFence.committed || published !== true || currentProjectDataRef.current?.rawVideoPath !== placeholder.path
+            || !segments.every((segment) => visible.some((item) => item.id === segment.id && item.rawAudioPath === segment.rawAudioPath))) {
+            throw audioFence.committed ? new AudioSavedNotPublishedError() : new Error('Audio could not be saved.');
+          }
+          didPublish = true;
+          try {
+            const assertPreviewCurrent = () => {
+              assertProjectUnchanged();
+              if (loadedClipIdRef?.current !== baseLoadedClipId
+                || currentProjectDataRef.current?.composition !== nextComposition
+                || currentProjectDataRef.current?.rawVideoPath !== placeholder.path) {
+                throw new Error('The preview target changed');
+              }
+            };
+            assertPreviewCurrent();
+            const mediaUrl = await getMediaServerUrl(placeholder.path);
+            assertPreviewCurrent();
+            const loadedUrl = await videoControllerRef.current?.loadVideo({
+              videoUrl: mediaUrl,
+              initialTime: currentTime,
+              debugLabel: "attach-audio-to-placeholder-project",
+            });
+            assertPreviewCurrent();
+            setCurrentVideo(loadedUrl ?? mediaUrl);
+            setSubtitleSource("audio");
+          } catch {
+            throw new AudioSavedPreviewError();
+          }
           return;
         }
-        updateCurrentMusicSegments(
-          (existingSegments) => {
-            const appendStart = existingSegments.reduce((maxEnd, segment) => {
-              const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
-              return Math.max(maxEnd, segment.startTime + visibleDuration);
-            }, 0);
-            let cursor = appendStart;
-            const placedSegments = segments.map((segment) => {
-              const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
-              const placed = { ...segment, startTime: cursor };
-              cursor += visibleDuration;
-              return placed;
-            });
-            return [...existingSegments, ...placedSegments];
-          },
+        const published = await updateCurrentMusicSegments(
+          appendMissing,
           "attach-audio-to-current-project",
-          { persist: true },
+          { persist: true, owner: writeOwner },
         );
+        const visible = currentProjectDataRef.current?.composition?.audioSegments ?? [];
+        if (!audioFence.committed || published !== true || !segments.every((segment) => visible.some((item) => item.id === segment.id && item.rawAudioPath === segment.rawAudioPath))) {
+          throw audioFence.committed ? new AudioSavedNotPublishedError() : new Error('Audio could not be saved.');
+        }
+        didPublish = true;
         if (composition?.placeholderVideoForAudio) {
           setSubtitleSource("audio");
         }
-      },
-      onCreateAudioProject: async (project) => {
+        return;
+        } catch (error) {
+          if (audioFence.committed) saved = true;
+          if (error instanceof AudioSavedNotPublishedError) {
+            saved = true;
+            if (isCurrent() && attemptNumber < 2) continue;
+          }
+          if (saved && !(error instanceof AudioSavedPreviewError) && isCurrent()
+            && attemptNumber < 2 && (currentProjectDataRef.current !== baseProject || segmentRef.current !== baseEditorSegment)) continue;
+          if (saved && !(error instanceof AudioSavedPreviewError)) throw new AudioSavedNotPublishedError();
+          throw error;
+        }
+        }
+        } finally {
+          if (didPublish) clearAudioImportRecovery(audioFence);
+          else if (audioFence.committed) retainAudioImportRecovery(audioFence, currentProjectDataRef.current?.name ?? expectedProjectId,
+            () => currentAudioRecoveryEditor(currentProjectIdRef)?.canResume(request) ?? false,
+            async () => {
+              const editor = currentAudioRecoveryEditor(currentProjectIdRef);
+              if (!editor?.canResume(request)) throw new Error('The original editor is unavailable');
+              await editor.resume(request);
+            });
+          finishAudioImportWrite(audioFence, didPublish);
+        }
+        };
+        await attempt();
+      };
+  const recoveryEditor = useRef<AudioRecoveryEditor | null>(null);
+  recoveryEditor.current = {
+    canResume: (request) => mountedRef.current && isSubtitleSaveEditorActive(currentProjectIdRef)
+      && currentProjectIdRef.current === request.projectId && narrationProjectEpoch(currentProjectIdRef) === request.epoch
+      && !isNarrationProjectLoading(currentProjectIdRef) && loadedClipIdRef?.current === request.clipId,
+    resume: async (request) => {
+      try { await attachToCurrentProject(request.segments, request.projectId, undefined, request); }
+      catch (error) { if (error instanceof AudioSavedPreviewError) setError(error.message); throw error; }
+    },
+  };
+  useEffect(() => registerAudioRecoveryEditor(currentProjectIdRef, recoveryEditor), [currentProjectIdRef]);
+  const { isImporting: isImportingAudio, importAudio, importAudios, importAudioPaths } =
+    useImportedAudioImport({
+      captureStartOwner: captureMountedOwner,
+      getCurrentProjectId: () => currentProjectIdRef.current ?? currentProjectDataRef.current?.id ?? null,
+      onAttachToCurrentProject: attachToCurrentProject,
+      onCreateAudioProject: async (project, startOwner) => {
         logToHost(`[AudioImport][Frontend] load project start id="${project.id}"`);
         projects.setShowProjectsDialog(false);
         await projects.loadProjects();
+        if (!importStartOwnerCurrent(startOwner)) return false;
         logToHost(`[AudioImport][Frontend] project list refreshed id="${project.id}"`);
-        await projects.handleLoadProject(project.id);
-        currentProjectIdRef.current = project.id;
-        if (project.composition) {
-          setComposition(project.composition);
-        }
+        const owner = await projects.handleLoadProject(project.id);
+        if (typeof owner !== 'function' || !owner()) return false;
         logToHost(`[AudioImport][Frontend] load project complete id="${project.id}"`);
+        return owner;
       },
       onError: setError,
     });
@@ -232,6 +316,7 @@ export function useAppMediaImports({
     importSubtitleFile,
     importSubtitlePayload,
   } = useSubtitleImport({
+    captureStartOwner: captureMountedOwner,
     segment,
     duration,
     getCurrentProjectId: () =>
@@ -245,16 +330,15 @@ export function useAppMediaImports({
       selectedSubtitleIdsRef.current = [];
       selectedTextIdsRef.current = [];
     },
-    onCreateSubtitleProject: async (project) => {
+    onCreateSubtitleProject: async (project, startOwner) => {
       logToHost(`[SubtitleImport][Frontend] load project start id="${project.id}"`);
       projects.setShowProjectsDialog(false);
       await projects.loadProjects();
-      await projects.handleLoadProject(project.id);
-      currentProjectIdRef.current = project.id;
-      if (project.composition) {
-        setComposition(project.composition);
-      }
+      if (!importStartOwnerCurrent(startOwner)) return false;
+      const owner = await projects.handleLoadProject(project.id);
+      if (typeof owner !== 'function' || !owner()) return false;
       logToHost(`[SubtitleImport][Frontend] load project complete id="${project.id}"`);
+      return owner;
     },
     onError: setError,
   });

@@ -65,7 +65,7 @@ internal class CreationManagerMemory {
         val active = requests.values.asSequence()
             .filter { request -> jobs[request.jobId]?.stage?.let(::creationStageIsBusy) == true }
             .flatMap { request ->
-                (listOf(request.imagePath, request.outputPath) + request.imagePaths).asSequence()
+                listOf(request.imagePath, request.outputPath).asSequence()
             }
         val continued = continuations.values.asSequence()
             .flatMap { continuation ->
@@ -107,7 +107,7 @@ internal class CreationManagerMemory {
         removed.forEach(::remove)
         val stillOwned = liveArtifactPaths()
         val retiredInputs = (
-            original.filter { it.id in removed }.flatMap { it.request?.imagePaths.orEmpty() } +
+            original.filter { it.id in removed }.mapNotNull { it.request?.imagePath } +
                 original.filter { it.id in expired }.mapNotNull { it.continuation?.sourcePath }
             ).filterNot(stillOwned::contains).distinct()
         return CreationMemoryRetirement(
@@ -127,7 +127,7 @@ internal class CreationManagerMemory {
         return CreationMemoryRetirement(
             original,
             original.mapNotNull(CreationMemoryRecord::request),
-            original.flatMap { it.request?.imagePaths.orEmpty() }
+            original.mapNotNull { it.request?.imagePath }
                 .filterNot(stillOwned::contains)
                 .distinct(),
         )

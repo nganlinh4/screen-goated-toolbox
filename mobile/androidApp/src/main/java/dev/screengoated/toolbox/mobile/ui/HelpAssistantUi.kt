@@ -108,6 +108,7 @@ private fun HelpAssistantDialog(
 
     ExpressiveDialogSurface(
         title = locale.helpAssistantTitle,
+        closeLabel = locale.closeLabel,
         icon = R.drawable.ms_auto_stories,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),

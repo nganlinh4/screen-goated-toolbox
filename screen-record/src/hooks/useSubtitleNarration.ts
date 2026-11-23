@@ -1,13 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Translations } from '@/i18n';
 import { invoke } from '@/lib/ipc';
 import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
+import { narrationProjectEpoch, narrationRunNamespace } from './narrationProjectOwnership';
+import { newNarrationBatchId, registerNarrationBatch, retireNarrationBatch } from '@/lib/narrationBatchRetirements';
+import { acknowledgeNarrationStart, recordNarrationResponse, recordNarrationStart, retireNarrationJob } from './retiredNarrationCancellation';
+import { createSubtitleNarrationApplyQueue, notifySubtitleNarrationQueue, settleSubtitleNarrationDrain, type SubtitleNarrationApplyQueue } from './subtitleNarrationApplyQueue';
 import {
-  clearResumableRun,
+  clearResumableRunIfJob,
+  claimResumableStart,
+  attachResumableStartCancellation,
+  hasResumableStart,
+  releaseResumableStart,
+  readResumableRun,
   saveResumableRun,
+  useResumableStartPending,
   useResumableRun,
 } from './resumableJobRegistry';
-import { overlapsRange, type TrackSelectionRange } from '@/lib/timelineSegmentSelection';
+import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
+import { useSubtitleNarrationTargets } from './useSubtitleNarrationTargets';
 import type {
   NarrationSegment,
   SubtitleSegment,
@@ -20,7 +31,6 @@ import {
   DEFAULT_NARRATION_GROUP_TEXT_BUDGET,
   NARRATION_GROUP_VAD_RADIUS_SEC,
   type SubtitleNarrationJobStatus,
-  type SubtitleNarrationRequestItem,
   type SubtitleNarrationResultItem,
 } from './subtitleNarrationHelpers';
 
@@ -41,15 +51,18 @@ interface ResumableSubtitleNarrationRun {
   jobId: string;
   status: SubtitleNarrationJobStatus | null;
   batchId: string | null;
-  appliedResultIds: string[];
+  applyQueue: SubtitleNarrationApplyQueue;
   knownResultsRevision: number;
   allResultItems: SubtitleNarrationResultItem[];
   allErrorItems: Array<{ subtitleId: string; message: string }>;
 }
 
 interface UseSubtitleNarrationParams {
+  projectId: string | null;
+  currentProjectIdRef: React.MutableRefObject<string | null>;
   t: Translations;
   visibleSubtitles: SubtitleSegment[];
+  projectSubtitle?: (subtitle: SubtitleSegment) => SubtitleSegment | null;
   selectedSubtitleIds?: string[];
   selectedSubtitleRange?: TrackSelectionRange | null;
   sourceLanguageCode?: string | null;
@@ -65,8 +78,10 @@ interface UseSubtitleNarrationParams {
 }
 
 export function useSubtitleNarration({
+  projectId,
+  currentProjectIdRef,
   t,
-  visibleSubtitles,
+  visibleSubtitles, projectSubtitle,
   selectedSubtitleIds,
   selectedSubtitleRange,
   sourceLanguageCode,
@@ -79,19 +94,15 @@ export function useSubtitleNarration({
 }: UseSubtitleNarrationParams) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<SubtitleNarrationJobStatus | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
+  const [pollGeneration, setPollGeneration] = useState(0);
   const batchIdRef = useRef<string | null>(null);
-  const appliedResultIdsRef = useRef<Set<string>>(new Set());
+  const applyQueueRef = useRef<SubtitleNarrationApplyQueue>(createSubtitleNarrationApplyQueue());
   const knownResultsRevisionRef = useRef(0);
   const allResultItemsRef = useRef<SubtitleNarrationResultItem[]>([]);
   const allErrorItemsRef = useRef<Array<{ subtitleId: string; message: string }>>([]);
-  const pendingApplyResultsRef = useRef<SubtitleNarrationResultItem[]>([]);
-  const pendingApplyTimerRef = useRef<number | null>(null);
   const pendingStatusTimerRef = useRef<number | null>(null);
   const lastStatusUiCommitAtRef = useRef(0);
   const latestStatusRef = useRef<SubtitleNarrationJobStatus | null>(null);
-  const isApplyingResultRef = useRef(false);
-  const drainResolversRef = useRef<Array<() => void>>([]);
   const profileRef = useRef<NarrationProfilePayload>(profile);
   const onApplyNarrationSegmentsRef = useRef(onApplyNarrationSegments);
   useEffect(() => {
@@ -101,93 +112,43 @@ export function useSubtitleNarration({
     onApplyNarrationSegmentsRef.current = onApplyNarrationSegments;
   }, [onApplyNarrationSegments]);
 
-  const runNamespace = 'subtitle-narration';
+  const ownerEpoch = narrationProjectEpoch(currentProjectIdRef);
+  const runNamespace = narrationRunNamespace(projectId, 'subtitle', ownerEpoch);
+  const isStarting = useResumableStartPending(runNamespace);
+  const isCurrentProject = useCallback(
+    () => projectId !== null && currentProjectIdRef.current === projectId
+      && narrationProjectEpoch(currentProjectIdRef) === ownerEpoch,
+    [currentProjectIdRef, ownerEpoch, projectId],
+  );
 
   // Re-adopt an in-flight narration job after the panel remounts (tab switch).
   useResumableRun<ResumableSubtitleNarrationRun>(runNamespace, jobId, (cached) => {
+    if (!isCurrentProject()) return;
     batchIdRef.current = cached.batchId;
-    appliedResultIdsRef.current = new Set(cached.appliedResultIds);
+    applyQueueRef.current = cached.applyQueue;
     knownResultsRevisionRef.current = cached.knownResultsRevision;
     allResultItemsRef.current = cached.allResultItems;
     allErrorItemsRef.current = cached.allErrorItems;
     setStatus(cached.status);
     setJobId(cached.jobId);
+  }, (retiredJobId) => {
+    const queue = applyQueueRef.current;
+    if (!isCurrentProject() || !queue.retired) return;
+    if (queue.terminalStatus && !hasResumableStart(runNamespace)) setStatus(queue.terminalStatus);
+    setJobId((current) => current === retiredJobId ? null : current);
   });
 
-  const targetSubtitles = useMemo(() => {
-    const selection = new Set(selectedSubtitleIds ?? []);
-    const hasSelection = selection.size > 0;
-    return visibleSubtitles
-      .filter((subtitle) => {
-        if (hasSelection) return selection.has(subtitle.id);
-        if (selectedSubtitleRange) return overlapsRange(subtitle, selectedSubtitleRange);
-        return true;
-      })
-      .sort((a, b) => a.startTime - b.startTime);
-  }, [selectedSubtitleIds, selectedSubtitleRange, visibleSubtitles]);
+  const currentApplyQueue = applyQueueRef.current;
+  const subscribeQueue = useCallback((listener: () => void) => {
+    currentApplyQueue.listeners.add(listener);
+    return () => { currentApplyQueue.listeners.delete(listener); };
+  }, [currentApplyQueue]);
+  const queueHasFailure = useCallback(() => Boolean(currentApplyQueue.failure), [currentApplyQueue]);
+  const applyRetryable = useSyncExternalStore(subscribeQueue, queueHasFailure, () => false);
 
-  const narrationTargets = useMemo<SubtitleNarrationRequestItem[]>(() => {
-    if (!readUnsplitSubtitles) {
-      return targetSubtitles.map((subtitle) => ({
-        id: subtitle.id,
-        text: subtitle.text.trim(),
-        startTime: subtitle.startTime,
-        endTime: subtitle.endTime,
-        sourceSubtitleId: subtitle.id,
-        replaceSubtitleIds: [subtitle.id],
-      }));
-    }
-
-    const groups = new Map<string, SubtitleSegment[]>();
-    const ungrouped: SubtitleSegment[] = [];
-    for (const subtitle of targetSubtitles) {
-      if (subtitle.splitGroupId && subtitle.splitGroupText) {
-        const group = groups.get(subtitle.splitGroupId) ?? [];
-        group.push(subtitle);
-        groups.set(subtitle.splitGroupId, group);
-      } else {
-        ungrouped.push(subtitle);
-      }
-    }
-
-    const groupedTargets = [...groups.entries()].map(([groupId, subtitles]) => {
-      const sorted = [...subtitles].sort((a, b) =>
-        (a.splitGroupIndex ?? 0) - (b.splitGroupIndex ?? 0) ||
-        a.startTime - b.startTime,
-      );
-      const first = sorted[0];
-      return {
-        id: groupId,
-        text: (first?.splitGroupText ?? sorted.map((subtitle) => subtitle.text).join(' ')).trim(),
-        startTime: first?.splitGroupStartTime ?? Math.min(...sorted.map((subtitle) => subtitle.startTime)),
-        endTime: first?.splitGroupEndTime ?? Math.max(...sorted.map((subtitle) => subtitle.endTime)),
-        sourceSubtitleId: first?.id ?? groupId,
-        replaceSubtitleIds: sorted.map((subtitle) => subtitle.id),
-      };
-    });
-
-    return [
-      ...groupedTargets,
-      ...ungrouped.map((subtitle) => ({
-        id: subtitle.id,
-        text: subtitle.text.trim(),
-        startTime: subtitle.startTime,
-        endTime: subtitle.endTime,
-        sourceSubtitleId: subtitle.id,
-        replaceSubtitleIds: [subtitle.id],
-      })),
-    ].sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-  }, [readUnsplitSubtitles, targetSubtitles]);
-
-  const narrationTargetById = useMemo(
-    () => new Map(narrationTargets.map((target) => [target.id, target])),
-    [narrationTargets],
+  const { narrationTargetById, requestItems } = useSubtitleNarrationTargets(
+    visibleSubtitles, selectedSubtitleIds, selectedSubtitleRange, readUnsplitSubtitles, projectSubtitle,
   );
-
-  const requestItems = useMemo<SubtitleNarrationRequestItem[]>(() => (
-    narrationTargets
-      .filter((subtitle) => subtitle.text.length > 0)
-  ), [narrationTargets]);
   const narrationGroupPreview = useMemo(
     () => (
       previewGrouping
@@ -198,8 +159,9 @@ export function useSubtitleNarration({
   );
 
   const finalizeNarration = useCallback(async () => {
+    if (!isCurrentProject()) return;
     await onFinalizeNarrationSegments();
-  }, [onFinalizeNarrationSegments]);
+  }, [isCurrentProject, onFinalizeNarrationSegments]);
 
   const publishStatus = useCallback((
     nextStatus: SubtitleNarrationJobStatus,
@@ -233,82 +195,71 @@ export function useSubtitleNarration({
     }, STATUS_UI_UPDATE_INTERVAL_MS - elapsed);
   }, []);
 
-  const resolveDrainWaiters = useCallback(() => {
-    if (pendingApplyResultsRef.current.length > 0 || isApplyingResultRef.current) return;
-    const resolvers = drainResolversRef.current;
-    if (resolvers.length === 0) return;
-    drainResolversRef.current = [];
-    resolvers.forEach((resolve) => resolve());
-  }, []);
-
   const scheduleApplyDrain = useCallback(() => {
-    if (pendingApplyTimerRef.current !== null || isApplyingResultRef.current) return;
-    pendingApplyTimerRef.current = window.setTimeout(async () => {
-      pendingApplyTimerRef.current = null;
-      const next = pendingApplyResultsRef.current.shift();
-      if (!next) {
-        resolveDrainWaiters();
+    const queue = applyQueueRef.current;
+    if (queue.timer !== null || queue.applying || queue.failure) return;
+    queue.timer = window.setTimeout(async () => {
+      queue.timer = null;
+      if (!isCurrentProject()) {
+        queue.pending = [];
+        settleSubtitleNarrationDrain(queue);
         return;
       }
-      isApplyingResultRef.current = true;
-      const batchId = batchIdRef.current ?? `narration-${Date.now()}`;
+      const next = queue.pending[0];
+      if (!next) {
+        settleSubtitleNarrationDrain(queue);
+        return;
+      }
+      queue.applying = true;
+      const batchId = batchIdRef.current ?? newNarrationBatchId('narration');
       try {
-        const target = narrationTargetById.get(next.subtitleId);
+        const target = queue.targets?.get(next.subtitleId) ?? narrationTargetById.get(next.subtitleId);
         await onApplyNarrationSegmentsRef.current(
           [buildNarrationSegment({
             ...next,
-            sourceSubtitleId: target?.sourceSubtitleId,
-            replaceSubtitleIds: target?.replaceSubtitleIds,
+            sourceSubtitleId: next.sourceSubtitleId ?? target?.sourceSubtitleId,
+            replaceSubtitleIds: next.replaceSubtitleIds ?? target?.replaceSubtitleIds,
+            sourceSubtitleTimings: next.sourceSubtitleTimings ?? target?.sourceSubtitleTimings,
           }, batchId, profileRef.current)],
-          target?.replaceSubtitleIds ?? [target?.sourceSubtitleId ?? next.subtitleId],
+          next.replaceSubtitleIds ?? target?.replaceSubtitleIds ?? [target?.sourceSubtitleId ?? next.subtitleId],
         );
+        if (queue.pending[0] === next) queue.pending.shift();
+        queue.appliedIds.add(next.subtitleId);
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        queue.failure = failure;
+        if (isCurrentProject()) {
+          const message = failure.message;
+          notifySubtitleNarrationQueue(queue);
+          publishStatus({
+            state: 'error', message, error: message, progress: 0,
+            totalItems: 0, completedItems: 0, activeSubtitleId: null, results: [], errors: [],
+          }, { immediate: true });
+        }
       } finally {
-        isApplyingResultRef.current = false;
+        queue.applying = false;
       }
-      if (pendingApplyResultsRef.current.length > 0) {
+      if (queue.failure) {
+        settleSubtitleNarrationDrain(queue);
+      } else if (queue.pending.length > 0) {
         scheduleApplyDrain();
       } else {
-        resolveDrainWaiters();
+        settleSubtitleNarrationDrain(queue);
       }
     }, APPLY_RESULT_STREAM_INTERVAL_MS);
-  }, [narrationTargetById, resolveDrainWaiters]);
+  }, [isCurrentProject, narrationTargetById, publishStatus]);
 
   const waitForApplyDrain = useCallback(() => {
-    if (pendingApplyResultsRef.current.length === 0 && !isApplyingResultRef.current) {
+    const queue = applyQueueRef.current;
+    if (queue.failure) return Promise.reject(queue.failure);
+    if (queue.pending.length === 0 && !queue.applying) {
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      drainResolversRef.current.push(resolve);
+    return new Promise<void>((resolve, reject) => {
+      queue.waiters.push({ resolve, reject });
       scheduleApplyDrain();
     });
   }, [scheduleApplyDrain]);
-
-  const flushPendingApplyResults = useCallback(async () => {
-    if (pendingApplyTimerRef.current !== null) {
-      window.clearTimeout(pendingApplyTimerRef.current);
-      pendingApplyTimerRef.current = null;
-    }
-    while (pendingApplyResultsRef.current.length > 0) {
-      const next = pendingApplyResultsRef.current.shift();
-      if (!next) break;
-      isApplyingResultRef.current = true;
-      const batchId = batchIdRef.current ?? `narration-${Date.now()}`;
-      try {
-        const target = narrationTargetById.get(next.subtitleId);
-        await onApplyNarrationSegmentsRef.current(
-          [buildNarrationSegment({
-            ...next,
-            sourceSubtitleId: target?.sourceSubtitleId,
-            replaceSubtitleIds: target?.replaceSubtitleIds,
-          }, batchId, profileRef.current)],
-          target?.replaceSubtitleIds ?? [target?.sourceSubtitleId ?? next.subtitleId],
-        );
-      } finally {
-        isApplyingResultRef.current = false;
-      }
-    }
-    resolveDrainWaiters();
-  }, [narrationTargetById, resolveDrainWaiters]);
 
   const applyInitialClear = useCallback(async (replaceSubtitleIds: string[]) => {
     await onApplyNarrationSegmentsRef.current(
@@ -319,15 +270,78 @@ export function useSubtitleNarration({
 
   const queueApplyResults = useCallback((results: SubtitleNarrationResultItem[]) => {
     if (results.length === 0) return;
-    pendingApplyResultsRef.current = [
-      ...pendingApplyResultsRef.current,
-      ...results,
-    ];
+    const queue = applyQueueRef.current;
+    const known = new Set([...queue.appliedIds, ...queue.pending.map((result) => result.subtitleId)]);
+    for (const result of results) {
+      if (known.has(result.subtitleId)) continue;
+      const target = queue.targets?.get(result.subtitleId) ?? narrationTargetById.get(result.subtitleId);
+      queue.pending.push({ ...result, sourceSubtitleId: target?.sourceSubtitleId,
+        replaceSubtitleIds: target?.replaceSubtitleIds, sourceSubtitleTimings: target?.sourceSubtitleTimings });
+      known.add(result.subtitleId);
+    }
     scheduleApplyDrain();
-  }, [scheduleApplyDrain]);
+  }, [narrationTargetById, scheduleApplyDrain]);
+
+  useEffect(() => {
+    if (jobId && isCurrentProject()) scheduleApplyDrain();
+  }, [isCurrentProject, jobId, scheduleApplyDrain]);
+
+  const reportApplyFailure = useCallback((error: unknown) => {
+    if (!isCurrentProject()) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const queue = applyQueueRef.current;
+    queue.failure = error instanceof Error ? error : new Error(String(error));
+    notifySubtitleNarrationQueue(queue);
+    publishStatus({
+      state: 'error', message, error: message, progress: 0,
+      totalItems: 0, completedItems: 0, activeSubtitleId: null, results: [], errors: [],
+    }, { immediate: true });
+  }, [isCurrentProject, publishStatus]);
+
+  const isOwnedRun = useCallback((id: string | null, queue: SubtitleNarrationApplyQueue) => {
+    if (!id || !isCurrentProject() || queue.retired) return false;
+    const saved = readResumableRun<ResumableSubtitleNarrationRun>(runNamespace);
+    return saved?.jobId === id && saved.applyQueue === queue;
+  }, [isCurrentProject, runNamespace]);
+
+  const canPublishCompletion = useCallback((queue: SubtitleNarrationApplyQueue) => (
+    isCurrentProject() && queue.retired && applyQueueRef.current === queue
+    && !readResumableRun(runNamespace) && !hasResumableStart(runNamespace)
+  ), [isCurrentProject, runNamespace]);
+
+  const finishNarration = useCallback(async (id: string | null, queue: SubtitleNarrationApplyQueue, terminalStatus?: SubtitleNarrationJobStatus, cancelNative = false) => {
+    if (!isOwnedRun(id, queue) || !id) return false;
+    if (!queue.completion) {
+      queue.terminalStatus = terminalStatus ?? null;
+      queue.completion = (async () => {
+        await waitForApplyDrain();
+        if (!isOwnedRun(id, queue)) return;
+        await finalizeNarration();
+        if (isOwnedRun(id, queue)) {
+          if (cancelNative) retireNarrationJob('cancel_subtitle_narration', id);
+          else acknowledgeNarrationStart('cancel_subtitle_narration', id);
+          queue.retired = true;
+          retireNarrationBatch(batchIdRef.current);
+          clearResumableRunIfJob(runNamespace, id);
+        }
+      })().catch((error: unknown) => {
+        queue.completion = null;
+        throw error;
+      });
+    }
+    try {
+      await queue.completion;
+      if (isCurrentProject() && queue.retired) setJobId((current) => current === id ? null : current);
+      return queue.retired;
+    } catch (error) {
+      reportApplyFailure(error);
+      return false;
+    }
+  }, [finalizeNarration, isCurrentProject, isOwnedRun, reportApplyFailure, runNamespace, waitForApplyDrain]);
 
   useAsyncJobPoll<SubtitleNarrationJobStatus>({
     jobId,
+    restartKey: pollGeneration,
     fetchStatus: (activeJobId) =>
       invoke<SubtitleNarrationJobStatus>('get_subtitle_narration_status', {
         jobId: activeJobId,
@@ -339,6 +353,7 @@ export function useSubtitleNarration({
       || nextStatus.state === 'cancelled'
       || nextStatus.state === 'error',
     onTick: (nextStatus) => {
+      if (!isOwnedRun(jobId, currentApplyQueue)) return;
       knownResultsRevisionRef.current = Math.max(
         knownResultsRevisionRef.current,
         nextStatus.resultsRevision ?? knownResultsRevisionRef.current,
@@ -362,18 +377,13 @@ export function useSubtitleNarration({
       };
       publishStatus(publishedStatus);
 
-      const newResults = nextStatus.results.filter((result) => {
-        if (appliedResultIdsRef.current.has(result.subtitleId)) return false;
-        appliedResultIdsRef.current.add(result.subtitleId);
-        return true;
-      });
-      queueApplyResults(newResults);
+      queueApplyResults(nextStatus.results);
       if (jobId) {
         saveResumableRun<ResumableSubtitleNarrationRun>(runNamespace, {
           jobId,
           status: publishedStatus,
           batchId: batchIdRef.current,
-          appliedResultIds: [...appliedResultIdsRef.current],
+          applyQueue: applyQueueRef.current,
           knownResultsRevision: knownResultsRevisionRef.current,
           allResultItems: allResultItemsRef.current,
           allErrorItems: allErrorItemsRef.current,
@@ -381,35 +391,31 @@ export function useSubtitleNarration({
       }
     },
     onComplete: async (nextStatus) => {
-      clearResumableRun(runNamespace);
+      if (!isCurrentProject()) return;
       if (nextStatus.state === 'completed') {
-        await waitForApplyDrain();
         const overlaps = countNarrationOverlaps(allResultItemsRef.current);
-        publishStatus({
+        const terminalStatus = {
           ...nextStatus,
           results: [],
           errors: allErrorItemsRef.current,
           message: overlaps > 0
             ? t.subtitleNarrationStatusCompleteWithOverlaps.replace('{count}', String(overlaps))
             : t.subtitleNarrationStatusComplete,
-        }, { immediate: true });
-        setJobId(null);
-        await finalizeNarration();
+        };
+        if (!(await finishNarration(jobId, currentApplyQueue, terminalStatus))) return;
+        if (!canPublishCompletion(currentApplyQueue)) return;
+        publishStatus(terminalStatus, { immediate: true });
         return;
       }
       // cancelled or error terminal state
-      setJobId(null);
-      await waitForApplyDrain();
-      publishStatus({
-        ...nextStatus,
-        results: [],
-        errors: allErrorItemsRef.current,
-      }, { immediate: true });
-      await finalizeNarration();
+      const terminalStatus = { ...nextStatus, results: [], errors: allErrorItemsRef.current };
+      if (!(await finishNarration(jobId, currentApplyQueue, terminalStatus))) return;
+      if (!canPublishCompletion(currentApplyQueue)) return;
+      publishStatus(terminalStatus, { immediate: true });
     },
     onError: async (error) => {
-      clearResumableRun(runNamespace);
-      publishStatus({
+      if (!isOwnedRun(jobId, currentApplyQueue)) return;
+      const terminalStatus: SubtitleNarrationJobStatus = {
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleNarrationStatusFailed,
         progress: 0,
@@ -419,17 +425,12 @@ export function useSubtitleNarration({
         results: [],
         errors: [],
         error: error instanceof Error ? error.message : String(error),
-      }, { immediate: true });
-      setJobId(null);
-      await flushPendingApplyResults();
-      await finalizeNarration();
+      };
+      publishStatus(terminalStatus, { immediate: true });
+      await finishNarration(jobId, currentApplyQueue, terminalStatus, true);
     },
     intervalFor: (nextStatus) => (nextStatus.results.length > 0 ? 250 : 500),
     onCleanup: () => {
-      if (pendingApplyTimerRef.current !== null) {
-        window.clearTimeout(pendingApplyTimerRef.current);
-        pendingApplyTimerRef.current = null;
-      }
       if (pendingStatusTimerRef.current !== null) {
         window.clearTimeout(pendingStatusTimerRef.current);
         pendingStatusTimerRef.current = null;
@@ -438,7 +439,7 @@ export function useSubtitleNarration({
   });
 
   const handleGenerateNarration = useCallback(async () => {
-    if (jobId || isStarting) return;
+    if (jobId || isStarting || !isCurrentProject()) return;
     if (requestItems.length === 0) {
       setStatus({
         state: 'error',
@@ -454,17 +455,32 @@ export function useSubtitleNarration({
       return;
     }
 
-    const batchId = `narration-${Date.now()}`;
+    const startClaim = claimResumableStart(runNamespace);
+    if (!startClaim) return;
+    const batchId = newNarrationBatchId('narration');
     batchIdRef.current = batchId;
-    appliedResultIdsRef.current = new Set();
+    applyQueueRef.current = createSubtitleNarrationApplyQueue();
+    applyQueueRef.current.targets = new Map(narrationTargetById);
     knownResultsRevisionRef.current = 0;
     allResultItemsRef.current = [];
     allErrorItemsRef.current = [];
-    setIsStarting(true);
+    let pendingStartId: string | null = null;
     try {
-      pendingApplyResultsRef.current = [];
+      pendingStartId = await recordNarrationStart('cancel_subtitle_narration');
+      if (!isCurrentProject()) {
+        acknowledgeNarrationStart('cancel_subtitle_narration', pendingStartId);
+        pendingStartId = null;
+        return;
+      }
+      attachResumableStartCancellation(runNamespace, startClaim, 'cancel_subtitle_narration', pendingStartId);
       await applyInitialClear(requestItems.flatMap((subtitle) => subtitle.replaceSubtitleIds));
+      if (!isCurrentProject()) {
+        retireNarrationJob('cancel_subtitle_narration', pendingStartId);
+        pendingStartId = null;
+        return;
+      }
       const result = await invoke<{ jobId: string }>('start_subtitle_narration', {
+        jobId: pendingStartId,
         items: requestItems,
         profile: profileRef.current,
         sourceLanguageCode: sourceLanguageCode?.trim() || null,
@@ -473,6 +489,12 @@ export function useSubtitleNarration({
           vadSearchRadiusSec: NARRATION_GROUP_VAD_RADIUS_SEC,
         },
       });
+      recordNarrationResponse('cancel_subtitle_narration', pendingStartId, result.jobId);
+      if (!isCurrentProject()) {
+        retireNarrationJob('cancel_subtitle_narration', result.jobId);
+        pendingStartId = null;
+        return;
+      }
       const queuedStatus: SubtitleNarrationJobStatus = {
         state: 'queued',
         message: t.subtitleNarrationStatusStarting,
@@ -490,12 +512,17 @@ export function useSubtitleNarration({
         jobId: result.jobId,
         status: queuedStatus,
         batchId: batchIdRef.current,
-        appliedResultIds: [],
+        applyQueue: applyQueueRef.current,
         knownResultsRevision: 0,
         allResultItems: [],
         allErrorItems: [],
       });
+      if (projectId && batchIdRef.current) registerNarrationBatch(projectId, batchIdRef.current,
+        () => retireNarrationJob('cancel_subtitle_narration', result.jobId));
+      pendingStartId = null;
     } catch (error) {
+      if (pendingStartId) retireNarrationJob('cancel_subtitle_narration', pendingStartId);
+      if (!isCurrentProject()) return;
       setStatus({
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleNarrationStatusFailed,
@@ -508,10 +535,12 @@ export function useSubtitleNarration({
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      setIsStarting(false);
+      releaseResumableStart(runNamespace, startClaim);
     }
   }, [
     isStarting,
+    isCurrentProject,
+    runNamespace,
     jobId,
     applyInitialClear,
     requestItems,
@@ -527,26 +556,42 @@ export function useSubtitleNarration({
       jobId,
       cancelCommand: 'cancel_subtitle_narration',
       onCancelled: async () => {
-        clearResumableRun(runNamespace);
+        if (!isOwnedRun(jobId, currentApplyQueue)) return;
+        const saved = readResumableRun<ResumableSubtitleNarrationRun>(runNamespace);
+        const terminalStatus = saved?.status ? { ...saved.status, state: 'cancelled' as const, message: t.subtitleNarrationStatusCancelled } : undefined;
+        if (!(await finishNarration(jobId, currentApplyQueue, terminalStatus))) return;
+        if (!canPublishCompletion(currentApplyQueue)) return;
         setStatus((prev) => prev ? {
           ...prev,
           state: 'cancelled',
           message: t.subtitleNarrationStatusCancelled,
         } : prev);
-        setJobId(null);
-        await finalizeNarration();
       },
     }),
-    [finalizeNarration, jobId, t.subtitleNarrationStatusCancelled],
+    [canPublishCompletion, currentApplyQueue, finishNarration, isOwnedRun, jobId, runNamespace, t.subtitleNarrationStatusCancelled],
   );
 
+  const handleRetryNarration = useCallback(async () => {
+    if (!isCurrentProject()) return;
+    applyQueueRef.current.failure = null;
+    notifySubtitleNarrationQueue(applyQueueRef.current);
+    try {
+      await waitForApplyDrain();
+      if (isCurrentProject()) setPollGeneration((value) => value + 1);
+    } catch (error) {
+      reportApplyFailure(error);
+    }
+  }, [isCurrentProject, reportApplyFailure, waitForApplyDrain]);
+
   return {
-    canGenerateNarration: requestItems.length > 0 && !jobId && !isStarting,
+    canGenerateNarration: projectId !== null && requestItems.length > 0 && !jobId && !isStarting,
     isGeneratingNarration: Boolean(jobId) || isStarting,
     narrationTargetCount: requestItems.length,
     narrationGroupCount: buildNarrationGroupPreview(requestItems, groupTextBudget).groupCount,
     narrationGroupPreview,
     narrationStatus: status,
+    applyRetryable,
+    handleRetryNarration,
     handleGenerateNarration,
     handleCancelNarration,
   };

@@ -8,7 +8,9 @@ internal enum class CreationGenerationMode(
 
     companion object {
         fun fromWireName(value: String?): CreationGenerationMode =
-            entries.firstOrNull { it.wireName == value } ?: QUALITY
+            if (value == null) QUALITY else requireNotNull(entries.firstOrNull { it.wireName == value }) {
+                "Unknown generation mode"
+            }
     }
 }
 
@@ -33,22 +35,17 @@ internal object CreationContract {
         else -> kind
     }
     const val DEFAULT_POLYCOUNT = 5_000
-    const val MINIMUM_POLYCOUNT = 100
+    const val MINIMUM_POLYCOUNT = 500
     const val MAXIMUM_POLYCOUNT = 20_000
     const val FAST_MAXIMUM_POLYCOUNT = 15_000
-    const val QUALITY_MINIMUM_POLYCOUNT = 500
+    const val FAST_MINIMUM_POLYCOUNT = 100
+    const val QUALITY_MINIMUM_POLYCOUNT = MINIMUM_POLYCOUNT
     const val MAXIMUM_PARALLEL_JOBS = 2
     const val MINIMUM_PREPARED_CAPACITY = 1
-    const val IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS = 2
-    const val IMAGE_CREATOR_MAXIMUM_CONCURRENT_PREPARATIONS = 1
-    const val IMAGE_CREATOR_OPERATION = "create_image"
-    const val IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS = 4_000
     const val MAXIMUM_OPTIONAL_INSTRUCTION_CHARACTERS = 1_000
-    const val IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES = 20
     const val MAXIMUM_PICKER_BATCH_IMAGES = 100
     const val MAXIMUM_PICKER_AGGREGATE_BYTES = 512L * 1024 * 1024
     const val MAXIMUM_SOURCE_IMAGE_BYTES = 25L * 1024 * 1024
-    const val MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES = 100L * 1024 * 1024
     const val MAXIMUM_IMAGE_DIMENSION = 32_768
     const val MAXIMUM_DECODED_IMAGE_PIXELS = 64_000_000L
     const val MAXIMUM_IMAGE_ARTIFACT_BYTES = 64L * 1024 * 1024
@@ -64,22 +61,13 @@ internal object CreationContract {
     const val MAXIMUM_EDITABLE_SVG_BYTES = 2L * 1024 * 1024
     const val MAXIMUM_EDITABLE_SVG_GEOMETRY = 5_000
 
-    fun normalizedOperation(tool: CreationTool, value: String?): String? =
-        if (tool == CreationTool.IMAGE_CREATOR && value == LEGACY_IMAGE_CREATOR_OPERATION) {
-            IMAGE_CREATOR_OPERATION
-        } else {
-            value
-        }
-
     fun maximumParallelJobs(tool: CreationTool): Int = when (tool) {
-        CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MAXIMUM_PARALLEL_JOBS
         CreationTool.IMAGE_TO_3D,
         CreationTool.IMAGE_TO_SVG,
         -> MAXIMUM_PARALLEL_JOBS
     }
 
     fun maximumConcurrentPreparations(tool: CreationTool): Int = when (tool) {
-        CreationTool.IMAGE_CREATOR -> IMAGE_CREATOR_MAXIMUM_CONCURRENT_PREPARATIONS
         CreationTool.IMAGE_TO_3D,
         CreationTool.IMAGE_TO_SVG,
         -> MAXIMUM_PARALLEL_JOBS
@@ -88,7 +76,6 @@ internal object CreationContract {
     fun minimumPreparedCapacity(tool: CreationTool): Int = when (tool) {
         CreationTool.IMAGE_TO_3D,
         CreationTool.IMAGE_TO_SVG,
-        CreationTool.IMAGE_CREATOR,
         -> MINIMUM_PREPARED_CAPACITY
     }
 
@@ -96,24 +83,29 @@ internal object CreationContract {
         mode: CreationGenerationMode,
         polycount: Int,
         requestedAutoSegment: Boolean,
+    ): CreationModeRoute = route3dMode(mode, polycount.toLong(), requestedAutoSegment)
+
+    fun route3dMode(
+        mode: CreationGenerationMode,
+        polycount: Long,
+        requestedAutoSegment: Boolean,
     ): CreationModeRoute {
-        require(polycount in MINIMUM_POLYCOUNT..MAXIMUM_POLYCOUNT) {
-            "Polycount must be between $MINIMUM_POLYCOUNT and $MAXIMUM_POLYCOUNT"
+        require(mode == CreationGenerationMode.QUALITY) { "Choose Quality for a new model" }
+        require(polycount in 0L..4_294_967_295L) { "Polycount is invalid" }
+        return CreationModeRoute(mode, polycount.coerceIn(MINIMUM_POLYCOUNT.toLong(), MAXIMUM_POLYCOUNT.toLong()).toInt(), requestedAutoSegment, true)
+    }
+
+    fun newGenerationMode(value: String?): CreationGenerationMode =
+        CreationGenerationMode.fromWireName(value).also {
+            require(it == CreationGenerationMode.QUALITY) { "Choose Quality for a new model" }
         }
-        return when (mode) {
-            CreationGenerationMode.FAST -> CreationModeRoute(
-                mode = mode,
-                polycount = polycount.coerceAtMost(FAST_MAXIMUM_POLYCOUNT),
-                autoSegment = false,
-                showAutoSegment = false,
-            )
-            CreationGenerationMode.QUALITY -> CreationModeRoute(
-                mode = mode,
-                polycount = polycount.coerceAtLeast(QUALITY_MINIMUM_POLYCOUNT),
-                autoSegment = requestedAutoSegment,
-                showAutoSegment = true,
-            )
-        }
+
+    fun frozen3dMode(mode: CreationGenerationMode, polycount: Int, autoSegment: Boolean): CreationModeRoute {
+        require(when (mode) {
+            CreationGenerationMode.FAST -> polycount in FAST_MINIMUM_POLYCOUNT..FAST_MAXIMUM_POLYCOUNT && !autoSegment
+            CreationGenerationMode.QUALITY -> polycount in MINIMUM_POLYCOUNT..MAXIMUM_POLYCOUNT
+        }) { "Saved generation settings are invalid" }
+        return CreationModeRoute(mode, polycount, autoSegment, mode == CreationGenerationMode.QUALITY)
     }
 
     fun initialTopology(mode: CreationGenerationMode, autoSegment: Boolean, requested: String?): String =
@@ -124,5 +116,4 @@ internal object CreationContract {
         runtimeAllowsContinuation: Boolean,
     ): Boolean = !isSegmented && runtimeAllowsContinuation
 
-    private const val LEGACY_IMAGE_CREATOR_OPERATION = "create_image_from_reference"
 }

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"absent_target","initial":null,"competing":null,"expected":"COMMITTED","retained":null},
+    {"name":"existing_target","initial":"old","competing":null,"expected":"COMMITTED","retained":"old"},
+    {"name":"target_appears","initial":null,"competing":"foreign","expected":"UNAVAILABLE","retained":"foreign"},
+    {"name":"target_replaced","initial":"old","competing":"foreign","expected":"UNAVAILABLE","retained":"foreign"},
+    {"name":"identical_bytes_replacement","initial":"old","competing":"old","expected":"UNAVAILABLE","retained":"old"}
+  ]
+}

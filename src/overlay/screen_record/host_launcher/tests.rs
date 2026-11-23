@@ -1,11 +1,24 @@
 use super::*;
 
 #[test]
+fn outdated_worker_cannot_open_before_settings_protocol_negotiation() {
+    assert!(!supports_settings_protocol(
+        &serde_json::json!({"status": "ready"})
+    ));
+    assert!(!supports_settings_protocol(
+        &serde_json::json!({"settingsProtocol": 0})
+    ));
+    assert!(supports_settings_protocol(
+        &serde_json::json!({"settingsProtocol": sgt_recorder_protocol::SETTINGS_PROTOCOL_VERSION})
+    ));
+}
+
+#[test]
 fn child_environment_forwards_only_explicit_provider_credentials() {
     let mut command = ProcessCommand::new("unused.exe");
     command.env_clear();
     let mut queried = Vec::new();
-    forward_provider_credentials(&mut command, |name| {
+    forward_provider_credentials_for_runtime(&mut command, false, |name| {
         queried.push(name.to_string());
         Some(OsString::from(format!("secret-for-{name}")))
     });
@@ -21,6 +34,16 @@ fn child_environment_forwards_only_explicit_provider_credentials() {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(forwarded, expected);
     assert!(!forwarded.iter().any(|name| name == "AWS_SECRET_ACCESS_KEY"));
+}
+
+#[test]
+fn isolated_worker_never_reads_or_forwards_inherited_provider_credentials() {
+    let mut command = ProcessCommand::new("unused.exe");
+    command.env_clear();
+    forward_provider_credentials_for_runtime(&mut command, true, |_| {
+        panic!("isolated workers must not read inherited provider credentials")
+    });
+    assert!(command.get_envs().next().is_none());
 }
 
 #[test]
@@ -42,6 +65,61 @@ fn child_environment_forwards_only_valid_webview_runtime_roots() {
         forwarded,
         std::collections::BTreeSet::from(["ProgramFiles".to_string()])
     );
+}
+
+#[test]
+fn worker_inherits_the_isolated_runtime_root_only_when_selected() {
+    let root = std::env::temp_dir().join("sgt-isolated-config-test");
+    let mut isolated = ProcessCommand::new("unused.exe");
+    isolated.env_clear();
+    forward_runtime_state_root(&mut isolated, |_| Some(root.clone().into_os_string()));
+    assert_eq!(
+        isolated
+            .get_envs()
+            .find(|(name, _)| *name == crate::paths::RUNTIME_STATE_ROOT_ENV)
+            .and_then(|(_, value)| value),
+        Some(root.as_os_str())
+    );
+    let mut normal = ProcessCommand::new("unused.exe");
+    normal.env_clear();
+    forward_runtime_state_root(&mut normal, |_| None);
+    assert!(
+        normal
+            .get_envs()
+            .all(|(name, _)| name != crate::paths::RUNTIME_STATE_ROOT_ENV)
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn cursor_source_forwarding_requires_a_canonical_explicit_repo_root() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .canonicalize()
+        .unwrap();
+    let mut command = ProcessCommand::new("unused.exe");
+    command.env_clear();
+    forward_debug_cursor_source(&mut command, Some(repo.clone().into_os_string()));
+    assert_eq!(
+        command
+            .get_envs()
+            .find(|(name, _)| *name == "SGT_RECORDER_DEV_ASSET_ROOT")
+            .and_then(|(_, value)| value),
+        Some(repo.as_os_str())
+    );
+    for value in [
+        None,
+        Some(OsString::from("relative")),
+        Some(std::env::temp_dir().into_os_string()),
+    ] {
+        let mut command = ProcessCommand::new("unused.exe");
+        command.env_clear();
+        forward_debug_cursor_source(&mut command, value);
+        assert!(
+            command
+                .get_envs()
+                .all(|(name, _)| name != "SGT_RECORDER_DEV_ASSET_ROOT")
+        );
+    }
 }
 
 #[test]
@@ -104,14 +182,6 @@ fn consolidated_recorder_retires_legacy_packages_after_launch() {
 }
 
 #[test]
-fn recorder_holds_deferred_capability_for_the_worker_lifetime() {
-    let source = include_str!("../host_launcher.rs");
-    assert!(source.contains("DeferredFfmpeg::prepare"));
-    assert!(source.contains("_deferred_ffmpeg: deferred_ffmpeg"));
-    assert!(source.contains("_external_capabilities: external_capabilities"));
-}
-
-#[test]
 fn deferred_ffmpeg_resolution_is_visible_and_clears_before_capture() {
     let source = include_str!("deferred_capability.rs");
     assert!(source.contains("resolve_external_tool_with_badge_before_capture"));
@@ -142,23 +212,42 @@ fn recorder_smoke_environment_is_validated_before_forwarding() {
 }
 
 #[test]
-fn recorder_job_contains_worker_but_allows_webview_processes() {
-    let flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
-    assert!(flags.contains(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE));
-    assert!(flags.contains(JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK));
-}
+fn an_optional_audio_decode_never_downloads_the_recorder() {
+    let decode = Command::DecodeAudio {
+        input_path: "C:/input.opus".to_string(),
+        output_path: "C:/output.wav".to_string(),
+    };
+    assert_eq!(
+        ComponentDelivery::for_headless(&decode),
+        ComponentDelivery::InstalledOnly
+    );
+    let narration = Command::GtNarrationTest {
+        input_wav: "C:/input.wav".to_string(),
+        target_language: "en".to_string(),
+    };
+    assert_eq!(
+        ComponentDelivery::for_headless(&narration),
+        ComponentDelivery::InstallIfMissing
+    );
 
-#[test]
-fn recorder_removal_terminates_and_reaps_its_active_worker_job() {
-    let mut child = ProcessCommand::new("cmd")
-        .args(["/C", "ping -n 30 127.0.0.1 >NUL"])
-        .spawn()
-        .unwrap();
-    let job = create_job(&child).unwrap();
-    let _active_job = session_lifecycle::ActiveJobRegistration::register(&job).unwrap();
-
-    session_lifecycle::cancel_active_work();
-    child.wait().unwrap();
-
-    assert!(child.try_wait().unwrap().is_some());
+    // Drive the real launch only where the recorder is absent (the isolated
+    // test state root), so the test can never start a real worker.
+    if crate::component_registry::recorder::is_installed() {
+        eprintln!("recorder is installed here; skipping the launch half");
+        return;
+    }
+    let error = launch(
+        &AtomicBool::new(false),
+        None,
+        session_lifecycle::JobSlot::Headless,
+        ComponentDelivery::InstalledOnly,
+    )
+    .err()
+    .expect("an optional launch without the recorder must fail");
+    assert!(
+        error
+            .downcast_ref::<OptionalComponentUnavailable>()
+            .is_some(),
+        "{error:#}"
+    );
 }

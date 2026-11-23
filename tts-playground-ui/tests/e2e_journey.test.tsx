@@ -38,18 +38,7 @@ function baseState(): TtsPlaygroundState {
     },
     edge: { pitch: 0, rate: 0, voices: [] },
     google: { speed: "Normal" },
-    stepAudio: { reference: "" },
-    magpie: { speed: 1, threads: 4, voices: [] },
-    kokoro: { speed: 1, threads: 4, voices: [] },
-    supertonic: { speed: 1, threads: 4, steps: 24, voices: [] },
-    vieneu: { reference: "" },
-    audioEdit: {
-      sourcePath: "",
-      sourceText: "",
-      editType: "emotion",
-      editInfo: "",
-      targetText: "",
-    },
+    sourceAudio: { sourcePath: "" },
     s2sTargetLanguage: "Vietnamese",
     player: {
       isGenerating: false,
@@ -67,37 +56,16 @@ function baseState(): TtsPlaygroundState {
       geminiInstructionLanguages: [],
       edgeVoicesByLanguage: {},
       edgeAvailableLanguages: [],
-      magpieVoicesByLanguage: {},
-      magpieAvailableLanguages: [],
-      kokoroVoicesByLanguage: {},
-      kokoroAvailableLanguages: [],
-      supertonicVoicesByLanguage: {},
-      supertonicAvailableLanguages: [],
       s2sLanguages: [{ value: "Vietnamese", label: "Vietnamese" }],
-      audioEditTasks: [{ value: "emotion", label: "emotion" }],
-      audioEditSubtasksByTask: { emotion: [{ value: "happy", label: "happy" }] },
-      paralinguisticTags: ["(laughter)"],
-      stepAudioReferences: [
-        { id: "voice-a", name: "Reference A" },
-        { id: "voice-b", name: "Reference B" },
-      ],
-      vieneuReferences: [{ id: "vn-1", name: "VN Default" }],
     },
     strings: {
       title: "TTS Playground",
       modeTtsClone: "TTS / Clone",
-      modeAudioEdit: "Audio Edit",
-      modeReferenceLibrary: "Reference Library",
       modeS2S: "S2S",
       methodLabel: "Method",
       methodGemini: "Gemini Live",
       methodEdge: "Edge TTS",
       methodGoogle: "Google Translate",
-      methodStepAudio: "Step Audio EditX",
-      methodMagpie: "Magpie",
-      methodKokoro: "Kokoro",
-      methodSupertonic: "Supertonic 3",
-      methodVieneu: "VieNeu",
       textLabel: "Text",
       textHint: "Hint",
       charCountTemplate: "{n} chars",
@@ -124,29 +92,17 @@ function baseState(): TtsPlaygroundState {
       speedFast: "Fast",
       pitchLabel: "Pitch",
       rateLabel: "Rate",
-      threadsLabel: "Threads",
-      qualityStepsLabel: "Steps",
       pickSource: "Pick source",
-      useCurrent: "Use current",
       recordMic: "Record",
       stopMic: "Stop mic",
       noSource: "No source",
-      sourceTranscript: "Source",
-      task: "Task",
-      subtask: "Subtask",
-      inlineSoundTag: "Inline tag",
-      insertTag: "Insert",
-      targetText: "Target",
       referenceVoice: "Reference",
       geminiModelLabel: "Model",
       instructionsLabel: "Instructions",
       instructionsHint: "Style hint",
       preview: "Preview",
       delete: "Delete",
-      stepAudioDesc: "Desc",
-      vieneuDesc: "Desc",
       s2sTarget: "Target",
-      referenceEmpty: "Empty",
     },
   };
 }
@@ -261,32 +217,15 @@ describe("WRY round-trip user journey", () => {
     expect(calls.some((c) => c.cmd === "download_mp3")).toBe(true);
   });
 
-  it("drives the Reference Library picker", () => {
+  it("drives the mic record / stop toggle for the S2S source", () => {
     render(<App />);
-    pushState({ mode: "ReferenceLibrary" });
-
-    // Two Step Audio references are listed; click the second one.
-    fireEvent.click(screen.getByText("Reference B"));
-    const patch = calls.find((c) => c.cmd === "patch_step_audio");
-    expect(patch).toBeDefined();
-    expect((patch?.args as any).patch).toMatchObject({ reference: "voice-b" });
-
-    // The VieNeu list is rendered too.
-    fireEvent.click(screen.getByText("VN Default"));
-    const vieneu = calls.find((c) => c.cmd === "patch_vieneu");
-    expect(vieneu).toBeDefined();
-    expect((vieneu?.args as any).patch).toMatchObject({ reference: "vn-1" });
-  });
-
-  it("drives the mic record / stop toggle in AudioEdit", () => {
-    render(<App />);
-    pushState({ mode: "AudioEdit" });
+    pushState({ mode: "SpeechToSpeech" });
 
     fireEvent.click(screen.getByText("Record"));
     expect(calls.some((c) => c.cmd === "start_mic_recording")).toBe(true);
 
     pushState({
-      mode: "AudioEdit",
+      mode: "SpeechToSpeech",
       player: {
         isGenerating: false,
         isExporting: false,
@@ -302,20 +241,16 @@ describe("WRY round-trip user journey", () => {
     expect(calls.some((c) => c.cmd === "stop_mic_recording")).toBe(true);
   });
 
-  it("hides the no-op speed/threads sliders on Magpie", () => {
+  it("offers only the online providers in the method picker", () => {
     render(<App />);
-    pushState({ method: "MagpieMultilingual" });
-
-    // Locate the Magpie card by its heading. The method picker trigger also
-    // shows "Magpie", so we target the card title (an <h3> heading role) to
-    // disambiguate.
-    const card = screen
-      .getByRole("heading", { name: "Magpie" })
-      .closest("div");
-    expect(card).toBeTruthy();
-    // Magpie no longer advertises Speed / Threads (the backend struct
-    // doesn't carry them) — Kokoro and Supertonic still do.
-    expect(within(card as HTMLElement).queryByText("Speed")).toBeNull();
-    expect(within(card as HTMLElement).queryByText("Threads")).toBeNull();
+    const picker = document.querySelector<HTMLElement>(".tts-method-picker");
+    expect(picker).not.toBeNull();
+    fireEvent.click(within(picker!).getByRole("button", { name: "Gemini Live" }));
+    const list = document.querySelector<HTMLElement>(".tts-select-list");
+    expect(list).not.toBeNull();
+    const labels = within(list!)
+      .getAllByRole("button")
+      .map((option) => option.textContent?.trim());
+    expect(labels).toEqual(["Gemini Live", "Edge TTS", "Google Translate"]);
   });
 });

@@ -57,16 +57,20 @@ pub(super) fn with_state<R>(f: impl FnOnce(&mut UiState) -> R) -> R {
 
 pub(super) fn sync_to_webview() {
     if let Some(payload) = payload_json() {
-        let escaped = payload.replace('\\', "\\\\").replace('`', "\\`");
-        let script = format!(
-            "if (window.__TTS_SET_STATE__) window.__TTS_SET_STATE__(JSON.parse(`{escaped}`));"
-        );
+        let script = state_sync_script(&payload);
         super::WEBVIEW.with(|slot| {
             if let Some(webview) = slot.borrow().as_ref() {
                 let _ = webview.evaluate_script(&script);
             }
         });
     }
+}
+
+fn state_sync_script(payload: &str) -> String {
+    // JSON-encode the JSON text as a JavaScript string, then parse it in the
+    // page. No part of the payload is interpreted as JavaScript syntax.
+    let argument = serde_json::to_string(payload).expect("JSON text must serialize as a string");
+    format!("if (window.__TTS_SET_STATE__) window.__TTS_SET_STATE__(JSON.parse({argument}));")
 }
 
 pub(super) fn payload_json() -> Option<String> {
@@ -96,12 +100,7 @@ struct WebPayload {
     gemini: serde_json::Value,
     edge: serde_json::Value,
     google: serde_json::Value,
-    step_audio: serde_json::Value,
-    magpie: serde_json::Value,
-    kokoro: serde_json::Value,
-    supertonic: serde_json::Value,
-    vieneu: serde_json::Value,
-    audio_edit: serde_json::Value,
+    source_audio: serde_json::Value,
     s2s_target_language: String,
     player: PlayerView,
     recent_limit: usize,
@@ -119,12 +118,6 @@ impl WebPayload {
     ) -> Self {
         let pg = &config.tts_playground;
         let edge = &pg.edge_settings;
-        let magpie = &pg.magpie_settings;
-        let kokoro = &pg.kokoro_settings;
-        let supertonic = &pg.supertonic_settings;
-        let step_audio = &pg.step_audio_settings;
-        let vieneu = &pg.vieneu_settings;
-        let audio_edit = &pg.step_audio_edit_settings;
 
         Self {
             theme: if dark_mode { "dark" } else { "light" },
@@ -162,55 +155,8 @@ impl WebPayload {
             google: serde_json::json!({
                 "speed": pg.google_speed,
             }),
-            step_audio: serde_json::json!({
-                "reference": step_audio.reference_voice_id,
-            }),
-            magpie: serde_json::json!({
-                "speed": 1.0,
-                "threads": 1,
-                "voices": magpie
-                    .voice_configs
-                    .iter()
-                    .map(|c| serde_json::json!({
-                        "language": c.language_code,
-                        "voice": c.voice_id,
-                    }))
-                    .collect::<Vec<_>>(),
-            }),
-            kokoro: serde_json::json!({
-                "speed": kokoro.speed,
-                "threads": kokoro.num_threads,
-                "voices": kokoro
-                    .voice_configs
-                    .iter()
-                    .map(|c| serde_json::json!({
-                        "language": c.language_code,
-                        "voice": c.voice_id,
-                    }))
-                    .collect::<Vec<_>>(),
-            }),
-            supertonic: serde_json::json!({
-                "speed": supertonic.speed,
-                "threads": supertonic.num_threads,
-                "steps": supertonic.num_steps,
-                "voices": supertonic
-                    .voice_configs
-                    .iter()
-                    .map(|c| serde_json::json!({
-                        "language": c.language_code,
-                        "voice": c.voice_id,
-                    }))
-                    .collect::<Vec<_>>(),
-            }),
-            vieneu: serde_json::json!({
-                "reference": vieneu.reference_voice_id,
-            }),
-            audio_edit: serde_json::json!({
-                "sourcePath": audio_edit.source_audio_path,
-                "sourceText": audio_edit.source_text,
-                "targetText": audio_edit.target_text,
-                "editType": audio_edit.edit_type,
-                "editInfo": audio_edit.edit_info,
+            source_audio: serde_json::json!({
+                "sourcePath": pg.source_audio.source_audio_path,
             }),
             s2s_target_language: normalize_s2s_language(&config.realtime_target_language),
             player: PlayerView {
@@ -229,7 +175,7 @@ impl WebPayload {
                 super::runtime::MIN_RECENT_LIMIT,
                 super::runtime::MAX_RECENT_LIMIT,
             ),
-            catalogs: CatalogsView::from_config(config, text),
+            catalogs: CatalogsView::build(),
             strings: StringsView::from_locale(text),
         }
     }
@@ -270,18 +216,11 @@ fn normalize_s2s_language(value: &str) -> String {
 struct StringsView {
     title: String,
     mode_tts_clone: String,
-    mode_audio_edit: String,
-    mode_reference_library: String,
     mode_s2_s: String,
     method_label: String,
     method_gemini: String,
     method_edge: String,
     method_google: String,
-    method_step_audio: String,
-    method_magpie: String,
-    method_kokoro: String,
-    method_supertonic: String,
-    method_vieneu: String,
     text_label: String,
     text_hint: String,
     generate: String,
@@ -310,38 +249,17 @@ struct StringsView {
     speed_fast: String,
     pitch_label: String,
     rate_label: String,
-    threads_label: String,
-    quality_steps_label: String,
     pick_source: String,
-    use_current: String,
     record_mic: String,
     stop_mic: String,
     no_source: String,
-    source_transcript: String,
-    task: String,
-    subtask: String,
-    inline_sound_tag: String,
-    insert_tag: String,
-    target_text: String,
     reference_voice: String,
-    reference_library_desc: String,
-    reference_add: String,
-    reference_label: String,
-    reference_pick_audio: String,
-    reference_auto_recognize: String,
-    reference_use_playground: String,
-    reference_use_global: String,
-    reference_no_audio: String,
-    reference_exact_transcript: String,
     gemini_model_label: String,
     instructions_label: String,
     instructions_hint: String,
     preview: String,
     delete: String,
-    step_audio_desc: String,
-    vieneu_desc: String,
     s2s_target: String,
-    reference_empty: String,
     char_count_template: String,
 }
 
@@ -350,24 +268,11 @@ impl StringsView {
         Self {
             title: text.tts_playground.tts_playground_title.to_string(),
             mode_tts_clone: text.tts_playground.tts_playground_tab_tts_clone.to_string(),
-            mode_audio_edit: text
-                .tts_playground
-                .tts_playground_tab_audio_edit
-                .to_string(),
-            mode_reference_library: text
-                .tts_advanced
-                .tts_reference_voice_library_title
-                .to_string(),
             mode_s2_s: "S2S".to_string(),
             method_label: text.tts_settings.tts_method_label.to_string(),
             method_gemini: text.tts_settings.tts_method_standard.to_string(),
             method_edge: text.tts_settings.tts_method_edge.to_string(),
             method_google: text.tts_settings.tts_method_fast.to_string(),
-            method_step_audio: "Step Audio EditX".to_string(),
-            method_magpie: "NVIDIA Magpie-Multilingual 357M".to_string(),
-            method_kokoro: "Kokoro 82M v1.0".to_string(),
-            method_supertonic: "Supertonic 3".to_string(),
-            method_vieneu: "VieNeu-TTS v2".to_string(),
             text_label: text.tts_playground.tts_playground_text_label.to_string(),
             text_hint: text.tts_playground.tts_playground_text_hint.to_string(),
             generate: text.tts_playground.tts_playground_generate.to_string(),
@@ -396,47 +301,14 @@ impl StringsView {
             speed_fast: text.tts_settings.tts_speed_fast.to_string(),
             pitch_label: text.tts_settings.tts_pitch_label.to_string(),
             rate_label: text.tts_settings.tts_rate_label.to_string(),
-            threads_label: text.tts_advanced.tts_cpu_threads_label.to_string(),
-            quality_steps_label: text.tts_advanced.tts_quality_steps_label.to_string(),
-            pick_source: text.tts_advanced.tts_step_audio_pick_source.to_string(),
-            use_current: text
-                .tts_advanced
-                .tts_step_audio_use_current_clip
-                .to_string(),
+            pick_source: text.tts_advanced.tts_source_pick_audio.to_string(),
             record_mic: text.tts_advanced.tts_reference_record_mic.to_string(),
             stop_mic: text.tts_advanced.tts_reference_stop_mic.to_string(),
-            no_source: text.tts_advanced.tts_step_audio_no_source.to_string(),
-            source_transcript: text
-                .tts_advanced
-                .tts_step_audio_source_transcript
-                .to_string(),
-            task: text.tts_advanced.tts_step_audio_task.to_string(),
-            subtask: text.tts_advanced.tts_step_audio_subtask.to_string(),
-            inline_sound_tag: text
-                .tts_advanced
-                .tts_step_audio_inline_sound_tag
-                .to_string(),
-            insert_tag: text.tts_advanced.tts_step_audio_insert_tag.to_string(),
-            target_text: text.tts_advanced.tts_step_audio_target_text.to_string(),
+            no_source: text.tts_advanced.tts_source_none.to_string(),
             reference_voice: text
                 .tts_advanced
                 .tts_reference_voice_label
                 .trim_end_matches(':')
-                .to_string(),
-            reference_library_desc: text
-                .tts_advanced
-                .tts_reference_voice_library_desc
-                .to_string(),
-            reference_add: text.tts_advanced.tts_reference_add.to_string(),
-            reference_label: text.tts_advanced.tts_reference_label.to_string(),
-            reference_pick_audio: text.tts_advanced.tts_reference_pick_audio.to_string(),
-            reference_auto_recognize: text.tts_advanced.tts_reference_auto_recognize.to_string(),
-            reference_use_playground: text.tts_advanced.tts_reference_use_playground.to_string(),
-            reference_use_global: text.tts_advanced.tts_reference_use_global.to_string(),
-            reference_no_audio: text.tts_advanced.tts_reference_no_audio.to_string(),
-            reference_exact_transcript: text
-                .tts_advanced
-                .tts_reference_exact_transcript
                 .to_string(),
             gemini_model_label: text.tts_settings.tts_gemini_model_label.to_string(),
             instructions_label: text.tts_settings.tts_instructions_label.to_string(),
@@ -446,10 +318,7 @@ impl StringsView {
                 .to_string(),
             preview: text.tts_settings.tts_preview_label.to_string(),
             delete: text.auxiliary.managed_tools.tool_action_delete.to_string(),
-            step_audio_desc: text.tts_advanced.tts_step_audio_desc.to_string(),
-            vieneu_desc: text.tts_advanced.tts_vieneu_desc.to_string(),
             s2s_target: text.tts_advanced.tts_s2s_target_label.to_string(),
-            reference_empty: text.tts_advanced.tts_reference_empty.to_string(),
             char_count_template: text.tts_advanced.tts_playground_char_count.to_string(),
         }
     }
@@ -463,8 +332,6 @@ pub(super) fn parse_mode(value: &str) -> Option<crate::config::TtsPlaygroundMode
     use crate::config::TtsPlaygroundMode as M;
     Some(match value {
         "TtsClone" => M::TtsClone,
-        "AudioEdit" => M::AudioEdit,
-        "ReferenceLibrary" => M::ReferenceLibrary,
         "SpeechToSpeech" => M::SpeechToSpeech,
         _ => return None,
     })
@@ -476,11 +343,9 @@ pub(super) fn parse_method(value: &str) -> Option<crate::config::TtsMethod> {
         "GeminiLive" => M::GeminiLive,
         "EdgeTTS" => M::EdgeTTS,
         "GoogleTranslate" => M::GoogleTranslate,
-        "StepAudioEditX" => M::StepAudioEditX,
-        "MagpieMultilingual" => M::MagpieMultilingual,
-        "Kokoro" => M::Kokoro,
-        "Supertonic" => M::Supertonic,
-        "VieneuTts" => M::VieneuTts,
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests;

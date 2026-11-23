@@ -38,12 +38,30 @@ export function deriveSelectionRangeFromIds<T extends { id: string; startTime: n
   };
 }
 
-export function countSegmentsInRange<T extends { startTime: number; endTime: number }>(
-  segments: readonly T[],
-  range: Pick<TrackSelectionRange, "startTime" | "endTime"> | null | undefined,
-) {
-  if (!range) return 0;
-  return segments.filter((segment) => overlapsRange(segment, range)).length;
+const DUPLICATE_GAP_SEC = 0.01;
+const MIN_DUPLICATE_LENGTH_SEC = 0.05;
+
+/**
+ * Where a copy of `source` goes: right after it, shortened to end before the
+ * next segment that occupies any time after the source (one starting exactly at
+ * the source's end included). Null when no usable room is left before `limit`.
+ */
+export function findDuplicateSlot(
+  segments: readonly { id: string; startTime: number; endTime: number }[],
+  source: { id: string; startTime: number; endTime: number },
+  limit: number,
+): { startTime: number; endTime: number } | null {
+  const length = source.endTime - source.startTime;
+  if (length <= 0) return null;
+  const startTime = source.endTime;
+  const nextStart = Math.min(
+    ...segments
+      .filter((segment) => segment.id !== source.id && segment.endTime > startTime)
+      .map((segment) => segment.startTime),
+  );
+  const maxEnd = Number.isFinite(nextStart) ? Math.min(nextStart - DUPLICATE_GAP_SEC, limit) : limit;
+  const endTime = Math.min(startTime + length, maxEnd);
+  return endTime - startTime < MIN_DUPLICATE_LENGTH_SEC ? null : { startTime, endTime };
 }
 
 export function mergeTextSegmentsInRange<T extends TextSegment>(
@@ -67,7 +85,8 @@ export function mergeTextSegmentsInRange<T extends TextSegment>(
   const merged: T = {
     ...first,
     startTime: targets[0].startTime,
-    endTime: targets[targets.length - 1].endTime,
+    // The last segment by start can end before an earlier one that contains it.
+    endTime: Math.max(...targets.map((segment) => segment.endTime)),
     text: mergedText,
   };
   const targetIds = new Set(targets.map((segment) => segment.id));

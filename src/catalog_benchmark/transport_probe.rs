@@ -16,9 +16,8 @@ use serde_json::json;
 use super::manifest::{Manifest, OcrCase};
 use super::scoring;
 use super::setup::{Credentials, Pacer};
-use crate::api::gemini_generate::{
-    GeminiGenerateRequest, GeminiMediaResolution, stream_gemini_generate_detailed,
-};
+use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate_detailed};
+use crate::api::gemini_live::setup::MediaResolution;
 use crate::model_config::{ModelConfig, ModelType, get_all_models};
 
 #[derive(Clone, Copy, Debug)]
@@ -30,7 +29,7 @@ enum PromptOrder {
 #[derive(Clone, Copy, Debug)]
 struct Variant {
     order: PromptOrder,
-    resolution: Option<GeminiMediaResolution>,
+    resolution: Option<MediaResolution>,
     streaming: bool,
 }
 
@@ -153,6 +152,7 @@ fn run_google(
             map_auth_errors: true,
             request_timeout: timeout.map(crate::api::client::RequestTimeouts::uniform),
             response_schema: None,
+            audio_transcription_config: None,
             media_resolution: variant.resolution,
             enable_google_search: false,
             retry_observer: None,
@@ -290,9 +290,9 @@ fn parse_variant(value: &str) -> Result<Variant> {
     };
     let resolution = match resolution {
         "default" => None,
-        "low" => Some(GeminiMediaResolution::Low),
-        "medium" => Some(GeminiMediaResolution::Medium),
-        "high" => Some(GeminiMediaResolution::High),
+        "low" => Some(MediaResolution::Low),
+        "medium" => Some(MediaResolution::Medium),
+        "high" => Some(MediaResolution::High),
         _ => bail!("unknown probe media resolution in {value:?}"),
     };
     Ok(Variant {
@@ -338,13 +338,13 @@ fn sniff_mime_type(bytes: &[u8]) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{GeminiMediaResolution, PromptOrder, parse_variant};
+    use super::{MediaResolution, PromptOrder, parse_variant};
 
     #[test]
     fn variant_names_encode_every_transport_dimension() {
         let variant = parse_variant("image-medium-stream").unwrap();
         assert!(matches!(variant.order, PromptOrder::ImageFirst));
-        assert_eq!(variant.resolution, Some(GeminiMediaResolution::Medium));
+        assert_eq!(variant.resolution, Some(MediaResolution::Medium));
         assert!(variant.streaming);
     }
 }

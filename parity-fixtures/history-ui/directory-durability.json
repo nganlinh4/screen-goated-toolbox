@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"durable_publication","fault_phase":null,"expected":"COMMITTED","expected_publications":1},
+    {"name":"sync_unavailable_before_stage","fault_phase":"before_stage","expected":"UNAVAILABLE","expected_publications":0},
+    {"name":"stage_name_sync_failed","fault_phase":"staged","expected":"REJECTED","expected_publications":0},
+    {"name":"published_name_sync_failed","fault_phase":"published","expected":"UNAVAILABLE","expected_publications":1}
+  ]
+}

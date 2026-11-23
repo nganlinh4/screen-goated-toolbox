@@ -7,7 +7,6 @@ pub(super) fn get() -> TtsPlaygroundLocaleText {
         tts_playground_btn: "TTS 플레이그라운드",
         tts_playground_title: "TTS 플레이그라운드",
         tts_playground_tab_tts_clone: "TTS / 클론",
-        tts_playground_tab_audio_edit: "오디오 편집",
         tts_playground_text_label: "읽을 텍스트",
         tts_playground_text_hint: "이 샌드박스 음성을 테스트할 텍스트를 입력하거나 붙여넣으세요...",
         tts_playground_play: "재생",

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "canonical_windows_files": ["src/overlay/process/chain/step.rs", "src/overlay/process/pipeline.rs"],
+  "cases": [
+    {"event": "old_cancel_after_replacement", "apply": false},
+    {"event": "old_completion_after_replacement", "apply": false},
+    {"event": "old_stream_chunk_after_replacement", "apply": false},
+    {"event": "unsupported_replacement", "retire_previous": true},
+    {"event": "current_stream_chunk", "apply": true},
+    {"event": "cancel_current", "retire_previous": true},
+    {"event": "completed_session_deferred_effect", "apply": true},
+    {"event": "retired_session_deferred_effect", "apply": false},
+    {"event": "retired_session_speech_retry", "apply": false},
+    {"event": "other_attempt_releases_recovery_probe", "apply": false},
+    {"event": "retired_session_speech_drain", "apply": false},
+    {"event": "speech_drain_timeout", "outcome": "partial", "retry": false},
+    {"event": "speech_end_without_audio", "outcome": "failed", "retry": true},
+    {"event": "speech_short_buffered_audio", "outcome": "complete", "reused_by_later_session": false}
+  ]
+}

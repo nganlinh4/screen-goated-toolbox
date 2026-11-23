@@ -10,12 +10,17 @@ plugins {
 val generatedLiveModelCatalogSources = layout.buildDirectory.dir("generated/liveModelCatalog")
 val generatedPresetDefaultModelsSources = layout.buildDirectory.dir("generated/presetDefaultModels")
 
+// The generator imports these; a change to either must regenerate the catalog.
+val catalogGeneratorModules = listOf("model_catalog_validation.py", "model_catalog_realtime.py")
+    .map { rootProject.projectDir.parentFile.resolve("scripts/$it") }
+
 val generateLiveModelCatalog by tasks.registering(Exec::class) {
     val repoRoot = rootProject.projectDir.parentFile
     val manifestSource = repoRoot.resolve("catalog/model_catalog.json")
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
+    inputs.files(catalogGeneratorModules)
     val outputFile = generatedLiveModelCatalogSources.get()
         .asFile
         .resolve("dev/screengoated/toolbox/mobile/shared/live/GeneratedLiveModelCatalog.kt")
@@ -37,6 +42,7 @@ val generatePresetDefaultModels by tasks.registering(Exec::class) {
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
+    inputs.files(catalogGeneratorModules)
     val outputFile = generatedPresetDefaultModelsSources.get()
         .asFile
         .resolve("dev/screengoated/toolbox/mobile/shared/preset/GeneratedPresetDefaultModels.kt")

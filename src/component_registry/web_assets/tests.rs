@@ -69,7 +69,13 @@ fn extraction_accepts_only_manifest_owned_paths() {
     std::fs::create_dir_all(&staging).unwrap();
     let archive = root.join("pack.zip");
     write_zip(&archive, "index.html");
-    extract_archive(&archive, &staging, &test_delivery()).unwrap();
+    extract_archive(
+        &archive,
+        &staging,
+        &test_delivery(),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     assert_eq!(std::fs::read(staging.join("index.html")).unwrap(), b"test");
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -81,7 +87,15 @@ fn extraction_rejects_parent_traversal() {
     std::fs::create_dir_all(&staging).unwrap();
     let archive = root.join("pack.zip");
     write_zip(&archive, "../index.html");
-    assert!(extract_archive(&archive, &staging, &test_delivery()).is_err());
+    assert!(
+        extract_archive(
+            &archive,
+            &staging,
+            &test_delivery(),
+            &AtomicBool::new(false)
+        )
+        .is_err()
+    );
     assert!(!root.join("index.html").exists());
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -43,7 +43,7 @@ internal fun assertElevatedSetupContracts(invariants: JsonObject) {
         liveAutomation.string("screenShareProtectedCheckpoint"),
     )
     assertEquals(
-        "local_ephemeral_adapter_without_model_visibility",
+        "manual_user_step_without_model_visibility",
         liveAutomation.string("privateRelay"),
     )
     assertEquals("user_step", liveAutomation.string("systemOwnedConfirmation"))
@@ -63,7 +63,12 @@ internal fun assertElevatedSetupContracts(invariants: JsonObject) {
     )
     assertEquals("user_step", shizuku.string("androidPlayInstallConfirmation"))
     assertEquals("user_step", shizuku.string("androidOwnedPairingAndTrust"))
-    assertEquals("sealed_local_adapter_or_user_step", shizuku.string("oneTimePairingCodeTransfer"))
+    assertEquals("sealed_manual_user_step", shizuku.string("oneTimePairingCodeTransfer"))
+    assertEquals("exact_checkpoint_at_consent_launch", shizuku.string("captureConsentOwnership"))
+    assertEquals("retire_before_replacement_launch", shizuku.string("restoredCaptureWithoutOwner"))
+    assertEquals("single_flight_terminal_then_one_guarded_replay", shizuku.string("projectionReentry"))
+    assertEquals("await_service_destroy_before_replay", shizuku.string("projectionReentryDuringTeardown"))
+    assertEquals("generation_reserved_before_consent", shizuku.string("projectionStopOwnership"))
     val shizukuCases = shizuku.getValue("cases").jsonArray
     assertEquals(ShizukuBridgeCondition.entries.size, shizukuCases.size)
     shizukuCases.forEach { element ->
@@ -137,6 +142,12 @@ internal fun assertElevatedSetupContracts(invariants: JsonObject) {
         firstPartyAdb.string("packageIsolation"),
     )
     assertEquals("single_end_to_end_monotonic_deadline", firstPartyAdb.string("pairingDeadline"))
+    val unavailablePeer = firstPartyAdb.getValue("peerAuthenticationUnavailable").jsonObject
+    assertEquals("unsupported", unavailablePeer.string("capability"))
+    assertEquals("no_pair_connect_command_or_browser_tunnel", unavailablePeer.string("effect"))
+    assertEquals("retain_until_user_forgets", unavailablePeer.string("pairingState"))
+    assertEquals("retain_without_fallback", unavailablePeer.string("authoritySelection"))
+    assertEquals("localized_provider_unavailable", unavailablePeer.string("guidance"))
     assertEquals(
         "sealed_model_evidence_with_projection_retained",
         firstPartyAdb.string("captureLifecycle"),

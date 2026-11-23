@@ -16,30 +16,45 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 
-class DownloaderRepository(
+class DownloaderRepository internal constructor(
     internal val context: Context,
     internal val persistence: DownloaderPersistence,
+    runtimeDelivery: DownloaderRuntimeDelivery? = loadDownloaderRuntimeDelivery(context),
+    internal val upstreamYtDlp: UpstreamYtDlp = UpstreamYtDlp(OkHttpClient()) {
+        context.assets.open("downloader-runtime/yt-dlp-release-key.asc")
+    },
 ) {
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    internal val _state = MutableStateFlow(DownloaderUiState(settings = persistence.load()))
+    private val initialSettings = persistence.load()
+    internal val _state = MutableStateFlow(DownloaderUiState(
+        settings = initialSettings,
+        sessions = listOf(newDownloadSession(1, "Tab 1", initialSettings.downloadType, initialSettings.lastVideoFormat)),
+    ))
     val state: StateFlow<DownloaderUiState> = _state.asStateFlow()
 
-    internal var analysisJob: Job? = null
+    internal val analysisJobs = mutableMapOf<Int, Job>()
+    internal val analysisControls = mutableMapOf<Int, AnalysisControl>()
+    internal val analysisPermits = Semaphore(2)
     internal var downloadJob: Job? = null
     internal val cancelledDownloadSessionIds = ConcurrentHashMap.newKeySet<Int>()
     internal val activeDownloadPaths = ConcurrentHashMap<Int, String>()
     internal var nextSessionId = 2
-    internal var activeAnalysisProcessId: String? = null
 
     // ── Tool management ──
 
-    @Volatile internal var runtimeDelivery = loadDownloaderRuntimeDelivery(context)
-    @Volatile internal var runtimeInstaller = runtimeDelivery?.let {
+    internal val runtimeInstaller = runtimeDelivery?.let {
         DownloaderRuntimeInstaller(context, it, OkHttpClient())
+    }
+    internal val ytDlpStore = runtimeDelivery?.let { delivery ->
+        delivery.ytDlpStore(
+            context.noBackupFilesDir.resolve("downloader-yt-dlp"),
+            requireNotNull(runtimeInstaller).ytdlpFile,
+        )
     }
     internal val runtimeUpdateMutex = Mutex()
     internal val runtimeRemovalPreferences: SharedPreferences = context.getSharedPreferences(
@@ -49,10 +64,11 @@ class DownloaderRepository(
     internal val runtimeLeases = RuntimeLeaseRegistry<DownloaderRuntimeKey> {
         finishDownloaderRemoval()
     }
-    @Volatile internal var processHost = runtimeInstaller?.let { installer ->
-        DownloaderProcessHost(context, installer) { acquireDownloaderRuntimeLease() }
+    internal val processHost = runtimeInstaller?.let { installer ->
+        DownloaderProcessHost(context, installer, ytDlpStore) { acquireDownloaderRuntimeLease() }
     }
     internal var installJob: Job? = null
+    internal var ytDlpUpdateJob: Job? = null
 
     init {
         if (runtimeRemovalPreferences.getBoolean(REMOVAL_PENDING_KEY, false)) {
@@ -61,6 +77,7 @@ class DownloaderRepository(
     }
 
     fun checkTools() = refreshDownloaderTools()
+    fun checkYtDlpForUpdates() = startUpstreamYtDlpUpdate(manual = true)
 
     fun installTools() = startDownloaderInstall()
 
@@ -72,23 +89,22 @@ class DownloaderRepository(
 
     fun addTab() {
         val currentType = _state.value.activeSession.downloadType
-        val id = nextSessionId++
+        val id = allocateSessionId()
         _state.update {
-            val sessions = it.sessions + DownloadSessionState(
-                id = id,
-                tabName = "Tab ${it.sessions.size + 1}",
-                downloadType = currentType,
-            )
+            val sessions = it.sessions + newDownloadSession(id, "Tab ${it.sessions.size + 1}", currentType, it.settings.lastVideoFormat)
             it.copy(sessions = sessions, activeTabIndex = sessions.lastIndex)
         }
     }
 
     fun closeTab(idx: Int) {
+        val closing = _state.value.sessions.getOrNull(idx) ?: return
+        retireAnalysis(closing.id)
+        val replacementId = if (_state.value.sessions.size <= 1) allocateSessionId() else 0
         _state.update {
             if (it.sessions.size <= 1) {
                 val dt = it.sessions[0].downloadType
                 it.copy(
-                    sessions = listOf(DownloadSessionState(id = 1, tabName = "Tab 1", downloadType = dt)),
+                    sessions = listOf(newDownloadSession(replacementId, "Tab 1", dt, it.settings.lastVideoFormat)),
                     activeTabIndex = 0,
                 )
             } else {
@@ -104,31 +120,55 @@ class DownloaderRepository(
         _state.update { it.copy(activeTabIndex = idx.coerceIn(it.sessions.indices)) }
     }
 
+    private fun allocateSessionId(): Int {
+        val id = nextSessionId
+        nextSessionId = Math.addExact(nextSessionId, 1)
+        return id
+    }
+
     // ── URL & Analysis ──
 
     fun updateUrl(url: String) {
         val idx = _state.value.activeTabIndex
-        val oldFormats = _state.value.activeSession.availableFormats.size
+        val id = _state.value.activeSession.id
+        retireAnalysis(id)
         updateSession(idx) {
             it.copy(
                 inputUrl = url,
                 analysisError = null,
-                lastInputChangeMs = System.currentTimeMillis(),
                 availableFormats = emptyList(),
                 availableSubtitles = emptyList(),
+                selectedSubtitle = null,
                 lastUrlAnalyzed = "",
             )
         }
-        android.util.Log.d("SGT-DL", "updateUrl: cancelling old analysis, formats=$oldFormats")
-        activeAnalysisProcessId?.let(::destroyYtDlpProcess)
-        activeAnalysisProcessId = null
-        analysisJob?.cancel()
-        if (url.isNotBlank()) {
-            analysisJob = scope.launch {
-                delay(800)
-                analyzeUrl(idx, url)
-            }
+        if (url.isNotBlank()) queueFormatScan(_state.value.activeSession, delayMs = 800)
+    }
+
+    fun scanFormats() {
+        val tab = _state.value.activeSession
+        if (tab.inputUrl.isBlank() || tab.phase == DownloadPhase.DOWNLOADING ||
+            analysisJobs[tab.id]?.isActive == true
+        ) return
+        queueFormatScan(tab)
+    }
+
+    private fun queueFormatScan(tab: DownloadSessionState, delayMs: Long = 0) {
+        val control = AnalysisControl()
+        analysisControls[tab.id] = control
+        analysisJobs[tab.id] = scope.launch {
+            if (delayMs > 0) delay(delayMs)
+            analyzeUrl(tab.id, tab.analysisGeneration, tab.inputUrl, control)
         }
+    }
+
+    private fun retireAnalysis(id: Int) {
+        analysisControls.remove(id)?.let { control ->
+            control.retire()
+            scope.launch(Dispatchers.IO) { control.stopOwned() }
+        }
+        analysisJobs.remove(id)?.cancel()
+        updateSessionById(id) { it.copy(analysisGeneration = Math.addExact(it.analysisGeneration, 1), isAnalyzing = false, phase = if (it.phase == DownloadPhase.ANALYZING) DownloadPhase.IDLE else it.phase) }
     }
 
     fun setDownloadType(type: DownloadType) {
@@ -161,9 +201,7 @@ class DownloaderRepository(
         val processId = "download_${session.id}"
 
         android.util.Log.d("SGT-DL", "startDownload: formats=${session.availableFormats.size} phase=${session.phase}")
-        activeAnalysisProcessId?.let(::destroyYtDlpProcess)
-        activeAnalysisProcessId = null
-        analysisJob?.cancel()
+        retireAnalysis(session.id)
         _state.value.sessions.mapNotNull { it.processId }.forEach(::destroyYtDlpProcess)
         downloadJob?.cancel()
         cancelledDownloadSessionIds.remove(session.id)
@@ -178,6 +216,7 @@ class DownloaderRepository(
                 processId = processId,
                 finishedFilePath = null,
                 finishedFileUri = null,
+                finishedQuality = null,
             )
         }
 
@@ -191,6 +230,7 @@ class DownloaderRepository(
                             phase = DownloadPhase.FINISHED,
                             finishedFilePath = result.filePath,
                             finishedFileUri = result.contentUri,
+                            finishedQuality = result.quality,
                             processId = null,
                         )
                     }
@@ -229,8 +269,9 @@ class DownloaderRepository(
 
     fun resetSession() {
         val idx = _state.value.activeTabIndex
+        retireAnalysis(_state.value.activeSession.id)
         updateSession(idx) {
-            DownloadSessionState(id = it.id, tabName = it.tabName, downloadType = it.downloadType)
+            newDownloadSession(it.id, it.tabName, it.downloadType, _state.value.settings.lastVideoFormat).copy(analysisGeneration = it.analysisGeneration)
         }
     }
 
@@ -271,6 +312,13 @@ class DownloaderRepository(
                 sessions[idx] = transform(sessions[idx])
             }
             it.copy(sessions = sessions)
+        }
+    }
+
+    internal fun updateSessionById(id: Int, transform: (DownloadSessionState) -> DownloadSessionState) {
+        _state.update { state ->
+            val idx = state.sessions.indexOfFirst { it.id == id }
+            if (idx < 0) state else state.copy(sessions = state.sessions.toMutableList().apply { this[idx] = transform(this[idx]) })
         }
     }
 

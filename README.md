@@ -67,6 +67,17 @@ Release packaging produces the Windows x64 artifact:
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for validation, frontend, Android, and help-index workflows.
 
+## Creation tools
+
+Image to 3D and Image to SVG run on a creation backend that lives in a separate
+repository. This repository owns the creation frontends (`3d-generator-ui/`,
+`image-to-svg-ui/`, the overlay windows and the host client/IPC side) and the
+delivery steps: the app's download-and-verify path, the tracked contracts under
+`component-delivery/`, and the staging, packaging and publish scripts that the
+backend repository runs to update and publish. Backend internals are out of
+scope here. See [`docs/COMPONENT_DELIVERY.md`](docs/COMPONENT_DELIVERY.md) and
+[`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## Repository map
 
 | Path | Owner |
@@ -77,6 +88,7 @@ See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for validation, frontend, Andro
 | `promptdj-midi/` | PromptDJ frontend |
 | `translation-gummy-ui/` | Translation Gummy frontend |
 | `tts-playground-ui/` | TTS Playground frontend |
+| `3d-generator-ui/`, `image-to-svg-ui/` | Creation frontends (Image to 3D, Image to SVG) |
 | `mobile/` | Android/Kotlin Multiplatform project |
 | `native/` | SGT-owned native runtimes and sidecars |
 | `parity-fixtures/` | Cross-platform golden data |

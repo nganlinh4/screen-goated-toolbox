@@ -1,41 +1,25 @@
+use crate::overlay::compositor_renderer::{
+    RENDERER_BOOTSTRAP, add_document_script, attach_navigation_probe, attach_process_failure,
+    create_composition_device, create_composition_webview,
+};
 use anyhow::Context;
 use webview2_com::{
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler,
-    CreateCoreWebView2CompositionControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, ExecuteScriptCompletedHandler,
+    ExecuteScriptCompletedHandler, FrameCreatedEventHandler, FrameNavigationStartingEventHandler,
     Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS, COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND,
-        COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS, COREWEBVIEW2_PROCESS_FAILED_KIND,
-        COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
-        COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
-        COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED,
-        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
-        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE,
-        CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
-        ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
-        ICoreWebView2Controller3, ICoreWebView2Environment3,
+        COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS, ICoreWebView2,
+        ICoreWebView2_4, ICoreWebView2CompositionController, ICoreWebView2Controller,
+        ICoreWebView2Controller3, ICoreWebView2Frame2,
     },
-    NavigationCompletedEventHandler, ProcessFailedEventHandler, WebMessageReceivedEventHandler,
+    NavigationStartingEventHandler, WebMessageReceivedEventHandler,
 };
 use windows::Win32::Foundation::{HWND, POINT, RECT};
-use windows::Win32::Graphics::Direct3D::{
-    D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
-};
-use windows::Win32::Graphics::Direct3D11::{
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
-};
 use windows::Win32::Graphics::DirectComposition::{
-    DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
+    IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
-use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
-use windows::core::{BOOL, Interface, PCWSTR};
+use windows::core::{Interface, PCWSTR};
 
-const BOOTSTRAP: &str = r#"
-window.ipc={postMessage:function(m){window.chrome.webview.postMessage(m);}};
-window.addEventListener('error',function(e){window.ipc.postMessage(JSON.stringify({type:'renderer_error',source:'page',error:String(e.message)+' @ '+e.lineno+':'+e.colno}));});
-window.addEventListener('unhandledrejection',function(e){window.ipc.postMessage(JSON.stringify({type:'renderer_error',source:'promise',error:String(e.reason)}));});
-"#;
+const NAVIGATION_PROBE: &str = "JSON.stringify({state:document.readyState,bridge:typeof window.ipc,apply:typeof window.applyHostCommand,frames:document.querySelectorAll('iframe').length})";
 
 pub(super) struct DcompHost {
     heartbeat_at: std::cell::Cell<std::time::Instant>,
@@ -91,6 +75,10 @@ impl DcompHost {
     }
 
     pub(super) fn evaluate_script(&self, script: &str) {
+        self.submit_script(script);
+    }
+
+    pub(super) fn submit_script(&self, script: &str) -> bool {
         let script = windows::core::HSTRING::from(script);
         let handler = ExecuteScriptCompletedHandler::create(Box::new(|code, _result| {
             if let Err(error) = code {
@@ -99,11 +87,15 @@ impl DcompHost {
             Ok(())
         }));
         unsafe {
-            if let Err(error) = self
+            match self
                 .webview
                 .ExecuteScript(PCWSTR(script.as_ptr()), &handler)
             {
-                report_script_failure(error);
+                Ok(()) => true,
+                Err(error) => {
+                    report_script_failure(error);
+                    false
+                }
             }
         }
     }
@@ -160,72 +152,15 @@ pub(super) fn build_host(
             crate::overlay::webview_runtime::Profile::ResultCompositor.directory()
         };
         let user_data = crate::overlay::webview_runtime::data_dir_named(Some(profile_name));
-        let user_data = windows::core::HSTRING::from(user_data.to_string_lossy().as_ref());
-
-        let environment = {
-            let (sender, receiver) = std::sync::mpsc::channel();
-            CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
-                Box::new(move |handler| {
-                    CreateCoreWebView2EnvironmentWithOptions(
-                        PCWSTR::null(),
-                        PCWSTR(user_data.as_ptr()),
-                        None,
-                        &handler,
-                    )
-                    .map_err(webview2_com::Error::WindowsError)
-                }),
-                Box::new(move |code, environment| {
-                    code?;
-                    let _ = sender.send(environment);
-                    Ok(())
-                }),
-            )
-            .map_err(webview_error)
-            .context("create compositor WebView2 environment")?;
-            receiver.recv().ok().flatten().ok_or_else(pointer_error)?
-        };
-
-        let environment3: ICoreWebView2Environment3 = environment.cast()?;
         let controller_parent = crate::overlay::composition_anchor::create(hwnd, width, height)?;
-        let composition = {
-            let (sender, receiver) = std::sync::mpsc::channel();
-            CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
-                Box::new(move |handler| {
-                    environment3
-                        .CreateCoreWebView2CompositionController(controller_parent, &handler)
-                        .map_err(webview2_com::Error::WindowsError)
-                }),
-                Box::new(move |code, controller| {
-                    code?;
-                    let _ = sender.send(controller);
-                    Ok(())
-                }),
-            )
-            .map_err(webview_error)
-            .context("create compositor WebView2 composition controller")?;
-            receiver.recv().ok().flatten().ok_or_else(pointer_error)?
-        };
-        composition.SetRootVisualTarget(&root)?;
-
-        let controller: ICoreWebView2Controller = composition.cast()?;
-        if let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() {
-            controller3.SetBoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS)?;
-            controller3.SetShouldDetectMonitorScaleChanges(false)?;
-            controller3.SetRasterizationScale(scale)?;
-        }
-        controller.SetBounds(RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-        })?;
-        let controller2: ICoreWebView2Controller2 = controller.cast()?;
-        controller2.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-            A: 0,
-            R: 0,
-            G: 0,
-            B: 0,
-        })?;
+        let (composition, controller) = create_composition_webview(
+            &user_data,
+            controller_parent,
+            &root,
+            (width, height),
+            scale,
+        )
+        .context("create compositor WebView2 composition controller")?;
         controller.SetIsVisible(false)?;
 
         let webview = controller.CoreWebView2()?;
@@ -237,10 +172,16 @@ pub(super) fn build_host(
         let settings5: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings5 =
             settings.cast()?;
         settings5.SetIsPinchZoomEnabled(false)?;
-        inject_bootstrap(&webview)?;
-        attach_ipc(&webview)?;
-        attach_process_failure(&webview)?;
-        attach_navigation_probe(&webview)?;
+        add_document_script(&webview, RENDERER_BOOTSTRAP)?;
+        attach_ipc(&webview, page_url)?;
+        attach_navigation_guard(&webview, page_url)?;
+        attach_card_frame_guard(&webview)?;
+        attach_process_failure(&webview, |kind| {
+            super::child::emit_event(super::protocol::ChildEvent::RendererFailure { kind });
+        })?;
+        attach_navigation_probe(&webview, NAVIGATION_PROBE, |line| {
+            crate::debug_log::log_debug(&format!("[ResultCompositor] {line}"));
+        })?;
 
         let page_url_hstring = windows::core::HSTRING::from(page_url);
         webview.Navigate(PCWSTR(page_url_hstring.as_ptr()))?;
@@ -259,121 +200,110 @@ pub(super) fn build_host(
     }
 }
 
-unsafe fn attach_process_failure(webview: &ICoreWebView2) -> windows::core::Result<()> {
+unsafe fn attach_navigation_guard(
+    webview: &ICoreWebView2,
+    page_url: &str,
+) -> windows::core::Result<()> {
+    let allowed_url = page_url.to_owned();
     unsafe {
-        let handler = ProcessFailedEventHandler::create(Box::new(move |_webview, args| {
+        let handler = NavigationStartingEventHandler::create(Box::new(move |_webview, args| {
             let Some(args) = args else {
                 return Ok(());
             };
-            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
-            args.ProcessFailedKind(&mut kind)?;
-            let kind = match kind {
-                COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED => {
-                    Some(super::protocol::RendererFailureKind::BrowserProcessExited)
-                }
-                COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => {
-                    Some(super::protocol::RendererFailureKind::RenderProcessExited)
-                }
-                COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE => {
-                    Some(super::protocol::RendererFailureKind::RenderProcessUnresponsive)
-                }
-                COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED => {
-                    Some(super::protocol::RendererFailureKind::FrameRenderProcessExited)
-                }
-                COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED => {
-                    Some(super::protocol::RendererFailureKind::GpuProcessExited)
-                }
-                _ => None,
+            let mut uri = windows::core::PWSTR::null();
+            let allowed = if args.Uri(&mut uri).is_ok() && !uri.is_null() {
+                webview2_com::CoTaskMemPWSTR::from(uri).to_string() == allowed_url
+            } else {
+                false
             };
-            if let Some(kind) = kind {
-                super::child::emit_event(super::protocol::ChildEvent::RendererFailure { kind });
+            args.SetCancel(!allowed)
+        }));
+        let mut token = Default::default();
+        webview.add_NavigationStarting(&handler, &mut token)
+    }
+}
+
+#[derive(Default)]
+struct CardFrameNavigationGuard {
+    started: bool,
+}
+
+impl CardFrameNavigationGuard {
+    fn allow(&mut self, uri: &str) -> bool {
+        let base = uri.split_once('#').map_or(uri, |(base, _)| base);
+        if base == "about:srcdoc" || (base == "about:blank" && !self.started) {
+            self.started = true;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn card_frame_guard_unavailable() -> ! {
+    crate::crash_report::exit(1, "result-card-frame-guard-unavailable")
+}
+
+unsafe fn attach_card_frame_guard(webview: &ICoreWebView2) -> windows::core::Result<()> {
+    unsafe {
+        let webview4: ICoreWebView2_4 = webview.cast()?;
+        let handler = FrameCreatedEventHandler::create(Box::new(|_webview, args| {
+            let Some(args) = args else {
+                card_frame_guard_unavailable()
+            };
+            let frame = args
+                .Frame()
+                .unwrap_or_else(|_| card_frame_guard_unavailable());
+            let mut name = windows::core::PWSTR::null();
+            if frame.Name(&mut name).is_err() || name.is_null() {
+                card_frame_guard_unavailable();
             }
+            let name = webview2_com::CoTaskMemPWSTR::from(name).to_string();
+            if !name.starts_with("sgt-result-card-") {
+                return Ok(());
+            }
+            let frame: ICoreWebView2Frame2 = frame
+                .cast()
+                .unwrap_or_else(|_| card_frame_guard_unavailable());
+            let mut guard = CardFrameNavigationGuard::default();
+            let handler =
+                FrameNavigationStartingEventHandler::create(Box::new(move |_frame, args| {
+                    let Some(args) = args else {
+                        card_frame_guard_unavailable()
+                    };
+                    let mut uri = windows::core::PWSTR::null();
+                    let allowed = if args.Uri(&mut uri).is_ok() && !uri.is_null() {
+                        guard.allow(&webview2_com::CoTaskMemPWSTR::from(uri).to_string())
+                    } else {
+                        false
+                    };
+                    args.SetCancel(!allowed)
+                        .unwrap_or_else(|_| card_frame_guard_unavailable());
+                    Ok(())
+                }));
+            let mut token = Default::default();
+            frame
+                .add_NavigationStarting(&handler, &mut token)
+                .unwrap_or_else(|_| card_frame_guard_unavailable());
             Ok(())
         }));
         let mut token = Default::default();
-        webview.add_ProcessFailed(&handler, &mut token)
+        webview4.add_FrameCreated(&handler, &mut token)
     }
 }
 
-fn create_composition_device(
-    software_rendering: bool,
-) -> windows::core::Result<IDCompositionDevice> {
-    let try_create = |driver_type: D3D_DRIVER_TYPE| unsafe {
-        let mut device = None;
-        D3D11CreateDevice(
-            None,
-            driver_type,
-            Default::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            None,
-        )?;
-        let dxgi: IDXGIDevice = device.ok_or_else(pointer_error)?.cast()?;
-        DCompositionCreateDevice(&dxgi)
-    };
-    if software_rendering {
-        try_create(D3D_DRIVER_TYPE_WARP)
-    } else {
-        let [hardware, warp] = driver_candidates();
-        try_create(hardware).or_else(|_hardware_error| try_create(warp))
-    }
-}
-
-fn driver_candidates() -> [D3D_DRIVER_TYPE; 2] {
-    [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP]
-}
-
-unsafe fn attach_navigation_probe(webview: &ICoreWebView2) -> windows::core::Result<()> {
-    unsafe {
-        let handler = NavigationCompletedEventHandler::create(Box::new(move |webview, args| {
-            let mut success_value = BOOL::default();
-            let success = args.as_ref().is_some_and(|args| {
-                args.IsSuccess(&mut success_value).is_ok() && success_value.as_bool()
-            });
-            let Some(webview) = webview else {
-                return Ok(());
-            };
-            let probe = windows::core::HSTRING::from(
-                "JSON.stringify({state:document.readyState,bridge:typeof window.ipc,apply:typeof window.applyHostCommand,frames:document.querySelectorAll('iframe').length})",
-            );
-            let completion = ExecuteScriptCompletedHandler::create(Box::new(
-                move |code, result| {
-                    crate::debug_log::log_debug(&format!(
-                        "[ResultCompositor] navigation success={success} script_code={code:?} probe={result}"
-                    ));
-                    Ok(())
-                },
-            ));
-            webview.ExecuteScript(PCWSTR(probe.as_ptr()), &completion)
-        }));
-        let mut token = Default::default();
-        webview.add_NavigationCompleted(&handler, &mut token)
-    }
-}
-
-unsafe fn inject_bootstrap(webview: &ICoreWebView2) -> windows::core::Result<()> {
-    unsafe {
-        let script = windows::core::HSTRING::from(BOOTSTRAP);
-        let webview = webview.clone();
-        AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| {
-                webview
-                    .AddScriptToExecuteOnDocumentCreated(PCWSTR(script.as_ptr()), &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(|code, _| code),
-        )
-        .map_err(webview_error)
-    }
-}
-
-unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows::core::Result<()> {
+unsafe fn attach_ipc(webview: &ICoreWebView2, page_url: &str) -> windows::core::Result<()> {
+    let allowed_url = page_url.to_owned();
     unsafe {
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
             if let Some(args) = args {
+                let mut source = windows::core::PWSTR::null();
+                if args.Source(&mut source).is_err() || source.is_null() {
+                    return Ok(());
+                }
+                if webview2_com::CoTaskMemPWSTR::from(source).to_string() != allowed_url {
+                    return Ok(());
+                }
                 let mut message = windows::core::PWSTR(std::ptr::null_mut());
                 if args.TryGetWebMessageAsString(&mut message).is_ok() && !message.is_null() {
                     let body = webview2_com::CoTaskMemPWSTR::from(message).to_string();
@@ -387,23 +317,32 @@ unsafe fn attach_ipc(webview: &ICoreWebView2) -> windows::core::Result<()> {
     }
 }
 
-fn webview_error(error: webview2_com::Error) -> windows::core::Error {
-    match error {
-        webview2_com::Error::WindowsError(error) => error,
-        other => {
-            windows::core::Error::new(windows::Win32::Foundation::E_FAIL, format!("{other:?}"))
-        }
-    }
-}
-
-fn pointer_error() -> windows::core::Error {
-    windows::core::Error::from(windows::Win32::Foundation::E_POINTER)
-}
-
 fn report_script_failure(error: windows::core::Error) {
     super::child::emit_event(super::protocol::ChildEvent::CommandError {
         command: "execute_script".into(),
         id: None,
         error: error.to_string(),
     });
+}
+
+#[cfg(test)]
+mod frame_navigation_tests {
+    use super::CardFrameNavigationGuard;
+
+    #[test]
+    fn card_frames_stay_on_their_own_document() {
+        let mut guard = CardFrameNavigationGuard::default();
+        assert!(guard.allow("about:blank"));
+        assert!(guard.allow("about:srcdoc"));
+        assert!(guard.allow("about:srcdoc#section"));
+        for denied in [
+            "https://example.com/",
+            "data:text/html,hello",
+            "javascript:alert(1)",
+            "about:srcdoc?next=https://example.com",
+            "about:blank",
+        ] {
+            assert!(!guard.allow(denied));
+        }
+    }
 }

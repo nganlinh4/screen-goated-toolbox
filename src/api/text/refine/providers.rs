@@ -1,14 +1,10 @@
 // --- PROVIDER-SPECIFIC REFINE HANDLERS ---
 // Gemini, OpenRouter, Groq, and Taalas refinement implementations.
 
-mod groq_compound;
-
-use crate::api::client::{UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_simple};
+use crate::api::client::record_usage_simple;
 use crate::api::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use crate::api::openai_compat::stream_openai_compat_payload;
 use anyhow::Result;
-use groq_compound::refine_groq_compound;
-use std::io::BufReader;
 use std::sync::{Arc, atomic::AtomicBool};
 
 // --- GEMINI REFINE ---
@@ -42,6 +38,7 @@ where
             map_auth_errors: false,
             request_timeout: None,
             response_schema: None,
+            audio_transcription_config: None,
             media_resolution: None,
             enable_google_search: false,
             retry_observer: None,
@@ -53,14 +50,13 @@ where
 // --- TAALAS REFINE ---
 pub(super) fn refine_taalas<F>(
     final_prompt: &str,
-    _cancel_token: &Option<Arc<AtomicBool>>,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
-    let text = crate::api::taalas::generate(final_prompt)
-        .ok_or_else(|| anyhow::anyhow!("Taalas Refine Error: empty or failed response"))?;
+    let text = crate::api::taalas::generate(final_prompt, cancel_token, None)?;
     on_chunk(&text);
     Ok(text)
 }
@@ -99,10 +95,8 @@ where
         cancel_token,
         None,
         "OpenRouter Refine Error",
-        false,
-        false,
+        Some("openrouter"),
         |headers| crate::api::client::record_usage_headers("openrouter", p_model, headers),
-        |_| {},
         on_chunk,
     )
 }
@@ -144,10 +138,8 @@ where
         cancel_token,
         None,
         "NVIDIA Refine Error",
-        false,
-        false,
+        Some("nvidia"),
         |headers| crate::api::client::record_usage_headers("nvidia", p_model, headers),
-        |_| {},
         on_chunk,
     )
 }
@@ -172,7 +164,19 @@ where
     let is_compound = p_model.starts_with("groq/compound");
 
     if is_compound {
-        return refine_groq_compound(groq_api_key, final_prompt, p_model, ui_language, on_chunk);
+        return crate::api::groq::compound::run_compound(
+            crate::api::groq::compound::CompoundRequest {
+                endpoint: crate::api::groq::CHAT_COMPLETIONS_URL,
+                api_key: groq_api_key,
+                model: p_model,
+                prompt: final_prompt,
+                search_label: None,
+                ui_language,
+                request_timeout: None,
+                cancel_token,
+            },
+            on_chunk,
+        );
     }
 
     let mut payload = serde_json::json!({
@@ -182,38 +186,21 @@ where
     });
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", p_model);
 
-    let resp = UREQ_RESPONSE_AGENT
-        .post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", &format!("Bearer {}", groq_api_key))
-        .send_json(payload)
-        .map_err(|error| {
-            anyhow::anyhow!(crate::api::client::transport_error_message(
-                "Groq Refine transport error",
-                &error,
-            ))
-        })?;
-
-    record_usage_simple(resp.headers(), p_model);
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let body = resp.into_body().read_to_string().unwrap_or_default();
-        return Err(anyhow::anyhow!("Groq Refine HTTP {status}: {body}"));
-    }
-
-    let full_content;
-
-    if streaming_enabled {
-        let reader = BufReader::new(resp.into_body().into_reader());
-        full_content =
-            crate::api::openai_compat::consume_content_stream(reader, cancel_token, on_chunk)?;
-    } else {
-        let root: serde_json::Value = resp.into_body().read_json().map_err(|error| {
-            anyhow::anyhow!("PROVIDER_RESPONSE_INVALID:Malformed provider completion: {error}")
-        })?;
-        record_groq_json_usage(p_model, &root);
-        full_content = crate::api::openai_compat::parse_chat_completion(&root)?;
-        on_chunk(&full_content);
-    }
-
-    Ok(full_content)
+    // The shared OpenAI-compatible path gives Groq refine the same
+    // first-token/idle deadlines, localized invalid-key mapping and bounded
+    // error body as every other chat provider.
+    stream_openai_compat_payload(
+        crate::api::groq::CHAT_COMPLETIONS_URL,
+        groq_api_key,
+        payload,
+        streaming_enabled,
+        false,
+        ui_language,
+        cancel_token,
+        None,
+        "Groq Refine Error",
+        Some("groq"),
+        |headers| record_usage_simple(headers, p_model),
+        on_chunk,
+    )
 }

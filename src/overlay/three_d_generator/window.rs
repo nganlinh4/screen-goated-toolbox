@@ -13,18 +13,8 @@ use windows::core::{HSTRING, PCWSTR, w};
 use wry::WebViewBuilderExtWindows;
 use wry::{DragDropEvent, Rect, WebViewBuilder};
 
-const MIN_WINDOW_WIDTH: i32 = 840;
-const MIN_WINDOW_HEIGHT: i32 = 540;
-
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SavedWindowSize {
-    width: i32,
-    height: i32,
-}
-
 fn is_supported_image(path: &std::path::Path) -> bool {
-    super::file_dialogs::is_supported_image_path(path)
+    crate::overlay::creation_file_dialogs::is_supported_image_path(path)
 }
 
 fn set_file_drag_active(active: bool) {
@@ -45,10 +35,10 @@ fn handle_file_drop(event: DragDropEvent) -> bool {
         }
         DragDropEvent::Drop { paths, .. } => {
             set_file_drag_active(false);
-            let paths = super::file_dialogs::admit_image_paths(
+            let paths = crate::overlay::creation_file_dialogs::admit_image_paths(
                 paths,
-                super::file_dialogs::MAX_BATCH_IMAGES,
-                super::file_dialogs::MAX_BATCH_BYTES,
+                crate::overlay::creation_file_dialogs::MAX_BATCH_IMAGES,
+                crate::overlay::creation_file_dialogs::MAX_BATCH_BYTES,
             )
             .unwrap_or_default()
             .into_iter()
@@ -77,36 +67,17 @@ fn test_launch_stays_hidden() -> bool {
 }
 
 pub(super) fn show() {
-    unsafe {
-        if !super::IS_READY {
-            if !super::IS_INITIALIZING {
-                crate::overlay::creation_close::reset_product("3d");
-                super::IS_INITIALIZING = true;
-                std::thread::spawn(internal_create_loop_entry);
+    if let Some(hwnd) = super::WINDOW.ready_hwnd() {
+        if !test_launch_stays_hidden() {
+            unsafe {
+                let _ = PostMessageW(Some(hwnd), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
             }
-            std::thread::spawn(|| {
-                for _ in 0..100 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-                    if super::IS_READY && !hwnd.is_invalid() {
-                        if !test_launch_stays_hidden() {
-                            let _ = PostMessageW(
-                                Some(hwnd.0),
-                                super::WM_APP_SHOW,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                        }
-                        return;
-                    }
-                }
-            });
-            return;
         }
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() && !test_launch_stays_hidden() {
-            let _ = PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        }
+        return;
+    }
+    if let Some(generation) = super::WINDOW.try_claim() {
+        crate::overlay::creation_close::reset_product("3d");
+        std::thread::spawn(move || unsafe { internal_create_loop(generation) });
     }
 }
 
@@ -141,6 +112,10 @@ unsafe extern "system" fn window_proc(
                 super::ipc::flush_preview_replies(hwnd);
                 LRESULT(0)
             }
+            super::WM_APP_IPC_REPLY => {
+                super::ipc::flush_replies(hwnd);
+                LRESULT(0)
+            }
             WM_NCCALCSIZE => {
                 if wparam.0 != 0 {
                     LRESULT(0)
@@ -152,12 +127,26 @@ unsafe extern "system" fn window_proc(
             WM_GETMINMAXINFO => {
                 let info = &mut *(lparam.0 as *mut MINMAXINFO);
                 let area = crate::overlay::display_placement::window_work_area(hwnd);
-                info.ptMinTrackSize.x = MIN_WINDOW_WIDTH.min(area.width);
-                info.ptMinTrackSize.y = MIN_WINDOW_HEIGHT.min(area.height);
+                let (width, height) =
+                    super::window_geometry::minimum(area, super::window_geometry::dpi(hwnd));
+                info.ptMinTrackSize.x = width;
+                info.ptMinTrackSize.y = height;
                 LRESULT(0)
             }
+            WM_ENTERSIZEMOVE => {
+                super::window_geometry::begin_user_resize(hwnd);
+                LRESULT(0)
+            }
+            WM_SIZING => {
+                super::window_geometry::mark_user_resize();
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_EXITSIZEMOVE => {
-                save_window_size(hwnd);
+                super::window_geometry::finish_user_resize(hwnd);
+                LRESULT(0)
+            }
+            WM_DPICHANGED => {
+                crate::overlay::display_placement::apply_suggested_dpi_rect(hwnd, lparam);
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
@@ -169,8 +158,8 @@ unsafe extern "system" fn window_proc(
                 if wparam.0 != 0 && !crate::overlay::creation_close::accept_retry(hwnd, wparam.0) {
                     return LRESULT(0);
                 }
-                save_window_size(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
+                super::ipc_worker::unregister(hwnd);
                 super::asset_protocol::clear();
                 if super::shutdown() {
                     crate::overlay::creation_close::clear(hwnd);
@@ -182,24 +171,27 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             super::WM_APP_REMOVE => {
-                save_window_size(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
+                super::ipc_worker::unregister(hwnd);
                 super::asset_protocol::clear();
-                let _ = super::shutdown();
-                let _ = DestroyWindow(hwnd);
+                if super::shutdown() {
+                    let _ = DestroyWindow(hwnd);
+                }
                 LRESULT(0)
             }
             WM_DESTROY => {
                 crate::overlay::creation_close::clear(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
+                super::ipc_worker::unregister(hwnd);
                 super::asset_protocol::clear();
-                let _ = super::shutdown();
+                if super::WINDOW.is_ready_window(hwnd) {
+                    let _ = super::shutdown();
+                }
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
                 super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
-                super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-                super::IS_READY = false;
+                super::WINDOW.release_window(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -208,7 +200,7 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-unsafe fn internal_create_loop() {
+unsafe fn internal_create_loop(generation: u64) {
     let instance = unsafe { GetModuleHandleW(None).unwrap() };
     let class_name = w!("ThreeDGeneratorWindowClass");
 
@@ -227,17 +219,8 @@ unsafe fn internal_create_loop() {
     let area = crate::overlay::display_placement::primary_work_area();
     let screen_w = area.width;
     let screen_h = area.height;
-    let default_width = ((screen_w as f64 * 0.58) as i32).clamp(920, 1240);
-    let default_height = ((screen_h as f64 * 0.62) as i32).clamp(600, 820);
-    let saved = load_window_size().unwrap_or(SavedWindowSize {
-        width: default_width,
-        height: default_height,
-    });
-    let width = saved.width.clamp(MIN_WINDOW_WIDTH.min(screen_w), screen_w);
-    let height = saved
-        .height
-        .clamp(MIN_WINDOW_HEIGHT.min(screen_h), screen_h);
-    let rect = area.centered(width, height);
+    // Establish an HWND first so its monitor DPI can be queried reliably.
+    let rect = area.centered(screen_w.min(920), screen_h.min(600));
 
     let title = HSTRING::from(
         crate::gui::locale::LocaleText::get(&super::current_ui_language())
@@ -264,16 +247,31 @@ unsafe fn internal_create_loop() {
     };
 
     if hwnd.is_invalid() {
-        unsafe {
-            super::IS_INITIALIZING = false;
-        }
+        super::WINDOW.release(generation);
         return;
     }
 
-    unsafe {
-        super::WINDOW_HWND = crate::win_types::SendHwnd(hwnd);
+    let rect = super::window_geometry::initial(hwnd, area);
+    let _ = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+
+    if !super::WINDOW.publish_hwnd(generation, hwnd) {
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        return;
     }
     crate::overlay::creation_preview::register_async_target(hwnd);
+    super::ipc_worker::register(hwnd);
 
     let corner_pref = DWMWCP_ROUND;
     let _ = unsafe {
@@ -338,15 +336,14 @@ unsafe fn internal_create_loop() {
             crate::overlay::creation_preview::unregister_async_target(hwnd);
             unsafe {
                 let _ = DestroyWindow(hwnd);
-                super::WINDOW_HWND = crate::win_types::SendHwnd::default();
-                super::IS_INITIALIZING = false;
             }
+            super::WINDOW.release(generation);
             return;
         }
     };
     let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
 
-    super::WEB_CONTEXT.with(|context| {
+    let webview_result = super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
         if context_ref.is_none() {
             *context_ref = Some(crate::overlay::webview_runtime::create_context(
@@ -357,14 +354,21 @@ unsafe fn internal_create_loop() {
         let webview_result = {
             let init = crate::overlay::webview_init::acquire("three-d-generator");
             let url = page_url.as_deref().unwrap_or("about:blank");
+            let allowed_navigation_url = url.to_string();
+            let allowed_ipc_url = url.to_string();
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
-                .with_custom_protocol("sgt3d".to_string(), |_id, request| {
-                    super::asset_protocol::handle(request)
+                .with_asynchronous_custom_protocol("sgt3d".to_string(), |_id, request, responder| {
+                    super::asset_protocol_async::request(request, responder)
                 })
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
-                    super::ipc::handle_ipc(hwnd, request.body());
+                    if is_allowed_page(&allowed_ipc_url, &request.uri().to_string()) {
+                        super::ipc::handle_ipc(hwnd, request.body());
+                    }
+                })
+                .with_navigation_handler(move |requested| {
+                    is_allowed_page(&allowed_navigation_url, &requested)
                 })
                 .with_drag_drop_handler(handle_file_drop)
                 .with_url(url);
@@ -376,31 +380,43 @@ unsafe fn internal_create_loop() {
                     "[CreationWebView] product=three-d-generator test debugging enabled on port {port}"
                 );
             }
-            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             let result = builder.build_as_child(&wrapper);
             init.finish(result.is_ok());
             result
         };
 
-        if let Ok(webview) = webview_result {
-            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
-                "three-d-generator",
-                hwnd,
-                &webview,
-            );
-            super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
-            super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
-        }
+        let webview = webview_result?;
+        crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+            "three-d-generator",
+            hwnd,
+            &webview,
+        );
+        super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
+        super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
+        Ok::<(), wry::Error>(())
     });
+    if let Err(error) = webview_result {
+        crate::log_info!("[3D Generator] Could not create interface: {error}");
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        super::WINDOW.release(generation);
+        super::WEB_CONTEXT.with(|context| *context.borrow_mut() = None);
+        return;
+    }
 
     resize_webview(hwnd);
 
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
-        super::IS_READY = true;
-        super::IS_INITIALIZING = false;
-        if super::REMOVAL_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
-            let _ = PostMessageW(Some(hwnd), super::WM_APP_REMOVE, WPARAM(0), LPARAM(0));
+    }
+    super::WINDOW.mark_ready(generation);
+    if let Some(message) = ready_action(
+        super::REMOVAL_REQUESTED.load(std::sync::atomic::Ordering::Acquire),
+        test_launch_stays_hidden(),
+    ) {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), message, WPARAM(0), LPARAM(0));
         }
     }
 
@@ -417,16 +433,25 @@ unsafe fn internal_create_loop() {
             *context.borrow_mut() = None;
         });
         super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
-        super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-        super::IS_READY = false;
-        super::IS_INITIALIZING = false;
+    }
+    super::WINDOW.release(generation);
+}
+
+/// The message a window posts to itself once its WebView finished building,
+/// however long that took: removal wins, a hidden test launch stays hidden and
+/// every other first open becomes visible.
+fn ready_action(removal_requested: bool, hidden_test_launch: bool) -> Option<u32> {
+    if removal_requested {
+        Some(super::WM_APP_REMOVE)
+    } else if hidden_test_launch {
+        None
+    } else {
+        Some(super::WM_APP_SHOW)
     }
 }
 
-fn internal_create_loop_entry() {
-    unsafe {
-        internal_create_loop();
-    }
+fn is_allowed_page(expected: &str, requested: &str) -> bool {
+    requested.split('#').next() == Some(expected)
 }
 
 fn refresh_window_chrome(hwnd: HWND) {
@@ -451,38 +476,6 @@ fn refresh_window_chrome(hwnd: HWND) {
     });
 }
 
-fn window_size_path() -> std::path::PathBuf {
-    crate::paths::app_local_data_dir().join("3d-generator-window.json")
-}
-
-fn load_window_size() -> Option<SavedWindowSize> {
-    let value = std::fs::read_to_string(window_size_path()).ok()?;
-    serde_json::from_str(&value).ok()
-}
-
-unsafe fn save_window_size(hwnd: HWND) {
-    unsafe {
-        if IsIconic(hwnd).as_bool() || IsZoomed(hwnd).as_bool() {
-            return;
-        }
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_err() {
-            return;
-        }
-        let size = SavedWindowSize {
-            width: (rect.right - rect.left).max(MIN_WINDOW_WIDTH),
-            height: (rect.bottom - rect.top).max(MIN_WINDOW_HEIGHT),
-        };
-        if let Ok(contents) = serde_json::to_string(&size) {
-            let path = window_size_path();
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(path, contents);
-        }
-    }
-}
-
 unsafe fn resize_hit_test(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     unsafe {
         let x = lparam.0 as i16 as i32;
@@ -495,7 +488,7 @@ unsafe fn resize_hit_test(hwnd: HWND, lparam: LPARAM) -> LRESULT {
             &mut frame as *mut _ as *mut std::ffi::c_void,
             std::mem::size_of::<RECT>() as u32,
         );
-        let border = 7;
+        let border = super::window_geometry::border(hwnd);
         let left = frame.left + border;
         let right = frame.right - border;
         let top = frame.top + border;
@@ -544,4 +537,39 @@ fn resize_webview(hwnd: HWND) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::is_allowed_page;
+
+    #[test]
+    fn a_slow_first_open_is_shown_once_its_webview_is_ready() {
+        assert_eq!(
+            super::ready_action(false, false),
+            Some(super::super::WM_APP_SHOW)
+        );
+        assert_eq!(
+            super::ready_action(true, false),
+            Some(super::super::WM_APP_REMOVE)
+        );
+        assert_eq!(
+            super::ready_action(true, true),
+            Some(super::super::WM_APP_REMOVE)
+        );
+        assert_eq!(super::ready_action(false, true), None);
+    }
+
+    #[test]
+    fn only_the_exact_host_page_and_its_fragments_are_trusted() {
+        let url = "http://127.0.0.1:12345/page/secret";
+        assert!(is_allowed_page(url, url));
+        assert!(is_allowed_page(url, &format!("{url}#tab")));
+        assert!(!is_allowed_page(url, &format!("{url}?other")));
+        assert!(!is_allowed_page(url, "https://example.com/"));
+        assert!(!is_allowed_page(
+            url,
+            "http://127.0.0.1:12345/page/secret/other"
+        ));
+    }
 }

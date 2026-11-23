@@ -10,6 +10,7 @@ use super::{View, session, uia};
 pub(in crate::overlay::computer_control) struct FrameSource {
     pub frame_id: u64,
     pub surface: SurfaceIdentity,
+    pub view: View,
 }
 
 impl FrameSource {
@@ -17,6 +18,12 @@ impl FrameSource {
     pub(super) fn native(frame_id: u64, identity: (u64, u64, u64)) -> Self {
         Self {
             frame_id,
+            view: View {
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 100,
+            },
             surface: SurfaceIdentity::Native {
                 hwnd: identity.0,
                 pid: identity.1,
@@ -75,7 +82,9 @@ pub(super) fn capture_current(
         |surface| {
             let dynamic_view = resolve_view();
             let (view, fixed_retained) = choose_bound_view(surface, fixed, dynamic_view);
-            Ok((session::capture_virtual()?, view, fixed_retained))
+            let capture = session::capture_virtual()?;
+            let shown = view.clamped_to(capture.bounds()?);
+            Ok((capture, shown, fixed_retained && shown == view))
         },
         |surface| validate_current(target, surface),
     )?;
@@ -162,6 +171,12 @@ mod tests {
     fn input_guard_preserves_captured_identity_without_foreground_rebinding() {
         let native = FrameSource {
             frame_id: 4,
+            view: View {
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 100,
+            },
             surface: SurfaceIdentity::Native {
                 hwnd: 17,
                 pid: 29,
@@ -174,6 +189,7 @@ mod tests {
 
         let browser = FrameSource {
             frame_id: 5,
+            view: native.view,
             surface: SurfaceIdentity::Browser {
                 tab_id: 41,
                 document_id: "doc-a".into(),

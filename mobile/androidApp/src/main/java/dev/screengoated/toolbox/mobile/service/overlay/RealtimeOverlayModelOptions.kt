@@ -18,18 +18,19 @@ internal object RealtimeOverlayModelOptions {
         RealtimeModelIds.TRANSLATION_GTX,
     )
 
+    /** Catalog options; a selector Android cannot run stays visible but disabled. */
     fun transcriptionOptions(
         unavailableSuffix: String,
     ): List<RealtimeOverlayModelOption> {
         return GeneratedLiveModelCatalog.realtimeTranscriptionOptions.map { option ->
-            when (option.id) {
-                RealtimeModelIds.TRANSCRIPTION_PARAKEET -> RealtimeOverlayModelOption(
+            if (RealtimeModelIds.isUnavailableOnAndroid(option.id)) {
+                RealtimeOverlayModelOption(
                     id = option.id,
-                    label = parakeetLabel(unavailableSuffix),
+                    label = "${option.label} ($unavailableSuffix)",
                     enabled = false,
                 )
-
-                else -> RealtimeOverlayModelOption(option.id, option.label)
+            } else {
+                RealtimeOverlayModelOption(option.id, option.label)
             }
         }
     }
@@ -43,11 +44,4 @@ internal object RealtimeOverlayModelOptions {
             RealtimeOverlayModelOption(RealtimeModelIds.TRANSLATION_GTX, gtxLabel),
         )
     }
-
-    fun parakeetLabel(unavailableSuffix: String): String {
-        val label = GeneratedLiveModelCatalog.realtimeTranscriptionOptions
-            .first { it.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET }.label
-        return "$label ($unavailableSuffix)"
-    }
-
 }

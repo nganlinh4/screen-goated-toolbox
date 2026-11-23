@@ -308,7 +308,8 @@ export function useAppLateEffects(args: AppLateEffectsArgs) {
     videoRef,
     seek,
     isCropping,
-    isModalOpen: showRawVideoDialog || exportHook.showExportSuccessDialog,
+    // Hotkey capture owns every key while its dialog is open.
+    isModalOpen: showRawVideoDialog || exportHook.showExportSuccessDialog || showHotkeyDialog,
     editingKeyframeId,
     editingTextId,
     editingSubtitleId,

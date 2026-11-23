@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.creation
 import java.util.concurrent.atomic.AtomicLong
 
 internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
+    "queued",
     "preparing",
     "waiting_for_user",
     "uploading",
@@ -10,6 +11,7 @@ internal fun creationStageIsBusy(stage: String): Boolean = stage in setOf(
     "segmenting",
     "refining",
     "finalizing",
+    "cancelling",
 )
 
 internal fun creationContinuationIsLive(createdAtMs: Long, nowMs: Long, lifetimeMs: Long): Boolean =

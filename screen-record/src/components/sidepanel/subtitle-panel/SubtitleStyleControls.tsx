@@ -102,8 +102,8 @@ export function SubtitleStyleControls({
           max={200}
           step={1}
           value={resolvedStyle.fontSize}
-          onPointerDown={beginBatch}
-          onPointerUp={commitBatch}
+          onGestureStart={beginBatch}
+          onGestureEnd={commitBatch}
           onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
             ...subtitle,
             style: { ...subtitle.style, fontSize: value },
@@ -144,8 +144,8 @@ export function SubtitleStyleControls({
               max={max}
               step={step}
               value={value}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(nextValue) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -195,8 +195,8 @@ export function SubtitleStyleControls({
           max={1}
           step={0.01}
           value={resolvedStyle.opacity ?? 1}
-          onPointerDown={beginBatch}
-          onPointerUp={commitBatch}
+          onGestureStart={beginBatch}
+          onGestureEnd={commitBatch}
           onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
             ...subtitle,
             style: { ...subtitle.style, opacity: value },
@@ -210,8 +210,8 @@ export function SubtitleStyleControls({
           max={20}
           step={1}
           value={resolvedStyle.letterSpacing ?? 0}
-          onPointerDown={beginBatch}
-          onPointerUp={commitBatch}
+          onGestureStart={beginBatch}
+          onGestureEnd={commitBatch}
           onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
             ...subtitle,
             style: { ...subtitle.style, letterSpacing: value },
@@ -225,8 +225,8 @@ export function SubtitleStyleControls({
           max={2}
           step={0.01}
           value={resolvedStyle.lineHeight ?? 1.25}
-          onPointerDown={beginBatch}
-          onPointerUp={commitBatch}
+          onGestureStart={beginBatch}
+          onGestureEnd={commitBatch}
           onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
             ...subtitle,
             style: { ...subtitle.style, lineHeight: value },
@@ -259,8 +259,8 @@ export function SubtitleStyleControls({
                 max={100}
                 step={1}
                 value={resolvedStyle.wrap.maxWidthPercent}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {

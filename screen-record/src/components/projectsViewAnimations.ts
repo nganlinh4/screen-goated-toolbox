@@ -4,7 +4,6 @@ import {
   PROJECTS_FLIP_EASING,
   PROJECTS_FLIP_SETTLE_EASING,
   type ProjectsPreviewTargetSnapshot,
-  containRect,
   getProjectPreviewTargetRect,
   getProjectThumbnailRadius,
   rectSnapshotToDomRect,
@@ -14,6 +13,12 @@ import {
   toRectSnapshot,
   logProjectsFlip,
 } from "./projectsViewUtils";
+import { startProjectRestoreAnimation } from "./projectsRestoreAnimation";
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement &&
+    (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+}
 
 interface UseProjectsAnimationsOptions {
   projects: Omit<Project, "videoBlob">[];
@@ -51,128 +56,24 @@ export function useProjectsAnimations({
       setHiddenProjectCardId(null);
       return;
     }
-
-    const container = containerRef.current;
     setHiddenProjectCardId(currentProjectId);
-
-    // Place the clone IMMEDIATELY so it covers the preview area from the
-    // very first frame — prevents any blink.  The snapshot rect was captured
-    // before the dialog opened, so it's always available synchronously.
-    const snapshotCanvas = previewTargetSnapshot?.canvasRect;
-    const canvasEl = document.querySelector(
-      ".preview-canvas-element",
-    ) as HTMLCanvasElement | null;
-    const canvasRect = canvasEl?.getBoundingClientRect();
-    const imgObj = new Image();
-    imgObj.src = restoreImage;
-    const natW = imgObj.naturalWidth || 16;
-    const natH = imgObj.naturalHeight || 9;
-
-    let source: { left: number; top: number; width: number; height: number };
-    if (snapshotCanvas && snapshotCanvas.width > 0) {
-      source = { left: snapshotCanvas.left, top: snapshotCanvas.top, width: snapshotCanvas.width, height: snapshotCanvas.height };
-    } else if (canvasRect && canvasRect.width > 0) {
-      source = { left: canvasRect.left, top: canvasRect.top, width: canvasRect.width, height: canvasRect.height };
-    } else {
-      source = containRect(window.innerWidth, Math.max(1, window.innerHeight - 44), natW, natH);
-      source.top += 44;
-    }
-
-    const clone = document.createElement("div");
-    clone.style.cssText = `
-      position: absolute; z-index: 9999; pointer-events: none;
-      left: ${source.left}px; top: ${source.top}px;
-      width: ${source.width}px; height: ${source.height}px;
-      overflow: hidden; transform-origin: 0 0;
-      will-change: transform;
-    `;
-    const imgEl = document.createElement("img");
-    imgEl.src = restoreImage;
-    imgEl.style.cssText = "width: 100%; height: 100%; object-fit: cover;";
-    clone.appendChild(imgEl);
-    document.body.appendChild(clone);
-
-    // Make content visible NOW while the clone covers it.  This triggers the
-    // heavy React re-render (opacity-0 → opacity-1) BEFORE the animation starts,
-    // so no re-render competes with the animation frames.
-    setIsRestoring(false);
-
-    const startAnimation = () => {
-      const card = container.querySelector(
-        `[data-project-id="${currentProjectId}"]`,
-      ) as HTMLElement | null;
-      if (!card) {
-        clone.remove();
-        setIsRestoring(false);
-        setHiddenProjectCardId(null);
-        return;
-      }
-
-      card.scrollIntoView({ block: "nearest", behavior: "instant" as ScrollBehavior });
-
-      const thumbArea = card.querySelector(".project-thumbnail") as HTMLElement | null;
-      if (!thumbArea) {
-        clone.remove();
-        setIsRestoring(false);
-        setHiddenProjectCardId(null);
-        return;
-      }
-
-      const thumbRect = thumbArea.getBoundingClientRect();
-      const dx = thumbRect.left - source.left;
-      const dy = thumbRect.top - source.top;
-      const sx = thumbRect.width / source.width;
-      const sy = thumbRect.height / source.height;
-      const thumbRadius = getProjectThumbnailRadius(sx, sy);
-
-      clone.animate(
-        [
-          { transform: "none", borderRadius: "0px" },
-          {
-            transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
-            borderRadius: thumbRadius,
-          },
-        ],
-        {
-          duration: 520,
-          easing: PROJECTS_FLIP_EASING,
-          fill: "forwards",
-        },
-      ).onfinish = () => {
-        setHiddenProjectCardId(null);
-        requestAnimationFrame(() => {
-          clone.animate([{ opacity: 1 }, { opacity: 0 }], {
-            duration: 120,
-            easing: PROJECTS_FLIP_SETTLE_EASING,
-            fill: "forwards",
-          }).onfinish = () => {
-            clone.remove();
-          };
-        });
-      };
-
-    };
-
-    // Wait for the content re-render + paint to fully finish,
-    // THEN start the animation on a clean frame budget.
-    const tryStart = () => requestAnimationFrame(() => setTimeout(() => {
-      requestAnimationFrame(() => setTimeout(startAnimation, 0));
-    }, 0));
-    if (imgObj.complete) tryStart();
-    else {
-      imgObj.onload = tryStart;
-      imgObj.onerror = () => {
-        clone.remove();
-        setIsRestoring(false);
-        setHiddenProjectCardId(null);
-      };
-    }
+    return startProjectRestoreAnimation({
+      container: containerRef.current,
+      projectId: currentProjectId,
+      restoreImage,
+      snapshotCanvas: previewTargetSnapshot?.canvasRect,
+      onRevealContent: () => setIsRestoring(false),
+      onShowCard: () => setHiddenProjectCardId(null),
+    });
   }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !animatingRef.current)
-        animatedCloseRef.current();
+      // A dialog (Radix prevents the Escape it dismisses with) or an inline
+      // editor that consumed this Escape owns it; only a bare Escape closes Projects.
+      if (e.key !== "Escape" || e.defaultPrevented || animatingRef.current) return;
+      if (isEditableTarget(e.target)) return;
+      animatedCloseRef.current();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -197,7 +98,15 @@ export function useProjectsAnimations({
     const portalRect = getPreviewStageRect(previewTargetSnapshot);
 
     if (!thumbnailImg || !container || !portalRect) {
-      void Promise.resolve(onLoadProject(projectId)).catch(() => undefined);
+      // Same outcome as the animated path: close once the project has loaded,
+      // stay open on failure, and ignore repeat clicks while it loads.
+      animatingRef.current = true;
+      void Promise.resolve(onLoadProject(projectId))
+        .then(() => onClose())
+        .catch(() => undefined)
+        .finally(() => {
+          animatingRef.current = false;
+        });
       return;
     }
 

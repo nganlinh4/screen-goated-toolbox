@@ -124,7 +124,7 @@ export class PromptDjMidi extends LitElement {
             </div>
             <button class="close-modal" @click=${this.closeModal}>&times;</button>
           </div>
-          <audio class="audio-player" src=${this.recordingUrl} controls></audio>
+          <audio class="audio-player" src=${this.recordingUrl} .volume=${this.volume} controls></audio>
           <button class="download-btn" @click=${this.downloadRecording}>
             ${unsafeHTML(this.downloaded ? ICONS.check_circle : ICONS.download)}
             ${this.downloaded ? labels.downloaded_msg : labels.download_btn}
@@ -360,35 +360,39 @@ export class PromptDjMidi extends LitElement {
   }
 
   private toggleRecording() {
+    if (this.isRecording) {
+      this.setRecording(false);
+      this.dispatchEvent(new CustomEvent('stop-recording'));
+    } else {
+      // The host answers through setRecording once a recorder actually runs.
+      this.dispatchEvent(new CustomEvent('start-recording'));
+    }
+  }
+
+  /** Shows whether a recorder is running; driven by the recorder, not clicks. */
+  public setRecording(active: boolean) {
+    if (active === this.isRecording) return;
     if (this.recordInterval) {
       clearInterval(this.recordInterval);
       this.recordInterval = null;
     }
-
-    this.isRecording = !this.isRecording;
-    if (this.isRecording) {
-      this.recordElapsed = 0;
-      this.recordAudioElapsed = 0;
-      const startTime = Date.now();
-      let lastTick = startTime;
-
-      this.recordInterval = window.setInterval(() => {
-        const now = Date.now();
-        const dt = (now - lastTick) / 1000;
-        lastTick = now;
-
-        this.recordElapsed = (now - startTime) / 1000;
-        // Sensitivity threshold bumped to 0.02
-        if (this.audioLevel > 0.02) {
-          this.recordAudioElapsed += dt;
-        }
-        this.requestUpdate();
-      }, 100);
-
-      this.dispatchEvent(new CustomEvent('start-recording'));
-    } else {
-      this.dispatchEvent(new CustomEvent('stop-recording'));
-    }
+    this.isRecording = active;
+    if (!active) return;
+    this.recordElapsed = 0;
+    this.recordAudioElapsed = 0;
+    const startTime = Date.now();
+    let lastTick = startTime;
+    this.recordInterval = window.setInterval(() => {
+      const now = Date.now();
+      const dt = (now - lastTick) / 1000;
+      lastTick = now;
+      this.recordElapsed = (now - startTime) / 1000;
+      // Sensitivity threshold bumped to 0.02
+      if (this.audioLevel > 0.02) {
+        this.recordAudioElapsed += dt;
+      }
+      this.requestUpdate();
+    }, 100);
   }
 
   private toggleMidiPanel() {
@@ -402,35 +406,10 @@ export class PromptDjMidi extends LitElement {
   private handleVolumeChange(e: Event) {
     const val = parseFloat((e.target as HTMLInputElement).value);
     this.volume = val;
-
-    // 1. IPC to native
-    if ((window as any).ipc) {
-      (window as any).ipc.postMessage('set_volume:' + val);
-    }
-
-    // 2. Global variable for hooks
-    (window as any)._currentVolume = val;
-
-    // 3. Audio tags
-    document.querySelectorAll('audio, video').forEach((el) => {
-      (el as HTMLMediaElement).volume = val;
-    });
-
-    // 4. Captured AudioContext Gains (from mod.rs hook)
-    const gains = (window as any)._activeMasterGains;
-    if (Array.isArray(gains)) {
-      gains.forEach((g: any) => {
-        try {
-          if (g && g.gain) {
-            // smooth transition
-            g.gain.setTargetAtTime(val, g.context.currentTime, 0.1);
-          }
-        } catch {
-          if (g && g.gain) g.gain.value = val;
-        }
-      });
-    }
+    this.dispatchEvent(new CustomEvent('volume-changed', { detail: val }));
   }
+
+  public getVolume() { return this.volume; }
 
 
   protected updated(changedProps: Map<string, any>) {

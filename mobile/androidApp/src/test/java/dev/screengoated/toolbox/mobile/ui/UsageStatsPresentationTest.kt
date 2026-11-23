@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.ui
 
+import dev.screengoated.toolbox.mobile.preset.ModelUsageStats
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetModelType
@@ -8,6 +9,8 @@ import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.long
@@ -25,18 +28,14 @@ class UsageStatsPresentationTest {
             model("demo-text", PresetModelProvider.GROQ, "vendor/model", 900),
             model("demo-vision", PresetModelProvider.GROQ, "vendor/model", 700),
             model("other-text", PresetModelProvider.OPENROUTER, "vendor/model", 600),
-            model("local-parakeet", PresetModelProvider.PARAKEET, "local/parakeet", 200),
             model("local-ollama", PresetModelProvider.OLLAMA, "local/ollama", 100),
-            model("local-moonshine", PresetModelProvider.MOONSHINE, "local/moonshine", 50),
         )
 
         val rows = usageEndpointRepresentatives(models)
         assertEquals(2, rows.size)
         assertTrue(rows.any { it.id == "demo-vision" })
         assertTrue(rows.any { it.id == "other-text" })
-        assertFalse(rows.any { it.provider == PresetModelProvider.PARAKEET })
         assertFalse(rows.any { it.provider == PresetModelProvider.OLLAMA })
-        assertFalse(rows.any { it.provider == PresetModelProvider.MOONSHINE })
     }
 
     @Test
@@ -44,7 +43,7 @@ class UsageStatsPresentationTest {
         val fixture = Json.parseToJsonElement(
             File(repoRoot(), FIXTURE_PATH).readText(),
         ).jsonObject
-        assertEquals(8, fixture.getValue("version").jsonPrimitive.int)
+        assertEquals(9, fixture.getValue("version").jsonPrimitive.int)
         assertEquals(
             300L,
             fixture.getValue("freshness")
@@ -62,6 +61,22 @@ class UsageStatsPresentationTest {
                 .long,
         )
         val presentation = fixture.getValue("presentation").jsonObject
+        val quota = presentation.getValue("live_quota").jsonObject
+        assertEquals(LOW_QUOTA_RATIO, quota.getValue("warning_at_or_below_ratio").jsonPrimitive.double, 0.0)
+        quota.getValue("color_cases").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            val metric = ModelUsageStats.UsageMetric(
+                kind = ModelUsageStats.MetricKind.TOKENS_MINUTE,
+                remaining = case.getValue("remaining").jsonPrimitive.contentOrNull,
+                limit = case.getValue("limit").jsonPrimitive.contentOrNull,
+                reset = null,
+            )
+            val now = 10_000L
+            val age = case.getValue("age_seconds").jsonPrimitive.long
+            val freshness = ModelUsageStats.freshnessAt(now - age, now)
+            val expected = UsageQuotaTone.valueOf(case.getValue("color").jsonPrimitive.content.uppercase())
+            assertEquals(expected, usageQuotaTone(metric, freshness))
+        }
         assertTrue(
             presentation.getValue("desktop_borderless_table").jsonPrimitive.boolean,
         )
@@ -81,18 +96,17 @@ class UsageStatsPresentationTest {
             .jsonArray
             .map { it.jsonPrimitive.content }
             .toSet()
-        assertEquals(
-            setOf("ollama", "parakeet", "qwen3", "moonshine"),
-            localRuntimeProviders,
-        )
+        assertEquals(setOf("ollama"), localRuntimeProviders)
 
         listOf("en", "vi", "ko").forEach { language ->
             val locale = MobileLocaleText.forLanguage(language)
+            val metric = ModelUsageStats.UsageMetric(ModelUsageStats.MetricKind.TOKENS_MINUTE, "9500", "10000", null)
+            val expected = quota.getValue("example_labels").jsonObject.getValue(language).jsonPrimitive.content
+            assertEquals(expected, usageQuotaLabel(metric, locale))
             assertTrue(locale.usageStatsSessionHint.isNotBlank())
             listOf("Groq", "OpenRouter").forEach { provider ->
                 assertTrue(locale.usageStatsNoData.contains(provider))
             }
-            assertTrue(locale.usageStatsEndpointCount.isNotBlank())
             assertTrue(locale.usageStatsCheckUsage.isNotBlank())
         }
     }

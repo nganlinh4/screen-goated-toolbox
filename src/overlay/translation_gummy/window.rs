@@ -13,43 +13,39 @@ use windows::core::{HSTRING, PCWSTR, w};
 use wry::{Rect, WebViewBuilder};
 
 pub(super) fn show() {
-    unsafe {
-        if !super::IS_READY {
-            if !super::IS_INITIALIZING {
-                super::IS_INITIALIZING = true;
-                std::thread::spawn(internal_create_loop_entry);
-            }
-
-            std::thread::spawn(|| {
-                for _ in 0..100 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-                    if super::IS_READY && !hwnd.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-                        return;
-                    }
-                }
-            });
-            return;
+    if let Some(hwnd) = super::WINDOW.ready_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
-
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        }
+        return;
     }
+    if let Some(generation) = super::WINDOW.try_claim() {
+        std::thread::spawn(move || unsafe { internal_create_loop(generation) });
+    }
+    std::thread::spawn(|| {
+        for _ in 0..100 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if let Some(hwnd) = super::WINDOW.ready_hwnd() {
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        }
+    });
 }
 
 pub(super) fn close_if_open() -> bool {
+    let Some(hwnd) = super::WINDOW.hwnd() else {
+        return false;
+    };
     unsafe {
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if hwnd.is_invalid() || !IsWindow(Some(hwnd.0)).as_bool() {
+        if !IsWindow(Some(hwnd)).as_bool() {
             return false;
         }
-        let _ = PostMessageW(Some(hwnd.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-        true
+        let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
     }
+    true
 }
 
 unsafe extern "system" fn window_proc(
@@ -81,6 +77,14 @@ unsafe extern "system" fn window_proc(
                 super::state::sync_to_webview();
                 LRESULT(0)
             }
+            super::WM_APP_METER => {
+                super::state::meter::arm(hwnd, wparam.0);
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == super::state::meter::TIMER_ID => {
+                super::state::meter::flush(hwnd);
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 super::runtime::stop_session();
                 super::publish_connection(
@@ -103,13 +107,17 @@ unsafe extern "system" fn window_proc(
                 resize_webview(hwnd);
                 LRESULT(0)
             }
+            WM_DPICHANGED => {
+                crate::overlay::display_placement::apply_suggested_dpi_rect(hwnd, lparam);
+                LRESULT(0)
+            }
             WM_DESTROY => {
+                super::state::meter::reset(hwnd);
                 super::runtime::stop_session();
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
-                super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-                super::IS_READY = false;
+                super::WINDOW.release_window(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -118,7 +126,15 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-unsafe fn internal_create_loop() {
+/// Opening size: a share of the work area, bounded in CSS pixels so the layout
+/// gets the same room at every display scale.
+fn initial_size(area: crate::overlay::display_placement::WorkArea, scale: f64) -> (i32, i32) {
+    let css_width = (f64::from(area.width) / scale * 0.30).clamp(480.0, 620.0);
+    let css_height = (f64::from(area.height) / scale * 0.36).clamp(340.0, 440.0);
+    area.physical_size(css_width, css_height, scale)
+}
+
+unsafe fn internal_create_loop(generation: u64) {
     let instance = unsafe { GetModuleHandleW(None).unwrap() };
     let class_name = w!("TranslationGummyWindowClass");
 
@@ -135,10 +151,7 @@ unsafe fn internal_create_loop() {
     });
 
     let area = crate::overlay::display_placement::primary_work_area();
-    let screen_w = area.width;
-    let screen_h = area.height;
-    let width = ((screen_w as f64 * 0.30) as i32).clamp(480, 620);
-    let height = ((screen_h as f64 * 0.36) as i32).clamp(340, 440);
+    let (width, height) = initial_size(area, crate::overlay::display_placement::primary_scale());
     let rect = area.centered(width, height);
 
     let title = HSTRING::from(
@@ -166,15 +179,16 @@ unsafe fn internal_create_loop() {
     };
 
     if hwnd.is_invalid() {
+        super::WINDOW.release(generation);
+        return;
+    }
+    if !super::WINDOW.publish_hwnd(generation, hwnd) {
         unsafe {
-            super::IS_INITIALIZING = false;
+            let _ = DestroyWindow(hwnd);
         }
         return;
     }
-
-    unsafe {
-        super::WINDOW_HWND = crate::win_types::SendHwnd(hwnd);
-    }
+    super::state::meter::bind(hwnd);
 
     let corner_pref = DWMWCP_ROUND;
     let _ = unsafe {
@@ -231,7 +245,8 @@ unsafe fn internal_create_loop() {
     // Build inlined HTML and serve via the shared font server
     // so this WebView joins the shared browser process (same user data dir + origin)
     let inlined_html = super::assets::build_inlined_html();
-    let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
+    let page = crate::overlay::html_components::font_manager::store_html_page(inlined_html)
+        .and_then(|url| crate::overlay::trusted_page::TrustedPage::new(&url));
 
     super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
@@ -241,20 +256,25 @@ unsafe fn internal_create_loop() {
             ));
         }
 
+        let Some(page) = page else {
+            crate::log_info!("[TranslationGummy] Could not serve the interface page");
+            return;
+        };
         let webview_result = {
             let init = crate::overlay::webview_init::acquire("translation-gummy");
-
-            let url = page_url.as_deref().unwrap_or("about:blank");
-
-            let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
+            let ipc_page = page.clone();
+            let navigation_page = page.clone();
+            let builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
-                    super::ipc::handle_ipc(hwnd, request.body());
+                    if ipc_page.allow_ipc(&request.uri().to_string()) {
+                        super::ipc::handle_ipc(hwnd, request.body());
+                    }
                 })
-                .with_url(url);
+                .with_navigation_handler(move |url| navigation_page.allow_navigation(&url))
+                .with_url(page.url());
 
-            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             let result = builder.build_as_child(&wrapper);
             init.finish(result.is_ok());
             result
@@ -274,9 +294,8 @@ unsafe fn internal_create_loop() {
 
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
-        super::IS_READY = true;
-        super::IS_INITIALIZING = false;
     }
+    super::WINDOW.mark_ready(generation);
     super::state::sync_to_webview();
 
     unsafe {
@@ -292,16 +311,8 @@ unsafe fn internal_create_loop() {
         super::WEB_CONTEXT.with(|context| {
             *context.borrow_mut() = None;
         });
-        super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-        super::IS_READY = false;
-        super::IS_INITIALIZING = false;
     }
-}
-
-fn internal_create_loop_entry() {
-    unsafe {
-        internal_create_loop();
-    }
+    super::WINDOW.release(generation);
 }
 
 fn refresh_window_chrome(hwnd: HWND) {
@@ -333,4 +344,29 @@ fn resize_webview(hwnd: HWND) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::overlay::display_placement::WorkArea;
+
+    #[test]
+    fn opening_size_keeps_its_css_room_on_a_high_scale_monitor() {
+        let area = WorkArea {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2100,
+        };
+        let (width, height) = super::initial_size(area, 2.0);
+        assert_eq!((width, height), (1152, 756));
+        assert!(f64::from(width) / 2.0 >= 480.0 && f64::from(height) / 2.0 >= 340.0);
+        let laptop = WorkArea {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1032,
+        };
+        assert_eq!(super::initial_size(laptop, 1.0), (576, 372));
+    }
 }

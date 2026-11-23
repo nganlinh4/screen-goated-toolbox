@@ -1,4 +1,66 @@
 use super::*;
+use sha2::{Digest, Sha256};
+
+#[test]
+fn resource_boundary_requires_committed_user_history_without_live_provider_calls() {
+    let decision = ResourceAuthorization::default().evaluate_boundary(
+        &json!({}),
+        &AtomicBool::new(false),
+        None,
+    );
+    assert!(!decision.authorized);
+    assert_eq!(
+        decision.result["code"],
+        "ERR_EXACT_EDIT_EFFECT_SCOPE_UNVERIFIED"
+    );
+    assert_eq!(decision.result["effect_may_have_occurred"], false);
+}
+
+#[test]
+fn revised_request_replaces_same_turn_scope_and_retires_cached_approval() {
+    let mut authorization = ResourceAuthorization::default();
+    authorization.record_request(7, "Use the selected file.");
+    authorization.cached.entries.insert(
+        "old-context".into(),
+        AuthorizationDecision {
+            authorized: true,
+            result: json!({"authorized":true}),
+        },
+    );
+    authorization.record_request(7, "Use the selected file.");
+    assert_eq!(authorization.cached.entries.len(), 1);
+    authorization.record_request(7, "Keep the selected file local.");
+    assert!(authorization.cached.entries.is_empty());
+    let context: Value = serde_json::from_str(
+        &authorization
+            .context_for_proposal("proposed_resource_disclosure", json!({"file_identity":31}))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(context["user_request_history"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        context["user_request_history"][0]["text"],
+        "Keep the selected file local."
+    );
+    assert_eq!(context["proposed_resource_disclosure"]["file_identity"], 31);
+    assert!(context.get("proposed_resource_mutation").is_none());
+}
+
+#[test]
+fn disclosure_without_committed_request_is_unverified_without_calling_provider() {
+    let decision = ResourceAuthorization::default().evaluate_disclosure(
+        &json!({}),
+        &AtomicBool::new(false),
+        None,
+    );
+    assert!(!decision.authorized);
+    assert_eq!(
+        decision.result["code"],
+        "ERR_FILE_DISCLOSURE_REQUEST_CONTRACT_UNVERIFIED"
+    );
+    assert_eq!(decision.result["executed"], false);
+    assert_eq!(decision.result["effect_may_have_occurred"], false);
+}
 
 #[test]
 fn authorization_needs_two_positives_and_any_negative_vetoes() {

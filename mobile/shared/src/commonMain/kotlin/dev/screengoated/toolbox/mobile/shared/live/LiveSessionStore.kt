@@ -23,6 +23,12 @@ class LiveSessionStore(
 
     fun updateConfig(patch: LiveSessionPatch) {
         mutableState.update { current ->
+            val targetChanged = patch.targetLanguage != null && patch.targetLanguage != current.config.targetLanguage
+            val modelChanged = patch.translationProvider != null && patch.translationProvider != current.config.translationProvider
+            val sourceChanged = patch.sourceMode != null && patch.sourceMode != current.config.sourceMode
+            val transcriptionChanged = (patch.transcriptionProvider != null && patch.transcriptionProvider != current.config.transcriptionProvider) ||
+                (patch.transcriptionLanguage != null && patch.transcriptionLanguage != current.config.transcriptionLanguage) ||
+                (patch.customVocabulary != null && patch.customVocabulary != current.config.customVocabulary)
             current.copy(
                 config = current.config.copy(
                     sourceMode = patch.sourceMode ?: current.config.sourceMode,
@@ -37,6 +43,10 @@ class LiveSessionStore(
                     keepOverlayOnTop = patch.keepOverlayOnTop ?: current.config.keepOverlayOnTop,
                     notificationPersistent = patch.notificationPersistent ?: current.config.notificationPersistent,
                 ),
+                liveText = if (targetChanged || modelChanged || sourceChanged || transcriptionChanged) current.liveText.copy(
+                    translationRequestRevision = current.liveText.translationRequestRevision + 1,
+                    lastProcessedLen = 0,
+                ) else current.liveText,
             )
         }
     }
@@ -55,7 +65,7 @@ class LiveSessionStore(
         mutableState.update { current ->
             val liveText = LiveTranslateParity.reset(
                 transcriptionMethod = current.liveText.transcriptionMethod,
-            )
+            ).copy(translationRequestRevision = current.liveText.translationRequestRevision + 1)
             val nextLiveText = if (preserveFrozenPrefix) {
                 liveText.copy(
                     frozenPrefix = current.liveText.frozenPrefix,
@@ -195,10 +205,7 @@ class LiveSessionStore(
                 nowMs = nowMs,
             )
             applied = liveText != current.liveText
-            current.copy(
-                liveText = liveText,
-                lastError = null,
-            )
+            if (applied) current.copy(liveText = liveText, lastError = null) else current
         }
         return applied
     }

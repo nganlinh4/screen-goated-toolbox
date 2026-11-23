@@ -18,15 +18,47 @@
 - Cross-platform Gemini Live lifecycle contract: [gemini-live-session.md](gemini-live-session.md)
 
 ## Behavior Contract
+- Host-driven translation model changes update the current model selector without sending a user-selection event. Cancelling a transcription-model download restores the selected model and its mode-dependent controls from current settings. Shared cases are in `parity-fixtures/live-translate/model-selector-updates.json`.
+- A renderer-originated download cancellation is admitted only for its current
+  session and renderer at the mutation boundary. A retired session or renderer
+  cannot cancel or replace the model of a later session. Shared cases are in
+  `parity-fixtures/live-translate/download-cancellation-ownership.json`.
+- A session stop or download-cancellation completion belongs to the session
+  that initiated it. A delayed completion cannot clear, stop, hide or otherwise
+  retire a replacement session. Shared cases are in
+  `parity-fixtures/live-translate/session-stop-ownership.json`.
+- A native-runtime install and its cancellation retain their own operation
+  identity until settlement. Late progress, completion and cancellation results
+  cannot alter or release a newer install. Cancelling before an install session
+  identifier arrives still cancels that session when it becomes available.
+  An already-installed platform result settles without waiting for a session
+  event, while preserving any newer operation.
+  A later cancellation also withdraws any retry queued during cancellation;
+  removal rejects new install requests until removal settles.
+  A retry awaiting a platform session reconciliation remains in a waiting state
+  until the reconciliation succeeds or reports a new error.
+  If the platform start outcome is unknown and no session ID is available,
+  cancellation preserves the visible error and the runtime lease.
+  A Play status-query result must not overwrite a later listener observation or
+  a newer query for the same install session.
+  A cancellation failure from an older attempt must not replace the state of a
+  newer cancellation attempt for the same session.
+  Install requests have independent owners: cancelling a live session releases
+  that session's requests without cancelling unrelated or independently requested
+  installs; an install may be cancelled when its final requester releases it.
+  Shared cases are in `parity-fixtures/live-translate/native-install-ownership.json`.
+- Live overlay word-diff tokenization preserves every character and groups
+  contiguous whitespace separately from non-whitespace on both platforms. The
+  shared cases are in `parity-fixtures/live-translate/word-diff.json`.
 - Transcription selector labels come from catalog `realtime_transcription_labels`
   on both platforms, including overlay tooltips and native pickers. Names expose
   model versions without Preview, Streaming, or language suffixes. The S2S mode
-  retains `S2S` immediately after `Gemini`; Parakeet is `Parakeet Realtime`.
+  retains `S2S` immediately after `Gemini`.
   Android may append its existing unavailable status to unsupported entries.
 - Selector order expresses recommendations: Live Translate, Transcribe Live,
-  S2S 3.8, S2S 3.1, Native Audio 2.5, local ASR choices, Zipformer, then Parakeet.
-  Windows local ASR choices are Qwen3-ASR 0.6B then 1.7B; Android retains its
-  existing Moonshine choices in that position. Consumers preserve catalog order.
+  S2S 3.8, S2S 3.1, Native Audio 2.5, then any on-device choices. Windows ships
+  no on-device ASR engine (Qwen3-ASR, Parakeet and Zipformer were removed on
+  2026-11-12; see `docs/OFFLINE-ENGINES.md`). Consumers preserve catalog order.
 - Catalog `realtime_s2s_model_ids` owns direct speech routing on both platforms
   and their overlays. Gemini S2S 3.1 Flash Live and Gemini S2S 3.8 Live use the
   selected entry's endpoint, independently of the global TTS model. Source text
@@ -112,10 +144,11 @@
     another model attempt.
   - Android `text-llm` must reuse the same provider enabled/key availability checks as the preset retry chain before attempting a provider in the priority chain
   - `google-gtx` keeps the unofficial Google Translate endpoint and stays available without a key
-  - Windows transcription providers are exposed in this order: Gemini Translate, Gemini Transcribe (`gemini-3.5-transcribe-live`), Gemini Live, Gemini S2S, Parakeet, Qwen3-ASR 0.6B, Qwen3-ASR 1.7B, and Zipformer
-  - Android transcription providers expose the same cloud/S2S and Zipformer control surface, keep `parakeet` visible as unavailable, and additionally expose the documented Android-native Moonshine variants: `moonshine-tiny-streaming`, `moonshine-small-streaming`, and `moonshine-medium-streaming`
+  - Windows transcription providers are the catalog's `realtime_transcription_options.windows` list, in catalog order; every entry is a cloud selector
+  - Android transcription providers are the catalog's `realtime_transcription_options.android` list. Android ships no on-device ASR engine (Moonshine, Zipformer and Parakeet were removed on 2026-11-12; see `docs/OFFLINE-ENGINES.md`), so any listed selector with an `on_device_engine` stays visible as unavailable
   - Legacy `gemini-live-s2s` remains a persisted-setting compatibility alias for `gemini-3.5-translate`; it is not a visible picker entry.
-  - Android may mark Parakeet unavailable, but must not hide it, enable it in the picker, or pretend it is active
+  - Android may mark a selector it cannot run unavailable, but must not hide it, enable it in the picker, or pretend it is active
+  - Offline-engine routing, the Gemini-key gate, and the unavailable state come from `realtime_transcription_engines` in `catalog/model_catalog.json` (`on_device_engine`, `platforms`), never from id prefixes; an engine a platform does not implement reports unavailable instead of asking for a key
 - Gemini S2S hides the translation model selector and read-locks TTS on both platforms; the controller/state boundary still rejects translation-model changes while S2S is active.
 - Transcription language controls that are disabled because the active transcription model owns or auto-detects the source language are hidden rather than shown as grayed-out chrome.
 - While Gemini S2S is active, translation model changes are rejected at the controller/state boundary, not only hidden in the visible UI.
@@ -146,16 +179,18 @@
 - Stop preserves the latest display state in memory until the next session start resets it.
 - Source/model/S2S-language restarts freeze the current transcript as visible prefix text and start the new capture with fresh translation state; the frozen prefix remains visible/copyable but is never reprocessed for translation.
 - Overlay lifetime is not tied to a transient provider failure. Recoverable transcription, translation, TTS, or capture failures must not silently close the floating overlay.
+- On Windows, an active microphone capture follows a change to the concrete endpoint selected by the communications-default policy and its general-default fallback. A failed endpoint lookup alone does not imply a change; a retired capture cannot restart a replacement session. Android microphone routing remains controlled by Android's audio platform and does not yet implement this Windows endpoint-monitor contract.
 - On Windows, `device` source plus realtime Read/TTS requires per-app capture when TTS is enabled. If no app is selected, the app selector must reopen instead of starting Gemini Live with no capture stream; cancelling selection exits that capture attempt cleanly rather than running a dead zero-audio session.
 - Translation failure must follow the Windows model fallback contract:
   - `text-llm -> google-gtx` (after the LLM chain has been exhausted internally)
   - `google-gtx -> text-llm`
+- The alternate provider is chosen only for the current request. Success or failure never changes the saved provider or selector; the next request starts with the user's selected provider. Only an explicit user selection changes that preference. Shared cases are in `parity-fixtures/live-translate/translation-request-identity.json`.
 - LLM chain iteration inside `text-llm` is the first-line fallback; the top-level `text-llm <-> google-gtx` toggle is only used when the LLM chain produces no usable result at all.
 - Provider IDs are stable, but the backing API model names always resolve through the shared model catalog rather than scattered raw strings.
 - Translation failure must not silently fall back to whole-transcript translation.
 - Translation failure or empty/no-op output must leave `last_processed_len` unchanged so the same source snapshot is retried on the next interval.
 - A provider response only counts as successful after the current state accepts the exact source snapshot. Rejected/stale responses must not update metrics, commit fallback model switches, or advance the adaptive success cadence.
-- If the selected provider returns a response that the exact source-snapshot state rejects, the runtime may try the alternate top-level provider for that same snapshot; it is still a failure unless one provider response is accepted by state.
+- If the selected provider returns a response that the exact source-snapshot state rejects while the request remains current, the runtime may try the alternate top-level provider for that same snapshot; it is still a failure unless one provider response is accepted by state. A stale or canceled request is discarded without trying the alternate or increasing the failure cadence.
 - Translation cadence is latency-adaptive on top of the `1500ms` base interval. Slower providers stretch the next request interval upward, but success/failure must never skip source ranges.
 - Timeout gating matches the Windows Gemini path:
   - user silence threshold: `800ms`
@@ -164,6 +199,21 @@
 - Force commit primes the next translation pass immediately by rewinding the adaptive interval timer, so newly committed draft text does not wait for the previous provider latency window.
 
 ## Fixtures
+- Windows microphone endpoint monitoring cases: [parity-fixtures/live-translate/microphone-endpoint.json](../../parity-fixtures/live-translate/microphone-endpoint.json).
+- Translation responses and provider fallback remain bound to the source text captured by their request. Appending later source is allowed; correcting or removing any requested text invalidates the old response. A correction to previously processed source schedules another translation even when its length is unchanged.
+- Shared translation request identity fixture: [parity-fixtures/live-translate/translation-request-identity.json](../../parity-fixtures/live-translate/translation-request-identity.json)
+- Transcript correction boundaries preserve complete Unicode scalar values on both platforms.
+- Read tracks committed text by identity as well as position. A clear or replacement retires old queued speech and starts reading the new committed text; append-only updates read only the added suffix. A translation revision preserves reset identity when a clear and its replacement are observed together.
+- Hiding or disabling Read retires its own speech without stopping other speech owners. An explicit global Stop still stops all speech.
+- Translation responses must match both the exact requested source range and its request revision; a reset or a change to source, transcription setup, target language, or translation model retires in-flight requests even when identical text reappears. A stale or canceled request must not trigger a fallback provider call, and fallback must not overwrite a later user model choice.
+- A target-language or text translation-model change retries any already-processed untranslated tail using the new choice, without retranslating the committed source history. Non-S2S transcription continues without restarting.
+- Shared target-change fixture: [parity-fixtures/live-translate/target-change.json](../../parity-fixtures/live-translate/target-change.json)
+- When authoritative transcription finality advances within a requested source range, a response based on the earlier boundary is stale. Previously processed draft text is translated again when it becomes final; finality beyond an already finalized request does not invalidate that request.
+- The normal silence-driven force-commit threshold measures the pending source in UTF-8 bytes, matching the Windows source boundary contract.
+- Direct speech discards audio produced for an earlier visibility or session generation. Hiding stops its buffered playback; showing resumes with current speech only.
+- Windows and Android reconnect continuous direct speech after a hidden interval to prevent delayed provider audio from the prior connection from playing. Segmented speech retires stale audio independently of its transcript.
+- Shared direct-speech generation fixture: [parity-fixtures/live-translate/direct-speech-generation.json](../../parity-fixtures/live-translate/direct-speech-generation.json)
+- Shared Read cursor fixture: [parity-fixtures/live-translate/read-cursor.json](../../parity-fixtures/live-translate/read-cursor.json)
 - Shared fixtures: [parity-fixtures/live-translate/state-machine.json](../../parity-fixtures/live-translate/state-machine.json)
 - Shared overlay fixture: [parity-fixtures/live-translate/overlay-bootstrap.json](../../parity-fixtures/live-translate/overlay-bootstrap.json)
 - Shared Android WebView rendering fixture: [parity-fixtures/android-webview-overlays/rendering-contract.json](../../parity-fixtures/android-webview-overlays/rendering-contract.json)
@@ -184,8 +234,7 @@
   - Edge section with pitch, rate, volume, and per-language voice routing entries
 - Android target-language choices must use the same ISO-639-1-backed full language list contract as Windows.
 - Android launcher does not expose overlay/source/language controls; those live in the overlay itself.
-- Android may surface Parakeet as unavailable until a real mobile implementation exists, but it must remain visible and must not fake active transcription.
-- Android exposes Moonshine Tiny/Small/Medium as mobile-only local ASR choices because Windows Qwen3 is a Windows CUDA/runtime feature and is not a mobile runtime.
+- Android surfaces any catalog selector it cannot run as unavailable; it remains visible and never fakes active transcription. Android has no on-device ASR runtime, model download, or download-progress modal in the overlay.
 - Android keeps the Windows glass/tint look and animated blur/mask text appearance. Mobile-specific performance work must preserve the same visible effect rather than swapping in a different animation.
 - Android uses a native overlay language picker window for the target-language control while keeping the same ISO-639-1-backed language list and selected-language semantics as Windows.
 - Android native overlay pickers used by live translate must use the active mobile UI language bundle for visible picker chrome such as search hints.
@@ -193,3 +242,16 @@
 - Android routes its own TTS through non-capturable audio attributes and disables playback capture for the app in the manifest, so mobile does not expose the Windows app-selection/per-app-capture UI or the Windows no-selected-app selector recovery path. This is the approved mobile deviation for avoiding TTS feedback in `device` mode.
 - Android realtime Read setting changes must apply to the remaining unread committed text without dropping it. Volume/speed changes must not stay stuck behind already queued stale utterances.
 - Android requests transient ducking audio focus while realtime Read is actively speaking so competing app audio is pushed down under TTS. This improves audibility but still depends on the foreground app honoring audio focus.
+
+## Playback stream finalization
+
+The shared cases in `parity-fixtures/live-translate/wsola-finalization.json` cover
+the Windows and Android pitch-preserving audio stretcher. Finishing a stream
+emits its buffered tail exactly once, including audio shorter than a frame;
+canceling discards the buffer. Switching to normal speed preserves buffered
+audio before new samples. Audio playback must enqueue the tail before a normal
+drain, and cancellation must discard it.
+Grouped playback finishes the current tail before waiting for a following
+segment that has no audio ready. Android admits bounded nonblocking writes under
+session ownership, so cancellation waits for an already admitted effect and
+rejects later effects. Write and drain failures terminate playback as failures.

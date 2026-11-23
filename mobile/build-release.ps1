@@ -15,13 +15,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# --- Environment ---
-$env:JAVA_HOME = 'C:\Users\user\scoop\apps\temurin17-jdk\17.0.18-8'
-$env:ANDROID_HOME = 'C:\Users\user\android-sdk'
-$env:ANDROID_SDK_ROOT = 'C:\Users\user\android-sdk'
-
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $mobileDir = $PSScriptRoot
+
+# --- Environment ---
+# Toolchain locations are machine state: JAVA_HOME comes from the environment and the
+# SDK from ANDROID_HOME, ANDROID_SDK_ROOT or the gitignored local.properties.
+. (Join-Path $PSScriptRoot "scripts\android-toolchain.ps1")
+try {
+    $env:JAVA_HOME = Resolve-ReleaseJavaHome
+    $sdkRoot = Resolve-AndroidSdkRoot -MobileDir $mobileDir
+}
+catch {
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+$env:ANDROID_HOME = $sdkRoot
+$env:ANDROID_SDK_ROOT = $sdkRoot
 
 # --- Extract version from Cargo.toml ---
 $cargoContent = Get-Content "$repoRoot\Cargo.toml" -Raw
@@ -53,7 +63,18 @@ $keystore = "$mobileDir\release.keystore"
 if (-not (Test-Path $keystore)) {
     Write-Host "ERROR: release.keystore not found at $keystore" -ForegroundColor Red
     Write-Host "Generate one with:" -ForegroundColor Yellow
-    Write-Host "  keytool -genkeypair -v -keystore mobile\release.keystore -alias sgt-release -keyalg RSA -keysize 2048 -validity 10000 -storepass screengoated -keypass screengoated" -ForegroundColor Gray
+    Write-Host "  keytool -genkeypair -v -keystore mobile\release.keystore -alias sgt-release -keyalg RSA -keysize 2048 -validity 10000" -ForegroundColor Gray
+    exit 1
+}
+# Gradle reads these (or sgt.release.* in ~/.gradle/gradle.properties); never print them.
+$gradleProps = Join-Path $env:USERPROFILE ".gradle\gradle.properties"
+$propsHaveSecrets = (Test-Path $gradleProps) -and
+    (Select-String -Path $gradleProps -Pattern '^sgt\.release\.storePassword=' -Quiet) -and
+    (Select-String -Path $gradleProps -Pattern '^sgt\.release\.keyPassword=' -Quiet)
+if (-not $propsHaveSecrets -and (-not $env:SGT_RELEASE_STORE_PASSWORD -or -not $env:SGT_RELEASE_KEY_PASSWORD)) {
+    Write-Host "ERROR: release signing passwords are not set." -ForegroundColor Red
+    Write-Host "Set SGT_RELEASE_STORE_PASSWORD and SGT_RELEASE_KEY_PASSWORD, or add" -ForegroundColor Yellow
+    Write-Host "sgt.release.storePassword / sgt.release.keyPassword to $gradleProps." -ForegroundColor Yellow
     exit 1
 }
 
@@ -75,8 +96,10 @@ try {
     )
 
     if ($IncludeAab) {
+        # The compliance gate builds the Play bundle and then checks its base module,
+        # so a store artifact is never copied out without passing it.
         $gradleTasks += @(
-            ":androidApp:bundlePlayRelease"
+            ":androidApp:verifyPlayReleaseCompliance"
             "-x", "lintVitalAnalyzePlayRelease"
             "-x", "lintVitalReportPlayRelease"
             "-x", "lintVitalPlayRelease"

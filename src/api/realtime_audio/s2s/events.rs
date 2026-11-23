@@ -10,6 +10,8 @@ pub(super) enum S2sEvent {
         id: u64,
         audio_ms: usize,
         queued_at: Instant,
+        playback_epoch: Option<u64>,
+        backlog: std::sync::Arc<super::backlog::S2sBacklogLease>,
     },
     InputText {
         id: u64,

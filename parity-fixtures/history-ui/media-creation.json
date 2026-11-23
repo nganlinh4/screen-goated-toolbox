@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "identity_source": "retained_creation_descriptor",
+  "cases": [
+    {
+      "name": "empty",
+      "pattern": [],
+      "repeat": 1,
+      "expected_size": 0,
+      "expected_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "source",
+      "pattern": [
+        115,
+        111,
+        117,
+        114,
+        99,
+        101
+      ],
+      "repeat": 1,
+      "expected_size": 6,
+      "expected_sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d"
+    },
+    {
+      "name": "unicode",
+      "pattern": [
+        236,
+        149,
+        136,
+        235,
+        133,
+        149,
+        32,
+        240,
+        159,
+        140,
+        141
+      ],
+      "repeat": 1,
+      "expected_size": 11,
+      "expected_sha256": "dab455f8894d6ee89b6ee67eb2d815e7914cd44c2849f69b5197e27b704f791a"
+    },
+    {
+      "name": "binary",
+      "pattern": [
+        0,
+        255,
+        128,
+        10,
+        13
+      ],
+      "repeat": 1,
+      "expected_size": 5,
+      "expected_sha256": "037e68ac6512d2c57a0d7247a76b3ab486a7f7e9c05ea50cae197782c80b63d4"
+    },
+    {
+      "name": "chunk_boundary",
+      "pattern": [
+        0,
+        1,
+        2,
+        127,
+        128,
+        255
+      ],
+      "repeat": 10923,
+      "expected_size": 65538,
+      "expected_sha256": "3e07e053a0f20900b1874f3f2b698fc824f060c3c54cd7e0227d75d269fa0dd2"
+    }
+  ]
+}

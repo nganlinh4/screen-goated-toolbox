@@ -12,12 +12,6 @@ pub enum SubtitleGenerationMethod {
     Gemini3_1FlashLite,
     #[serde(rename = "gemini-3-flash-preview")]
     Gemini3FlashPreview,
-    #[serde(rename = "qwen-local-0-6b", alias = "qwen-local")]
-    QwenLocal0_6B,
-    #[serde(rename = "qwen-local-1-7b")]
-    QwenLocal1_7B,
-    #[serde(rename = "parakeet-tdt-0-6b-v3")]
-    ParakeetTdt0_6BV3,
 }
 
 #[derive(Clone, Deserialize)]

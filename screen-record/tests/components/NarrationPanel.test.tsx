@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NarrationPanel } from "@/components/sidepanel/NarrationPanel";
 import en from "@/i18n/en";
@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useSettings", () => ({
-  useSettings: () => ({ t: en }),
+  useSettings: () => ({ t: en, lang: "ko" }),
 }));
 
 vi.mock("@/hooks/useSubtitleNarration", () => ({
@@ -29,7 +29,7 @@ vi.mock("@/hooks/useSubtitleNarration", () => ({
 vi.mock("@/hooks/useNarrationSettings", () => ({
   useNarrationSettings: () => ({
     settings: {
-      method: "StepAudioEditX",
+      method: "EdgeTTS",
       geminiModel: "",
       geminiVoice: "",
       geminiSpeed: "",
@@ -40,38 +40,22 @@ vi.mock("@/hooks/useNarrationSettings", () => ({
       edgePitch: 0,
       edgeRate: 0,
       edgeVoiceConfigs: [],
-      kokoroVoice: "af_heart",
-      kokoroSpeed: 1,
-      kokoroNumThreads: 2,
-      kokoroVoiceConfigs: [],
-      stepAudioVoice: "default_en",
-      stepAudioReferenceVoiceId: "",
-      stepAudioPromptText: "Use a calm narration delivery.",
-      magpieVoice: "",
-      magpieVoiceConfigs: [],
     },
     update: mocks.update,
-    profile: { method: "StepAudioEditX" },
+    profile: { method: "EdgeTTS" },
     metadata: {
-      providers: [{ method: "StepAudioEditX", label: "Step Audio EditX" }],
+      providers: [],
       geminiVoices: [],
       geminiModels: [],
       geminiInstructionLanguages: [],
       geminiSpeedOptions: ["Slow", "Normal", "Fast"],
       googleSpeedOptions: ["Slow", "Normal"],
-      kokoroVoices: [],
-      kokoroVoiceLanguages: [],
-      magpieVoices: [],
-      magpieVoiceLanguages: [],
-      stepAudioVoices: [
-        { id: "ref-demo", label: "Demo reference" },
-      ],
       defaults: {},
     },
   }),
 }));
 
-describe("NarrationPanel Step Audio controls", () => {
+describe("NarrationPanel provider controls", () => {
   beforeEach(() => {
     mocks.update.mockClear();
   });
@@ -105,22 +89,63 @@ describe("NarrationPanel Step Audio controls", () => {
     );
   }
 
-  it("renders reference selector for Step Audio EditX", () => {
-    renderPanel();
+  it("offers only the online providers and renders the selected provider's controls", () => {
+    const { container } = renderPanel();
 
-    expect(screen.getByText("Step Audio EditX")).toBeInTheDocument();
-    expect(screen.getByText("Reference voice")).toBeInTheDocument();
-    expect(screen.getByText("Bundled default reference")).toBeInTheDocument();
-    expect(screen.queryByText(en.narrationTtsStepAudioPromptText)).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue("Use a calm narration delivery.")).not.toBeInTheDocument();
+    expect(container.querySelector(".narration-panel-pitch-slider")).not.toBeNull();
+    const trigger = container.querySelector<HTMLElement>(".narration-method-select");
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger!);
+    const labels = Array.from(document.querySelectorAll(".panel-select-option"))
+      .map((option) => option.textContent?.trim());
+    expect(labels).toEqual([
+      en.narrationTtsMethodGemini,
+      en.narrationTtsMethodEdge,
+      en.narrationTtsMethodGoogle,
+    ]);
   });
 
-  it("selects a reference voice", () => {
+  it("names the TTS method select by its visible label", () => {
     renderPanel();
 
-    fireEvent.click(screen.getByText("Bundled default reference"));
-    fireEvent.click(screen.getByRole("button", { name: /demo reference/i }));
+    const trigger = document.querySelector(".narration-method-select");
+    expect(trigger).not.toBeNull();
+    expect(trigger).toHaveAccessibleName(en.narrationTtsMethod);
+  });
 
-    expect(mocks.update).toHaveBeenCalledWith("stepAudioReferenceVoiceId", "ref-demo");
+  it("names the source track select by its visible label", () => {
+    localStorage.setItem("screen-record-narration-mode-v1", "subtitles");
+    const { container } = renderPanel();
+
+    expect(container.querySelector(".narration-source-select"))
+      .toHaveAccessibleName(en.narrationSourceTrack);
+  });
+
+  it("names every speech-to-speech select by its visible label", () => {
+    localStorage.setItem("screen-record-narration-mode-v1", "s2s");
+    const { container } = renderPanel();
+
+    expect(container.querySelector(".narration-direct-method-select"))
+      .toHaveAccessibleName(en.narrationTtsModel);
+    expect(container.querySelector(".narration-s2s-source-select"))
+      .toHaveAccessibleName(en.subtitleSource);
+    expect(container.querySelector(".narration-s2s-language-select"))
+      .toHaveAccessibleName(en.narrationS2sTarget);
+    localStorage.removeItem("screen-record-narration-mode-v1");
+  });
+
+  it("keeps the speech-to-speech target across panel remounts and defaults to the UI language", () => {
+    localStorage.removeItem("screen-record-s2s-target-language-v1");
+    localStorage.setItem("screen-record-narration-mode-v1", "s2s");
+    const first = renderPanel();
+    expect(first.container.querySelector(".narration-s2s-language-select")).toHaveTextContent("Korean");
+    first.unmount();
+
+    localStorage.setItem("screen-record-s2s-target-language-v1", "ja");
+    const second = renderPanel();
+    expect(second.container.querySelector(".narration-s2s-language-select")).toHaveTextContent("Japanese");
+    second.unmount();
+    localStorage.removeItem("screen-record-narration-mode-v1");
+    localStorage.removeItem("screen-record-s2s-target-language-v1");
   });
 });

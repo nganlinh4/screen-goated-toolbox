@@ -196,20 +196,6 @@ internal class CreationOutputStore(
         else -> error("Unsupported creation destination")
     }
 
-    fun recoveredPublication(
-        intent: CreationPublishIntent,
-        pendingHandle: String,
-        pendingIdentity: String,
-        expectedSize: Long,
-        expectedSha256: String,
-    ): String? {
-        val final = publishedHandle(intent) ?: return null
-        return final.takeIf {
-            artifactIdentity(it) == pendingIdentity &&
-                verifiedPath(it, expectedSize, expectedSha256)
-        }
-    }
-
     fun abort(
         intent: CreationPublishIntent,
         pendingHandle: String,
@@ -282,10 +268,10 @@ internal class CreationOutputStore(
         requestedName: String,
         transactionId: String,
     ): Pair<String, String?> {
-        val uri = path.creationContentUri()
+        val uri = path.creationUriOrNull()
         if (uri != null && downloads.owns(uri)) {
             val currentName = downloads.displayName(uri)
-            val companionUri = companionPath?.creationContentUri()
+            val companionUri = companionPath?.creationUriOrNull()
             val currentCompanionName = companionUri?.let(downloads::displayName)
             return creationHistoryRenameNames(
                 safeCreationOutputName(requestedName),
@@ -307,7 +293,7 @@ internal class CreationOutputStore(
     }
 
     private fun historyOccupiedNames(path: String): Set<String> =
-        path.creationContentUri()?.let { safTrees.names(treeForDocument(it)) }
+        path.creationUriOrNull()?.let { safTrees.names(treeForDocument(it)) }
             ?: File(path).parentFile?.listFiles().orEmpty().map(File::getName).toSet()
 
     fun renameForHistory(
@@ -317,7 +303,7 @@ internal class CreationOutputStore(
         expectedSize: Long,
         expectedSha256: String,
     ): Pair<String, String> {
-        val uri = path.creationContentUri()
+        val uri = path.creationUriOrNull()
         if (uri == null) {
             val source = File(path)
             val directory = requireNotNull(source.parentFile)
@@ -380,7 +366,7 @@ internal class CreationOutputStore(
         return published.toString() to targetName
     }
 
-    fun delete(path: String): Boolean = path.creationContentUri()?.let { uri ->
+    fun delete(path: String): Boolean = path.creationUriOrNull()?.let { uri ->
         runCatching {
             if (downloads.owns(uri)) {
                 downloads.delete(uri)
@@ -392,7 +378,7 @@ internal class CreationOutputStore(
     } ?: File(path).delete()
 
     fun openExternally(path: String) {
-        val uri = path.creationContentUri() ?: FileProvider.getUriForFile(
+        val uri = path.creationUriOrNull() ?: FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             File(path),
@@ -402,12 +388,6 @@ internal class CreationOutputStore(
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
-
-    fun uploadUri(path: String): Uri = path.creationContentUri() ?: FileProvider.getUriForFile(
-        context,
-        "${context.packageName}.fileprovider",
-        File(path),
-    )
 
     private fun outputTree(): Uri? = preferences.getString(KEY_OUTPUT_TREE, null)
         ?.let(Uri::parse)
@@ -533,17 +513,17 @@ internal class CreationOutputStore(
     }
 
     private fun pathExists(path: String): Boolean =
-        path.creationContentUri()?.let { uri ->
+        path.creationUriOrNull()?.let { uri ->
             runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false }
                 .getOrDefault(false)
         } ?: File(path).exists()
 
     private fun verifiedPath(path: String, size: Long, digest: String): Boolean =
-        path.creationContentUri()?.let { verifiedUri(it, size, digest) }
+        path.creationUriOrNull()?.let { verifiedUri(it, size, digest) }
             ?: verifiedFile(File(path), size, digest)
 
     private fun artifactIdentity(path: String): String? =
-        path.creationContentUri()?.let { uri ->
+        path.creationUriOrNull()?.let { uri ->
             if (downloads.owns(uri)) return@let uri.toString()
             runCatching {
                 "${requireNotNull(uri.authority)}:${DocumentsContract.getDocumentId(uri)}"
@@ -559,7 +539,7 @@ internal class CreationOutputStore(
         }.getOrNull()
 
     private fun deleteExactPath(path: String): Boolean =
-        path.creationContentUri()?.let { uri ->
+        path.creationUriOrNull()?.let { uri ->
             runCatching {
                 if (downloads.owns(uri)) downloads.delete(uri)
                 else DocumentsContract.deleteDocument(resolver, uri)

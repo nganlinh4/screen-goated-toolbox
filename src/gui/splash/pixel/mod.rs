@@ -9,13 +9,18 @@
 // The pieces live in submodules:
 //   - `layers`  — the scene passes (sky, stars, rays, moon/sun, clouds, grid,
 //                 the 3D "SGT" voxels, vignette, theme button)
-//   - `ui`      — the wordmark / progress / loading / click text + pixel fonts
+//   - `ui`      — the wordmark / progress / loading / click text
+//   - `font`    — the authored pixel font (Latin + Vietnamese marks);
+//                 `font_raster` renders other scripts bilevel onto the grid
 //   - `raster`  — filled discs / glows / blending + the `Rgb` colour math
 //
 // Scene physics (voxel assembly/drift) live in render.rs; entity data + colours
-// in scene.rs / palette.rs. Logical screen units map to framebuffer pixels via
-// `s = fb_h / size.y`.
+// in scene.rs / palette.rs. Logical screen units map to framebuffer cells
+// through the shared `PixelGrid` (`grid`), which every overlay also snaps to.
 
+mod font;
+mod font_raster;
+mod grid;
 mod layers;
 mod raster;
 mod ui;
@@ -25,12 +30,9 @@ use super::scene::{Cloud, MoonFeature, Voxel};
 use super::{DrawListEntry, EXIT_DURATION};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Color32, Pos2, Rect, Vec2};
+pub(crate) use grid::PixelGrid;
 use raster::{bayer4, lerp3, rgb, to_col};
 use std::cell::RefCell;
-
-/// Vertical resolution of the framebuffer — the one knob for chunkiness. All
-/// text uses this same pixel size, so it stays unified with the scene.
-const FB_H: usize = 230;
 
 type Rgb = (f32, f32, f32);
 
@@ -48,8 +50,15 @@ pub struct PixelPaintContext<'a> {
     pub clouds: &'a [Cloud],
     pub mouse_influence: Vec2,
     pub loading_text: &'a str,
+    pub click_prompt: &'a str,
     pub draw_list: &'a RefCell<Vec<DrawListEntry>>,
     pub tex: &'a RefCell<Option<egui::TextureHandle>>,
+}
+
+pub struct PixelPaintResult {
+    pub theme_clicked: bool,
+    /// The grid this frame used; escaped voxels continue it outside the window.
+    pub grid: PixelGrid,
 }
 
 /// Per-frame state shared by all the layer passes (logical->FB mapping etc.).
@@ -57,8 +66,8 @@ struct Frame {
     w: usize,
     h: usize,
     s: f32,        // logical screen px -> framebuffer px
-    cx: f32,       // framebuffer centre x
-    cy: f32,       // framebuffer centre y
+    cx: f32,       // window centre x, in framebuffer px
+    cy: f32,       // window centre y, in framebuffer px
     t: f32,        // seconds since start
     warp: f32,     // 0..1 exit progress
     is_dark: bool, // = palette.is_night (moon vs sun, fade base, stars vs rays)
@@ -76,7 +85,7 @@ impl Frame {
     }
 }
 
-pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
+pub fn paint_pixel(c: PixelPaintContext<'_>) -> PixelPaintResult {
     let now = c.ctx.input(|i| i.time);
     let t = (now - c.start_time) as f32;
     let warp = match c.exit_start_time {
@@ -94,7 +103,6 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     } else {
         vp.size()
     };
-    let rect = Rect::from_min_size(Pos2::ZERO, size);
 
     // Block interaction behind the splash + keep window dragging working.
     egui::Area::new(egui::Id::new("splash_blocker"))
@@ -110,14 +118,15 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
             }
         });
 
-    let h = FB_H;
-    let w = ((h as f32) * size.x / size.y).round().clamp(16.0, 1024.0) as usize;
+    let grid = PixelGrid::new(size, c.ctx.pixels_per_point());
+    let (w, h) = (grid.cols, grid.rows);
+    let s = grid.scale();
     let f = Frame {
         w,
         h,
-        s: h as f32 / size.y,
-        cx: w as f32 * 0.5,
-        cy: h as f32 * 0.5,
+        s,
+        cx: size.x * 0.5 * s,
+        cy: size.y * 0.5 * s,
         t,
         warp,
         is_dark: c.palette.is_night,
@@ -140,7 +149,7 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     layers::paint_grid(&mut buf, &f);
     layers::draw_voxels(&mut buf, &f, c.voxels, c.draw_list);
     layers::paint_vignette(&mut buf, &f);
-    layers::paint_theme_button(&mut buf, &f);
+    let theme_chip = layers::paint_theme_button(&mut buf, &f);
 
     // Fade-in: keep the splash OPAQUE from the first visible frame (it must fully
     // cover the already-prepared UI behind it) by blending the whole scene up from
@@ -206,26 +215,43 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
     // The splash is OPAQUE (the fade-in is a colour fade baked into the FB above,
     // not a transparency fade) so it always fully covers the prepared UI.
     let fade_in = (t / 0.4).clamp(0.0, 1.0); // kept only for the theme-button gate
+    // Drawn at exactly cols x rows whole-pixel cells, overhanging the window by
+    // under one cell, so nearest-neighbour sampling never resizes a cell.
     painter.image(
         handle.id(),
-        rect,
+        Rect::from_min_size(Pos2::ZERO, grid.extent()),
         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
         Color32::WHITE,
     );
 
     // UI text/progress are crisp overlays (the FB is too coarse for small text).
-    ui::paint_ui_overlay(&painter, size, t, warp, c.palette, c.loading_text);
+    ui::paint_ui_overlay(
+        &painter,
+        size,
+        grid,
+        t,
+        warp,
+        c.palette,
+        ui::OverlayText {
+            loading: c.loading_text,
+            click_prompt: c.click_prompt,
+        },
+    );
 
-    // The pixel theme button is drawn into the FB above; catch its clicks here
-    // (top-left, matching the vector switcher's position/size).
+    // The pixel theme button is drawn into the FB above; its click target is
+    // the chip it actually occupies there.
     let mut theme_clicked = false;
     if fade_in > 0.1 {
+        let chip = Rect::from_min_max(
+            (theme_chip.min.to_vec2() * grid.cell).to_pos2(),
+            (theme_chip.max.to_vec2() * grid.cell).to_pos2(),
+        );
         egui::Area::new(egui::Id::new("splash_pixel_theme"))
             .order(egui::Order::Tooltip)
-            .fixed_pos(Pos2::new(16.0, 14.0))
+            .fixed_pos(chip.min)
             .show(c.ctx, |ui| {
                 if ui
-                    .allocate_response(Vec2::splat(32.0), egui::Sense::click())
+                    .allocate_response(chip.size(), egui::Sense::click())
                     .clicked()
                 {
                     theme_clicked = true;
@@ -233,5 +259,8 @@ pub fn paint_pixel(c: PixelPaintContext<'_>) -> bool {
             });
     }
 
-    theme_clicked
+    PixelPaintResult {
+        theme_clicked,
+        grid,
+    }
 }

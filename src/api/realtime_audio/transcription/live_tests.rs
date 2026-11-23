@@ -59,6 +59,10 @@ fn continuous_transcription_provider_acceptance() -> Result<()> {
         stop_signal: stop.clone(),
         overlay_hwnd: HWND::default(),
         state: state.clone(),
+        session_id: crate::overlay::realtime_webview::state::REALTIME_SESSION_ID
+            .load(Ordering::SeqCst),
+        engine_revision: crate::overlay::realtime_webview::state::TRANSCRIPTION_ENGINE_REVISION
+            .load(Ordering::SeqCst),
         gemini_live_model: &model,
         gemini_api_key: &api_key,
         capture_label: "synthetic",

@@ -34,7 +34,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import kotlin.math.roundToInt
 
 
@@ -123,63 +122,11 @@ internal fun OverlayController.onTranslationModelSelected(label: String) {
     repository.updateTranslationModel(modelId)
 }
 
-internal fun OverlayController.showTranscriptionLanguagePicker() {
-    val anchor = transcriptionWindow?.currentBounds() ?: return
-    val modelId = repository.transcriptionModelId()
-    val currentCode = repository.currentConfig().transcriptionLanguage
-
-    // Zipformer has its own language list (8 options)
-    if (modelId == "zipformer") {
-        val zipLangs = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
-            .map { it.displayName }
-        val currentName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
-            .fromCode(currentCode)?.displayName ?: "English"
-        transcriptionLanguagePicker.show(
-            anchorBounds = anchor,
-            selectedLanguage = currentName,
-            languages = zipLangs,
-            isDark = isDarkTheme(repository.currentUiPreferences().themeMode),
-            title = currentOverlayLocale().transcriptionLanguageTitle,
-            searchHint = currentOverlayLocale().pickerSearchHint,
-        )
-    }
-}
-
-internal fun OverlayController.onTranscriptionLanguageSelected(selectedName: String) {
-    val modelId = repository.transcriptionModelId()
-    if (modelId == "zipformer") {
-        val lang = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage.entries
-            .find { it.displayName == selectedName }
-        if (lang != null) {
-            repository.updateTranscriptionLanguage(lang.code)
-            // Delay restart to let config propagate before new session reads it
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                restartRequested()
-            }, 300)
-        }
-    }
-}
-
 internal fun OverlayController.updateTranscriptionModel(modelId: String) {
     if (repository.transcriptionModelId() != modelId) {
         repository.updateTranscriptionModel(modelId)
-        // Reset language to a valid baseline for the newly selected model
-        // before the restarted session reads config.
-        repository.updateTranscriptionLanguage(defaultTranscriptionLanguageFor(modelId))
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             restartRequested()
         }, 300)
-    }
-}
-
-internal fun OverlayController.defaultTranscriptionLanguageFor(modelId: String): String {
-    return if (
-        dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog.endpointProfile(
-            RealtimeModelIds.defaultTranscriptionProvider(modelId).model,
-        )?.protocol != null
-    ) {
-        "all"
-    } else {
-        "en"
     }
 }

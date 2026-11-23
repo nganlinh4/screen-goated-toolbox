@@ -11,6 +11,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.preset.applyFastReasoningPolicy
 import dev.screengoated.toolbox.mobile.preset.claimPresetModelAttempt
+import dev.screengoated.toolbox.mobile.preset.PresetModelAttempt
 import dev.screengoated.toolbox.mobile.preset.newPresetCall
 import dev.screengoated.toolbox.mobile.preset.preflightSkipReason
 import dev.screengoated.toolbox.mobile.preset.providerFailureMessage
@@ -53,10 +54,11 @@ class RealtimeTranslationClient(
         providerId: String,
         llmChain: List<String>,
         runtimeSettings: PresetRuntimeSettings,
+        isCurrent: () -> Boolean = { true },
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
         val primaryId = providerId
-        runCatching {
-            return@withContext translateWithExactProvider(
+        withTranslationFallback(isCurrent, primary = {
+            translateWithExactProvider(
                 geminiApiKey = geminiApiKey,
                 groqApiKey = groqApiKey,
                 nvidiaApiKey = nvidiaApiKey,
@@ -65,11 +67,11 @@ class RealtimeTranslationClient(
                 providerId = primaryId,
                 llmChain = llmChain,
                 runtimeSettings = runtimeSettings,
+                isCurrent = isCurrent,
             )
-        }
-
-        val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
-        translateWithExactProvider(
+        }, fallback = {
+            val fallbackId = if (primaryId == PROVIDER_GTX) PROVIDER_LLM else PROVIDER_GTX
+            translateWithExactProvider(
             geminiApiKey = geminiApiKey,
             groqApiKey = groqApiKey,
             nvidiaApiKey = nvidiaApiKey,
@@ -78,7 +80,9 @@ class RealtimeTranslationClient(
             providerId = fallbackId,
             llmChain = llmChain,
             runtimeSettings = runtimeSettings,
+            isCurrent = isCurrent,
         )
+        })
     }
 
     suspend fun translateWithExactProvider(
@@ -90,7 +94,9 @@ class RealtimeTranslationClient(
         providerId: String,
         llmChain: List<String>,
         runtimeSettings: PresetRuntimeSettings,
+        isCurrent: () -> Boolean = { true },
     ): TranslationExecutionResult = withContext(Dispatchers.IO) {
+        ensureTranslationRequestCurrent(isCurrent)
         val apiKeys = ApiKeys(
             geminiKey = geminiApiKey,
             groqKey = groqApiKey,
@@ -103,6 +109,7 @@ class RealtimeTranslationClient(
             targetLanguage = targetLanguage,
             llmChain = llmChain,
             runtimeSettings = runtimeSettings,
+            isCurrent = isCurrent,
         )
         TranslationExecutionResult(providerId, response)
     }
@@ -114,6 +121,7 @@ class RealtimeTranslationClient(
         targetLanguage: String,
         llmChain: List<String>,
         runtimeSettings: PresetRuntimeSettings,
+        isCurrent: () -> Boolean,
     ): TranslationResponse {
         Log.d(
             TRANSLATION_TAG,
@@ -128,6 +136,7 @@ class RealtimeTranslationClient(
             runtimeSettings = runtimeSettings,
             request = request,
             targetLanguage = targetLanguage,
+            isCurrent = isCurrent,
         )
     }
 
@@ -137,21 +146,24 @@ class RealtimeTranslationClient(
         runtimeSettings: PresetRuntimeSettings,
         request: TranslationRequest,
         targetLanguage: String,
+        isCurrent: () -> Boolean,
     ): TranslationResponse {
         var lastError: Throwable? = null
         val blockedProviders = mutableSetOf<PresetModelProvider>()
         for (modelId in chainModelIds) {
+            ensureTranslationRequestCurrent(isCurrent)
             val descriptor = PresetModelCatalog.getById(modelId) ?: continue
             if (descriptor.provider !in TEXT_LLM_PROVIDERS) {
                 continue
             }
+            val modelAttempt = PresetModelAttempt(descriptor.id)
             val skip = preflightSkipReason(
                 modelId = descriptor.id,
                 provider = descriptor.provider,
                 apiKeys = apiKeys,
                 blockedProviders = blockedProviders,
                 settings = runtimeSettings,
-            ) ?: claimPresetModelAttempt(descriptor.id)
+            ) ?: claimPresetModelAttempt(modelAttempt)
             if (skip != null) continue
             val result = try {
                 when (descriptor.provider) {
@@ -202,20 +214,20 @@ class RealtimeTranslationClient(
                     else -> null
                 }
             } catch (cancelled: CancellationException) {
-                releasePresetModelProbe(descriptor.id)
+                releasePresetModelProbe(modelAttempt)
                 throw cancelled
             } catch (error: Throwable) {
                 val message = error.message ?: error.toString()
-                recordPresetModelFailure(descriptor.id, message)
+                recordPresetModelFailure(modelAttempt, message)
                 if (shouldBlockRetryProvider(message)) blockedProviders += descriptor.provider
                 lastError = error
                 null
             }
             if (result != null) {
-                recordPresetModelSuccess(descriptor.id)
+                recordPresetModelSuccess(modelAttempt)
                 return result
             }
-            releasePresetModelProbe(descriptor.id)
+            releasePresetModelProbe(modelAttempt)
         }
         throw lastError ?: IOException("No LLM provider in the priority chain produced a translation.")
     }

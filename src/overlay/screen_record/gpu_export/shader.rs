@@ -1,6 +1,8 @@
-use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS};
+use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, CURSOR_MIP_LEVELS, CURSOR_TILE_SIZE};
 mod backgrounds;
+mod cursor;
 use self::backgrounds::COMPOSITOR_SHADER_BACKGROUND_FUNCTIONS;
+use self::cursor::COMPOSITOR_SHADER_CURSOR_FUNCTIONS;
 
 const COMPOSITOR_SHADER_HEAD: &str = r#"
 struct Uniforms {
@@ -70,79 +72,6 @@ fn sd_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     let q = abs(p) - b + r;
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
-
-fn get_cursor_canvas_size(type_id: f32) -> vec2<f32> {
-    let slot = i32(floor(type_id + 0.5));
-    let kind = slot % 12;
-    let pack = slot / 12;
-
-    // Match preview image natural dimensions (drawCenteredCursorImage).
-    if pack == 0 && kind == 1 {
-        return vec2<f32>(43.0, 43.0); // text-screenstudio
-    }
-    if pack == 0 && (kind == 5 || kind == 6) {
-        return vec2<f32>(56.0, 55.0); // wait/appstarting-screenstudio
-    }
-    if pack == 3 && kind == 5 {
-        return vec2<f32>(44.0, 44.0); // wait-sgtcool
-    }
-    return vec2<f32>(44.0, 43.0);
-}
-
-fn get_hotspot(size: vec2<f32>) -> vec2<f32> {
-    return size * 0.5;
-}
-
-fn get_rotation_pivot(type_id: f32) -> vec2<f32> {
-    let slot = i32(floor(type_id + 0.5));
-    let kind = slot % 12;
-    if kind == 2 || kind == 3 || kind == 4 {
-        // pointer/openhand/closehand
-        return vec2<f32>(3.0, 8.5);
-    }
-    if kind == 1 {
-        // text i-beam should stay upright
-        return vec2<f32>(0.0, 0.0);
-    }
-    // default arrow
-    return vec2<f32>(3.6, 5.6);
-}
-
-fn get_cursor_alignment_bias() -> vec2<f32> {
-    // Canvas2D drawImage and WGSL texture sampling do not land on identical
-    // sub-pixel centers. Apply one global source-space correction so export
-    // cursor placement matches preview without per-cursor hacks.
-    return vec2<f32>(0.16, -0.16);
-}
-
-fn cursor_uv_in_tile(sample_pos: vec2<f32>, type_id: f32, cursor_scale: f32) -> vec2<f32> {
-    let canvas_size = get_cursor_canvas_size(type_id);
-    let max_dim = max(canvas_size.x, canvas_size.y);
-    let pad = (vec2<f32>(max_dim, max_dim) - canvas_size) * 0.5;
-    let inv_scale = 1.0 / max(cursor_scale, 0.0001);
-    let canvas_pos = sample_pos * inv_scale;
-    return (canvas_pos + pad) / max_dim;
-}
-
-fn sample_cursor_color(sample_pos: vec2<f32>, type_id: f32, tile_idx: f32, cursor_scale: f32) -> vec4<f32> {
-    let uv_in_tile = cursor_uv_in_tile(sample_pos, type_id, cursor_scale);
-    let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
-    let atlas_row = floor(tile_idx / ATLAS_COLS);
-    let atlas_uv = vec2<f32>(
-        (uv_in_tile.x + atlas_col) / ATLAS_COLS,
-        (uv_in_tile.y + atlas_row) / ATLAS_ROWS
-    );
-    // Cursor tiles are uploaded from mixed sources (tiny-skia + browser PNG decode).
-    // Normalize sampled color to straight alpha to avoid dark fringe/contour artifacts
-    // at anti-aliased edges when linearly filtering against transparent pixels.
-    var c = textureSample(cursor_tex, cursor_samp, atlas_uv);
-    if (c.a > 0.0001) {
-        c = vec4<f32>(clamp(c.rgb / c.a, vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
-    } else {
-        c = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
-    return c;
-}
 "#;
 
 const COMPOSITOR_SHADER_TAIL: &str = r#"
@@ -162,7 +91,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     if (u.render_mode < 1.5) {
         // 1. Background
         let t = clamp(select(bg_uv.x, bg_uv.y, u.bg_params1.x > 0.5), 0.0, 1.0);
-        col = mix(u.gradient_color1, u.gradient_color2, t);
+        // Canvas linear gradients interpolate the encoded sRGB stops.
+        col = vec4<f32>(
+            mix_srgb(u.gradient_color1.rgb, u.gradient_color2.rgb, t),
+            mix(u.gradient_color1.a, u.gradient_color2.a, t)
+        );
         if (u.use_background_texture > 0.5) {
             // object-fit: cover — scale bg_uv so the texture always fills the canvas.
             let canvas_aspect = u.output_size.x / max(u.output_size.y, 1.0);
@@ -250,6 +183,15 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 col = mix(col, vid_col, edge);
             }
         }
+
+        // The preview strokes a 1px rgba(0,0,0,0.1) outline on the frame path
+        // while clipped to it, so only the inner half-pixel band shows.
+        if !unmasked_canvas_cover {
+            let band = max(0.0, min(dist + 0.5, 0.0) - max(dist - 0.5, -0.5));
+            if band > 0.0 {
+                col = vec4<f32>(mix_srgb(col.rgb, vec3<f32>(0.0), 0.1 * band), col.a);
+            }
+        }
     }
 
     // 4. Cursor Overlay (drawn over both video and background)
@@ -263,15 +205,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 (get_cursor_alignment_bias() * u.cursor_scale);
             let hotspot = get_hotspot(cursor_pixel_size);
             let pivot = get_rotation_pivot(u.cursor_type_id);
-            let rel = in.pixel_pos - cursor_px;
-            let c = cos(-u.cursor_rotation);
-            let s = sin(-u.cursor_rotation);
-            let rel_pivot = rel - pivot;
-            let rel_rot = vec2<f32>(
-                rel_pivot.x * c - rel_pivot.y * s,
-                rel_pivot.x * s + rel_pivot.y * c
-            ) + pivot;
-            let sample_pos = rel_rot + hotspot;
+            let sample_pos = cursor_sample_pos(in.pixel_pos, cursor_px, hotspot, pivot);
 
             let tile_idx = floor(u.cursor_type_id + 0.5);
             let in_bounds =
@@ -286,54 +220,48 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                     col = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
                 }
             } else {
-                // Normal mode (render_mode 0): shadow + cursor composited over scene.
+                // Normal mode: the preview draws the cursor over its shadow on an
+                // offscreen canvas, then composites that layer at the cursor
+                // opacity as one group, in encoded sRGB.
+                var shadow_alpha = 0.0;
                 let shadow_strength = clamp(u.cursor_shadow, 0.0, 2.0);
                 if shadow_strength > 0.001 {
                     let base = pow(min(shadow_strength, 1.0), 0.8);
                     let overdrive = max(0.0, shadow_strength - 1.0);
                     let shadow_alpha_gain = min(1.0, (0.95 * base) + (0.85 * overdrive));
-                    let shadow_offset = vec2<f32>(
+                    // Canvas shadow offsets are screen pixels that the cursor's
+                    // rotation does not turn, and Chromium snaps them to whole
+                    // pixels (round half up).
+                    let shadow_offset = floor(vec2<f32>(
                         (1.3 * base) + (1.7 * overdrive),
                         (2.6 * base) + (3.2 * overdrive)
+                    ) + vec2<f32>(0.5));
+                    let shadow_blur = 1.6 + (11.5 * base) + (14.0 * overdrive);
+                    let shadow_pos =
+                        cursor_sample_pos(in.pixel_pos - shadow_offset, cursor_px, hotspot, pivot);
+                    shadow_alpha = shadow_alpha_gain * cursor_shadow_coverage(
+                        shadow_pos,
+                        cursor_pixel_size,
+                        0.5 * shadow_blur,
+                        u.cursor_type_id,
+                        tile_idx,
+                        u.cursor_scale
                     );
-                    let shadow_pos = sample_pos - shadow_offset;
-                    let shadow_in_bounds =
-                        shadow_pos.x >= 0.0 && shadow_pos.x < cursor_pixel_size.x &&
-                        shadow_pos.y >= 0.0 && shadow_pos.y < cursor_pixel_size.y;
-
-                    if shadow_in_bounds {
-                        let blur = 1.6 + (11.5 * base) + (14.0 * overdrive);
-                        let sample_step = max(0.16, blur * 0.11);
-                        var shadow_alpha = 0.0;
-                        var shadow_weight = 0.0;
-
-                        for (var oy: i32 = -5; oy <= 5; oy = oy + 1) {
-                            for (var ox: i32 = -5; ox <= 5; ox = ox + 1) {
-                                let o = vec2<f32>(f32(ox), f32(oy));
-                                let r2 = dot(o, o);
-                                let w = exp(-0.5 * r2 / 8.0);
-                                let p = shadow_pos + o * sample_step;
-                                if p.x >= 0.0 && p.x < cursor_pixel_size.x && p.y >= 0.0 && p.y < cursor_pixel_size.y {
-                                    shadow_alpha = shadow_alpha + sample_cursor_color(p, u.cursor_type_id, tile_idx, u.cursor_scale).a * w;
-                                    shadow_weight = shadow_weight + w;
-                                }
-                            }
-                        }
-
-                        if shadow_weight > 0.0001 {
-                            shadow_alpha = (shadow_alpha / shadow_weight) * shadow_alpha_gain * u.cursor_opacity;
-                            if shadow_alpha > 0.0001 {
-                                let shadow_col = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-                                col = mix(col, shadow_col, shadow_col.a);
-                            }
-                        }
-                    }
                 }
 
+                var cur_col = vec4<f32>(0.0);
                 if in_bounds {
-                    let cur_col = sample_cursor_color(sample_pos, u.cursor_type_id, tile_idx, u.cursor_scale);
-                    let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
-                    col = mix(col, faded, faded.a);
+                    cur_col = sample_cursor_color(sample_pos, u.cursor_type_id, tile_idx, u.cursor_scale);
+                }
+                let layer_alpha = cur_col.a + shadow_alpha * (1.0 - cur_col.a);
+                let layer_mix = layer_alpha * u.cursor_opacity;
+                if layer_mix > 0.0001 {
+                    // The shadow is black, so only the cursor adds color.
+                    let layer_rgb = srgb_encode(cur_col.rgb) * (cur_col.a / layer_alpha);
+                    col = vec4<f32>(
+                        srgb_decode(mix(srgb_encode(col.rgb), layer_rgb, layer_mix)),
+                        col.a + layer_mix * (1.0 - col.a)
+                    );
                 }
             }
         }
@@ -345,10 +273,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
 pub(super) fn compositor_shader() -> String {
     format!(
-        "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n{}{}{}",
+        "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n\
+         const CURSOR_TILE_PX: f32 = {}.0;\nconst CURSOR_MAX_LOD: f32 = {}.0;\n{}{}{}{}",
         CURSOR_ATLAS_COLS,
         CURSOR_ATLAS_ROWS,
+        CURSOR_TILE_SIZE,
+        CURSOR_MIP_LEVELS - 1,
         COMPOSITOR_SHADER_HEAD,
+        COMPOSITOR_SHADER_CURSOR_FUNCTIONS,
         COMPOSITOR_SHADER_BACKGROUND_FUNCTIONS,
         COMPOSITOR_SHADER_TAIL
     )
@@ -399,7 +331,8 @@ struct WebcamUniforms {
     shadow_px: f32,
     opacity: f32,
     mirror: f32,
-    _pad: vec2<f32>,
+    render_scale: f32,
+    _pad: f32,
 }
 
 struct WebcamVertexOut {
@@ -438,7 +371,8 @@ fn fs_main(in: WebcamVertexOut) -> @location(0) vec4<f32> {
     let fill_dist = sd_round_box(in.pixel_pos - center, half_size, radius);
     let fill_alpha = clamp(1.0 - smoothstep(0.0, 1.35, fill_dist), 0.0, 1.0);
 
-    let shadow_offset_y = max(2.0, u.shadow_px * 0.18);
+    // The 2 px floor is a preview-canvas length, like `shadow_px` itself.
+    let shadow_offset_y = max(2.0 * u.render_scale, u.shadow_px * 0.18);
     let shadow_dist = sd_round_box(
         in.pixel_pos - (center + vec2<f32>(0.0, shadow_offset_y)),
         half_size,

@@ -1,5 +1,11 @@
 # Image to 3D Parity
 
+Storage and destination availability follow the shared
+[Creation storage contract](creation-storage.md).
+
+The creation backend is external. This contract covers the frontend, the host
+client/IPC side, and the delivery steps; backend internals are out of scope.
+
 ## Canonical Source
 
 - Windows launcher and host:
@@ -8,11 +14,24 @@
 - Shared result history: [generation_history.rs](../../src/overlay/generation_history.rs)
 - Shared fixture: [state-contract.json](../../parity-fixtures/image-to-3d/state-contract.json)
 - Progress fixture: [progress-contract.json](../../parity-fixtures/image-to-3d/progress-contract.json)
+- Worker settings fixture: [worker-request-settings.json](../../parity-fixtures/image-to-3d/worker-request-settings.json)
 - Android creation UI:
   [creation](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/creation)
 
 ## Product Contract
 
+- A refinement preserves the generation's separation level independently of
+  its requested separation action. Saving and restoring a pending refinement
+  keeps the same generation settings. Older saved requests without the original
+  value retain their recorded level, or the documented Detailed default when
+  that value was absent. Shared cases live in
+  `parity-fixtures/image-to-3d/refinement-settings.json`.
+
+- Creation controls and window actions remain reachable when the available
+  viewport is smaller than the desktop layout. The Windows creation workspace
+  may scroll horizontally while each rail retains its own vertical scrolling;
+  Android keeps its native responsive controls. Window sizing respects the
+  monitor work area and display scaling.
 - Refinement controls use the app's typography and compact choice groups.
   Separation offers Simple, Balanced, and Detailed; these describe desired
   granularity rather than guaranteed part counts. Initial topology selection
@@ -28,33 +47,41 @@
   work or preparation without an available slot is preparing, not a failure.
 - A runtime may advertise a nonempty subset of supported generation modes. An unavailable mode disables only that choice; it must not invalidate the other creation tools or prevent installation. Missing or malformed capability metadata still fails closed.
 - Android preserves a waiting-for-user job as active and cancellable. Initial topology travels with the frozen request, status, history, and recovered draft. An open surface refreshes readiness independently of job polling; closing it stops both owners.
+- The Android worker request preserves the initial topology and automatic separation level across serialization and recovery. Explicit topology is applied to generation; an omitted legacy topology uses the existing automatic-separation default. Invalid topology, separation levels, and quad plus automatic separation fail before submission. A capability unavailable to the runtime fails clearly.
+- Automatic separation carries the frozen level to the runtime; an omitted legacy level defaults to detailed. Invalid levels are rejected before any separation submission.
 
-- Windows validates the source again before submission. Fast mode requires both
-  sides to be at least 32 pixels and a file no larger than 20,000,000 bytes.
-  These mode-specific limits do not constrain Quality mode. General source
+- Both platforms validate the source again before submission. Quality has no
+  additional mode-specific image limits. General source
   format, memory and file limits still apply. Invalid sources show a localized
   modal explanation with Choose another image before starting generation.
   Unavailable validation instead offers Retry and does not blame the source.
   Escape/Close dismisses without submission; dialogs preserve the existing
   results and use the native modal focus boundary. Shared boundary cases live in
-  `parity-fixtures/image-to-3d/input-contract.json`. Android has not yet ported
-  this preflight and must not be claimed as verified against this contract.
+  `parity-fixtures/image-to-3d/input-contract.json`; Android's preflight
+  (`CreationInputPreflight.kt`) is checked against it by `CreationInputParityTest`.
+  Source validation refuses retired generation modes (`retiredModes`), so a
+  new request in such a mode fails closed with Retry instead of starting.
 
-- The shipped creation runtime advertises and delivers `image_to_3d`,
-  `image_to_svg`, and `image_creator`. Windows and Android expose only the
-  capabilities enabled by their shared release-availability fixtures;
-  `image_creator` is currently delivered but hidden and unavailable for jobs.
+- The shipped creation runtime advertises and delivers `image_to_3d` and
+  `image_to_svg`. Windows and Android require those features from the delivery
+  contract and tolerate additional advertised capabilities. Image to SVG is
+  exposed only when its shared release-availability fixture enables it.
 - Windows, Android Full, and Android Play consume one tracked, immutable
   delivery contract. Every artifact has an exact URL, version, size, and
   SHA-256; missing or invalid contract data fails the build. Local runtime
   outputs and environment overrides are never accepted as product delivery.
 
 - The app is named Image to 3D / 이미지를 3D로 / Ảnh sang 3D.
-- The generation-mode selector exposes Fast and Quality on every platform.
-  Fast supports 100–15,000 polygons and does not offer automatic separation.
-  Quality supports 500–20,000 polygons and offers optional automatic
-  separation. The selected product mode is preserved through submission,
-  recovery, history, and result metadata.
+- New generations offer Quality on every platform, with 500–20,000 polygons and
+  optional automatic separation. Requests below/above that range clamp before
+  acceptance. Fast and unknown modes cannot create new jobs. The shared owner is
+  `parity-fixtures/image-to-3d/generation-mode-contract.json`.
+- Already accepted work retains its original mode, settings and fingerprint.
+  Saved Fast work keeps its 100–15,000 range, triangle topology and disabled
+  automatic separation through recovery, history and read-only presentation.
+  It is never silently converted into a new Quality request. A runtime lacking
+  the saved capability fails clearly. Refinement preserves the generation's
+  frozen settings independently of the new action's options.
 
 - The runtime submits the frozen polygon count exactly. It never substitutes an
   integration default or depends on an interactive control continuing to exist.
@@ -107,14 +134,9 @@
   are bounded to the same two-hour ceiling before storage or presentation.
 - Progress preserves `queued`, `preparing`, `waiting_for_user`, `generating`,
   `segmenting`, `finalizing`, `done`, `failed`, and `cancelled`.
-- When an accepted job needs a bounded user interaction, the runtime creates
-  that interaction in a presentation-capable browser surface from the start,
-  keeps the exact live surface hidden while passive completion remains
-  possible, and reveals that same surface without transferring its URL,
-  cookies, page state, or challenge state. The app shows only the product-level
-  `waiting_for_user` state. Dismissing or timing out the interaction fails
-  closed, cancellation closes it, and no consequential submission occurs
-  before the interaction succeeds.
+- When an accepted job needs a bounded user interaction, the external backend
+  owns that interaction surface. The app shows only the product-level
+  `waiting_for_user` state and keeps the job active and cancellable.
 - The source preview, public stages, measured ETA, and final artifact are the
   generation visuals.
 - Background preparation must never reveal a verification window or take
@@ -158,7 +180,9 @@
   bounds must contain the committed position values within a narrowly bounded
   numeric comparison tolerance: at most 1/32,768 world units or four binary32
   rounding units at the compared magnitude, whichever is greater. Values
-  outside that tolerance remain invalid. Every `buffer.byteLength` is the exact
+  outside that tolerance remain invalid; stale-versus-recomputed extents are in
+  `parity-fixtures/image-to-3d/position-bounds.json`, replayed by Windows
+  `asset_position_bounds_tests.rs` and Android `CreationPositionBoundsParityTest`. Every `buffer.byteLength` is the exact
   logical committed byte count. An embedded data-URI buffer must decode to that
   exact length and use the resource type allowed by its field. GLB buffer 0 may
   add only the zero-filled 0–3 byte alignment suffix required to align its BIN
@@ -267,6 +291,8 @@
   and SHA-256 immediately before copying, includes a required companion using
   the same collision suffix, never overwrites an existing file, and verifies
   the published bytes. Exported copies are user-owned and never pruned by SGT.
+  Android additionally checks the saved filesystem identity against the current
+  managed file identity before copying; a missing or replaced identity fails closed.
   Legacy results already published to Downloads remain user-owned and keep
   their existing behavior.
 - Output delivery is a durable transaction keyed by the dispatch identifier:
@@ -274,6 +300,11 @@
   commit, then recovery-intent removal. Restart reconciliation resumes that
   transaction without repeating generation or publishing a second copy. A
   published file with uncertain ownership is retained for the user.
+  Delivery retry is bounded. Before anything is published, a permanent
+  destination error (revoked folder access, missing destination or source) or
+  a persisted attempt budget ends the job as failed and releases its
+  reservation, staging output, and inputs; once a file is published, delivery
+  keeps resuming until history records it.
 - History rename is also transactional. A failed index commit rolls the file
   move back, and restart reconciliation repairs an interrupted rename without
   orphaning the result.
@@ -341,9 +372,9 @@
 
 - Submission and recovery are bounded and fail closed when acceptance cannot be
   proven.
-- Runtime retries are bounded, cancellation-aware, and never duplicate a
-  consequential submission whose outcome is uncertain. Exact retry,
-  authentication, and capacity policies remain private to the runtime.
+- The host never duplicates a consequential submission whose outcome is
+  uncertain. Retry, authentication, and capacity policies are backend internals
+  and are out of scope here.
 - An accepted job is never submitted twice during recovery.
 - Restart recovery resumes the same dispatch without relying on source-content
   identity.
@@ -355,31 +386,24 @@
   newer execution.
 - A success event is emitted only after the output has been validated and
   committed.
-- A prepared execution slot remains live until its assigned job finishes.
-  Failed preparation retires that execution instance before the slot retries.
-- A preparation instance whose rendering context stops responding is retired
-  before retry. Recreated execution state must use platform services belonging
-  to its own presentation surface so an app or system-runtime update cannot
-  preserve a mismatched context indefinitely.
-- A rendering operation that stops responding is bounded independently from the
-  two-hour whole-job watchdog. The unresponsive execution instance is retired,
-  and recovery never repeats a consequential action whose acceptance may have
-  occurred.
-- A recovery-reserved slot is checked against the exact request before
-  assignment and cannot consume or fail an unrelated queued job.
-- Every finished assignment retires its execution instance before that slot is
-  prepared for another job.
-- A recovery handoff publishes execution loss only after that retirement, so
-  the same dispatch cannot race preparation against its previous worker state.
+- Execution preparation, slots, and their retirement are backend internals.
+  The host relies only on the job states, the two-hour watchdog, and the
+  recovery contract above.
 - A creation surface may contain multiple independent sessions. Closing it
   cancels its queued and running jobs, releases their owned execution resources,
   destroys the product surface, and prevents a late completion from publishing.
+- Cancellation becomes terminal only after its durable decision succeeds. An
+  unavailable cancellation leaves the latest progress or completion intact;
+  it cannot stop a worker or discard a result and then restore an older running
+  status. Publication that wins the durable decision remains delivered. Closing
+  a surface may stop execution while cancellation persistence retries, without
+  reporting that pending persistence as a completed cancellation.
 
 ## Verification
 
-- Converted model position bounds must describe the converted coordinates.
-  Decoding must not retain stale bounds after changing numeric representation;
-  the host continues to reject non-finite coordinates and invalid buffer ranges.
+- Committed model position bounds must describe the committed coordinates;
+  the host rejects stale bounds, non-finite coordinates, and invalid buffer
+  ranges.
 
 - Shared fixture: `parity-fixtures/image-to-3d/state-contract.json`
 - Windows routing tests verify flow limits, topology clamping, separation
@@ -389,13 +413,19 @@
 - Real UI acceptance submits the available generation flow on Windows, Android
   Full, and Android Play. It selects the source through the product surface,
   waits for a terminal state, and validates the committed GLB.
-- A failed real UI case retains bounded terminal diagnostics, triggers private
-  execution-readiness investigation and repair, then reruns in a fresh evidence
-  directory. Acceptance is incomplete until the repaired build completes the
+- A failed real UI case retains bounded terminal diagnostics and reruns in a
+  fresh evidence directory after repair; a backend-side cause is handed to the
+  backend repository. Acceptance is incomplete until the repaired build completes the
   real job and the committed GLB validates; repeated repair failures never
   cancel the required rerun.
 
 ## Platform Deviations
+
+- Windows keeps model selection, export, history refresh and job submission
+  responsive to window input. Preview still validates the current model bytes
+  before displaying them. Queued actions and replies from a closed window do
+  not run in a reopened window. Close and component removal wait for a request
+  being saved to reach a durable cancellation decision.
 
 - Android uses native controls for initial topology and refinement choices.
   Submitted queued and running jobs expose cancellation without a generation

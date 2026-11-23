@@ -193,10 +193,16 @@ fn gap_free_spans(regions: &[Region], speech_end: usize) -> Vec<Region> {
 /// CLI entry: decode `input_wav` (16 kHz mono PCM WAV), stream it, write the raw
 /// output + bare-VAD-region takes + gap-free takes, and print a coverage report.
 pub(crate) fn run_cli(input_wav: &str, target_language: &str) -> Result<(), String> {
-    let api_key = std::env::var("GEMINI_API_KEY")
-        .ok()
-        .filter(|key| !key.trim().is_empty())
-        .ok_or_else(|| "GEMINI_API_KEY env var is not set".to_string())?;
+    let saved_key = crate::APP
+        .lock()
+        .map_err(|_| "Configuration is unavailable")?
+        .config
+        .gemini_api_key
+        .clone();
+    let api_key = crate::api::provider_credentials::resolve("GEMINI_API_KEY", &saved_key);
+    if api_key.is_empty() {
+        return Err("Gemini API key is not configured".to_string());
+    }
     let bytes = std::fs::read(input_wav).map_err(|e| format!("read {input_wav}: {e}"))?;
     let samples = decode_wav_mono_i16(&bytes, "GtTest")?;
     eprintln!(

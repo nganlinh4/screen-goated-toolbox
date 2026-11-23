@@ -14,26 +14,60 @@ pub(super) unsafe fn place_targets(targets: &[DragTarget], dx: i32, dy: i32, liv
         if selected.is_empty() {
             return;
         }
-        let Ok(mut batch) = BeginDeferWindowPos(selected.len() as i32) else {
-            return;
-        };
-        for target in selected {
-            let hwnd = HWND(target.id as *mut std::ffi::c_void);
-            let (x, y) = translated_origin(target.start_rect, dx, dy);
-            batch = DeferWindowPos(
-                batch,
-                hwnd,
-                None,
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-            )
-            .unwrap_or(batch);
+        let moved = defer_positions(
+            &selected,
+            |count| BeginDeferWindowPos(count as i32).ok(),
+            |batch, target| {
+                let hwnd = HWND(target.id as *mut std::ffi::c_void);
+                let (x, y) = translated_origin(target.start_rect, dx, dy);
+                DeferWindowPos(
+                    batch,
+                    hwnd,
+                    None,
+                    x,
+                    y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+                .ok()
+            },
+            |batch| EndDeferWindowPos(batch).is_ok(),
+        );
+        if !moved {
+            for target in selected {
+                let hwnd = HWND(target.id as *mut std::ffi::c_void);
+                let (x, y) = translated_origin(target.start_rect, dx, dy);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    x,
+                    y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
         }
-        let _ = EndDeferWindowPos(batch);
     }
+}
+
+fn defer_positions<T, B>(
+    targets: &[T],
+    begin: impl FnOnce(usize) -> Option<B>,
+    mut defer: impl FnMut(B, &T) -> Option<B>,
+    finish: impl FnOnce(B) -> bool,
+) -> bool {
+    let Some(mut batch) = begin(targets.len()) else {
+        return false;
+    };
+    for target in targets {
+        let Some(next) = defer(batch, target) else {
+            return false;
+        };
+        batch = next;
+    }
+    finish(batch)
 }
 
 pub(crate) fn translated_origin(rect: RECT, dx: i32, dy: i32) -> (i32, i32) {
@@ -109,5 +143,101 @@ pub(super) unsafe fn place_resized_target(resize: &ActiveResize, dx: i32, dy: i3
             rect.bottom - rect.top,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DragTarget, defer_positions, place_targets};
+    use std::cell::Cell;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowRect, WS_EX_NOACTIVATE, WS_POPUP,
+    };
+    use windows::core::w;
+
+    fn offscreen_window(left: i32) -> HWND {
+        unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE,
+                w!("Static"),
+                w!(""),
+                WS_POPUP,
+                left,
+                -20000,
+                40,
+                40,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        }
+    }
+
+    fn target(hwnd: HWND, left: i32) -> DragTarget {
+        DragTarget {
+            id: hwnd.0 as isize,
+            start_rect: RECT {
+                left,
+                top: -20000,
+                right: left + 40,
+                bottom: -19960,
+            },
+            live_native: true,
+            native_backed: true,
+        }
+    }
+
+    #[test]
+    fn a_member_destroyed_mid_drag_does_not_strand_the_rest_of_the_group() {
+        let lefts = [-20000, -19900, -19800];
+        let windows = lefts.map(offscreen_window);
+        let targets = [0, 1, 2].map(|index| target(windows[index], lefts[index]));
+        unsafe {
+            DestroyWindow(windows[0]).unwrap();
+            place_targets(&targets, 7, 11, false);
+            for index in [1, 2] {
+                let mut rect = RECT::default();
+                GetWindowRect(windows[index], &mut rect).unwrap();
+                assert_eq!((rect.left, rect.top), (lefts[index] + 7, -20000 + 11));
+                DestroyWindow(windows[index]).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn failed_batch_is_abandoned_and_reported_for_fallback() {
+        let finished = Cell::new(false);
+        let attempted = Cell::new(0);
+        let success = defer_positions(
+            &[1, 2, 3],
+            |_| Some(0),
+            |batch, target| {
+                attempted.set(attempted.get() + 1);
+                (*target != 2).then_some(batch + 1)
+            },
+            |_| {
+                finished.set(true);
+                true
+            },
+        );
+        assert!(!success);
+        assert_eq!(attempted.get(), 2);
+        assert!(!finished.get());
+
+        assert!(!defer_positions::<_, ()>(
+            &[1],
+            |_| None,
+            |_, _| panic!("no batch was created"),
+            |_| panic!("no batch was created"),
+        ));
+        assert!(!defer_positions(
+            &[1],
+            |_| Some(()),
+            |(), _| Some(()),
+            |()| false
+        ));
     }
 }

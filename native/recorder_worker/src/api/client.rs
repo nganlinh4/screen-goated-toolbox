@@ -3,9 +3,6 @@ use std::time::Duration;
 use ureq::http::HeaderMap;
 use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
-#[path = "../../../../src/api/client/download_transport.rs"]
-mod download_transport;
-
 fn platform_tls_config() -> TlsConfig {
     TlsConfig::builder()
         .provider(TlsProvider::NativeTls)
@@ -27,18 +24,11 @@ fn build_agent(http_status_as_error: bool) -> ureq::Agent {
         .into()
 }
 
-fn build_download_agent() -> ureq::Agent {
-    download_transport::build(
-        platform_tls_config(),
-        concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")),
-        Duration::from_secs(120),
-        Duration::from_secs(30),
-    )
-}
-
 pub(crate) static UREQ_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| build_agent(true));
 pub(crate) static UREQ_RESPONSE_AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| build_agent(false));
-pub(crate) static UREQ_DOWNLOAD_AGENT: LazyLock<ureq::Agent> = LazyLock::new(build_download_agent);
+/// The shared Ollama module streams through this name; the worker keeps its
+/// single bounded agent for streaming as before.
+pub(crate) use self::UREQ_AGENT as UREQ_STREAM_AGENT;
 
 pub(crate) fn record_usage_headers(provider: &str, model: &str, headers: &HeaderMap) {
     let Some(snapshot) = crate::usage_stats::snapshot_from_headers(
@@ -89,7 +79,7 @@ mod tls_tests {
 
     #[test]
     fn every_worker_agent_uses_the_windows_certificate_verifier() {
-        for agent in [&*UREQ_AGENT, &*UREQ_RESPONSE_AGENT, &*UREQ_DOWNLOAD_AGENT] {
+        for agent in [&*UREQ_AGENT, &*UREQ_RESPONSE_AGENT] {
             let tls = agent.config().tls_config();
             assert_eq!(tls.provider(), TlsProvider::NativeTls);
             assert!(matches!(tls.root_certs(), RootCerts::PlatformVerifier));

@@ -21,8 +21,6 @@ pub struct InspectedImage {
     pub path: PathBuf,
     pub size_bytes: u64,
     pub sha256: String,
-    pub width: u32,
-    pub height: u32,
     format: ImageFormat,
 }
 
@@ -104,8 +102,6 @@ pub fn inspect_image(path: impl AsRef<Path>) -> Result<InspectedImage, String> {
         path,
         size_bytes: metadata.len(),
         sha256: format!("{:x}", hasher.finalize()),
-        width,
-        height,
         format,
     })
 }

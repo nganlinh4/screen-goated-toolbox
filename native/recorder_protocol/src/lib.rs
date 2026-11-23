@@ -10,7 +10,29 @@ pub const MAX_SCRIPT_BYTES: usize = 128 * 1024;
 pub const MAX_PATH_BYTES: usize = 32 * 1024;
 pub const MAX_DECODED_AUDIO_BYTES: u64 = 512 * 1024 * 1024;
 pub const RESPONSE_PREFIX: &str = "SGT_RECORDER_IPC ";
+pub const SETTINGS_PREFIX: &str = "SGT_RECORDER_SETTINGS ";
+pub const PROGRESS_PROTOCOL_VERSION: u32 = 1;
+pub const MAX_PROGRESS_KEYS: usize = 64;
+pub const MAX_PROGRESS_DATAGRAM_BYTES: usize = 16 * 1024;
+pub const SETTINGS_PROTOCOL_VERSION: u32 = 2;
+/// Requires a host-owned helper job before startup and verified helper retirement on shutdown.
+pub const SHUTDOWN_PROTOCOL_VERSION: u32 = 2;
 pub const MAX_RESPONSE_LINE_BYTES: usize = RESPONSE_PREFIX.len() + MAX_JSON_BYTES + 1;
+
+/// Audio file types, lowercase and without the dot, that the host routes and
+/// decodes and the recorder imports under their own extension. One list, so a
+/// file the host hands to the recorder is never refused or relabeled there.
+pub const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "flac", "ogg", "m4a", "m4b", "aac", "alac", "aiff", "aif", "opus", "mka",
+];
+
+/// The entry of [`SUPPORTED_AUDIO_EXTENSIONS`] matching `extension`, ignoring case.
+pub fn supported_audio_extension(extension: &str) -> Option<&'static str> {
+    SUPPORTED_AUDIO_EXTENSIONS
+        .iter()
+        .copied()
+        .find(|candidate| candidate.eq_ignore_ascii_case(extension))
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -28,6 +50,11 @@ pub enum Command {
     Show,
     Toggle,
     UpdateSettings,
+    SettingsAck {
+        event_id: u64,
+        settings: Option<RecorderSettings>,
+        error: Option<String>,
+    },
     EvaluateScript {
         script: String,
     },
@@ -49,6 +76,8 @@ pub enum Command {
         reason: String,
     },
     Cleanup,
+    PrepareShutdown,
+    CancelShutdown,
     ExportReplay {
         path: String,
         runs: u16,
@@ -59,6 +88,116 @@ pub enum Command {
         target_language: String,
     },
     Shutdown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecorderHotkey {
+    pub code: u32,
+    pub modifiers: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecorderSettings {
+    pub hotkeys: Vec<RecorderHotkey>,
+    pub project_limit: usize,
+    pub upload_limit: usize,
+    pub window_size: (i32, i32),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(
+    tag = "type",
+    content = "payload",
+    rename_all = "kebab-case",
+    deny_unknown_fields
+)]
+pub enum SettingsChange {
+    Snapshot,
+    AddHotkey(RecorderHotkey),
+    RemoveHotkey(RecorderHotkey),
+    ProjectLimit(usize),
+    UploadLimit(usize),
+    WindowSize((i32, i32)),
+    /// The recorder is (or stops) recording a new binding, so the host pauses
+    /// (or resumes) its global hotkeys. Nothing is saved; the ack is a snapshot.
+    BindingCapture(bool),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsEvent {
+    pub protocol_version: u32,
+    pub token: String,
+    pub event_id: u64,
+    pub change: SettingsChange,
+}
+
+impl SettingsEvent {
+    pub fn validate(&self, expected_token: &str, previous_event_id: u64) -> Result<(), String> {
+        if self.protocol_version != SETTINGS_PROTOCOL_VERSION
+            || !tokens_equal(&self.token, expected_token)
+            || self.event_id == 0
+            || self.event_id <= previous_event_id
+        {
+            return Err("invalid or stale recorder settings event".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProgressEntry {
+    pub operation_id: u64,
+    pub key: String,
+    pub percent: Option<f32>,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProgressEvent {
+    pub protocol_version: u32,
+    pub token: String,
+    pub event_id: u64,
+    pub entries: Vec<ProgressEntry>,
+}
+
+pub fn valid_progress_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 128
+        && key
+            .bytes()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == b'-')
+}
+
+impl ProgressEvent {
+    pub fn validate(&self, expected_token: &str, previous_event_id: u64) -> Result<(), String> {
+        if self.protocol_version != PROGRESS_PROTOCOL_VERSION
+            || !tokens_equal(&self.token, expected_token)
+            || self.event_id == 0
+            || self.event_id <= previous_event_id
+            || self.entries.len() > MAX_PROGRESS_KEYS
+        {
+            return Err("invalid or stale recorder progress event".to_string());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for entry in &self.entries {
+            if entry.operation_id == 0
+                || !seen.insert(entry.operation_id)
+                || !valid_progress_key(&entry.key)
+                || entry
+                    .percent
+                    .is_some_and(|value| !value.is_finite() || !(0.0..=100.0).contains(&value))
+                || (entry.percent.is_some() != (entry.revision > 0))
+            {
+                return Err("invalid recorder progress entry".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -128,6 +267,20 @@ impl Response {
 impl Command {
     pub fn validate(&self) -> Result<(), String> {
         match self {
+            Self::SettingsAck {
+                event_id,
+                settings,
+                error,
+            } => {
+                if *event_id == 0
+                    || settings.is_some() == error.is_some()
+                    || error
+                        .as_ref()
+                        .is_some_and(|error| error.is_empty() || error.len() > 4096)
+                {
+                    return Err("invalid recorder settings acknowledgement".to_string());
+                }
+            }
             Self::EvaluateScript { script } => {
                 validate_text(script, MAX_SCRIPT_BYTES, "script")?;
             }
@@ -193,6 +346,49 @@ mod tests {
     }
 
     #[test]
+    fn progress_snapshot_rejects_stale_spoofed_duplicate_and_unbounded_values() {
+        let mut event = ProgressEvent {
+            protocol_version: PROGRESS_PROTOCOL_VERSION,
+            token: token(),
+            event_id: 4,
+            entries: vec![ProgressEntry {
+                operation_id: 1,
+                key: "model-one".into(),
+                percent: Some(45.0),
+                revision: 1,
+            }],
+        };
+        assert!(event.validate(&token(), 3).is_ok());
+        assert!(event.validate(&token(), 4).is_err());
+        assert!(event.validate(&"00".repeat(TOKEN_BYTES), 3).is_err());
+        event.entries.push(ProgressEntry {
+            operation_id: 1,
+            key: "model-one".into(),
+            percent: None,
+            revision: 0,
+        });
+        assert!(event.validate(&token(), 3).is_err());
+        event.entries.pop();
+        event.entries[0].percent = Some(f32::NAN);
+        assert!(event.validate(&token(), 3).is_err());
+        event.entries[0].percent = Some(101.0);
+        assert!(event.validate(&token(), 3).is_err());
+        event.entries[0].percent = None;
+        event.entries[0].revision = 0;
+        event.entries[0].key = "bad/key".into();
+        assert!(event.validate(&token(), 3).is_err());
+        event.entries = (0..=MAX_PROGRESS_KEYS)
+            .map(|i| ProgressEntry {
+                operation_id: i as u64 + 1,
+                key: format!("model-{i}"),
+                percent: None,
+                revision: 0,
+            })
+            .collect();
+        assert!(event.validate(&token(), 3).is_err());
+    }
+
+    #[test]
     fn rejects_stale_ids_wrong_tokens_and_oversized_payloads() {
         let mut request = Request {
             protocol_version: PROTOCOL_VERSION,
@@ -241,6 +437,55 @@ mod tests {
             token()
         );
         assert!(serde_json::from_str::<Request>(&raw).is_err());
+    }
+
+    #[test]
+    fn settings_events_require_current_session_token_and_fresh_id() {
+        let mut event = SettingsEvent {
+            protocol_version: SETTINGS_PROTOCOL_VERSION,
+            token: token(),
+            event_id: 7,
+            change: SettingsChange::Snapshot,
+        };
+        assert!(event.validate(&token(), 6).is_ok());
+        assert!(event.validate(&token(), 7).is_err());
+        assert!(event.validate(&"00".repeat(TOKEN_BYTES), 0).is_err());
+        event.protocol_version += 1;
+        assert!(event.validate(&token(), 0).is_err());
+    }
+
+    #[test]
+    fn binding_capture_round_trips_as_a_settings_change() {
+        let wire = serde_json::to_string(&SettingsChange::BindingCapture(true)).unwrap();
+        assert_eq!(wire, r#"{"type":"binding-capture","payload":true}"#);
+        assert!(matches!(
+            serde_json::from_str(&wire).unwrap(),
+            SettingsChange::BindingCapture(true)
+        ));
+    }
+
+    #[test]
+    fn settings_ack_requires_exactly_one_outcome() {
+        let ack = |event_id, settings, error| Command::SettingsAck {
+            event_id,
+            settings,
+            error,
+        };
+        let settings = RecorderSettings {
+            hotkeys: vec![],
+            project_limit: 50,
+            upload_limit: 8,
+            window_size: (1000, 700),
+        };
+        assert!(ack(1, Some(settings.clone()), None).validate().is_ok());
+        assert!(ack(1, None, Some("failed".into())).validate().is_ok());
+        assert!(ack(0, Some(settings.clone()), None).validate().is_err());
+        assert!(ack(1, None, None).validate().is_err());
+        assert!(
+            ack(1, Some(settings), Some("failed".into()))
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

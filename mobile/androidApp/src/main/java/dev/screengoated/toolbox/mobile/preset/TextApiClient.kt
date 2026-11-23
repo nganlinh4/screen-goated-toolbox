@@ -26,14 +26,14 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         streamingEnabled: Boolean = true,
         searchEnabled: Boolean = false,
         targetLanguage: String? = null,
-        predictionContent: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val model = resolveModel(modelId)
+            requireExplicitSearchOptIn(model, searchEnabled)
             require(model.modelType == PresetModelType.TEXT && model.provider.hasTextPresetRuntime()) {
                 "Unsupported text provider: ${model.provider.name.lowercase()}"
             }
-            require(!searchEnabled || PresetModelCatalog.supportsSearch(model.provider, model.fullName)) {
+            require(!searchEnabled || PresetModelCatalog.supportsTextSearch(model)) {
                 "SEARCH_UNSUPPORTED:${model.provider.name.lowercase()}:${model.fullName}"
             }
             val normalizer = InitialLineBreakNormalizer()
@@ -53,7 +53,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
                 )
 
                 PresetModelProvider.GROQ -> {
-                    if (model.fullName.startsWith("groq/compound")) {
+                    if (isGroqCompound(model.fullName)) {
                         runGroqCompound(
                             apiKey = apiKeys.groqKey,
                             model = model,
@@ -146,7 +146,7 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
             modelId = model.id,
             provider = model.provider,
             apiModel = model.fullName,
-            supportsSearch = PresetModelCatalog.supportsSearch(model.provider, model.fullName),
+            supportsSearch = PresetModelCatalog.supportsTextSearch(model),
             geminiThinkingConfig = PresetModelCatalog.geminiThinkingConfig(
                 model.provider,
                 model.fullName,
@@ -162,40 +162,28 @@ class TextApiClient(internal val httpClient: OkHttpClient) {
         searchEnabled: Boolean = false,
     ): String {
         val model = resolveModel(modelId)
-        return when (model.provider) {
-            PresetModelProvider.GOOGLE -> buildGeminiDebugPayload(
-                fullName = model.fullName,
-                prompt = prompt,
-                inputText = inputText,
-                streamingEnabled = streamingEnabled,
-                searchEnabled = searchEnabled,
-            )
+        requireExplicitSearchOptIn(model, searchEnabled)
+        require(!searchEnabled || PresetModelCatalog.supportsTextSearch(model)) {
+            "SEARCH_UNSUPPORTED:${model.provider.name.lowercase()}:${model.fullName}"
+        }
+        val payload = when (model.provider) {
+            PresetModelProvider.GOOGLE -> buildGeminiPayload(model, prompt, inputText, searchEnabled)
 
-            PresetModelProvider.GROQ -> {
-                if (model.fullName.startsWith("groq/compound")) {
-                    buildGroqCompoundDebugPayload(
-                        fullName = model.fullName,
-                        prompt = prompt,
-                        inputText = inputText,
-                    )
-                } else {
-                    buildOpenAiCompatibleDebugPayload(
-                        provider = model.provider,
-                        fullName = model.fullName,
-                        prompt = prompt,
-                        inputText = inputText,
-                        searchEnabled = searchEnabled,
-                    )
-                }
+            PresetModelProvider.GROQ -> if (isGroqCompound(model.fullName)) {
+                groqCompoundPayload(model.fullName, prompt, inputText)
+            } else {
+                openAiPayload(
+                    model.provider, model.fullName, prompt, inputText,
+                    stream = streamingEnabled, searchEnabled = searchEnabled,
+                )
             }
 
-            else -> buildOpenAiCompatibleDebugPayload(
-                provider = model.provider,
-                fullName = model.fullName,
-                prompt = prompt,
-                inputText = inputText,
+            else -> openAiPayload(
+                model.provider, model.fullName, prompt, inputText,
+                stream = streamingEnabled,
             )
         }
+        return payload.toString()
     }
 
     internal fun resolveModel(modelId: String): PresetModelDescriptor {

@@ -21,7 +21,8 @@ pub(super) struct OpenRouterImportModel {
 struct OpenRouterImportState {
     loading: bool,
     error: Option<String>,
-    models: Vec<OpenRouterImportModel>,
+    /// Shared so each frame borrows the list instead of copying every row.
+    models: std::sync::Arc<[OpenRouterImportModel]>,
 }
 
 #[derive(Deserialize)]
@@ -69,15 +70,15 @@ pub(super) fn render_openrouter_import_results(
         );
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new(format!("OpenRouter · {} models", models.len()))
-                .color(theme.on_surface_variant()),
+            egui::RichText::new(
+                text.model_catalog
+                    .custom_models_openrouter_count_fmt
+                    .replace("{count}", &models.len().to_string()),
+            )
+            .color(theme.on_surface_variant()),
         );
         ui.add_space(8.0);
-        let select_label = match config.ui_language.as_str() {
-            "vi" => "Chọn mô hình...",
-            "ko" => "모델 선택...",
-            _ => "Select model...",
-        };
+        let select_label = text.model_catalog.custom_models_select_model;
         let openrouter_accent = provider_accent("openrouter", dark);
         let button = filled_icon_button(
             ui,
@@ -169,7 +170,7 @@ pub(super) fn start_openrouter_import(api_key: String) {
             state.loading = false;
             match result {
                 Ok(models) => {
-                    state.models = models;
+                    state.models = models.into();
                     state.error = None;
                 }
                 Err(error) => {
@@ -208,7 +209,7 @@ fn parse_openrouter_models(data: Vec<serde_json::Value>) -> Vec<OpenRouterImport
                 .unwrap_or(&id)
                 .to_string();
             Some(OpenRouterImportModel {
-                model_type: infer_openrouter_model_type(&value, &id),
+                model_type: infer_openrouter_model_type(&value),
                 id,
                 name,
             })
@@ -216,14 +217,11 @@ fn parse_openrouter_models(data: Vec<serde_json::Value>) -> Vec<OpenRouterImport
         .collect()
 }
 
-fn infer_openrouter_model_type(value: &serde_json::Value, id: &str) -> CustomModelType {
-    let payload = value.to_string().to_lowercase();
-    let id_lower = id.to_lowercase();
-    if payload.contains("\"image\"")
-        || id_lower.contains("vision")
-        || id_lower.contains("-vl")
-        || id_lower.contains("/vl")
-        || id_lower.contains("llava")
+fn infer_openrouter_model_type(value: &serde_json::Value) -> CustomModelType {
+    if value
+        .pointer("/architecture/input_modalities")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|modalities| modalities.iter().any(|item| item.as_str() == Some("image")))
     {
         CustomModelType::Vision
     } else {
@@ -277,54 +275,34 @@ mod tests {
     }
 
     #[test]
-    fn infers_vision_from_image_modality_payload() {
-        let value = json!({
-            "id": "some/plain-model",
-            "architecture": { "input_modalities": ["text", "image"] }
-        });
-        assert_eq!(
-            infer_openrouter_model_type(&value, "some/plain-model"),
-            CustomModelType::Vision
-        );
-    }
-
-    #[test]
-    fn infers_vision_from_id_markers() {
-        for id in [
-            "qwen/qwen-vl",
-            "x/model-vl",
-            "anyscale/llava-13b",
-            "a/vision-pro",
-        ] {
-            let value = json!({ "id": id });
+    fn imported_modality_matches_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/parity-fixtures/preset-system/custom-models-dialog.json"
+        )))
+        .unwrap();
+        for case in fixture["openrouter_import_types"].as_array().unwrap() {
+            let expected = match case["expected"].as_str().unwrap() {
+                "VISION" => CustomModelType::Vision,
+                "TEXT" => CustomModelType::Text,
+                other => panic!("unknown expected type: {other}"),
+            };
             assert_eq!(
-                infer_openrouter_model_type(&value, id),
-                CustomModelType::Vision,
-                "expected Vision for id {id}"
+                infer_openrouter_model_type(&case["model"]),
+                expected,
+                "{case}"
             );
         }
-    }
-
-    #[test]
-    fn infers_text_when_no_vision_signal() {
-        let value = json!({
-            "id": "meta/llama-3-8b",
-            "architecture": { "input_modalities": ["text"] }
-        });
-        assert_eq!(
-            infer_openrouter_model_type(&value, "meta/llama-3-8b"),
-            CustomModelType::Text
-        );
     }
 
     #[test]
     fn parse_skips_entries_without_string_id_and_defaults_name() {
         let data = vec![
             json!({ "id": "a/text-model", "name": "Text Model" }),
-            json!({ "name": "missing id" }),   // no id -> skipped
-            json!({ "id": 42 }),               // non-string id -> skipped
-            json!({ "id": "b/no-name" }),      // name falls back to id
-            json!({ "id": "c/vision-model" }), // inferred Vision via id
+            json!({ "name": "missing id" }), // no id -> skipped
+            json!({ "id": 42 }),             // non-string id -> skipped
+            json!({ "id": "b/no-name" }),    // name falls back to id
+            json!({ "id": "c/vision-model", "architecture": { "input_modalities": ["image"] } }),
         ];
         let models = parse_openrouter_models(data);
         assert_eq!(models.len(), 3);

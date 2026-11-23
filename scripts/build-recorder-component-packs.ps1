@@ -52,14 +52,9 @@ if (-not [string]::IsNullOrEmpty($previousFlags)) {
     $buildFlags += $previousFlags.Split($separator)
 }
 
+& (Join-Path $PSScriptRoot "build-frontend-dependencies.ps1") -Project $frontend
 Push-Location $frontend
 try {
-    if (-not (Test-Path "node_modules")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            throw "Screen Recorder npm install failed"
-        }
-    }
     npm run build
     if ($LASTEXITCODE -ne 0) {
         throw "Screen Recorder frontend build failed"

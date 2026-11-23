@@ -7,6 +7,8 @@ pub(super) fn get() -> WorkspaceLocaleText {
         max_items_label: "저장 한도:",
         cc_memory_max_label: "컴퓨터 제어 기억:",
         history_empty: "기록이 없습니다.",
+        history_write_failed: "기록을 저장하지 못했습니다. 이전 결과는 유지되었습니다. 작업을 다시 시도하세요.",
+        history_load_failed: "기록을 불러오지 못했습니다. 기존 데이터는 유지되었습니다. 저장소를 확인한 후 앱을 다시 시작하세요.",
         clear_all_history_btn: "모두 삭제",
         view_image_btn: "이미지 보기",
         listen_audio_btn: "오디오 듣기",
@@ -27,5 +29,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         search_synthesizing: "정보 종합 중...",
         search_analyzed_sources: "{} 소스 분석 완료",
         search_processing: "결과 처리 및 요약 중...",
+        history_show_more: "더 보기",
+        history_show_less: "간단히 보기",
     }
 }

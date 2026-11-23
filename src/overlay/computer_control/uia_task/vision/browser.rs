@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use serde_json::{Value, json};
 
-use super::{run_cancellable, verify_located};
+use super::{run_grounding, verify_located};
 use crate::overlay::computer_control::controller::world::BrowserWindowIdentity;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,8 +121,13 @@ fn locate_css(
 ) -> Result<BrowserVisualLocation> {
     let (jpeg, width, height) = target.shot()?;
     let (description_owned, ctx_owned) = (description.to_string(), ctx.to_string());
-    let located = run_cancellable(cancel, move || {
-        super::super::super::vision_reader::locate_point(&jpeg, &description_owned, &ctx_owned)
+    let located = run_grounding(cancel, move |child| {
+        super::super::super::vision_reader::locate_point(
+            &jpeg,
+            &description_owned,
+            &ctx_owned,
+            child,
+        )
     })?;
     let (fresh_jpeg, fresh_width, fresh_height) = target.shot()?;
     if (fresh_width - width).abs() > f64::EPSILON || (fresh_height - height).abs() > f64::EPSILON {
@@ -148,9 +153,11 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_click(
 ) -> Value {
     let result = match locate_css(&target, description, ctx, cancel) {
         Ok(located) => {
-            eprintln!(
+            cc_diagnostic!(
                 "[cc] CLICK_TARGET(browser) '{description}' -> css({:.0},{:.0}) saw={:?}",
-                located.x, located.y, located.note
+                located.x,
+                located.y,
+                located.note
             );
             if cancel.load(Ordering::SeqCst) {
                 return target.tag(
@@ -214,9 +221,12 @@ pub(in crate::overlay::computer_control::uia_task) fn browser_drag(
             }));
         }
     };
-    eprintln!(
+    cc_diagnostic!(
         "[cc] DRAG_TARGET(browser) '{from}'->'{to}' : css({:.0},{:.0})->({:.0},{:.0})",
-        from_point.x, from_point.y, to_point.x, to_point.y
+        from_point.x,
+        from_point.y,
+        to_point.x,
+        to_point.y
     );
     if cancel.load(Ordering::SeqCst) {
         return target.tag(
@@ -253,12 +263,13 @@ fn locate_drag_css(
 ) -> Result<(BrowserVisualLocation, BrowserVisualLocation)> {
     let (jpeg, width, height) = target.shot()?;
     let (from_owned, to_owned, context_owned) = (from.to_string(), to.to_string(), ctx.to_string());
-    let (from_point, to_point) = run_cancellable(cancel, move || {
+    let (from_point, to_point) = run_grounding(cancel, move |child| {
         super::super::super::vision_reader::locate_drag_points(
             &jpeg,
             &from_owned,
             &to_owned,
             &context_owned,
+            child,
         )
     })?;
     let (fresh, fresh_width, fresh_height) = target.shot()?;
@@ -323,6 +334,7 @@ mod tests {
     use crate::overlay::computer_control::controller::world::{
         BrowserWindowIdentity, SurfaceIdentity,
     };
+    use crate::overlay::computer_control::session::View;
     use crate::overlay::computer_control::uia_task::FrameSource;
 
     fn browser_window() -> BrowserWindowIdentity {
@@ -338,6 +350,12 @@ mod tests {
     fn source_document_stays_exact_when_foreground_tab_drifts() {
         let source = FrameSource {
             frame_id: 9,
+            view: View {
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 100,
+            },
             surface: SurfaceIdentity::Browser {
                 tab_id: 73,
                 document_id: "doc-9".into(),
@@ -359,6 +377,12 @@ mod tests {
     fn native_source_never_falls_through_to_current_browser() {
         let source = FrameSource {
             frame_id: 10,
+            view: View {
+                x: 0,
+                y: 0,
+                w: 100,
+                h: 100,
+            },
             surface: SurfaceIdentity::Native {
                 hwnd: 5,
                 pid: 6,

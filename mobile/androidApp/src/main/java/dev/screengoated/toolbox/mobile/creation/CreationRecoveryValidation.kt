@@ -23,12 +23,9 @@ internal fun validateRestoredCreationRequest(
     require(isReservedCreationStagingFile(filesDir, tool, request.outputPath))
     require(File(request.outputPath).name == request.outputName)
     require(request.outputName.extensionEquals(tool))
-    val sources = request.imagePaths.ifEmpty {
-        request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
-    }
+    val sources = request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
     require(sources == normalizeCreationImagePaths(tool, sources, null))
     require(request.sourceDescriptors.map(CreationSourceDescriptor::path) == sources)
-    var aggregate = 0L
     request.sourceDescriptors.forEach { descriptor ->
         require(isManagedCreationJobInput(filesDir, request.jobId, descriptor.path))
         val actualSize = sizeOf(descriptor.path)
@@ -37,12 +34,7 @@ internal fun validateRestoredCreationRequest(
                 actualSize in 0..CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES,
         )
         require(sha256Of(descriptor.path).equals(descriptor.sha256, ignoreCase = true))
-        aggregate = creationSaturatingBytes(aggregate, actualSize)
     }
-    require(
-        tool != CreationTool.IMAGE_CREATOR ||
-            aggregate <= CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES,
-    )
     require(request.hasValidProductSettings(tool))
     true
 }.getOrDefault(false)
@@ -73,6 +65,7 @@ internal fun restoredCreationRecordIsBounded(
     val allowedStages = when (tool) {
         CreationTool.IMAGE_TO_3D ->
             setOf(
+                "queued",
                 "preparing",
                 "waiting_for_user",
                 "generating",
@@ -80,13 +73,9 @@ internal fun restoredCreationRecordIsBounded(
                 "refining",
                 "finalizing",
             )
-        CreationTool.IMAGE_TO_SVG -> setOf("preparing", "generating", "finalizing")
-        CreationTool.IMAGE_CREATOR -> setOf("preparing", "uploading", "generating", "finalizing")
+        CreationTool.IMAGE_TO_SVG -> setOf("queued", "preparing", "generating", "finalizing")
     }
-    return record.status.stage in allowedStages &&
-        !(tool == CreationTool.IMAGE_CREATOR &&
-            record.status.stage == "uploading" &&
-            record.request.imagePaths.isEmpty())
+    return record.status.stage in allowedStages
 }
 
 internal fun validateRestoredCreationSourceHandles(
@@ -121,13 +110,12 @@ internal fun boundedRestorableCreationRecords(
 private fun String.extensionEquals(tool: CreationTool): Boolean = when (tool) {
     CreationTool.IMAGE_TO_3D -> endsWith(".glb", ignoreCase = true)
     CreationTool.IMAGE_TO_SVG -> endsWith(".svg", ignoreCase = true)
-    CreationTool.IMAGE_CREATOR -> endsWith(".png", ignoreCase = true)
 }
 
 private fun CreationWorkerRequest.hasValidProductSettings(tool: CreationTool): Boolean = when (tool) {
     CreationTool.IMAGE_TO_3D -> {
         val mode = CreationGenerationMode.fromWireName(generationMode)
-        val route = CreationContract.route3dMode(mode, polycount, autoSegment)
+        val route = CreationContract.frozen3dMode(mode, polycount, autoSegment)
         operation in setOf("generate", "segment", "refine") &&
             generationMode == mode.wireName &&
             polycount == route.polycount &&
@@ -135,16 +123,10 @@ private fun CreationWorkerRequest.hasValidProductSettings(tool: CreationTool): B
             segmentationLevel in setOf("simple", "balanced", "detailed") &&
             (operation == "generate" ||
                 (!continuationToken.isNullOrBlank() &&
-                    refinementKind in CreationContract.REFINEMENT_ACTIONS))
+                    (operation == "segment" || refinementKind?.let(CreationContract::refinementCapability) in CreationContract.REFINEMENT_ACTIONS)))
     }
     CreationTool.IMAGE_TO_SVG -> operation == "generate" &&
         model in setOf("simple", "detail") &&
-        generationMode == null &&
-        !autoSegment
-    CreationTool.IMAGE_CREATOR -> operation == CreationContract.IMAGE_CREATOR_OPERATION &&
-        prompt?.trim()?.let {
-            it.isNotEmpty() && it.length <= CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS
-        } == true &&
         generationMode == null &&
         !autoSegment
 }

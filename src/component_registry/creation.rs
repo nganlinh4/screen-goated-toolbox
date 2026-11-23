@@ -1,14 +1,14 @@
 //! One verified Windows archive for the complete Creation product.
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 
 use super::receipt::{
-    OwnedComponentFile, file_matches, resolve_owned_path, validate_relative_path,
+    OwnedComponentFile, file_matches, read_verified_file, resolve_owned_path,
+    validate_relative_path,
 };
 use super::{ComponentLease, RemovalOutcome};
 
@@ -55,10 +55,8 @@ impl CreationPack {
         let path = Path::new("web").join(relative);
         let expected = expected_file(self.delivery, &path)?;
         let target = resolve_owned_path(&self.root, &path)?;
-        if !file_matches(&target, &owned_file(expected))? {
-            bail!("installed Creation interface failed integrity verification");
-        }
-        read_regular_file(&target)
+        read_verified_file(&target, &owned_file(expected))
+            .context("installed Creation interface failed integrity verification")
     }
 }
 
@@ -246,17 +244,6 @@ fn owned_file(file: &CreationFile) -> OwnedComponentFile {
         size_bytes: file.size_bytes,
         sha256: file.sha256.to_string(),
     }
-}
-
-fn read_regular_file(path: &Path) -> Result<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_file() || super::receipt::is_reparse_point(&metadata) {
-        bail!("Creation asset is not a regular file");
-    }
-    let mut file = std::fs::File::open(path)?;
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
 }
 
 fn localized_name() -> String {

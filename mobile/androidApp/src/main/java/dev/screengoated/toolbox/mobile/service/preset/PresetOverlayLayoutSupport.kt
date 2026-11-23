@@ -61,23 +61,6 @@ internal fun buildPanelHtmlSupport(
     )
 }
 
-internal fun buildInputHtmlSupport(
-    builder: PresetTextInputHtmlBuilder,
-    resolvedPreset: ResolvedPreset,
-    uiLanguage: String,
-    isDark: Boolean,
-    placeholder: String,
-): String {
-    return builder.build(
-        PresetTextInputHtmlSettings(
-            lang = uiLanguage,
-            title = resolvedPreset.preset.name(uiLanguage),
-            placeholder = placeholder,
-            isDark = isDark,
-        ),
-    )
-}
-
 internal fun navigateHistoryUpSupport(
     inputHistory: List<String>,
     historyNavigationIndex: Int?,

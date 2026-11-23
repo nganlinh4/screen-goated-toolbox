@@ -18,9 +18,9 @@ import dev.screengoated.toolbox.mobile.shared.live.TranslationResponse
 import dev.screengoated.toolbox.mobile.shared.live.LiveTextState
 import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
-import dev.screengoated.toolbox.mobile.preset.PresetCustomModelRegistry
 import dev.screengoated.toolbox.mobile.preset.PresetRetryChainKind
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
+import dev.screengoated.toolbox.mobile.preset.normalizeModelPriorityChains
 import dev.screengoated.toolbox.mobile.preset.effectiveChain
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
@@ -36,6 +36,7 @@ class AndroidLiveSessionRepository(
     private val projectionConsentStore: ProjectionConsentStore,
     private val overlaySupported: Boolean,
     private val historyRepository: HistoryRepository,
+    private val deferStartupPersistence: Boolean = false,
 ) {
     private var persistedConfig = normalizeConfig(settingsStore.loadConfig())
     private val mutableApiKey = MutableStateFlow(settingsStore.loadApiKey())
@@ -50,7 +51,7 @@ class AndroidLiveSessionRepository(
     )
     private val mutableUiPreferences = MutableStateFlow(settingsStore.loadUiPreferences())
     private val mutablePresetRuntimeSettings = MutableStateFlow(settingsStore.loadPresetRuntimeSettings())
-    private val mutableCustomModels = MutableStateFlow(settingsStore.loadCustomModels())
+    private val customModelState = CustomModelState(settingsStore::loadCustomModels, { settingsStore.saveCustomModels(it) })
 
     val apiKey: StateFlow<String> = mutableApiKey.asStateFlow()
     val groqApiKey: StateFlow<String> = mutableGroqApiKey.asStateFlow()
@@ -64,22 +65,28 @@ class AndroidLiveSessionRepository(
     val globalTtsSettings: StateFlow<MobileGlobalTtsSettings> = mutableGlobalTtsSettings.asStateFlow()
     val uiPreferences: StateFlow<MobileUiPreferences> = mutableUiPreferences.asStateFlow()
     val presetRuntimeSettings: StateFlow<PresetRuntimeSettings> = mutablePresetRuntimeSettings.asStateFlow()
-    val customModels: StateFlow<List<CustomPresetModelDefinition>> = mutableCustomModels.asStateFlow()
+    val customModels: StateFlow<List<CustomPresetModelDefinition>> = customModelState.models
+    val customModelsStatus: StateFlow<CustomModelStatus> = customModelState.status
+    val customModelEditor: StateFlow<CustomModelEditorSnapshot> = customModelState.editor
 
     val supportedLanguages: List<String> = LanguageCatalog.names
 
     init {
-        PresetCustomModelRegistry.set(mutableCustomModels.value)
+        if (!deferStartupPersistence) customModelState.publish()
         val permissions = permissionEvaluator.evaluate(context, persistedConfig, overlaySupported)
         store.hydrate(persistedConfig, permissions)
-        reconcileReadModel()
+        reconcileReadModel(persist = !deferStartupPersistence)
+    }
+
+    internal fun publishDeferredCustomModels() {
+        if (deferStartupPersistence) customModelState.publish()
     }
 
     fun refreshPermissions() {
         store.updatePermissions(permissionEvaluator.evaluate(context, state.value.config, overlaySupported))
     }
 
-    fun updateConfig(patch: LiveSessionPatch) {
+    @Synchronized fun updateConfig(patch: LiveSessionPatch) {
         val previousLanguage = state.value.config.targetLanguage
         store.updateConfig(patch)
         reconcileReadModel()
@@ -116,6 +123,12 @@ class AndroidLiveSessionRepository(
         settingsStore.saveOllamaUrl(url.trim())
     }
 
+    /** Restores the Live Translate session config and pane font sizes (Windows audio scope). */
+    @Synchronized fun restoreLiveTranslateDefaults() {
+        updateConfig(liveTranslateRestorePatch())
+        updatePaneFontSizes(RealtimePaneFontSizes())
+    }
+
     fun updatePaneFontSizes(fontSizes: RealtimePaneFontSizes) {
         mutablePaneFontSizes.value = fontSizes
         settingsStore.savePaneFontSizes(fontSizes)
@@ -131,10 +144,17 @@ class AndroidLiveSessionRepository(
         settingsStore.saveRealtimeTtsSettings(mutableRealtimeTtsSettings.value)
     }
 
-    private fun reconcileReadModel() {
+    private fun reconcileReadModel(persist: Boolean = true) {
         val current = mutableRealtimeTtsSettings.value
         val next = current.withDirectSpeech(RealtimeModelIds.isGeminiS2sModelId(transcriptionModelId()))
-        if (next != current) updateRealtimeTtsSettings(next)
+        if (next != current) {
+            if (persist) updateRealtimeTtsSettings(next) else {
+                mutableRealtimeTtsSettings.value = next.copy(
+                    speedPercent = next.speedPercent.coerceIn(50, 200),
+                    volumePercent = next.volumePercent.coerceIn(0, 100),
+                )
+            }
+        }
     }
 
     fun updateGlobalTtsSettings(settings: MobileGlobalTtsSettings) {
@@ -153,15 +173,23 @@ class AndroidLiveSessionRepository(
     }
 
     fun updatePresetRuntimeSettings(settings: PresetRuntimeSettings) {
-        mutablePresetRuntimeSettings.value = settings
-        settingsStore.savePresetRuntimeSettings(settings)
+        mutablePresetRuntimeSettings.value = settings.normalizeModelPriorityChains()
+        settingsStore.savePresetRuntimeSettings(mutablePresetRuntimeSettings.value)
     }
 
-    fun updateCustomModels(models: List<CustomPresetModelDefinition>) {
-        mutableCustomModels.value = models
-        PresetCustomModelRegistry.set(models)
-        settingsStore.saveCustomModels(models)
-    }
+    @Synchronized fun updateCustomModels(models: List<CustomPresetModelDefinition>): Boolean =
+        customModelState.update(models)
+
+    @Synchronized fun submitCustomModels(
+        expected: List<CustomPresetModelDefinition>, models: List<CustomPresetModelDefinition>,
+    ): CustomModelSubmission = customModelState.submitIfCurrent(expected, models)
+
+    fun editCustomModel(identity: CustomModelRowIdentity, transform: (CustomPresetModelDefinition) -> CustomPresetModelDefinition) =
+        customModelState.editRow(identity, transform)
+
+    fun deleteCustomModel(identity: CustomModelRowIdentity) = customModelState.deleteRow(identity)
+
+    @Synchronized fun retryCustomModels(): Boolean = customModelState.retry()
 
     fun runtimePermissions(): Array<String> = permissionEvaluator.runtimePermissions()
 
@@ -204,10 +232,6 @@ class AndroidLiveSessionRepository(
         nowMs: Long,
     ) {
         store.appendTranscript(text, nowMs)
-    }
-
-    fun updateTranscriptionLanguage(code: String) {
-        store.updateConfig(LiveSessionPatch(transcriptionLanguage = code))
     }
 
     fun setTranscriptSegments(

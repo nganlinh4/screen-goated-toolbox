@@ -2,5 +2,8 @@
   "dialog": { "image_too_small": "choose", "image_too_large": "choose", "image_invalid": "choose", "validation_unavailable": "retry", "dismissSubmits": false },
   "cases": [
     { "mode": "quality", "width": 31, "height": 32, "bytes": 20000001, "error": null }
+  ],
+  "retiredModes": [
+    { "mode": "fast", "width": 31, "height": 32, "bytes": 100, "error": "validation_unavailable" }
   ]
 }

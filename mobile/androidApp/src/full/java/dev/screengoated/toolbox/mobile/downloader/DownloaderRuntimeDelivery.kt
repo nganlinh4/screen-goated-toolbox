@@ -101,6 +101,7 @@ internal fun parseDownloaderRuntimeDelivery(
                     "yt-dlp must use an immutable official release"
                 }
                 val release = url.substringAfter("/download/").substringBefore('/')
+                require(YtDlpVersion.parse(release) != null) { "Invalid yt-dlp bootstrap version" }
                 require(version.startsWith(release)) { "yt-dlp delivery version differs" }
                 require(entryCount == null && uncompressedBytes == null) {
                     "yt-dlp must be delivered as a direct file"

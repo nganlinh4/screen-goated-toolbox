@@ -1,0 +1,15 @@
+{
+  "cases": [
+    {"name":"same-endpoint","opened":"endpoint-a","observed":"endpoint-a","reconnect":false},
+    {"name":"case-insensitive-identity","opened":"ENDPOINT-A","observed":"endpoint-a","reconnect":false},
+    {"name":"new-endpoint","opened":"endpoint-a","observed":"endpoint-b","reconnect":true},
+    {"name":"discovery-failure","opened":"endpoint-a","observed":null,"reconnect":false},
+    {"name":"unidentified-opened-device","opened":null,"observed":"endpoint-b","reconnect":false}
+  ],
+  "selectionCases": [
+    {"name":"communications-failure","communications":"unknown","selected":"console","accepted":false},
+    {"name":"communications-absent","communications":"absent","selected":"console","accepted":true},
+    {"name":"communications-not-resolved","communications":"comm","selected":"console","accepted":false},
+    {"name":"communications-selected","communications":"comm","selected":"comm","accepted":true}
+  ]
+}

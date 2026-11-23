@@ -25,6 +25,7 @@ pub(super) fn get() -> TtsSettingsLocaleText {
         tts_speed_slow: "느림",
         tts_speed_fast: "빠름",
         tts_preview_label: "미리 듣기",
+        tts_preview_english_sample: "미리 듣기 (영어 샘플)",
         tts_preview_texts: vec![
             "안녕하세요, 제 이름은 {}입니다. 만나서 반갑습니다.",
             "오늘 날씨가 정말 좋네요, {}와 함께 산책 어떠세요?",

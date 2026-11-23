@@ -1,36 +1,26 @@
 use super::CHILD_FLAG;
 use super::protocol::{ChildEvent, HostCommand, RendererFailureKind};
-use anyhow::Context;
-use std::ffi::{OsString, c_void};
+pub(super) use crate::overlay::compositor_policy::now_ms;
+use crate::overlay::compositor_policy::{
+    browser_arguments_with_software_fallback, gpu_failure_state, has_software_rendering_argument,
+    restart_delay_ms,
+};
+use crate::process_job::{HelperCommand, Input, LaunchSlot, Output, OwnedProcess};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, Once};
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject,
-};
+use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-use windows::core::PCWSTR;
 
 const HEARTBEAT_TIMEOUT_MS: u64 = 5_000;
 const STARTUP_TIMEOUT_MS: u64 = 15_000;
 const STABLE_GENERATION_MS: u64 = 30_000;
-const INITIAL_RESTART_DELAY_MS: u64 = 250;
-const MAX_RESTART_DELAY_MS: u64 = 30_000;
-const GPU_FAILURE_WINDOW_MS: u64 = 60_000;
-const GPU_FAILURE_THRESHOLD: u32 = 3;
-const SOFTWARE_RENDERING_ARGUMENT: &str = "--disable-gpu";
 
 struct RendererProcess {
-    child: Child,
-    stdin: BufWriter<ChildStdin>,
+    child: OwnedProcess,
+    stdin: BufWriter<Input>,
     generation: u64,
-    _job: OwnedHandle,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,6 +30,7 @@ pub(super) enum ProcessState {
     Unavailable,
 }
 
+static LAUNCH: LaunchSlot = LaunchSlot::new();
 static PROCESS: LazyLock<Mutex<Option<RendererProcess>>> = LazyLock::new(|| Mutex::new(None));
 static DESIRED: AtomicBool = AtomicBool::new(false);
 static STARTING: AtomicBool = AtomicBool::new(false);
@@ -56,9 +47,19 @@ static GPU_FAILURES: AtomicU32 = AtomicU32::new(0);
 static LAST_GPU_FAILURE_MS: AtomicU64 = AtomicU64::new(0);
 static SOFTWARE_RENDERING_REQUIRED: AtomicBool = AtomicBool::new(false);
 static WATCHDOG: Once = Once::new();
-static MONOTONIC_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+pub(super) fn current_generation() -> u64 {
+    LIVE_GENERATION.load(Ordering::SeqCst)
+}
+
+pub(super) fn is_current_generation(generation: u64) -> bool {
+    generation != 0 && current_generation() == generation
+}
 
 pub(super) fn request_process() {
+    if super::event_worker::is_disabled() {
+        return;
+    }
     DESIRED.store(true, Ordering::SeqCst);
     start_watchdog();
 }
@@ -91,7 +92,7 @@ pub(crate) fn restart_and_wait(timeout: Duration) -> bool {
 }
 
 pub(super) fn ensure_process() -> ProcessState {
-    if crate::initialization::console_exit_started() {
+    if crate::initialization::console_exit_started() || super::event_worker::is_disabled() {
         return ProcessState::Unavailable;
     }
     request_process();
@@ -126,28 +127,19 @@ fn spawn_process() -> anyhow::Result<()> {
         || inherited_arguments
             .as_deref()
             .is_some_and(has_software_rendering_argument);
-    let mut command = Command::new(std::env::current_exe()?);
-    command
-        .arg(CHILD_FLAG)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let permit = LAUNCH.acquire()?;
+    let mut command = HelperCommand::new(std::env::current_exe()?);
+    crate::paths::configure_isolated_child_environment(&mut command)?;
+    command.arg(CHILD_FLAG).pipe_stdin();
     if fallback_required {
         command.env(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
             browser_arguments_with_software_fallback(inherited_arguments),
         );
     }
-    let mut child = command.spawn()?;
-    let initialized = initialize_child(&mut child);
-    let (job, stdin, stdout, stderr) = match initialized {
-        Ok(initialized) => initialized,
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-    };
+    let mut child = crate::overlay::compositor_process::spawn_renderer(&mut command, permit)?;
+    let (stdin, stdout, stderr) = initialize_child(&mut child)?;
+    child.resume()?;
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let pid = child.id();
     if let Err(error) =
@@ -166,7 +158,6 @@ fn spawn_process() -> anyhow::Result<()> {
         child,
         stdin: BufWriter::new(stdin),
         generation,
-        _job: job,
     });
     std::thread::spawn(move || read_events(stdout, generation));
     std::thread::spawn(move || {
@@ -182,48 +173,17 @@ fn spawn_process() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn initialize_child(
-    child: &mut Child,
-) -> anyhow::Result<(
-    OwnedHandle,
-    ChildStdin,
-    std::process::ChildStdout,
-    std::process::ChildStderr,
-)> {
-    let job = create_kill_on_close_job(child)?;
+fn initialize_child(child: &mut OwnedProcess) -> anyhow::Result<(Input, Output, Output)> {
     let stdin = child
-        .stdin
-        .take()
+        .take_stdin()
         .ok_or_else(|| anyhow::anyhow!("realtime renderer stdin was not created"))?;
     let stdout = child
-        .stdout
-        .take()
+        .take_stdout()
         .ok_or_else(|| anyhow::anyhow!("realtime renderer stdout was not created"))?;
     let stderr = child
-        .stderr
-        .take()
+        .take_stderr()
         .ok_or_else(|| anyhow::anyhow!("realtime renderer stderr was not created"))?;
-    Ok((job, stdin, stdout, stderr))
-}
-
-fn create_kill_on_close_job(child: &Child) -> anyhow::Result<OwnedHandle> {
-    let raw = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
-        .context("create realtime compositor job")?;
-    let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
-    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    unsafe {
-        SetInformationJobObject(
-            HANDLE(job.as_raw_handle()),
-            JobObjectExtendedLimitInformation,
-            (&raw const limits).cast::<c_void>(),
-            std::mem::size_of_val(&limits) as u32,
-        )
-        .context("configure realtime compositor job")?;
-        AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(child.as_raw_handle()))
-            .context("contain realtime compositor process")?;
-    }
-    Ok(job)
+    Ok((stdin, stdout, stderr))
 }
 
 pub(super) fn write_command(command: &HostCommand) -> anyhow::Result<()> {
@@ -234,19 +194,36 @@ pub(super) fn write_command(command: &HostCommand) -> anyhow::Result<()> {
     write_command_to(&mut renderer.stdin, command)
 }
 
-fn write_command_to(
-    writer: &mut BufWriter<ChildStdin>,
-    command: &HostCommand,
-) -> anyhow::Result<()> {
+fn write_command_to(writer: &mut BufWriter<Input>, command: &HostCommand) -> anyhow::Result<()> {
     serde_json::to_writer(&mut *writer, command)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
     Ok(())
 }
 
-fn read_events(stdout: std::process::ChildStdout, generation: u64) {
-    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-        let event = match serde_json::from_str::<ChildEvent>(&line) {
+fn read_events(stdout: Output, generation: u64) {
+    let mut reader = BufReader::new(stdout);
+    loop {
+        let line = match super::event_worker::read_frame(&mut reader) {
+            Ok(Some(line)) => line,
+            Ok(None) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                if is_current_generation(generation) {
+                    super::event_worker::fail(generation, "renderer event exceeded size limit");
+                }
+                return;
+            }
+            Err(_) => break,
+        };
+        let read = line.len();
+        if !is_current_generation(generation) {
+            return;
+        }
+        if super::event_worker::is_disabled() {
+            fail_generation(generation, "event processing unavailable", true);
+            return;
+        }
+        let event = match serde_json::from_slice::<ChildEvent>(&line) {
             Ok(event) => event,
             Err(error) => {
                 crate::log_info!(
@@ -259,12 +236,22 @@ fn read_events(stdout: std::process::ChildStdout, generation: u64) {
         if LIVE_GENERATION.load(Ordering::SeqCst) != generation {
             return;
         }
-        match event {
-            ChildEvent::Ready => renderer_ready(generation),
-            ChildEvent::Heartbeat => renderer_heartbeat(),
-            ChildEvent::ResyncRequested => super::parent::queue_snapshot(),
-            ChildEvent::RendererFailure { kind } => handle_renderer_failure(generation, kind),
-            other => super::parent::handle_child_event(other),
+        match super::event_worker::route(event) {
+            super::event_worker::Route::Ready => renderer_ready(generation),
+            super::event_worker::Route::Heartbeat => renderer_heartbeat(),
+            super::event_worker::Route::Failure(kind) => handle_renderer_failure(generation, kind),
+            super::event_worker::Route::Ordered(other) => {
+                let session_id = match &other {
+                    ChildEvent::LayoutChanged { session_id, .. }
+                    | ChildEvent::Input { session_id, .. }
+                    | ChildEvent::Close { session_id } => *session_id,
+                    _ => super::state::REALTIME_SESSION_ID.load(Ordering::SeqCst),
+                };
+                if !super::event_worker::enqueue(generation, session_id, other, read) {
+                    super::event_worker::fail(generation, "event queue capacity exceeded");
+                    return;
+                }
+            }
         }
     }
     fail_generation(generation, "renderer disconnected", false);
@@ -320,6 +307,7 @@ fn start_watchdog() {
                 );
                 previous_tick = now;
                 if paused {
+                    super::event_worker::reset_stall_after_pause(now);
                     LAST_HEARTBEAT_MS.store(now, Ordering::SeqCst);
                     continue;
                 }
@@ -327,6 +315,7 @@ fn start_watchdog() {
                 {
                     continue;
                 }
+                super::event_worker::check_stall(now, LIVE_GENERATION.load(Ordering::SeqCst));
                 let live = LIVE_GENERATION.load(Ordering::SeqCst);
                 if crate::overlay::compositor_process::watchdog_should_restart(
                     DESIRED.load(Ordering::SeqCst),
@@ -361,7 +350,7 @@ pub(super) fn fail_live_renderer(reason: &str, terminate: bool) {
     }
 }
 
-fn fail_generation(generation: u64, reason: &str, terminate: bool) {
+pub(super) fn fail_generation(generation: u64, reason: &str, terminate: bool) {
     if crate::initialization::console_exit_started() {
         return;
     }
@@ -417,14 +406,10 @@ fn schedule_restart_backoff() {
     );
 }
 
-fn restart_delay_ms(failure: u32) -> u64 {
-    let shift = failure.saturating_sub(1).min(7);
-    INITIAL_RESTART_DELAY_MS
-        .saturating_mul(1_u64 << shift)
-        .min(MAX_RESTART_DELAY_MS)
-}
-
 pub(super) fn restart_now() -> ProcessState {
+    if super::event_worker::is_disabled() {
+        return ProcessState::Unavailable;
+    }
     if STARTING.swap(true, Ordering::SeqCst) {
         return ProcessState::Unavailable;
     }
@@ -437,10 +422,9 @@ pub(super) fn restart_now() -> ProcessState {
         LIVE_PID.store(0, Ordering::SeqCst);
         READY_GENERATION.store(0, Ordering::SeqCst);
         let _ = write_command_to(&mut renderer.stdin, &HostCommand::Shutdown);
-        if let Err(error) = crate::overlay::compositor_process::retire_renderer_tree(
-            &mut renderer.child,
-            &renderer._job,
-        ) {
+        if let Err(error) =
+            crate::overlay::compositor_process::retire_renderer_tree(&mut renderer.child)
+        {
             crate::log_info!("[Compositor] restart deferred until browser job exits: {error:#}");
             *PROCESS.lock().unwrap() = old;
             STARTING.store(false, Ordering::SeqCst);
@@ -465,62 +449,5 @@ pub(super) fn shutdown_for_exit() {
     if let Some(renderer) = renderer.as_mut() {
         let _ = write_command_to(&mut renderer.stdin, &HostCommand::Shutdown);
         crate::overlay::compositor_process::wait_for_exit_or_kill(&mut renderer.child);
-    }
-}
-
-fn browser_arguments_with_software_fallback(existing: Option<OsString>) -> OsString {
-    let mut arguments = existing.unwrap_or_default();
-    if !has_software_rendering_argument(&arguments) {
-        if !arguments.is_empty() {
-            arguments.push(" ");
-        }
-        arguments.push(SOFTWARE_RENDERING_ARGUMENT);
-    }
-    arguments
-}
-
-fn has_software_rendering_argument(arguments: &std::ffi::OsStr) -> bool {
-    arguments
-        .to_string_lossy()
-        .split_whitespace()
-        .any(|argument| argument == SOFTWARE_RENDERING_ARGUMENT)
-}
-
-fn gpu_failure_state(previous_at: u64, previous_count: u32, now: u64) -> (u32, bool) {
-    let count = if now.saturating_sub(previous_at) <= GPU_FAILURE_WINDOW_MS {
-        previous_count.saturating_add(1)
-    } else {
-        1
-    };
-    (count, count >= GPU_FAILURE_THRESHOLD)
-}
-
-fn now_ms() -> u64 {
-    MONOTONIC_EPOCH.elapsed().as_millis() as u64
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn restart_backoff_is_exponential_and_bounded() {
-        assert_eq!(restart_delay_ms(1), 250);
-        assert_eq!(restart_delay_ms(3), 1_000);
-        assert_eq!(restart_delay_ms(u32::MAX), 30_000);
-    }
-
-    #[test]
-    fn repeated_gpu_failures_request_software_rendering() {
-        assert_eq!(gpu_failure_state(1_000, 1, 2_000), (2, false));
-        assert_eq!(gpu_failure_state(2_000, 2, 3_000), (3, true));
-        assert_eq!(gpu_failure_state(1_000, 3, 70_000), (1, false));
-    }
-
-    #[test]
-    fn child_is_contained_by_a_kill_on_close_job() {
-        let source = include_str!("supervisor.rs");
-        assert!(source.contains("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE"));
-        assert!(source.contains("AssignProcessToJobObject"));
     }
 }

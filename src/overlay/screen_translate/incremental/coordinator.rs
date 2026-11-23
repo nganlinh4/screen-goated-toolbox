@@ -1,5 +1,5 @@
 //! Scene scheduling balances source completeness against measured request cost.
-use super::super::contract::DetectedTextRegion;
+use super::super::contract::{DetectedTextRegion, MAX_CANDIDATES};
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
@@ -198,7 +198,9 @@ impl Coordinator {
         let limit = target_bytes;
         for i in ready {
             let size = candidates[i].source_text.len();
-            if !chosen.is_empty() && selected_bytes + size > limit {
+            if chosen.len() == MAX_CANDIDATES
+                || (!chosen.is_empty() && selected_bytes + size > limit)
+            {
                 break;
             }
             selected_bytes += size;

@@ -1,8 +1,9 @@
+use crate::component_registry::is_reparse_point;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use serde_json::{Value, json};
@@ -73,7 +74,7 @@ struct BufferViewInfo {
     byte_stride: Option<u64>,
 }
 
-fn response(status: u16, body: Cow<'static, [u8]>) -> Response<Cow<'static, [u8]>> {
+pub(super) fn response(status: u16, body: Cow<'static, [u8]>) -> Response<Cow<'static, [u8]>> {
     Response::builder()
         .status(status)
         .header("Content-Type", "model/gltf-binary")
@@ -98,17 +99,6 @@ pub(super) fn validate_glb(path: &Path) -> Result<PathBuf, String> {
         .map_err(|_| "The model result is no longer available.".to_string())?;
     validate_glb_handle(&mut file, &canonical)?;
     Ok(canonical)
-}
-
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
 }
 
 fn validate_glb_handle(file: &mut std::fs::File, canonical: &Path) -> Result<u64, String> {
@@ -417,9 +407,29 @@ pub(super) fn validate_generated_exact(
     Ok(result)
 }
 
-pub(super) fn issue(path: &str) -> Result<Value, String> {
-    let path = validate_glb(Path::new(path))?;
-    if !super::runtime::is_known_result_path(&path) {
+pub(super) fn issue(path: &str, active: &AtomicBool) -> Result<Value, String> {
+    issue_with(path, active, super::runtime::is_known_result_path)
+}
+
+fn issue_with(
+    path: &str,
+    active: &AtomicBool,
+    known: impl FnOnce(&Path) -> bool,
+) -> Result<Value, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| "The model result is no longer available.".to_string())?;
+    if !metadata.is_file()
+        || is_reparse_point(&metadata)
+        || !(20..=MAX_GLB_BYTES).contains(&metadata.len())
+        || !Path::new(path)
+            .extension()
+            .is_some_and(|value| value.eq_ignore_ascii_case("glb"))
+    {
+        return Err("The model result is invalid.".to_string());
+    }
+    let path = std::fs::canonicalize(path)
+        .map_err(|_| "The model result is no longer available.".to_string())?;
+    if !known(&path) {
         return Err("The model result is not available in this session.".to_string());
     }
     let token = format!(
@@ -432,6 +442,11 @@ pub(super) fn issue(path: &str) -> Result<Value, String> {
         TOKEN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     );
     let mut tokens = TOKENS.lock().unwrap_or_else(|value| value.into_inner());
+    // Closing invalidates the target before clearing tokens, so a slow request
+    // cannot install a grant after its window has gone away.
+    if !active.load(Ordering::Acquire) {
+        return Err("The model preview is no longer active.".to_string());
+    }
     tokens.clear();
     tokens.insert(token.clone(), path);
     Ok(json!({ "url": model_asset_url(&token) }))
@@ -524,12 +539,18 @@ pub(super) fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> 
 #[path = "asset_protocol_hostile_tests.rs"]
 mod hostile_tests;
 #[cfg(test)]
+#[path = "asset_position_bounds_tests.rs"]
+mod position_bounds_tests;
+#[cfg(test)]
 #[path = "asset_protocol_tests.rs"]
 mod tests;
 
 #[cfg(test)]
 #[path = "asset_protocol_path_tests.rs"]
 mod path_tests;
+#[cfg(test)]
+#[path = "asset_protocol_serving_tests.rs"]
+mod serving_tests;
 #[cfg(test)]
 #[path = "asset_transport_tests.rs"]
 mod transport_tests;

@@ -294,6 +294,8 @@ export interface NarrationSegment {
   sourceSubtitleId?: string;
   /** All subtitle ids covered by this clip when narration was generated from an unsplit subtitle group. */
   sourceSubtitleIds?: string[];
+  /** Original cue boundaries as fractions of the generated subtitle take. */
+  sourceSubtitleTimings?: Array<{ id: string; start: number; end: number }>;
   /** Group id for the narration generation batch this clip came from. */
   narrationBatchId?: string;
   /** Continuous group-take id shared by virtual subtitle clips from one TTS request. */
@@ -302,6 +304,16 @@ export interface NarrationSegment {
   narrationGroupPromptText?: string;
   /** Project time where the continuous group audio should start. */
   narrationGroupSourceStartTime?: number;
+  /** User-edited view of a continuous group, shared by its source takes. */
+  narrationGroupEdit?: {
+    version: 1;
+    startTime: number;
+    inPoint: number;
+    outPoint: number;
+    playbackRate: number;
+    /** Keep an untrimmed take growing as additional group audio arrives. */
+    outPointAutoExtend?: boolean;
+  };
   /** Alignment source for the virtual subtitle boundary. */
   narrationAlignmentMode?: "aligned" | "mixed" | "estimated" | "single" | "failed";
   /** 0..1 confidence for this subtitle boundary inside the group take. */
@@ -324,35 +336,6 @@ export interface TtsProfileSnapshot {
     languageCode: string;
     languageName: string;
     voiceName: string;
-  }>;
-  stepAudioVoice?: string;
-  stepAudioReferenceVoiceId?: string;
-  stepAudioPromptText?: string;
-  stepAudioUseCustomReference?: boolean;
-  stepAudioReferenceAudioPath?: string;
-  stepAudioReferenceText?: string;
-  stepAudioReferenceLabel?: string;
-  magpieVoice?: string;
-  magpieVoiceConfigs?: Array<{
-    languageCode: string;
-    languageName: string;
-    voiceId: string;
-  }>;
-  kokoroVoice?: string;
-  kokoroSpeed?: number;
-  kokoroNumThreads?: number;
-  kokoroVoiceConfigs?: Array<{
-    languageCode: string;
-    languageName: string;
-    voiceId: string;
-  }>;
-  supertonicSpeed?: number;
-  supertonicNumSteps?: number;
-  supertonicNumThreads?: number;
-  supertonicVoiceConfigs?: Array<{
-    languageCode: string;
-    languageName: string;
-    voiceId: string;
   }>;
 }
 

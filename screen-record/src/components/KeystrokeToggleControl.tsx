@@ -4,13 +4,15 @@ import { Keyboard } from '@/components/ui/MaterialIcon';
 import { useSettings } from "@/hooks/useSettings";
 import { DEFAULT_KEYSTROKE_DELAY_SEC } from "@/hooks/useKeystrokeOverlayEditor";
 import { saveKeystrokeLanguage } from "@/hooks/useVideoState";
-import { sv } from "@/lib/appUtils";
+import { Slider } from "@/components/ui/Slider";
 
 export interface KeystrokeToggleControlProps {
   segment: VideoSegment | null;
   setSegment: (s: VideoSegment) => void;
   handleToggleKeystrokeMode: () => void;
   handleKeystrokeDelayChange: (delay: number) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function KeystrokeToggleControl({
@@ -18,6 +20,8 @@ export function KeystrokeToggleControl({
   setSegment,
   handleToggleKeystrokeMode,
   handleKeystrokeDelayChange,
+  beginBatch,
+  commitBatch,
 }: KeystrokeToggleControlProps) {
   const { t } = useSettings();
   const keystrokeMode = segment?.keystrokeMode ?? "off";
@@ -50,20 +54,16 @@ export function KeystrokeToggleControl({
       <div className="playback-keystroke-delay-popover absolute left-1/2 z-30 -translate-x-1/2 bottom-[calc(100%+4px)] w-[308px] px-2.5 py-2 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto">
         <div className="playback-keystroke-delay-row flex items-center gap-3">
           <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
-            <input
-              type="range"
+            <Slider
               aria-label={t.keystrokeDelay}
-              min="-1"
-              max="1"
-              step="0.01"
+              min={-1}
+              max={1}
+              step={0.01}
               disabled={!segment}
               value={segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC}
-              style={sv(
-                segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC,
-                -1,
-                1,
-              )}
-              onChange={(e) => handleKeystrokeDelayChange(Number(e.target.value))}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
+              onChange={handleKeystrokeDelayChange}
               className="playback-keystroke-delay-slider block w-full"
             />
           </div>

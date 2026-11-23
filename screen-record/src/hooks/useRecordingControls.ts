@@ -46,7 +46,6 @@ export function getInitialRecordingAudioSelection(): RecordingAudioSelection {
 export interface UseRecordingControlsParams {
   monitors: MonitorInfo[];
   getMonitors: () => Promise<MonitorInfo[]>;
-  getWindows: () => Promise<unknown>;
   isRecording: boolean;
   startNewRecording: (
     targetId: string,
@@ -56,8 +55,6 @@ export interface UseRecordingControlsParams {
     audioSelection: RecordingAudioSelection,
   ) => Promise<void>;
   setError: (error: string) => void;
-  showWindowSelect: boolean;
-  setShowWindowSelect: (show: boolean) => void;
   currentProjectId: string | null;
   currentVideo: string | null;
   segment: VideoSegment | null;
@@ -76,12 +73,9 @@ export interface UseRecordingControlsParams {
 export function useRecordingControls({
   monitors,
   getMonitors,
-  getWindows,
   isRecording,
   startNewRecording,
   setError,
-  showWindowSelect,
-  setShowWindowSelect,
   currentProjectId,
   currentVideo,
   segment,
@@ -184,36 +178,6 @@ export function useRecordingControls({
     }
   }, []);
 
-  // Refresh window list while window-select dialog is open
-  useEffect(() => {
-    if (!showWindowSelect) return;
-
-    let cancelled = false;
-    let inFlight = false;
-
-    const refreshWindows = async () => {
-      if (inFlight || cancelled) return;
-      inFlight = true;
-      try {
-        await getWindows();
-      } catch {
-        // noop
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void refreshWindows();
-    const timer = window.setInterval(() => {
-      void refreshWindows();
-    }, 1200);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [showWindowSelect, getWindows]);
-
   const handleSelectMonitorCapture = useCallback(
     (monitorId: string, fps: number | null) => {
       setCaptureSource("monitor");
@@ -293,8 +257,7 @@ export function useRecordingControls({
   }, []);
 
   const handleSelectWindowForRecording = useCallback(
-    async (windowId: string, _captureMethod: "game" | "window") => {
-      setShowWindowSelect(false);
+    async (windowId: string) => {
       setCaptureTargetId(windowId);
       if (!pendingWindowRecordingRef.current) return;
       pendingWindowRecordingRef.current = false;
@@ -304,7 +267,7 @@ export function useRecordingControls({
         setError(err as string);
       }
     },
-    [finalizeStartRecording, setError, setShowWindowSelect],
+    [finalizeStartRecording, setError],
   );
 
   const handleStartRecording = useCallback(async () => {
@@ -376,7 +339,7 @@ export function useRecordingControls({
   useEffect(() => {
     const handler = (event: Event) => {
       const { windowId } = (event as CustomEvent<{ windowId: string }>).detail;
-      handleSelectWindowForRecording(windowId, "window");
+      void handleSelectWindowForRecording(windowId);
     };
     window.addEventListener("external-window-selected", handler);
     return () =>
@@ -467,7 +430,6 @@ export function useRecordingControls({
     handleToggleRecordingMicAudio,
     handleSelectAllRecordingDeviceAudio,
     handleRequestRecordingAudioAppSelection,
-    handleSelectWindowForRecording,
     handleStartRecording,
   };
 }

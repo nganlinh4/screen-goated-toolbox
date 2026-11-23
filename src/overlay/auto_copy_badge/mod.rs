@@ -19,10 +19,12 @@ use wry::WebView;
 mod html;
 #[cfg(feature = "recorder-worker")]
 mod messages;
+#[cfg(not(feature = "recorder-worker"))]
 mod progress;
 #[cfg(feature = "recorder-worker")]
 mod window;
 
+#[cfg(not(feature = "recorder-worker"))]
 pub use progress::DownloadProgressBadge;
 
 #[cfg(feature = "recorder-worker")]
@@ -39,10 +41,6 @@ pub(super) static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 // Messages
 #[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
-#[cfg(feature = "recorder-worker")]
-pub(super) const WM_APP_UPDATE_PROGRESS: u32 = WM_USER + 202;
-#[cfg(feature = "recorder-worker")]
-pub(super) const WM_APP_HIDE_PROGRESS: u32 = WM_USER + 203;
 #[cfg(feature = "recorder-worker")]
 pub(super) const WM_APP_HIDE_BADGE: u32 = WM_USER + 204;
 #[cfg(feature = "recorder-worker")]
@@ -71,6 +69,7 @@ pub(super) struct PendingNotification {
     pub duration_ms: Option<u32>,
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 #[derive(Clone, Debug)]
 pub(super) struct ProgressNotification {
     pub owner: u64,
@@ -82,6 +81,7 @@ pub(super) struct ProgressNotification {
 #[cfg(feature = "recorder-worker")]
 pub(super) static PENDING_QUEUE: LazyLock<Mutex<VecDeque<PendingNotification>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
+#[cfg(not(feature = "recorder-worker"))]
 pub(super) static ACTIVE_PROGRESS: LazyLock<Mutex<Option<ProgressNotification>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -259,6 +259,7 @@ pub fn show_timed_detailed_notification(
     );
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn show_progress_notification(owner: u64, title: &str, snippet: &str, progress: Option<f32>) {
     let mut active = ACTIVE_PROGRESS.lock().unwrap();
     {
@@ -269,16 +270,14 @@ fn show_progress_notification(owner: u64, title: &str, snippet: &str, progress: 
             progress: progress.map(|value| value.clamp(0.0, 100.0)),
         });
     }
-    #[cfg(not(feature = "recorder-worker"))]
     crate::overlay::status_compositor::progress_upsert(
         title.to_string(),
         snippet.to_string(),
         progress,
     );
-    #[cfg(feature = "recorder-worker")]
-    ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn update_progress_notification_if_owned(
     owner: u64,
     title: &str,
@@ -299,17 +298,15 @@ fn update_progress_notification_if_owned(
         }
     };
     if updated {
-        #[cfg(not(feature = "recorder-worker"))]
         crate::overlay::status_compositor::progress_upsert(
             title.to_string(),
             snippet.to_string(),
             progress,
         );
-        #[cfg(feature = "recorder-worker")]
-        ensure_window_and_post(WM_APP_UPDATE_PROGRESS);
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 /// Hide only the progress notification with this identity. A completed download
 /// must not dismiss a newer concurrent download's badge.
 fn hide_progress_notification_for(owner: u64) {
@@ -323,23 +320,30 @@ fn hide_progress_notification_for(owner: u64) {
         }
     };
     if removed {
-        #[cfg(not(feature = "recorder-worker"))]
         crate::overlay::status_compositor::progress_remove();
-        #[cfg(feature = "recorder-worker")]
-        ensure_window_and_post(WM_APP_HIDE_PROGRESS);
     }
 }
 
+#[cfg(not(feature = "recorder-worker"))]
 fn progress_is_owned(active: Option<&ProgressNotification>, owner: u64) -> bool {
     active.is_some_and(|progress| progress.owner == owner)
 }
 
-#[cfg(feature = "recorder-worker")]
-pub(super) fn escape_js_text(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\'', "\\'")
-        .replace('\n', " ")
+/// A quoted JS literal for one notification line; line breaks become spaces.
+#[cfg(any(feature = "recorder-worker", test))]
+pub(super) fn notification_text_literal(text: &str) -> String {
+    let single_line: String = text
+        .chars()
+        .map(|ch| {
+            if matches!(ch, '\r' | '\n' | '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect();
+    // Also compiled into the recorder worker, which lacks the overlay utils.
+    serde_json::to_string(&single_line).unwrap_or_else(|_| "\"\"".to_owned())
 }
 
 #[cfg(feature = "recorder-worker")]
@@ -376,10 +380,22 @@ fn ensure_window_and_post(msg: u32) {
 
 #[cfg(test)]
 mod progress_tests {
-    use super::{ProgressNotification, progress_is_owned};
+    use super::notification_text_literal;
 
     #[test]
+    fn notification_text_is_one_complete_js_literal() {
+        let raw = "ffmpeg failed:\r\nC:\\out\\\"clip\"'s file\u{2028}end";
+        let literal = notification_text_literal(raw);
+        assert!(!literal.contains(['\r', '\n', '\u{2028}']), "{literal}");
+        let decoded: String = serde_json::from_str(&literal).unwrap();
+        assert_eq!(decoded, "ffmpeg failed:  C:\\out\\\"clip\"'s file end");
+    }
+
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
     fn a_completed_download_cannot_hide_a_newer_progress_owner() {
+        use super::{ProgressNotification, progress_is_owned};
+
         let active = ProgressNotification {
             owner: 2,
             title: "new download".to_string(),

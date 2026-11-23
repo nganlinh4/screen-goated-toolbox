@@ -1,0 +1,50 @@
+{
+  "frameIntervalMs": 50,
+  "maxDeliveriesPerSecond": 20,
+  "normalizationCases": [
+    {
+      "name": "running",
+      "running": true,
+      "value": 0.35,
+      "expected": 0.35
+    },
+    {
+      "name": "negative",
+      "running": true,
+      "value": -1,
+      "expected": 0
+    },
+    {
+      "name": "above-range",
+      "running": true,
+      "value": 4,
+      "expected": 1
+    },
+    {
+      "name": "stopped",
+      "running": false,
+      "value": 0.8,
+      "expected": 0
+    },
+    {
+      "name": "not-a-number",
+      "running": true,
+      "valueKind": "nan",
+      "expected": 0
+    },
+    {
+      "name": "infinite",
+      "running": true,
+      "valueKind": "infinity",
+      "expected": 0
+    }
+  ],
+  "delivery": {
+    "burstSamples": 1000,
+    "queuedWakes": 1,
+    "fullStateUpdates": 0,
+    "latestWins": true,
+    "retiredOwnerPublishes": false,
+    "staleWindowTicketChangesPending": false
+  }
+}

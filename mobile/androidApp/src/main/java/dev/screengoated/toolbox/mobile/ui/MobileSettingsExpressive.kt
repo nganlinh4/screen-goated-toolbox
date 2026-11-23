@@ -263,6 +263,7 @@ internal fun MorphingShapeBadge(
 @Composable
 internal fun MorphingVisibilityToggleButton(
     visible: Boolean,
+    contentDescription: String,
     accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -313,7 +314,7 @@ internal fun MorphingVisibilityToggleButton(
     ) {
         Icon(
             painter = painterResource(if (visible) R.drawable.ms_visibility_off else R.drawable.ms_visibility),
-            contentDescription = null,
+            contentDescription = contentDescription,
             tint = iconTint,
             modifier = Modifier.padding(8.dp),
         )

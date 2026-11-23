@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<body>
+<pre id="out"></pre>
+<script>
+// Draws the preview's cursor path (cursorGraphics.ts drawMouseCursor and
+// drawCursorShape) in the browser's own Canvas 2D: the shape and its shadow
+// go to an offscreen canvas, which is then drawn onto the frame at the
+// cursor opacity. The cursor is a white square, 22 cursor units wide, drawn
+// at cursor scale 2 around (64, 64) on a white 128 x 128 frame. generate.py
+// runs this page headless and writes golden.json.
+const SIZE = 128;
+const CENTER = 64;
+const SCALE = 2;
+const HALF_SQUARE = 11;
+const CASES = [
+  { name: 'default_strength', strength: 0.35, opacity: 1 },
+  { name: 'full_strength', strength: 1, opacity: 1 },
+  { name: 'overdrive', strength: 2, opacity: 1 },
+  { name: 'half_opacity', strength: 1, opacity: 0.5 },
+];
+
+function shadowParams(normalized) {
+  const base = Math.pow(Math.min(normalized, 1), 0.8);
+  const overdrive = Math.max(0, normalized - 1);
+  return {
+    alpha: Math.min(1, (0.95 * base) + (0.85 * overdrive)),
+    blur: 1.6 + (11.5 * base) + (14.0 * overdrive),
+    offsetX: (1.3 * base) + (1.7 * overdrive),
+    offsetY: (2.6 * base) + (3.2 * overdrive),
+  };
+}
+
+function render(testCase) {
+  const frame = document.createElement('canvas');
+  frame.width = SIZE;
+  frame.height = SIZE;
+  const ctx = frame.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const shadow = shadowParams(testCase.strength);
+  const margin = Math.ceil(Math.max(28, SCALE * 32) + shadow.blur + shadow.offsetY + 24);
+  const offscreen = document.createElement('canvas');
+  offscreen.width = margin * 2;
+  offscreen.height = margin * 2;
+  const oCtx = offscreen.getContext('2d');
+  oCtx.save();
+  oCtx.translate(margin, margin);
+  oCtx.scale(SCALE, SCALE);
+  oCtx.shadowColor = `rgba(0, 0, 0, ${shadow.alpha.toFixed(3)})`;
+  oCtx.shadowBlur = shadow.blur;
+  oCtx.shadowOffsetX = shadow.offsetX;
+  oCtx.shadowOffsetY = shadow.offsetY;
+  oCtx.fillStyle = '#ffffff';
+  oCtx.fillRect(-HALF_SQUARE, -HALF_SQUARE, HALF_SQUARE * 2, HALF_SQUARE * 2);
+  oCtx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = testCase.opacity;
+  ctx.drawImage(offscreen, CENTER - margin, CENTER - margin);
+  ctx.restore();
+
+  const pixels = ctx.getImageData(0, 0, SIZE, SIZE).data;
+  const grey = (x, y) => pixels[(y * SIZE + x) * 4];
+  const from = 80;
+  const span = [...Array(SIZE - from).keys()].map((i) => from + i);
+  return {
+    ...testCase,
+    row: { y: CENTER, x0: from, values: span.map((x) => grey(x, CENTER)) },
+    column: { x: CENTER, y0: from, values: span.map((y) => grey(CENTER, y)) },
+    diagonal: { start: from, values: span.map((i) => grey(i, i)) },
+  };
+}
+
+document.getElementById('out').textContent = JSON.stringify({
+  userAgent: navigator.userAgent,
+  cases: CASES.map(render),
+});
+</script>
+</body>
+</html>

@@ -63,7 +63,10 @@ function installCustomVocabularyEditor(options) {
         modal.classList.add('show');
         overlay.classList.add('show');
         window.realtimePostMessage('textInputStart');
-        requestAnimationFrame(() => input.focus());
+        const session = window.parent.realtimeSession?.();
+        requestAnimationFrame(() => {
+            if (session === undefined || session === window.parent.realtimeSession?.()) input.focus();
+        });
     });
     window.focusCustomVocabularyInput = function() { input.focus(); };
     overlay.addEventListener('click', close);

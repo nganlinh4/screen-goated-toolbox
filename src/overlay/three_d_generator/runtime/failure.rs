@@ -1,7 +1,8 @@
 use super::process::{finish_job, finish_job_retaining_intent};
 use super::{JobStatus, RuntimeOperation, runtime_status_label};
 
-pub(super) fn fail(job_id: &str, operation: &RuntimeOperation, _message: &str) {
+pub(super) fn fail(job_id: &str, operation: &RuntimeOperation, message: &str) {
+    crate::log_info!("[3D Generator] Creation failed: {message}");
     finish_failed(job_id, operation, false);
 }
 
@@ -10,8 +11,17 @@ pub(super) fn fail_retaining(job_id: &str, operation: &RuntimeOperation) {
 }
 
 fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool) {
+    let status = failed_status(job_id, operation);
+    if retain_intent {
+        finish_job_retaining_intent(job_id, status, None);
+    } else {
+        finish_job(job_id, status, None);
+    }
+}
+
+pub(super) fn failed_status(job_id: &str, operation: &RuntimeOperation) -> JobStatus {
     let (output_path, output_name) = failure_output(operation);
-    let status = JobStatus {
+    JobStatus {
         job_id: Some(job_id.to_string()),
         stage: "failed".to_string(),
         progress_text: "Creation was interrupted.".to_string(),
@@ -56,11 +66,6 @@ fn finish_failed(job_id: &str, operation: &RuntimeOperation, retain_intent: bool
         can_segment: false,
         error: Some("recovery_failed".to_string()),
         runtime_status: runtime_status_label(),
-    };
-    if retain_intent {
-        finish_job_retaining_intent(job_id, status, None);
-    } else {
-        finish_job(job_id, status, None);
     }
 }
 

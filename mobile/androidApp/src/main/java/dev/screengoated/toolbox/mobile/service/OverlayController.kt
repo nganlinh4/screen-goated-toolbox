@@ -34,7 +34,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import kotlin.math.roundToInt
 
 class OverlayController(
@@ -42,10 +41,11 @@ class OverlayController(
     internal val repository: AndroidLiveSessionRepository,
     internal val overlaySupported: Boolean,
     internal val stopRequested: () -> Unit,
-    internal val cancelDownloadRequested: () -> Unit,
     internal val restartRequested: () -> Unit,
     internal val sourceModeChanged: (SourceMode) -> Unit,
     internal val stopTextToSpeech: () -> Unit,
+    internal val resetTextToSpeech: () -> Unit,
+    internal val setS2sPlaybackVisible: (Boolean) -> Unit,
     internal val ttsRuntimeService: TtsRuntimeService,
 ) {
     init {
@@ -62,19 +62,13 @@ class OverlayController(
         screenBoundsProvider = this::screenBounds,
         onSelected = ::updateTargetLanguage,
     )
-    internal val transcriptionLanguagePicker = OverlayLanguagePicker(
-        context = context,
-        windowManager = windowManager,
-        screenBoundsProvider = this::screenBounds,
-        onSelected = this::onTranscriptionLanguageSelected,
-    )
 
     internal var transcriptionWindow: OverlayPaneWindow? = null
     internal var translationWindow: OverlayPaneWindow? = null
     internal var updateJob: Job? = null
     internal var ttsRuntimeJob: Job? = null
     internal var listeningVisible = true
-    internal var translationVisible = true
+    @Volatile internal var translationVisible = true
     internal var lastSnapshot: OverlaySnapshot? = null
     internal var lastRenderAtMs: Long = 0L
     internal var renderBurstCount = 0
@@ -101,6 +95,7 @@ class OverlayController(
 
         listeningVisible = true
         translationVisible = true
+        setS2sPlaybackVisible(true)
         transcriptionWindow = createPaneWindow(OverlayPaneId.TRANSCRIPTION)
         translationWindow = createPaneWindow(OverlayPaneId.TRANSLATION)
         updatePaneVisibility()
@@ -135,7 +130,6 @@ class OverlayController(
         ttsRuntimeJob?.cancel()
         ttsRuntimeJob = null
         languagePicker.hide()
-        transcriptionLanguagePicker.hide()
         transcriptionModelPicker.hide()
         translationModelPicker.hide()
         dragSnap.cancel()
@@ -156,46 +150,6 @@ class OverlayController(
     }
 
     fun isTranslationVisible(): Boolean = translationVisible
-
-    internal var downloadModalSubject = ""
-
-    fun showDownloadModal(title: String = "Model") {
-        downloadModalSubject = title
-        val overlay = currentOverlayLocale()
-        val message = title.ifBlank { overlay.pleaseWaitText }
-        transcriptionWindow?.evaluate(
-            buildString {
-                append("if(window.showDownloadModal) window.showDownloadModal(")
-                append(JSONObject.quote(overlay.downloadingModelTitle))
-                append(", ")
-                append(JSONObject.quote(message))
-                append(", 0);")
-            },
-        )
-    }
-
-    fun hideDownloadModal() {
-        transcriptionWindow?.evaluate("if(window.hideDownloadModal) window.hideDownloadModal();")
-    }
-
-    fun updateDownloadProgress(progress: Float, filename: String) {
-        val overlay = currentOverlayLocale()
-        val message = filename.ifBlank {
-            downloadModalSubject.ifBlank { overlay.pleaseWaitText }
-        }
-        val pct = progress.coerceIn(0f, 100f)
-        transcriptionWindow?.evaluate(
-            buildString {
-                append("if(window.showDownloadModal) window.showDownloadModal(")
-                append(JSONObject.quote(overlay.downloadingModelTitle))
-                append(", ")
-                append(JSONObject.quote(message))
-                append(", ")
-                append(pct)
-                append(");")
-            },
-        )
-    }
 
     internal fun createPaneWindow(paneId: OverlayPaneId): OverlayPaneWindow {
         return OverlayPaneWindow(
@@ -339,24 +293,13 @@ class OverlayController(
                 repository.updateCustomVocabulary(snapshot.entries)
             }
 
-            message == "showTranscriptionLanguagePicker" -> showTranscriptionLanguagePicker()
             message == "showTranscriptionModelPicker" -> showTranscriptionModelPicker()
             message == "showTranslationModelPicker" -> showTranslationModelPicker()
-
-            message.startsWith("transcriptionLanguage:") -> {
-                val code = message.removePrefix("transcriptionLanguage:")
-                repository.updateTranscriptionLanguage(code)
-                restartRequested()
-            }
 
             message.startsWith("ttsEnabled:") -> updateTtsEnabled(message.removePrefix("ttsEnabled:") == "1")
             message.startsWith("ttsSpeed:") -> updateTtsSpeed(message.removePrefix("ttsSpeed:"))
             message.startsWith("ttsAutoSpeed:") -> updateTtsAutoSpeed(message.removePrefix("ttsAutoSpeed:") == "1")
             message.startsWith("ttsVolume:") -> updateTtsVolume(message.removePrefix("ttsVolume:"))
-            message == "cancelDownload" -> {
-                hideDownloadModal()
-                cancelDownloadRequested()
-            }
         }
     }
 
@@ -373,11 +316,11 @@ class OverlayController(
 
     internal fun toggleTranslation(visible: Boolean) {
         translationVisible = visible
+        setS2sPlaybackVisible(visible)
         if (!translationVisible) {
             stopTextToSpeech()
             languagePicker.hide()
-            transcriptionLanguagePicker.hide()
-            transcriptionModelPicker.hide()
+                transcriptionModelPicker.hide()
             translationModelPicker.hide()
         }
         if (!listeningVisible && !translationVisible) {
@@ -473,7 +416,6 @@ class OverlayController(
         val previousConfig = repository.currentConfig()
         repository.updateConfig(LiveSessionPatch(targetLanguage = language))
         languagePicker.hide()
-        transcriptionLanguagePicker.hide()
         transcriptionModelPicker.hide()
         translationModelPicker.hide()
         if (
@@ -509,7 +451,7 @@ class OverlayController(
         val current = repository.currentRealtimeTtsSettings()
         repository.updateRealtimeTtsSettings(current.copy(enabled = enabled))
         if (!enabled) {
-            stopTextToSpeech()
+            resetTextToSpeech()
             translationWindow?.evaluate("if(window.closeTtsModal) window.closeTtsModal();")
         }
     }

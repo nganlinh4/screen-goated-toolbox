@@ -333,6 +333,10 @@ pub struct BakedWebcamFrame {
     pub roundness_px: f64,
     pub shadow_px: f64,
     pub mirror: bool,
+    /// Output pixels per preview pixel; scales the shader's fixed shadow
+    /// offset floor the way the TS bake scales `shadow_px`.
+    #[serde(default = "default_render_scale")]
+    pub render_scale: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -507,6 +511,10 @@ pub struct ExportRuntimeDiagnostics {
 }
 
 fn default_opacity() -> f64 {
+    1.0
+}
+
+fn default_render_scale() -> f64 {
     1.0
 }
 

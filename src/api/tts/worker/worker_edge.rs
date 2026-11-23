@@ -1,15 +1,17 @@
 // Edge TTS (Bing Speech) handler.
 
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, atomic::Ordering};
-use std::time::Duration;
-use tungstenite::{Message, client};
+use std::sync::Arc;
+use std::time::Instant;
+use tungstenite::Message;
 
 use super::super::manager::TtsManager;
 use super::super::types::AudioEvent;
-use super::super::utils::{clear_tts_loading_state, clear_tts_state};
-use super::open_weights::stream_pcm_samples;
+use super::open_weights::{fail_request, stream_pcm_samples};
 use crate::APP;
+
+#[path = "edge_transport.rs"]
+mod edge_transport;
 
 pub(super) fn handle_edge_tts(
     manager: Arc<TtsManager>,
@@ -17,61 +19,31 @@ pub(super) fn handle_edge_tts(
     tx: std::sync::mpsc::Sender<AudioEvent>,
 ) {
     let text = request.req.text.clone();
-    let generation = request.generation;
     let manager_clone = manager.clone();
 
     eprintln!("[TTS Edge] Starting Edge TTS for {} chars", text.len());
 
-    // Get Settings
-    let (voice_name, pitch, rate) = if let Some(profile) = request.req.profile.as_ref() {
-        let detected_code = profile.language_code_override.clone().unwrap_or_else(|| {
-            crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string())
-        });
-        let (voice, code_2, _, source) =
-            crate::api::tts::utils::resolve_edge_voice_for_language(profile, Some(&detected_code));
-        eprintln!(
-            "[TTS Edge][VoiceRoute] detected_6393={} edge_lang={} source={} voice={}",
-            detected_code, code_2, source, voice
-        );
-        (
-            voice,
-            profile.edge_settings.pitch,
-            profile.edge_settings.rate,
-        )
-    } else {
-        let app = APP.lock().unwrap();
-        let settings = &app.config.edge_tts_settings;
-
-        let detected_code =
-            crate::lang_detect::detect_language(&text).unwrap_or_else(|| "eng".to_string());
-
-        let mut voice = "en-US-AriaNeural".to_string();
-
-        let code_2 = isolang::Language::from_639_3(&detected_code)
-            .and_then(|l| l.to_639_1())
-            .unwrap_or("en");
-
-        for config in &settings.voice_configs {
-            if config.language_code == code_2 {
-                voice = config.voice_name.clone();
-                break;
-            }
-        }
-
-        (voice, settings.pitch, settings.rate)
-    };
+    let (voice_name, pitch, rate) =
+        edge_voice_settings(&request, &text, crate::lang_detect::detect_language);
 
     eprintln!(
         "[TTS Edge] Using voice: {}, pitch: {}, rate: {}",
         voice_name, pitch, rate
     );
 
-    let mut socket = match connect_edge_websocket() {
+    if request.is_cancelled(&manager) {
+        let _ = tx.send(AudioEvent::End);
+        return;
+    }
+    let started = Instant::now();
+    let mut socket = match connect_edge_websocket(started, Arc::clone(&manager), request.clone()) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[TTS Edge] ERROR: {}", e);
-            let _ = tx.send(AudioEvent::End);
-            clear_tts_state(request.req.hwnd);
+            if request.is_cancelled(&manager) {
+                let _ = tx.send(AudioEvent::End);
+            } else {
+                fail_request("Edge", request.req.hwnd, &tx, e);
+            }
             return;
         }
     };
@@ -90,9 +62,24 @@ pub(super) fn handle_edge_tts(
         chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)")
     );
 
-    if socket.send(Message::Text(config_msg.into())).is_err() {
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
+    if edge_transport::send_message(
+        &mut socket,
+        Message::Text(config_msg.into()),
+        started,
+        &|| request.is_cancelled(&manager),
+    )
+    .is_err()
+    {
+        if request.is_cancelled(&manager) {
+            let _ = tx.send(AudioEvent::End);
+        } else {
+            fail_request(
+                "Edge",
+                request.req.hwnd,
+                &tx,
+                "Edge connection failed while sending configuration",
+            );
+        }
         return;
     }
 
@@ -130,73 +117,64 @@ pub(super) fn handle_edge_tts(
         ssml
     );
 
-    if socket.send(Message::Text(ssml_msg.into())).is_err() {
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
-        return;
-    }
-
-    clear_tts_loading_state(request.req.hwnd);
-
-    // Read audio data
-    let mut mp3_data: Vec<u8> = Vec::new();
-
-    loop {
-        if generation < manager_clone.interrupt_generation.load(Ordering::SeqCst) {
-            break;
+    if edge_transport::send_message(
+        &mut socket,
+        Message::Text(ssml_msg.into()),
+        started,
+        &|| request.is_cancelled(&manager),
+    )
+    .is_err()
+    {
+        if request.is_cancelled(&manager) {
+            let _ = tx.send(AudioEvent::End);
+        } else {
+            fail_request(
+                "Edge",
+                request.req.hwnd,
+                &tx,
+                "Edge connection failed while sending speech request",
+            );
         }
+        return;
+    }
 
-        match socket.read() {
-            Ok(Message::Binary(data)) => {
-                if data.len() >= 2 {
-                    let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
-                    let audio_start = 2 + header_len;
-                    if data.len() > audio_start {
-                        let header = &data[2..audio_start];
-                        if header.windows(11).any(|w| w == b"Path:audio\r") {
-                            mp3_data.extend_from_slice(&data[audio_start..]);
-                        }
-                    }
-                }
-            }
-            Ok(Message::Text(text)) => {
-                let text = text.as_str();
-                if text.contains("Path:turn.end") {
-                    break;
-                }
-            }
-            Ok(Message::Close(_)) => break,
-            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(_) => break,
-            _ => {}
+    let received = edge_transport::receive_audio(
+        || socket.read(),
+        || request.is_cancelled(&manager_clone),
+        || started.elapsed() >= edge_transport::SESSION_BUDGET,
+    );
+    drop(socket);
+    if request.is_cancelled(&manager_clone) {
+        let _ = tx.send(AudioEvent::End);
+        return;
+    }
+    let mp3_data = match received {
+        Ok(audio) => audio,
+        Err(error) => {
+            fail_request("Edge", request.req.hwnd, &tx, error);
+            return;
         }
-    }
+    };
 
-    let _ = socket.close(None);
-
-    if mp3_data.is_empty() {
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
-        return;
-    }
-
-    // Decode MP3 to PCM (in-memory via symphonia)
-    let mut all_samples: Vec<i16> = Vec::new();
-    let mut source_sample_rate = 24000u32;
-
-    if !super::audio_utils::decode_mp3_to_pcm(
-        mp3_data,
-        &mut all_samples,
-        &mut source_sample_rate,
-        || generation < manager_clone.interrupt_generation.load(Ordering::SeqCst),
-    ) {
-        // Interrupted mid-decode.
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
-        return;
-    }
+    let (all_samples, source_sample_rate) =
+        match super::audio_utils::decode_edge_mp3_to_pcm(mp3_data, || {
+            request.is_cancelled(&manager_clone)
+        }) {
+            Ok(Some(audio)) => audio,
+            Ok(None) => {
+                let _ = tx.send(AudioEvent::End);
+                return;
+            }
+            Err(error) => {
+                fail_request(
+                    "Edge",
+                    request.req.hwnd,
+                    &tx,
+                    format!("Edge MP3 decode failed: {error:#}"),
+                );
+                return;
+            }
+        };
 
     stream_pcm_samples(
         &manager_clone,
@@ -207,8 +185,53 @@ pub(super) fn handle_edge_tts(
     );
 }
 
-fn connect_edge_websocket()
--> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>, String> {
+/// Voice, pitch and rate for one request. Language detection may wait on the
+/// network, so it runs before the app settings are locked and the lock is held
+/// only to copy the settings.
+fn edge_voice_settings(
+    request: &super::super::types::QueuedRequest,
+    text: &str,
+    detect: impl FnOnce(&str) -> Option<String>,
+) -> (String, i32, i32) {
+    if let Some(profile) = request.req.profile.as_ref() {
+        let detected_code = profile
+            .language_code_override
+            .clone()
+            .unwrap_or_else(|| detect(text).unwrap_or_else(|| "eng".to_string()));
+        let (voice, code_2, _, source) =
+            crate::api::tts::utils::resolve_edge_voice_for_language(profile, Some(&detected_code));
+        eprintln!(
+            "[TTS Edge][VoiceRoute] detected_6393={} edge_lang={} source={} voice={}",
+            detected_code, code_2, source, voice
+        );
+        return (
+            voice,
+            profile.edge_settings.pitch,
+            profile.edge_settings.rate,
+        );
+    }
+    let detected_code = detect(text).unwrap_or_else(|| "eng".to_string());
+    let code_2 = isolang::Language::from_639_3(&detected_code)
+        .and_then(|language| language.to_639_1())
+        .unwrap_or("en");
+    let app = APP.lock().unwrap();
+    let settings = &app.config.edge_tts_settings;
+    let voice = settings
+        .voice_configs
+        .iter()
+        .find(|config| config.language_code == code_2)
+        .map_or_else(
+            || "en-US-AriaNeural".to_string(),
+            |config| config.voice_name.clone(),
+        );
+    (voice, settings.pitch, settings.rate)
+}
+
+fn connect_edge_websocket(
+    started: Instant,
+    manager: Arc<TtsManager>,
+    request: super::super::types::QueuedRequest,
+) -> Result<tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>, String> {
     fn generate_sec_ms_gec(trusted_token: &str) -> String {
         let win_epoch_offset: u64 = 11_644_473_600;
         let now_secs = std::time::SystemTime::now()
@@ -244,12 +267,27 @@ fn connect_edge_websocket()
         .map_err(|e| format!("TLS connector creation failed: {:?}", e))?;
 
     let host = "speech.platform.bing.com";
-    let stream = std::net::TcpStream::connect(format!("{}:443", host))
-        .map_err(|e| format!("TCP connection to {} failed: {:?}", host, e))?;
-
-    let tls_stream = connector
-        .connect(host, stream)
-        .map_err(|e| format!("TLS handshake failed: {:?}", e))?;
+    let stream = crate::api::gemini_live::transport::connect_tcp_until(
+        host,
+        443,
+        started + edge_transport::SETUP_BUDGET,
+        &|| request.is_cancelled(&manager),
+    )
+    .map_err(|e| format!("TCP connection to {} failed: {:?}", host, e))?;
+    if request.is_cancelled(&manager) || started.elapsed() >= edge_transport::SETUP_BUDGET {
+        return Err("Edge connection setup timed out or was cancelled".to_owned());
+    }
+    stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let cancelled = || request.is_cancelled(&manager);
+    let setup_deadline = started + edge_transport::SETUP_BUDGET;
+    let tls_stream = crate::api::gemini_live::transport::tls_handshake(
+        &connector,
+        host,
+        stream,
+        setup_deadline,
+        &cancelled,
+    )
+    .map_err(|failure| format!("Edge {failure}"))?;
 
     let ws_request = tungstenite::http::Request::builder()
         .uri(&wss_url)
@@ -265,9 +303,66 @@ fn connect_edge_websocket()
         .body(())
         .unwrap();
 
-    let (socket, _) = client(ws_request, tls_stream)
-        .map_err(|e| format!("WebSocket connection failed: {:?}", e))?;
-
+    let config = tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(edge_transport::MAX_AUDIO_BYTES + 65536))
+        .max_frame_size(Some(edge_transport::MAX_AUDIO_BYTES + 65536));
+    let socket = crate::api::gemini_live::transport::websocket_handshake(
+        ws_request,
+        tls_stream,
+        Some(config),
+        setup_deadline,
+        &cancelled,
+    )
+    .map_err(|failure| format!("Edge {failure}"))?;
+    if request.is_cancelled(&manager) || started.elapsed() >= edge_transport::SETUP_BUDGET {
+        return Err("Edge connection setup timed out or was cancelled".to_owned());
+    }
     eprintln!("[TTS Edge] WebSocket connected successfully");
     Ok(socket)
+}
+
+#[cfg(test)]
+pub(super) mod settings_tests {
+    use super::edge_voice_settings;
+    use crate::APP;
+    use crate::api::tts::types::{QueuedRequest, TtsRequest};
+    use std::time::Duration;
+
+    /// Whether another thread can take the app settings lock now, so a lock
+    /// held by the calling thread shows up as a failure instead of a hang.
+    pub(crate) fn app_lock_is_free() -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _guard = APP.lock();
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(Duration::from_secs(5)).is_ok()
+    }
+
+    #[test]
+    fn app_settings_are_not_locked_while_the_language_is_detected() {
+        let request = QueuedRequest {
+            req: TtsRequest {
+                _id: 1,
+                text: "xin chào".to_string(),
+                hwnd: 0,
+                is_realtime: false,
+                profile: None,
+            },
+            generation: 0,
+            cancel: Default::default(),
+            artifact: false,
+        };
+        let mut detected = false;
+        let (voice, _, _) = edge_voice_settings(&request, "xin chào", |text| {
+            assert!(
+                app_lock_is_free(),
+                "the app settings lock is held during detection"
+            );
+            detected = text == "xin chào";
+            Some("vie".to_string())
+        });
+        assert!(detected);
+        assert!(!voice.is_empty());
+    }
 }

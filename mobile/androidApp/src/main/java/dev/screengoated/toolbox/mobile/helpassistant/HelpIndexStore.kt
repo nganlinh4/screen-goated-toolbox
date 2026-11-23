@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.helpassistant
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.BuildConfig
+import dev.screengoated.toolbox.mobile.componentupdate.ReleaseAssetUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -114,12 +115,14 @@ internal fun parseDelivery(bytes: ByteArray): HelpIndexDelivery {
         expandedSha256 = value.getString("expandedSha256"),
         entryCount = value.getInt("entryCount"),
     )
-    val productionUrl = PRODUCTION_PREFIX + delivery.asset
-    val stagingUrl = STAGING_PREFIX + delivery.asset
     require(value.getString("id") == "help-index" && value.getString("format") == "json-gzip")
     require(delivery.sha256.isSha256() && delivery.expandedSha256.isSha256())
     require(delivery.asset == "help-index-v$version-${delivery.sha256.take(16)}.json.gz")
-    require(delivery.downloadUrl == productionUrl || BuildConfig.DEBUG && delivery.downloadUrl == stagingUrl)
+    require(
+        ReleaseAssetUrl.matches(delivery.downloadUrl, ReleaseAssetUrl.PRODUCTION_TAG, delivery.asset) ||
+            BuildConfig.DEBUG &&
+            ReleaseAssetUrl.matches(delivery.downloadUrl, ReleaseAssetUrl.STAGING_TAG, delivery.asset),
+    )
     require(delivery.sizeBytes in 1..MAXIMUM_BYTES)
     require(delivery.expandedSizeBytes in 1..MAXIMUM_BYTES)
     require(delivery.entryCount in 1..MAXIMUM_ENTRIES)
@@ -191,10 +194,6 @@ private fun String.isSha256(): Boolean =
     length == 64 && all { it.isDigit() || it in 'a'..'f' }
 
 private const val DELIVERY_ASSET = "help-assistant/delivery.json"
-private const val PRODUCTION_PREFIX =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/"
-private const val STAGING_PREFIX =
-    "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-staging/"
 private const val MAXIMUM_BYTES = 4 * 1024 * 1024
 private const val MAXIMUM_ENTRIES = 128
 private const val MAXIMUM_DOCUMENT_CHARS = 128 * 1024

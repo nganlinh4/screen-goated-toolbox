@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.preset.ApiKeys
 import dev.screengoated.toolbox.mobile.preset.GeneratedPresetModelCatalogData
 import dev.screengoated.toolbox.mobile.preset.VisionApiClient
+import dev.screengoated.toolbox.mobile.preset.extractHttpStatusCode
 import kotlinx.coroutines.CancellationException
 import org.json.JSONException
 import org.json.JSONArray
@@ -122,6 +123,7 @@ internal class VisualGroundingClient(context: Context) {
             )
         }
         var lastInvalid: GroundingClientResult.Failure? = null
+        var lastTransport: GroundingClientResult.Failure? = null
         for (modelId in GROUNDING_MODEL_IDS) {
             val attempt = try {
                 client.executeStreaming(
@@ -140,6 +142,10 @@ internal class VisualGroundingClient(context: Context) {
             val failure = attempt.exceptionOrNull()
             if (failure != null) {
                 if (failure is CancellationException) throw failure
+                val transport = groundingTransportFailure(failure)
+                // A rejected key is the same for every model in the chain.
+                if (!transport.retryable) return transport
+                lastTransport = transport
                 continue
             }
             val response = attempt.getOrThrow()
@@ -156,9 +162,33 @@ internal class VisualGroundingClient(context: Context) {
                 }
             }
         }
-        return lastInvalid ?: GroundingClientResult.Failure(
+        return lastInvalid ?: lastTransport ?: GroundingClientResult.Failure(
             code = "vision_grounding_failed",
             message = "The vision grounding chain did not return a usable result.",
+            retryable = true,
+        )
+    }
+}
+
+internal fun groundingTransportFailure(error: Throwable): GroundingClientResult.Failure {
+    val message = error.message.orEmpty()
+    val status = extractHttpStatusCode(message)
+    return when {
+        message.contains("INVALID_API_KEY") || message.contains("NO_API_KEY") || status == 401 || status == 403 ->
+            GroundingClientResult.Failure(
+                code = "capability_unavailable",
+                message = "Vision grounding rejected the configured Gemini API key.",
+                retryable = false,
+                requiredUserStep = "configure_gemini_api_key",
+            )
+        status == 429 -> GroundingClientResult.Failure(
+            code = "rate_limited",
+            message = "Vision grounding is rate limited by the provider.",
+            retryable = true,
+        )
+        else -> GroundingClientResult.Failure(
+            code = "vision_grounding_failed",
+            message = "The vision grounding request failed: ${message.take(MAX_TRANSPORT_DETAIL_CHARS)}",
             retryable = true,
         )
     }
@@ -420,6 +450,7 @@ private fun objectSchema(properties: JSONObject, required: JSONArray): JSONObjec
 internal val GROUNDING_MODEL_IDS: List<String> =
     GeneratedPresetModelCatalogData.computerControlGroundingModelChain
 private const val MAX_MARKS = 30
+private const val MAX_TRANSPORT_DETAIL_CHARS = 200
 private const val MAX_LABEL_CHARS = 160
 private const val MAX_CONTEXT_CHARS = 600
 private const val MIN_ENDPOINT_DISTANCE_SQUARED = 100

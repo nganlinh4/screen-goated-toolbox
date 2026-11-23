@@ -125,6 +125,67 @@
       "attempt"
     ]
   },
+  "search_retry": {
+    "candidate_order": ["groq-qwen-3-8-27b-text", "groq-gpt-oss-20b-text", "groq-gpt-oss-120b-text"],
+    "cases": [
+      {
+        "name": "ordinary_request_ignores_failed_model_search_capability",
+        "current_model_id": "google-gemini-3-1-flash-lite-text",
+        "failed_model_ids": ["google-gemini-3-1-flash-lite-text"],
+        "search_enabled": false,
+        "expected_configured_model_id": "groq-qwen-3-8-27b-text",
+        "expected_search_tool": false
+      },
+      {
+        "name": "explicit_search_skips_incompatible_candidate",
+        "current_model_id": "google-gemini-3-1-flash-lite-text",
+        "failed_model_ids": ["google-gemini-3-1-flash-lite-text"],
+        "search_enabled": true,
+        "expected_configured_model_id": "groq-gpt-oss-20b-text",
+        "expected_search_tool": true
+      },
+      {
+        "name": "explicit_search_survives_second_retry",
+        "current_model_id": "groq-gpt-oss-20b-text",
+        "failed_model_ids": ["google-gemini-3-1-flash-lite-text", "groq-gpt-oss-20b-text"],
+        "search_enabled": true,
+        "expected_configured_model_id": "groq-gpt-oss-120b-text",
+        "expected_search_tool": true
+      },
+      {
+        "name": "explicit_search_with_no_compatible_configured_candidate",
+        "current_model_id": "google-gemini-3-1-flash-lite-text",
+        "failed_model_ids": ["google-gemini-3-1-flash-lite-text", "groq-gpt-oss-20b-text", "groq-gpt-oss-120b-text"],
+        "search_enabled": true,
+        "expected_configured_model_id": null,
+        "expected_search_tool": true
+      }
+    ],
+    "compatibility_cases": [
+      {
+        "name": "ordinary_request_excludes_default_search_tool",
+        "search_enabled": false,
+        "candidate_supports_search": true,
+        "candidate_search_tool_enabled_by_default": true,
+        "expected_eligible": false
+      },
+      {
+        "name": "explicit_search_allows_search_tool",
+        "search_enabled": true,
+        "candidate_supports_search": true,
+        "candidate_search_tool_enabled_by_default": true,
+        "expected_eligible": true
+      },
+      {
+        "name": "explicit_search_rejects_nonsearch_candidate",
+        "search_enabled": true,
+        "candidate_supports_search": false,
+        "candidate_search_tool_enabled_by_default": false,
+        "expected_eligible": false
+      }
+    ],
+    "image_search_supported": false
+  },
   "recommended_model_defaults": {
     "generic_image": "groq-qwen-3-8-27b-vision",
     "image_ask": "groq-qwen-3-8-27b-vision",
@@ -149,26 +210,23 @@
       "groq-qwen-3-8-27b-vision",
       "google-gemini-3-5-flash-lite-vision",
       "google-gemini-3-flash-vision",
-      "google-gemini-3-5-flash-vision",
-      "openrouter-dots-3-note-vision",
-      "google-gemini-robotics-er-2-vision",
-      "google-gemini-3-6-flash-vision",
       "google-gemini-3-1-flash-lite-vision",
-      "google-gemini-3-8-flash-vision"
+      "google-gemini-robotics-er-2-vision",
+      "google-gemini-3-8-live-vision",
+      "openrouter-ling-3-2-flash-vision"
     ],
     "text_to_text": [
       "groq-qwen-3-8-27b-text",
-      "groq-gpt-oss-20b-text",
       "groq-gpt-oss-120b-text",
+      "groq-gpt-oss-20b-text",
       "google-gemini-3-5-flash-lite-text",
       "google-gemini-robotics-er-2-text",
       "google-gemini-3-flash-text",
       "google-gemma-4-26b-a4b-text",
-      "google-gemini-3-6-flash-text",
       "google-gemini-3-1-flash-lite-text",
       "google-gemini-3-8-live-text",
-      "openrouter-dots-3-note-text",
-      "google-gemini-3-8-flash-text"
+      "openrouter-particle-1-text",
+      "openrouter-ling-3-2-flash-text"
     ]
   }
 }

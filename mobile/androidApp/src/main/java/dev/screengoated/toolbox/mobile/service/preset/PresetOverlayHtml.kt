@@ -94,6 +94,8 @@ internal fun placeholderReasonLabel(
         localized(lang, "Input overlay not ready", "Overlay nhập chưa sẵn sàng", "입력 오버레이 미지원")
     PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
         localized(lang, "Model/provider runtime not ready", "Runtime model/provider chưa sẵn sàng", "모델/제공자 런타임 미지원")
+    PresetPlaceholderReason.MODEL_UNAVAILABLE ->
+        localized(lang, "Selected model unavailable or incompatible", "Mô hình đã chọn không khả dụng hoặc không tương thích", "선택한 모델을 사용할 수 없거나 호환되지 않습니다")
     PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
         localized(lang, "Audio capture not ready", "Chưa hỗ trợ âm thanh", "오디오 캡처 미지원")
     PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->

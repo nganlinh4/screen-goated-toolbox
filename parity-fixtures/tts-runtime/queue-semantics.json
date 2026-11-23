@@ -2,6 +2,70 @@
   "version": 1,
   "cases": [
     {
+      "name": "replacement_completes_before_interrupted_realtime_event",
+      "action": "deliver_replacement_terminal_before_realtime_interruption",
+      "expected": { "unread_final_text_retried": true, "duplicate_retry": false }
+    },
+    {
+      "name": "announcement_interrupts_final_realtime_text",
+      "action": "interrupt_with_phone_control_speech",
+      "expected": { "unread_text_follows_replacement": true, "standalone_stop_retries": false }
+    },
+    {
+      "name": "hide_during_playback_then_resume",
+      "action": "stop_and_reopen_without_transcript_reset",
+      "expected": { "in_flight_segment_replayed": false }
+    },
+    {
+      "name": "new_text_after_global_stop",
+      "action": "stop_then_commit_more_text",
+      "expected": { "old_text_replayed": false, "new_text_spoken": true }
+    },
+    {
+      "name": "explicit_stop_fences_later_transcript_updates",
+      "action": "stop_then_update_interrupted_transcript",
+      "expected": { "same_generation_restarts_speech": false }
+    },
+    {
+      "name": "preset_speech_admission_does_not_block_session_retirement",
+      "action": "retire_session_while_admission_waits",
+      "expected": { "retirement_completes": true, "retired_speech_dispatches": false }
+    },
+    {
+      "name": "bounded_terminal_delivery_isolated_by_owner",
+      "action": "stall_one_owner_then_request_another",
+      "expected": { "stalled_owner_rejected_before_effect": true, "other_owner_delivered": true, "events_dropped": 0 }
+    },
+    {
+      "name": "bounded_terminal_delivery_isolated_across_owner_tokens",
+      "action": "stall_subscriber_with_many_distinct_owners_then_request_another_consumer",
+      "expected": { "stalled_subscriber_rejected_before_effect": true, "other_consumer_delivered": true, "events_dropped": 0 }
+    },
+    {
+      "name": "realtime_completion_waits_for_request_registration",
+      "action": "enqueue_and_complete_concurrently",
+      "expected": {
+        "completion_recorded": true,
+        "duplicate_replay": false,
+        "pending_depth": 0
+      }
+    },
+    {
+      "name": "realtime_failure_cannot_skip_later_committed_text",
+      "action": "fail_first_while_more_text_is_committed",
+      "expected": { "max_outstanding": 1, "retry_from_failed_boundary": true }
+    },
+    {
+      "name": "realtime_reset_retires_only_prior_generation",
+      "action": "replace_committed_text_while_audio_pending",
+      "expected": { "prior_request_current": false, "unrelated_consumer_stopped": false }
+    },
+    {
+      "name": "realtime_preview_resumes_unheard_final_segment",
+      "action": "interrupt_before_audio_then_finish_preview_without_new_text",
+      "expected": { "retries": 1, "replays_partially_played_audio": false }
+    },
+    {
       "name": "realtime_skips_existing_history_on_first_enable",
       "initial_committed_text": "Sentence one. Sentence two. Active sentence tail with more words",
       "initial_state": {
@@ -11,14 +75,14 @@
       "action": "enable_realtime",
       "expected": {
         "spoken_length": 27,
-        "queued_length": 62,
+        "queued_length": 64,
         "queued_segments": [
           " Active sentence tail with more words"
         ]
       }
     },
     {
-      "name": "preview_interrupt_replays_unsent_realtime_tail",
+      "name": "explicit_interrupt_replays_unsent_realtime_tail",
       "initial_committed_text": "Sentence one. Sentence two. Active sentence tail with more words",
       "initial_state": {
         "spoken_length": 13,
@@ -30,7 +94,7 @@
           "end_offset": 62
         }
       ],
-      "action": "preview_interrupt",
+      "action": "explicit_interrupt",
       "expected": {
         "spoken_length": 13,
         "queued_length": 13,
@@ -50,14 +114,15 @@
       }
     },
     {
-      "name": "google_translate_settings_preview_interrupts_current_speech",
+      "name": "google_translate_settings_preview_preserves_current_speech",
       "initial_settings": {
         "method": "GOOGLE_TRANSLATE",
         "speed_preset": "NORMAL"
       },
-      "action": "preview_interrupt",
+      "action": "replace_owned_preview",
       "expected": {
-        "request_mode": "INTERRUPT",
+        "request_mode": "NORMAL",
+        "unrelated_speech_preserved": true,
         "preview_text_source": "locale.tts_preview_texts"
       }
     },

@@ -17,29 +17,23 @@ use windows::core::{HSTRING, PCWSTR, w};
 use wry::{Rect, WebViewBuilder};
 
 pub(super) fn show() {
-    unsafe {
-        if !super::IS_READY {
-            if !super::IS_INITIALIZING {
-                super::IS_INITIALIZING = true;
-                std::thread::spawn(internal_create_loop_entry);
-            }
-            std::thread::spawn(|| {
-                for _ in 0..100 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-                    if super::IS_READY && !hwnd.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-                        return;
-                    }
-                }
-            });
-            return;
+    let action = super::WINDOW_LIFECYCLE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .show();
+    match action {
+        super::lifecycle::ShowAction::Start => {
+            std::thread::spawn(internal_create_loop_entry);
         }
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        }
+        super::lifecycle::ShowAction::Post(hwnd, generation) => unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd as *mut std::ffi::c_void)),
+                super::WM_APP_SHOW,
+                WPARAM(generation),
+                LPARAM(0),
+            );
+        },
+        super::lifecycle::ShowAction::Deferred => {}
     }
 }
 
@@ -51,10 +45,37 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     unsafe {
         match msg {
+            super::WM_APP_EXIT_DRAIN => {
+                super::exit_drain::run_barrier(hwnd, wparam.0, lparam.0 as usize);
+                LRESULT(0)
+            }
+            super::WM_APP_EXIT_THAW => {
+                super::exit_drain::run_thaw(hwnd, wparam.0, lparam.0 as usize);
+                LRESULT(0)
+            }
             super::WM_APP_SHOW => {
+                if super::WINDOW_LIFECYCLE
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .ready_window()
+                    != Some((hwnd.0 as isize, wparam.0))
+                {
+                    return LRESULT(0);
+                }
                 refresh_window_chrome(hwnd);
                 super::runtime::hydrate_recent_once();
                 super::state::sync_to_webview();
+                let _admission = super::REMOVAL_ADMISSION
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if super::WINDOW_LIFECYCLE
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .ready_window()
+                    != Some((hwnd.0 as isize, wparam.0))
+                {
+                    return LRESULT(0);
+                }
                 let _ = ShowWindow(hwnd, SW_RESTORE);
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
@@ -62,6 +83,14 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             super::WM_APP_SYNC => {
+                if super::WINDOW_LIFECYCLE
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .ready_window()
+                    != Some((hwnd.0 as isize, wparam.0))
+                {
+                    return LRESULT(0);
+                }
                 // Host theme/language changed — refresh chrome + push the new
                 // theme + localized strings into the webview.
                 refresh_window_chrome(hwnd);
@@ -69,6 +98,13 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             super::WM_APP_TICK => {
+                if !super::WINDOW_LIFECYCLE
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .is_ready_window(hwnd.0 as isize, wparam.0)
+                {
+                    return LRESULT(0);
+                }
                 // Advance the player position and push it so the seek bar/time
                 // update live during playback.
                 super::runtime::tick_position();
@@ -88,14 +124,32 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             WM_CLOSE => {
+                if !super::flush_draft_or_notify() {
+                    return LRESULT(0);
+                }
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 LRESULT(0)
             }
             super::WM_APP_REMOVE => {
+                let request = wparam.0;
+                if request == 0
+                    || super::ACTIVE_REMOVAL.load(std::sync::atomic::Ordering::Acquire) != request
+                {
+                    return LRESULT(0);
+                }
+                if !super::flush_draft_or_notify() {
+                    super::FAILED_REMOVAL.store(request, std::sync::atomic::Ordering::Release);
+                    return LRESULT(0);
+                }
+                let _admission = super::REMOVAL_ADMISSION
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if super::ACTIVE_REMOVAL.load(std::sync::atomic::Ordering::Acquire) != request {
+                    return LRESULT(0);
+                }
                 super::runtime::cancel_generation();
                 super::runtime::stop();
                 super::runtime_sources::stop_mic_recording();
-                super::runtime_sources::stop_reference_mic();
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
@@ -104,8 +158,10 @@ unsafe extern "system" fn window_proc(
                     *webview.borrow_mut() = None;
                 });
                 super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
-                super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-                super::IS_READY = false;
+                super::WINDOW_LIFECYCLE
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .destroyed(hwnd.0 as isize);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -162,15 +218,17 @@ unsafe fn internal_create_loop() {
     };
 
     if hwnd.is_invalid() {
-        unsafe {
-            super::IS_INITIALIZING = false;
-        }
+        super::WINDOW_LIFECYCLE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .creation_failed();
         return;
     }
 
-    unsafe {
-        super::WINDOW_HWND = crate::win_types::SendHwnd(hwnd);
-    }
+    let window_generation = super::WINDOW_LIFECYCLE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .created(hwnd.0 as isize);
 
     let corner_pref = DWMWCP_ROUND;
     let _ = unsafe {
@@ -230,17 +288,31 @@ unsafe fn internal_create_loop() {
         Ok(assets) => assets,
         Err(error) => {
             crate::log_info!("[TTS Playground] Could not open interface assets: {error}");
+            super::WINDOW_LIFECYCLE
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .creation_failed();
             unsafe {
                 let _ = DestroyWindow(hwnd);
-                super::WINDOW_HWND = crate::win_types::SendHwnd::default();
-                super::IS_INITIALIZING = false;
             }
             return;
         }
     };
-    let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
+    let Some(page_url) =
+        crate::overlay::html_components::font_manager::store_html_page(inlined_html)
+    else {
+        crate::log_info!("[TTS Playground] Could not create the interface page");
+        super::WINDOW_LIFECYCLE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .creation_failed();
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        return;
+    };
 
-    super::WEB_CONTEXT.with(|context| {
+    let created = super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
         if context_ref.is_none() {
             *context_ref = Some(crate::overlay::webview_runtime::create_context(
@@ -250,49 +322,86 @@ unsafe fn internal_create_loop() {
 
         let webview_result = {
             let init = crate::overlay::webview_init::acquire("tts-playground");
-            let url = page_url.as_deref().unwrap_or("about:blank");
-            let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
+            let expected_page = page_url.clone();
+            let window_id = hwnd.0 as isize;
+            let builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
                     super::ipc::handle_ipc(hwnd, request.body());
                 })
-                .with_url(url);
-            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+                .with_navigation_handler(move |url| {
+                    super::WINDOW_LIFECYCLE
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .admit_initial_document(window_id, window_generation, &expected_page, &url)
+                })
+                .with_url(&page_url);
             let result = builder.build_as_child(&wrapper);
             init.finish(result.is_ok());
             result
         };
 
-        if let Ok(webview) = webview_result {
-            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
-                "tts-playground",
-                hwnd,
-                &webview,
-            );
-            super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
-            super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
+        match webview_result {
+            Ok(webview) => {
+                crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+                    "tts-playground",
+                    hwnd,
+                    &webview,
+                );
+                super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
+                super::ASSET_PACK.with(|slot| *slot.borrow_mut() = Some(web_asset_pack));
+                true
+            }
+            Err(error) => {
+                crate::log_info!("[TTS Playground] Could not create the interface: {error}");
+                false
+            }
         }
     });
+    if !created {
+        super::WINDOW_LIFECYCLE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .creation_failed();
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        return;
+    }
 
     resize_webview(hwnd);
 
-    unsafe {
+    let generation = unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
-        super::IS_READY = true;
-        super::IS_INITIALIZING = false;
-        if super::REMOVAL_REQUESTED.load(std::sync::atomic::Ordering::Acquire) {
-            let _ = PostMessageW(Some(hwnd), super::WM_APP_REMOVE, WPARAM(0), LPARAM(0));
+        let ready = super::WINDOW_LIFECYCLE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .ready(hwnd.0 as isize);
+        let Some((generation, show)) = ready else {
+            return;
+        };
+        if show {
+            let _ = PostMessageW(
+                Some(hwnd),
+                super::WM_APP_SHOW,
+                WPARAM(generation),
+                LPARAM(0),
+            );
         }
-    }
+        generation
+    };
     super::state::sync_to_webview();
-    spawn_playback_ticker(hwnd);
+    spawn_playback_ticker(hwnd, generation);
 
     unsafe {
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        if IsWindow(Some(hwnd)).as_bool() {
+            let _ = DestroyWindow(hwnd);
         }
         super::WEBVIEW.with(|webview| {
             *webview.borrow_mut() = None;
@@ -301,9 +410,6 @@ unsafe fn internal_create_loop() {
             *context.borrow_mut() = None;
         });
         super::ASSET_PACK.with(|slot| *slot.borrow_mut() = None);
-        super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-        super::IS_READY = false;
-        super::IS_INITIALIZING = false;
     }
 }
 
@@ -311,26 +417,41 @@ fn internal_create_loop_entry() {
     unsafe {
         internal_create_loop();
     }
+    if super::WINDOW_LIFECYCLE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .thread_finished()
+    {
+        std::thread::spawn(internal_create_loop_entry);
+    }
 }
 
 /// Posts `WM_APP_TICK` to the window ~6×/s while audio is playing, so the
 /// player UI advances without waiting for a user-driven IPC round-trip. Idle
 /// (no post) when nothing is playing, so it costs nothing at rest.
-fn spawn_playback_ticker(hwnd: HWND) {
+fn spawn_playback_ticker(hwnd: HWND, generation: usize) {
     let target = crate::win_types::SendHwnd(hwnd);
     std::thread::spawn(move || {
         // Capture the whole SendHwnd (Send) rather than the bare HWND field.
         let target = target;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(160));
-            let ready = unsafe { super::IS_READY };
+            let ready = super::WINDOW_LIFECYCLE
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_ready_window(target.0.0 as isize, generation);
             if !ready {
                 return;
             }
             let playing = super::state::with_state(|s| s.is_playing);
             if playing {
                 unsafe {
-                    let _ = PostMessageW(Some(target.0), super::WM_APP_TICK, WPARAM(0), LPARAM(0));
+                    let _ = PostMessageW(
+                        Some(target.0),
+                        super::WM_APP_TICK,
+                        WPARAM(generation),
+                        LPARAM(0),
+                    );
                 }
             }
         }

@@ -6,31 +6,19 @@
 //! Translation is handled separately via the centralized realtime translation model mapping
 //! every 2 seconds for new sentence chunks.
 
+#[cfg(test)]
+mod cancel_tests;
+mod cancel_transition;
+use cancel_transition::commit_download_cancel;
+pub(crate) use cancel_transition::renderer_cancel_is_current;
 mod capture;
-pub mod kokoro_assets;
-pub(crate) mod local_asr_worker;
-pub mod magpie_assets;
-pub mod magpie_runtime;
-mod model_component_assets;
-pub mod model_loader;
-pub mod offline_asr_commit;
-pub mod parakeet;
-pub mod parakeet_tdt_assets;
-pub mod qwen3;
 pub(crate) mod s2s;
-pub mod sherpa_onnx;
 mod state;
 #[cfg(test)]
 mod state_tests;
-pub mod step_audio_assets;
-pub mod step_audio_runtime;
-pub mod supertonic_assets;
-pub(crate) mod transcript_state;
 mod transcription;
 mod translation;
 mod utils;
-pub mod vieneu_assets;
-pub mod vieneu_runtime;
 pub mod websocket;
 
 use windows::Win32::UI::WindowsAndMessaging::WM_APP;
@@ -51,11 +39,6 @@ pub const WM_TRANSLATION_UPDATE: u32 = WM_APP + 201;
 pub const WM_VOLUME_UPDATE: u32 = WM_APP + 202;
 pub const WM_MODEL_SWITCH: u32 = WM_APP + 203;
 pub const WM_DOWNLOAD_PROGRESS: u32 = WM_APP + 204;
-pub const WM_START_DRAG: u32 = WM_APP + 205;
-pub const WM_TOGGLE_MIC: u32 = WM_APP + 206;
-pub const WM_TOGGLE_TRANS: u32 = WM_APP + 207;
-pub const WM_COPY_TEXT: u32 = WM_APP + 208;
-pub const WM_EXEC_SCRIPT: u32 = WM_APP + 209;
 pub const WM_UPDATE_TTS_SPEED: u32 = WM_APP + 210;
 pub const WM_THEME_UPDATE: u32 = WM_APP + 212;
 
@@ -64,50 +47,52 @@ pub static REALTIME_RMS: std::sync::atomic::AtomicU32 = std::sync::atomic::Atomi
 pub static DEVICE_RECONNECT_REQUESTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// Cancel Parakeet download and revert to the default realtime model.
-pub fn cancel_download_and_revert_to_gemini() {
+/// Cancel an in-overlay engine download and revert to the default realtime model.
+pub(crate) fn cancel_download_and_revert_to_gemini(admit: impl FnOnce() -> bool) -> bool {
     use crate::overlay::realtime_webview::state::{
-        NEW_TRANSCRIPTION_MODEL, REALTIME_HWND, REALTIME_STATE, TRANSCRIPTION_MODEL_CHANGE,
+        NEW_TRANSCRIPTION_MODEL, REALTIME_SESSION_PUBLICATION, REALTIME_STATE,
+        TRANSCRIPTION_ENGINE_REVISION, TRANSCRIPTION_MODEL_CHANGE, TRANSCRIPTION_TRANSITION,
+        TRANSLATION_OPTIONS_REVISION, set_current_stop_signal_locked,
     };
-    use std::sync::atomic::Ordering;
-
-    // 1. Set stop signal to cancel download
-    crate::overlay::realtime_webview::state::set_current_stop_signal(true);
-
-    // 2. Clear the download state
-    if let Ok(mut state) = REALTIME_STATE.lock() {
-        state.is_downloading = false;
-    }
-
+    let transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let default_model_id = crate::model_config::DEFAULT_REALTIME_TRANSCRIPTION_MODEL.to_string();
-
-    // 3. Revert transcription model in config
-    {
-        let mut app = crate::APP.lock().unwrap();
-        app.config.realtime_transcription_model = default_model_id.clone();
+    let mut tts_epoch = None;
+    if !commit_download_cancel(
+        &REALTIME_SESSION_PUBLICATION,
+        &TRANSCRIPTION_ENGINE_REVISION,
+        &TRANSLATION_OPTIONS_REVISION,
+        &TRANSCRIPTION_MODEL_CHANGE,
+        admit,
+        || {
+            tts_epoch = Some(crate::api::tts::TTS_MANAGER.realtime_epoch());
+            set_current_stop_signal_locked(true);
+        },
+        || {
+            if let Ok(mut state) = REALTIME_STATE.lock() {
+                state.is_downloading = false;
+            }
+            if let Ok(mut app) = crate::APP.lock() {
+                app.config.realtime_transcription_model = default_model_id.clone();
+            }
+            if let Ok(mut model) = NEW_TRANSCRIPTION_MODEL.lock() {
+                *model = default_model_id.clone();
+            }
+        },
+    ) {
+        return false;
+    }
+    crate::overlay::realtime_webview::download::notify();
+    let retired = tts_epoch
+        .and_then(crate::overlay::realtime_webview::controller::retire_read_playback_if_epoch)
+        .unwrap_or_default();
+    drop(transition);
+    crate::overlay::realtime_webview::controller::notify_read_retired(retired);
+    if let Ok(app) = crate::APP.lock() {
         crate::config::save_config(&app.config);
     }
 
-    // 4. Signal model change to restart with the default model
-    if let Ok(mut model) = NEW_TRANSCRIPTION_MODEL.lock() {
-        *model = default_model_id.clone();
-    }
-    TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
-
-    // 5. Update WebView UI to show Gemini icon as active and hide download modal
-    unsafe {
-        let hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-        if !hwnd.is_invalid() {
-            // Hide download modal and update transcription model selection
-            let script = r#"
-                if(window.hideDownloadModal) window.hideDownloadModal();
-                document.querySelectorAll('.trans-model-icon').forEach(icon => {
-                    icon.classList.toggle('active', icon.getAttribute('data-value') === 'google-gemini-3-5-live-translate-audio');
-                });
-            "#;
-            crate::overlay::realtime_webview::webview::run_transcription_script(script);
-        }
-    }
-
     crate::log_info!("[ModelDownload] cancellation requested; reverting to default realtime model");
+    true
 }

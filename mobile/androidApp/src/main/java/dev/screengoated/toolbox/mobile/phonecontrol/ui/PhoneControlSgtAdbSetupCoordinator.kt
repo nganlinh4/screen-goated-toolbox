@@ -14,6 +14,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.showPhoneControlToast
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PlatformUserStepSlot
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbCommandBridge
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeProbe
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbBridgeCondition
 import java.io.Closeable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -94,14 +95,16 @@ internal class PhoneControlSgtAdbSetupCoordinator(
                     "authority_setup_unchanged provider=$PROVIDER_ID " +
                         "condition=${attempt.condition.name.lowercase()}",
                 )
-                leavePending()
+                leavePending(unavailable = probe.condition == SgtAdbBridgeCondition.PEER_AUTHENTICATION_UNAVAILABLE)
                 return
             }
             PhoneControlSgtAdbRepeatDisposition.DISPATCH -> lastAttempt = attempt
         }
         when (attempt.action) {
             PhoneControlSgtAdbSetupAction.COMPLETE -> complete()
-            PhoneControlSgtAdbSetupAction.LEAVE_PENDING -> leavePending()
+            PhoneControlSgtAdbSetupAction.LEAVE_PENDING -> leavePending(
+                unavailable = probe.condition == SgtAdbBridgeCondition.PEER_AUTHENTICATION_UNAVAILABLE,
+            )
             PhoneControlSgtAdbSetupAction.RECONNECT -> reconnectThenContinue()
             PhoneControlSgtAdbSetupAction.OPEN_SETTINGS -> openWirelessDebugging()
         }
@@ -175,13 +178,13 @@ internal class PhoneControlSgtAdbSetupCoordinator(
         finishActivity()
     }
 
-    private fun leavePending() {
+    private fun leavePending(unavailable: Boolean = false) {
         reportGuidance(
-            R.string.phone_control_sgt_adb_pending,
+            if (unavailable) R.string.phone_control_sgt_adb_unavailable else R.string.phone_control_sgt_adb_pending,
             requestAutomation = false,
             monitorProtectedCheckpoint = false,
         )
-        activity.showPhoneControlToast(R.string.phone_control_sgt_adb_pending_toast)
+        activity.showPhoneControlToast(if (unavailable) R.string.phone_control_sgt_adb_unavailable else R.string.phone_control_sgt_adb_pending_toast)
         PhoneControlLog.i(TAG, "authority_setup_result provider=$PROVIDER_ID pending=true")
         finishActivity()
     }

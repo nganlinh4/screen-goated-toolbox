@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +23,7 @@ import java.nio.file.Paths
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HistoryModelsTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test
@@ -252,9 +255,9 @@ class HistoryModelsTest {
     }
 
     @Test
-    fun loadPrunesOverLimitDatabaseAndBackingFilesFromFixture() {
+    fun loadPrunesOverLimitDatabaseAndBackingFilesFromFixture() = runTest {
         val case = fixtureCase("load_prunes_over_limit_database_and_backing_files")
-        val root = Files.createTempDirectory("sgt-history-load-prune-test").toFile()
+        val root = temporaryFolder.newFolder("load-prune")
         val paths = HistoryPaths(
             rootDir = root,
             databaseFile = File(root, "history.json"),
@@ -289,8 +292,10 @@ class HistoryModelsTest {
         )
 
         val repository = HistoryRepository(
-            persistence = HistoryPersistence(paths = paths, json = json),
+            persistence = historyTestPersistence(paths = paths, json = json),
+            ioDispatcher = StandardTestDispatcher(testScheduler),
         )
+        advanceUntilIdle()
 
         assertEquals(
             case.getValue("expectedOrder").jsonArray.map { it.jsonPrimitive.content },
@@ -302,6 +307,9 @@ class HistoryModelsTest {
                 !File(paths.mediaDir, path.jsonPrimitive.content).exists(),
             )
         }
+        case.getValue("expectedRetainedMediaPaths").jsonArray.forEach { path ->
+            assertTrue(File(paths.mediaDir, path.jsonPrimitive.content).exists())
+        }
         assertEquals(
             case.getValue("expectedOrder").jsonArray.size,
             json.decodeFromString<StoredHistoryDatabase>(paths.databaseFile.readText()).items.size,
@@ -309,10 +317,10 @@ class HistoryModelsTest {
     }
 
     @Test
-    fun clearAllRemovesOrphanMediaFilesFromFixture() = runTest {
+    fun clearAllPreservesUnprovenOrphanMediaFilesFromFixture() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = createRepository(dispatcher)
-        val case = fixtureCase("clear_all_removes_orphan_media_files")
+        val case = fixtureCase("clear_all_preserves_unproven_orphan_media_files")
         val mediaDir = repository.mediaDirectory()
 
         case.getValue("orphanMediaFiles").jsonArray.forEach { fileName ->
@@ -333,9 +341,9 @@ class HistoryModelsTest {
     private fun createRepository(
         dispatcher: CoroutineDispatcher,
     ): HistoryRepository {
-        val root = Files.createTempDirectory("sgt-history-test").toFile()
+        val root = temporaryFolder.newFolder()
         return HistoryRepository(
-            persistence = HistoryPersistence(
+            persistence = historyTestPersistence(
                 paths = HistoryPaths(
                     rootDir = root,
                     databaseFile = File(root, "history.json"),

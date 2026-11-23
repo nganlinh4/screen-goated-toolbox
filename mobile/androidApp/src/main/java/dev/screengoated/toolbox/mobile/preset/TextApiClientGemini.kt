@@ -54,7 +54,7 @@ private suspend fun TextApiClient.streamGeminiStreaming(
 
     val payload = buildGeminiPayload(model, prompt, inputText, searchEnabled)
     val request = Request.Builder()
-        .url("$GEMINI_ENDPOINT/${model.fullName}:streamGenerateContent?alt=sse")
+        .url(geminiTextRequestUrl(model.fullName, streamingEnabled = true))
         .header("x-goog-api-key", apiKey)
         .header("Content-Type", "application/json")
         .post(payload.toString().toRequestBody(jsonMediaType))
@@ -110,7 +110,7 @@ private suspend fun TextApiClient.generateGeminiBlocking(
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:google")
     val payload = buildGeminiPayload(model, prompt, inputText, searchEnabled)
     val request = Request.Builder()
-        .url("$GEMINI_ENDPOINT/${model.fullName}:generateContent")
+        .url(geminiTextRequestUrl(model.fullName, streamingEnabled = false))
         .header("x-goog-api-key", apiKey)
         .header("Content-Type", "application/json")
         .post(payload.toString().toRequestBody(jsonMediaType))
@@ -131,6 +131,14 @@ private suspend fun TextApiClient.generateGeminiBlocking(
         return parseGeminiCompletion(root)
     }
 }
+
+/** Gemini selects streaming by endpoint, never by a body field. */
+internal fun geminiTextRequestUrl(fullName: String, streamingEnabled: Boolean): String =
+    if (streamingEnabled) {
+        "$GEMINI_ENDPOINT/$fullName:streamGenerateContent?alt=sse"
+    } else {
+        "$GEMINI_ENDPOINT/$fullName:generateContent"
+    }
 
 internal fun buildGeminiPayload(
     model: PresetModelDescriptor,

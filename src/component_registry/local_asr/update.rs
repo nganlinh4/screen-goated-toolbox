@@ -67,14 +67,14 @@ fn parse(value: serde_json::Value) -> Result<Vec<LocalAsrDelivery>> {
     let contract: Contract = serde_json::from_value(value)?;
     if contract.schema_version != 1
         || contract.windows.architecture != super::ARCHITECTURE
-        || contract.windows.components.len() != 2
+        || contract.windows.components.len() != 1
     {
         bail!("signed local-ASR contract header is invalid");
     }
     let mut seen = HashSet::new();
-    let mut deliveries = Vec::with_capacity(2);
+    let mut deliveries = Vec::with_capacity(1);
     for delivery in contract.windows.components {
-        if !matches!(delivery.id.as_str(), super::WORKER_ID | super::RUNTIME_ID)
+        if delivery.id != super::RUNTIME_ID
             || !seen.insert(delivery.id.clone())
             || delivery.files.is_empty()
             || delivery.files.len() > super::MAX_COMPONENT_FILES

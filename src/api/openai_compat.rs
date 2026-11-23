@@ -5,11 +5,10 @@
 //! parse. This module centralizes that core so the per-provider functions stay
 //! thin wrappers that only build their payload + provider-specific preamble.
 
-use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT, is_auth_error};
+use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT};
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
-use flate2::{Compression, write::GzEncoder};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
 use std::sync::{Arc, atomic::AtomicBool};
 use ureq::http::HeaderMap;
 
@@ -24,69 +23,20 @@ pub use completion::parse_chat_completion;
 ///
 /// * `endpoint` — full chat-completions URL.
 /// * `api_key` — bearer token sent as `Authorization: Bearer <key>`.
-/// * `model` — model id.
-/// * `messages` — the `messages` array value (callers build plain-text or
-///   multimodal content as needed).
+/// * `payload` — the provider-native request body.
 /// * `streaming` — request + consume an SSE stream when `true`.
 /// * `reasoning_fallback` — when `true`, treat a content-less leading chunk as
-///   "thinking" even without an explicit `reasoning` delta (some OpenAI-compatible
-///   gpt-oss/zai-glm behavior). OpenRouter passes `false`.
+///   "thinking" even without an explicit `reasoning` delta.
 /// * `ui_language` — locale for the "thinking" indicator string.
 /// * `cancel_token` — cooperative cancellation flag.
 /// * `error_label` — prefix used in non-auth error messages.
-/// * `map_auth_errors` — when `true`, map HTTP 401/403 to `INVALID_API_KEY`.
+/// * `credential_provider` — when set, HTTP 401/403 become
+///   `INVALID_API_KEY:<provider>` so the notice names the key to fix.
 /// * `on_headers` — invoked with the response headers right after the POST
 ///   succeeds (used to record rate-limit usage).
 /// * `on_chunk` — invoked with each content chunk / thinking indicator.
 #[allow(clippy::too_many_arguments)]
-pub fn stream_openai_compat_chat<F, H>(
-    endpoint: &str,
-    api_key: &str,
-    model: &str,
-    messages: serde_json::Value,
-    streaming: bool,
-    reasoning_fallback: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
-    request_timeout: Option<crate::api::client::RequestTimeouts>,
-    error_label: &str,
-    map_auth_errors: bool,
-    on_headers: H,
-    on_chunk: &mut F,
-) -> Result<String>
-where
-    F: FnMut(&str),
-    H: FnOnce(&HeaderMap),
-{
-    let payload = serde_json::json!({
-        "model": model,
-        "messages": messages,
-        "stream": streaming
-    });
-
-    stream_openai_compat_payload(
-        endpoint,
-        api_key,
-        payload,
-        streaming,
-        reasoning_fallback,
-        ui_language,
-        cancel_token,
-        request_timeout,
-        error_label,
-        map_auth_errors,
-        false,
-        on_headers,
-        |_| {},
-        on_chunk,
-    )
-}
-
-/// Payload-aware variant used when an OpenAI-compatible provider has native
-/// fields such as `max_completion_tokens`, structured output, or prediction.
-/// Large payload compression is opt-in because provider support is not uniform.
-#[allow(clippy::too_many_arguments)]
-pub fn stream_openai_compat_payload<F, H, J>(
+pub fn stream_openai_compat_payload<F, H>(
     endpoint: &str,
     api_key: &str,
     payload: serde_json::Value,
@@ -96,16 +46,13 @@ pub fn stream_openai_compat_payload<F, H, J>(
     cancel_token: &Option<Arc<AtomicBool>>,
     request_timeout: Option<crate::api::client::RequestTimeouts>,
     error_label: &str,
-    map_auth_errors: bool,
-    gzip_large_payload: bool,
+    credential_provider: Option<&str>,
     on_headers: H,
-    on_json_usage: J,
     on_chunk: &mut F,
 ) -> Result<String>
 where
     F: FnMut(&str),
     H: FnOnce(&HeaderMap),
-    J: FnOnce(&serde_json::Value),
 {
     let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
         streaming,
@@ -124,29 +71,15 @@ where
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json");
     let request = crate::api::client::with_request_timeouts(request, request_timeout);
-    let json_bytes = serde_json::to_vec(&payload)?;
-    let response = if gzip_large_payload && json_bytes.len() >= 12 * 1024 {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(&json_bytes)?;
-        request
-            .header("Content-Encoding", "gzip")
-            .send(encoder.finish()?)
-    } else {
-        request.send(json_bytes)
-    };
-    let resp = response.map_err(|e| {
-        if map_auth_errors && is_auth_error(&e) {
-            anyhow::anyhow!("INVALID_API_KEY")
-        } else {
-            anyhow::anyhow!(crate::api::client::transport_error_message(error_label, &e))
-        }
+    let resp = request.send(serde_json::to_vec(&payload)?).map_err(|e| {
+        anyhow::anyhow!(crate::api::client::transport_error_message(error_label, &e))
     })?;
 
     on_headers(resp.headers());
     let status = resp.status().as_u16();
     if !resp.status().is_success() {
-        if map_auth_errors && matches!(status, 401 | 403) {
-            return Err(anyhow::anyhow!("INVALID_API_KEY"));
+        if let Some(error) = credential_error(credential_provider, status) {
+            return Err(error);
         }
         let mut body = String::new();
         let _ = resp
@@ -192,12 +125,16 @@ where
                 e
             )
         })?;
-        on_json_usage(&root);
         full_content = parse_chat_completion(&root)?;
         on_chunk(&full_content);
     }
 
     Ok(full_content)
+}
+
+fn credential_error(provider: Option<&str>, status: u16) -> Option<anyhow::Error> {
+    let provider = provider?;
+    matches!(status, 401 | 403).then(|| anyhow::anyhow!("INVALID_API_KEY:{provider}"))
 }
 
 fn provider_error_message(status: u16, body: &str) -> String {
@@ -238,7 +175,7 @@ fn provider_error_message(status: u16, body: &str) -> String {
 /// `delta.content` chunk to a string (forwarded via `on_chunk`) until `[DONE]`,
 /// honoring `cancel_token`. Returns the accumulated content. This is the simple
 /// content-only loop shared by the Groq translate / vision / refine paths; the
-/// reasoning/thinking-aware variant is built into [`stream_openai_compat_chat`].
+/// reasoning/thinking-aware variant is built into [`stream_openai_compat_payload`].
 pub fn consume_content_stream<R, F>(
     reader: R,
     cancel_token: &Option<Arc<AtomicBool>>,
@@ -257,7 +194,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::provider_error_message;
+    use super::{credential_error, provider_error_message};
+
+    #[test]
+    fn credential_errors_name_the_provider_whose_key_failed() {
+        for status in [401, 403] {
+            let error = credential_error(Some("nvidia"), status)
+                .unwrap()
+                .to_string();
+            assert_eq!(error, "INVALID_API_KEY:nvidia");
+            let message = crate::credential_error::message(&error, "en").unwrap();
+            assert!(!message.contains("API API"), "{message}");
+            assert_ne!(crate::credential_error::provider_name(&error), "API");
+        }
+        assert!(credential_error(Some("openrouter"), 429).is_none());
+        assert!(credential_error(None, 401).is_none());
+    }
 
     #[test]
     fn content_stream_reports_errors_and_reasoning_only_responses() {

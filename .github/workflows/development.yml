@@ -1,0 +1,306 @@
+name: Development
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - id: scope
+        run: python scripts/development_check_scope.py
+
+  rust:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: '**/package-lock.json'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/AppData/Local/SGT-Development/cache/cargo/dev
+          key: windows-development-rust-${{ hashFiles('Cargo.lock', '.cargo/**', 'scripts/*egui*') }}
+      - name: Restore pinned source dependencies
+        run: ./scripts/ensure-egui-dependencies.ps1
+      - name: Root formatting
+        run: cargo fmt --check
+      - name: Install locked frontend build inputs
+        run: |
+          foreach ($project in @('screen-record', 'promptdj-midi', 'translation-gummy-ui', '3d-generator-ui', 'image-to-svg-ui', 'tts-playground-ui')) {
+            npm --prefix $project ci --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed for $project" }
+          }
+      - name: Prepare embedded assets and run root tests
+        run: ./run-dev.ps1 -SkipNpmInstall -SkipCacheMaintenance -CargoCommand test -CargoArgs '--locked'
+      - name: Strict root Clippy
+        run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'SGT-Development/cache/cargo/dev'
+          cargo clippy --all-targets --locked -- -D warnings
+      - name: Windows target check
+        run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'SGT-Development/cache/cargo/dev'
+          ./scripts/validate-windows-targets.ps1 -SkipSetup
+
+  native:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/AppData/Local/SGT-Development/cache/cargo/dev
+          key: windows-native-rust-${{ hashFiles('native/**/Cargo.lock', '.cargo/**', 'scripts/*egui*') }}
+      - run: python -m scripts.check_native
+
+  javascript:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: screen-record/package-lock.json
+      - run: npm --prefix screen-record ci --no-audit --no-fund
+      - run: node scripts/test-javascript.mjs --suite unit
+
+  browser-contracts:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: screen-record/package-lock.json
+      - run: npm --prefix screen-record ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+        working-directory: screen-record
+      - run: node scripts/test-javascript.mjs --suite browser
+
+  python:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/test-requirements.txt
+      - run: python -m pip install -r scripts/test-requirements.txt
+      - run: python -m unittest discover -s scripts/tests
+
+  frontends:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [3d-generator-ui, image-to-svg-ui, promptdj-midi, translation-gummy-ui, tts-playground-ui]
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Declared unit tests
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          if ($package.scripts.test) {
+            npm test
+            if ($LASTEXITCODE -ne 0) { throw 'Frontend tests failed' }
+          } else {
+            Write-Host 'No unit test script is declared; the typecheck/build gate still runs.'
+          }
+      - run: npm run build
+
+  recorder-ui:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: screen-record
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: screen-record/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json
+      - name: Unit and component tests
+        run: npx vitest run
+
+  unused-dependencies:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: '**/package-lock.json'
+      - id: machete-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cargo/bin/cargo-machete.exe
+          key: windows-cargo-machete-0.9.2
+      - name: Install cargo-machete
+        if: steps.machete-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-machete --version 0.9.2 --locked
+      - name: Install locked npm packages
+        run: |
+          foreach ($lock in Get-ChildItem -Path . -Filter package-lock.json -Depth 1 -File) {
+            npm --prefix $lock.DirectoryName ci --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed for $($lock.DirectoryName)" }
+          }
+      - name: Unused Cargo and npm dependencies
+        run: python -B scripts/check_unused_dependencies.py
+
+  android:
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: sgt
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: nganlinh4/youtubedl-android
+          ref: 77a8628467bffaf3ff818926319627dcbf1e4c32
+          path: youtubedl-android
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            sgt/mobile/**/*.gradle.kts
+            sgt/mobile/gradle/**
+            youtubedl-android/**/*.gradle*
+      - name: Install project SDK inputs
+        run: |
+          py -3 --version
+          if ($LASTEXITCODE -ne 0) { throw 'The Windows Python launcher is required by Gradle generators' }
+          $manager = Join-Path $env:ANDROID_HOME 'cmdline-tools/latest/bin/sdkmanager.bat'
+          ("y`n" * 100) | & $manager --licenses
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK license setup failed' }
+          & $manager 'platforms;android-36' 'build-tools;36.1.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK input installation failed' }
+      - name: Full and Play JVM tests
+        working-directory: sgt/mobile
+        run: ./gradlew.bat :androidApp:testFullDebugUnitTest :androidApp:testPlayDebugUnitTest --no-daemon --no-parallel --max-workers=1 --console=plain
+
+  gate:
+    name: Development gate
+    if: always()
+    needs: [scope, rust, native, javascript, browser-contracts, python, frontends, recorder-ui, unused-dependencies, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Require all selected checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: python scripts/require_development_checks.py

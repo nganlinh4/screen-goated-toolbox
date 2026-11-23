@@ -24,6 +24,7 @@ internal interface PrivilegedCommandProvider {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean = true,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult
 }
 
@@ -62,6 +63,7 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure?,
     ): PrivilegedCommandResult = SgtAdbCommandBridge.executeAuthorized(
         context,
         effectOwner,
@@ -70,6 +72,7 @@ private object SgtAdbPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd,
         timeoutMs,
         effectMayChangeUserState,
+        beforeDispatch,
     )
 }
 
@@ -89,6 +92,7 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure?,
     ): PrivilegedCommandResult = ShizukuCommandBridge.executeAuthorized(
         context,
         effectOwner,
@@ -97,6 +101,7 @@ private object ShizukuPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd,
         timeoutMs,
         effectMayChangeUserState,
+        beforeDispatch,
     )
 }
 
@@ -116,6 +121,7 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure?,
     ): PrivilegedCommandResult = RootCommandBridge.executeAuthorized(
         effectOwner,
         program,
@@ -123,5 +129,6 @@ private object RootPrivilegedCommandProvider : PrivilegedCommandProvider {
         cwd,
         timeoutMs,
         effectMayChangeUserState,
+        beforeDispatch,
     )
 }

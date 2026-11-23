@@ -1,15 +1,12 @@
 //! Salvages a reply that starts restating itself.
 //!
-//! Qwen3-VL re-emits text it has already produced, either verbatim or broken at
-//! token boundaries (`Screenshot …` returning as `Screensho` / `t 2026-08-19 21`
-//! / `13759.png`). The defect is upstream and open (QwenLM/Qwen3-VL#1611), and
-//! it cannot be suppressed from the request: Groq documents `presence_penalty`
-//! and `frequency_penalty` as unsupported by every model it serves and exposes
-//! neither `top_k`, `min_p` nor `repetition_penalty` — the whole set of controls
-//! Qwen's own model card prescribes. Seeds do not avoid it, and neither
-//! JSON-object nor strict-array structured output prevents it.
+//! A vision model can re-emit text it has already produced, either verbatim or
+//! broken at token boundaries (`Screenshot …` returning as `Screensho` /
+//! `t 7571-53-64 76` / `8204.png`). Request-side repetition controls are not
+//! uniformly available across providers, and neither seeds nor structured
+//! output prevent it, so the reply itself is judged.
 //!
-//! In every observed failure the reply is correct up to the point where it
+//! When this happens the reply is correct up to the point where it
 //! begins again, so the good prefix is kept and the restatement dropped. That
 //! costs nothing: no extra tokens are sent, no second model is called, and the
 //! request is unchanged. This is deliberately provider-agnostic — it judges
@@ -43,11 +40,11 @@ const MIN_REPEAT_SPAN: usize = 8;
 /// Span that counts as evidence *once a restatement is established*.
 ///
 /// Seam damage chops a restatement into fragments, and requiring every fragment
-/// to be as long as the anchor discards nearly all of it: the reported
-/// `nvidia/nemotron-mini-4b-instruct` case reassembled as three runs of 7, 11 and
-/// 7 characters covering the tail exactly, of which only the 11 counted -- 0.44
-/// against a 0.80 floor. The anchor already ruled out coincidence; after it,
-/// short runs are what the damage left behind, not noise.
+/// to be as long as the anchor discards nearly all of it: a short identifier
+/// restated as runs of 7, 11 and 7 characters covers its tail exactly, yet only
+/// the 11 would count -- 0.44 against a 0.80 floor. The anchor already ruled
+/// out coincidence; after it, short runs are what the damage left behind, not
+/// noise.
 const MIN_FRAGMENT_SPAN: usize = 3;
 
 /// Characters examined immediately after a candidate cut.
@@ -66,10 +63,9 @@ const TAIL_COVERAGE: f32 = 0.80;
 /// candidate no matter what the text says. Anything higher would be an extra
 /// precision rule, and precision is already carried by the broken-word evidence check.
 ///
-/// It was previously 32, from when length *was* the precision defence. That
-/// floor silently disabled the whole guard for short replies -- `DJI_0872.JPG`
-/// re-emitted as `DJI` / `_087` / `2.JPG` is 24 characters and was returned
-/// untouched -- which is backwards: the shorter the reply, the less room there
+/// A higher floor would make length a precision rule and leave short replies
+/// unjudged -- `DJI_0872.JPG` re-emitted as `DJI` / `_087` / `2.JPG` is 24
+/// characters -- which is backwards: the shorter the reply, the less room there
 /// is for a repetition to be a legitimate reading of the image.
 const MIN_JUDGED_CHARS: usize = MIN_REPEAT_SPAN * 2;
 
@@ -92,6 +88,18 @@ pub(super) fn repetition_onset(text: &str) -> Option<usize> {
 /// correct text. Callers holding an incomplete reply demand more evidence;
 /// callers holding a finished one do not need to.
 pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) -> Option<usize> {
+    scan_for_onset(text, min_evidence).onset
+}
+
+/// Verdict of one scan over the bounded prefix of a reply.
+pub(super) struct OnsetScan {
+    pub(super) onset: Option<usize>,
+    /// The prefix bound was reached, so text arriving later cannot change
+    /// which characters are judged.
+    pub(super) saturated: bool,
+}
+
+pub(super) fn scan_for_onset(text: &str, min_evidence: usize) -> OnsetScan {
     let mut chars = Vec::with_capacity(MAX_SCANNED_CHARS);
     let mut offsets = Vec::with_capacity(MAX_SCANNED_CHARS);
     // How much real text each kept character stands for, so that how much
@@ -99,17 +107,19 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
     // rather than in what survived collapsing.
     let mut written = Vec::with_capacity(MAX_SCANNED_CHARS);
     let mut total_written = 0usize;
+    let mut scanned_end = text.len();
     for (offset, ch) in text.char_indices() {
         if ch.is_whitespace() {
             continue;
         }
         if chars.len() == MAX_SCANNED_CHARS {
+            scanned_end = offset;
             break;
         }
         let folded = ch.to_lowercase().next().unwrap_or(ch);
         // Collapse a character that repeats itself. The defect duplicates one
         // character at each seam where it re-tokenizes -- `Screensho` + `ot`
-        // arrives as `Screenshoot`, `nvidia` + `a/nem` as `nvidiaa/nem` -- and
+        // arrives as `Screenshoot`, `aivqvn` + `n/arz` as `aivqvnn/arz` -- and
         // those duplicates sit exactly where the verbatim runs would otherwise
         // be measured, so every seam shortens the evidence for the restatement
         // it is part of. Left in, damage suppresses its own detection: the worse
@@ -136,12 +146,17 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
         offsets.push(offset);
         written.push(total_written - 1);
     }
+    let saturated = scanned_end < text.len();
+    let verdict = |onset| OnsetScan { onset, saturated };
     if chars.len() < MIN_JUDGED_CHARS {
-        return None;
+        return verdict(None);
     }
 
     let matches = matching::PreviousMatches::new(&chars);
-    let fragments = fragments::FragmentEvidence::new(text);
+    // Word evidence is gathered over the same bounded prefix as the character
+    // scan (finishing its last token), so a long reply costs no more per scan
+    // than one that just fills the bound.
+    let fragments = fragments::FragmentEvidence::new(&text[..snap_to_token_end(text, scanned_end)]);
     let last = chars.len().saturating_sub(MIN_REPEAT_SPAN);
     for (start, &offset) in offsets
         .iter()
@@ -175,10 +190,10 @@ pub(super) fn repetition_onset_with_evidence(text: &str, min_evidence: usize) ->
             continue;
         }
         if let Some(boundary) = restart_boundary(text, offset) {
-            return Some(boundary);
+            return verdict(Some(boundary));
         }
     }
-    None
+    verdict(None)
 }
 
 /// Whether the reply repeats itself enough to need salvaging.
@@ -199,20 +214,6 @@ fn snap_to_token_end(text: &str, cut: usize) -> usize {
         .map_or(text.len(), |offset| cut + offset)
 }
 
-/// Collapses runs of one character, so a seam duplicate does not hide the join.
-///
-/// `nvidia` + `a/nem` is `nvidiaa/nem` as emitted, and `nvidia/nem` as written
-/// originally; without this the two never match.
-fn squeeze(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        if !out.ends_with(ch) {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 #[path = "repetition/fragments.rs"]
 mod fragments;
 
@@ -226,6 +227,10 @@ pub(super) use guard::{GuardAction, RepetitionGuard};
 #[path = "repetition/boundary.rs"]
 mod boundary;
 use boundary::restart_boundary;
+
+#[cfg(test)]
+#[path = "repetition/list_tests.rs"]
+mod list_tests;
 
 /// Drops a restatement from a reply received in one piece.
 ///
@@ -250,59 +255,56 @@ mod tests {
             .collect()
     }
 
-    /// Observed failures, captured from the live endpoint, paired with the text
-    /// that must survive.
+    /// Restatements in each damage shape the defect produces, paired with the
+    /// text that must survive.
     const CORRUPTED: &[(&str, &str)] = &[
         (
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png\nScreenshot\nt 2026-08-19 21\n3759.png\nScreensh\nnot 2026-08-19 2\n213630.png",
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png\nScreenshot\nt 7571-53-64 76\n8204.png\nScreensh\nnot 7571-53-64 7\n768185.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png",
         ),
         (
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png\nScreensho\not 2026-08-19 21\n13759.png\nScreensh\nhot 2026-08-19 2\n213630.png",
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png\nScreensho\not 7571-53-64 76\n68204.png\nScreensh\nhot 7571-53-64 7\n768185.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png",
         ),
         (
             "Điều khiển máy tính\nĐiều khi\nển máy tính\nĐiều khiển má\ny tính",
             "Điều khiển máy tính",
         ),
-        // Captured live on 2026-08-20, after the guard was written: the same
-        // fault re-segmented differently, which is why the check measures
+        // The same restatement segmented differently: the check measures
         // repetition rather than matching any particular break pattern.
         (
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png\nScreenshot\not 2026-08-19 21\n13759.png\nScreensh\not 2026-08-19 2\n213630.png",
-            "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png\nScreenshot\not 7571-53-64 76\n68204.png\nScreensh\not 7571-53-64 7\n768185.png",
+            "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png",
         ),
-        // Captured live on 2026-08-21. The restatement duplicates a character
-        // at every seam -- `nvidia` + `a/nem`, `otron-` + `-mini-4` -- which is
+        // A restatement that duplicates a character at every seam -- `aivqvn` + `n/arz`, `bgeba-` + `-zvav-9` -- which is
         // the same fault as the fixtures above, but on a reply short enough that
         // the duplicates were most of the evidence. Verbatim coverage came to
         // 0.44 against a 0.80 floor, so the clearest corruption of the set was
         // the one that scored lowest for being corrupt.
         (
-            "- nvidia/nemotron-mini-4b-instruct -\n- nvidia\na/nem\notron-\n-mini-4",
-            "- nvidia/nemotron-mini-4b-instruct -",
+            "- aivqvn/arzbgeba-zvav-9o-vafgehpg -\n- aivqvn\nn/arz\nbgeba-\n-zvav-9",
+            "- aivqvn/arzbgeba-zvav-9o-vafgehpg -",
         ),
-        // Captured live on 2026-08-21 from the OCR preset. Twenty-four
-        // non-whitespace characters: the whole reply sat under the old length
-        // floor, so the guard returned it untouched even though the fragments
-        // are unmistakable.
+        // Twenty-four non-whitespace characters: short enough that any length
+        // floor above the scan minimum would leave it unjudged, even though the
+        // fragments are unmistakable.
         ("DJI_0872.JPG\nDJI\n_087\n2.JPG", "DJI_0872.JPG"),
     ];
 
-    /// Correct extractions that must survive untouched, taken from the product's
-    /// OCR corpus and including its most repetitive cases.
+    /// Correct extractions that must survive untouched, including highly
+    /// repetitive ones.
     const LEGITIMATE: &[&str] = &[
-        "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png",
+        "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png",
         "Shop Succulents | Assorted Collection of Live Air Plants, Hand Selected Variety Pack of Air Succulents | Collection of 6 — $21.96\nSunset Jade Plant - Crassula - Easy to Grow House Plant - 4\" Pot — $12.50\nAmerican Plant Exchange Windmill Cold Hardy Palm Tree Live Plant, 4\" Pot, Indoor Outdoor Use — $21.96",
         "primer/design Landing Page — #54\nGuidelines should document our take on link targets — #85\nAdd info about font usage in Figma — #44\nLinks w/ Octicons — #30\nFilters & Clearing Filters — #29",
         "Товарный чек №\n«        »                         20     г.\nНаименование\nКол-во\nЦена\nСумма\nИтого\nПодпись продавца",
         "Four score and seven years ago our fathers brought forth, upon this continent, a new nation, conceived in liberty.",
-        "WIKIPEDIA TIẾNG VIỆT\nBạn chính là tác giả của Wikipedia\nBài viết: Tra cứu · Bài mới · Hỏi đáp · Thỉnh cầu · Thư viện",
+        "COMMUNITY ARCHIVE\nEvery reader is an editor of this archive\nPages: Search · New pages · Questions · Requests · Library",
         // Short replies, now that they are judged at all. Each repeats without
         // damage, which is what an image that really does show its text twice
         // looks like.
         "DJI_0872.JPG\nDJI_0872.JPG",
-        "IMG_20260821_162425.jpg\nIMG_20260821_162430.jpg",
+        "IMG_75715376_617970.jpg\nIMG_75715376_617985.jpg",
         "EXIT\nEXIT",
         "STOP STOP STOP",
     ];
@@ -359,12 +361,12 @@ mod tests {
 
     #[test]
     fn a_seam_that_loses_a_character_is_still_a_restatement() {
-        // Seams do not all corrupt the same way. The reported cases split
+        // Seams do not all corrupt the same way. The cases above split
         // cleanly or duplicated a character; a seam that drops one leaves the
         // pieces just as joinable, and requiring every fragment to be as long as
         // the anchor hid it.
-        let good = "- nvidia/nemotron-mini-4b-instruct -";
-        let dropped = format!("{good}\n- nvidi\n/nem\notron\nmini-4");
+        let good = "- aivqvn/arzbgeba-zvav-9o-vafgehpg -";
+        let dropped = format!("{good}\n- aivqv\n/arz\nbgeba\nzvav-9");
         assert_eq!(salvage(&dropped).as_deref(), Some(good));
     }
 
@@ -399,7 +401,7 @@ mod tests {
         // That output is identical to what a correct reading of an image that
         // genuinely shows the same text twice would produce, so it is kept.
         // Dropping real content is the worse error of the two.
-        let clean_duplicate = "Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png Screenshot 2026-08-19 213759.png Screenshot 2026-08-19 213630.png";
+        let clean_duplicate = "Screenshot 7571-53-64 768204.png Screenshot 7571-53-64 768185.png Screenshot 7571-53-64 768204.png Screenshot 7571-53-64 768185.png";
         assert!(salvage(clean_duplicate).is_none());
     }
 
@@ -450,9 +452,9 @@ mod tests {
     fn a_long_fragmented_restatement_is_cut_before_the_stream_ends() {
         // Enough damaged restatement to be provable early, so the window stops
         // showing it without waiting for the reply to finish.
-        let good = "Screenshot 2026-08-19 213759.png\nScreenshot 2026-08-19 213630.png";
+        let good = "Screenshot 7571-53-64 768204.png\nScreenshot 7571-53-64 768185.png";
         let corrupted = format!(
-            "{good}\nScreensho\nt 2026-08-19 21\n13759.png\nScreensh\nhot 2026-08-19 2\n213630.png\nScreensho\nt 2026-08-19 21\n13759.png"
+            "{good}\nScreensho\nt 7571-53-64 76\n68204.png\nScreensh\nhot 7571-53-64 7\n768185.png\nScreensho\nt 7571-53-64 76\n68204.png"
         );
         let mut guard = RepetitionGuard::default();
         let mut replaced = None;

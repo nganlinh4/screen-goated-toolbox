@@ -7,6 +7,7 @@ use eframe::egui;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use super::component_row::{ComponentState, RowAction, RowOperations, render_component_row};
 use super::utils::{removal_in_progress, start_removal, tool_card};
 
 static RECOVERY_FEEDBACK: OnceLock<Mutex<[Option<String>; 3]>> = OnceLock::new();
@@ -68,85 +69,12 @@ fn render_tool(
 ) {
     let theme = AppTheme::from_ui(ui);
     let status = tool_status(download_manager, tool);
-    let mut install_clicked = false;
-    let mut remove_clicked = false;
-
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(name).strong());
-        ui.with_layout(
-            egui::Layout::right_to_left(egui::Align::Center),
-            |ui| match &status {
-                InstallStatus::Installed => {
-                    remove_clicked = ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked();
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary.managed_tools.tool_status_installed.replace(
-                                "{}",
-                                &version_label(tool).unwrap_or_else(|| "x64".to_string()),
-                            ),
-                        )
-                        .color(theme.success()),
-                    );
-                }
-                InstallStatus::Downloading(progress) => {
-                    ui.spinner();
-                    ui.label(format!("{:.0}%", progress * 100.0));
-                }
-                InstallStatus::Extracting => {
-                    ui.spinner();
-                    ui.label(text.auxiliary.download.download_status_extracting);
-                }
-                InstallStatus::Finalizing => {
-                    ui.spinner();
-                    ui.label(text.auxiliary.download.download_status_finalizing);
-                }
-                InstallStatus::Checking => {
-                    ui.spinner();
-                    ui.label(text.auxiliary.download.download_status_checking);
-                }
-                InstallStatus::Missing => {
-                    install_clicked = ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked();
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-                InstallStatus::Unavailable => {
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_unavailable)
-                            .color(theme.danger_text()),
-                    );
-                }
-                InstallStatus::Error(error) => {
-                    remove_clicked = ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .on_hover_text(error)
-                        .clicked();
-                    install_clicked = ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .on_hover_text(error)
-                        .clicked();
-                    ui.label(
-                        egui::RichText::new(
-                            text.auxiliary.managed_tools.tool_status_install_failed,
-                        )
-                        .color(theme.danger_text()),
-                    )
-                    .on_hover_text(error);
-                }
-            },
-        );
-    });
+    let state = tool_state(&status, text, tool);
+    let operations = RowOperations {
+        install: None,
+        removal: tool_removal_key(tool),
+    };
+    let action = render_component_row(ui, text, name, operations, state);
 
     ui.label(description);
     if let Some(version) = version_label(tool) {
@@ -158,13 +86,30 @@ fn render_tool(
         );
     }
 
-    if install_clicked {
-        start_install(download_manager, tool);
-    }
-    if remove_clicked {
-        request_removal(download_manager, tool);
+    match action {
+        Some(RowAction::Install) => start_install(download_manager, tool),
+        Some(RowAction::Remove) => request_removal(download_manager, tool),
+        None => {}
     }
     render_recoveries(ui, download_manager, text, tool, &theme);
+}
+
+/// A tool in error may still have files on disk, so it offers both a retry
+/// and a removal.
+fn tool_state<'a>(
+    status: &'a InstallStatus,
+    text: &'a LocaleText,
+    tool: ExternalTool,
+) -> ComponentState<'a> {
+    match status {
+        InstallStatus::Error(message) => ComponentState::Broken { message },
+        status => ComponentState::from_install_status(status, text, || {
+            text.auxiliary.managed_tools.tool_status_installed.replace(
+                "{}",
+                &version_label(tool).unwrap_or_else(|| "x64".to_string()),
+            )
+        }),
+    }
 }
 
 fn render_recoveries(
@@ -325,44 +270,80 @@ fn request_removal(download_manager: &DownloadManager, tool: ExternalTool) {
     download_manager.cancel_download();
     let status = tool_status_slot(download_manager, tool);
     let logs = download_manager.install_logs.clone();
-    if let Ok(mut current) = status.lock() {
-        *current = InstallStatus::Checking;
-    }
     start_removal(
         tool_removal_key(tool),
         tool.id().to_string(),
         move || {
-            let _recorder = crate::overlay::screen_record::stop_for_component_removal()?;
-            let result = remove_external_tool(tool);
-            let next = match &result {
-                Ok(()) => InstallStatus::Missing,
-                Err(error) => InstallStatus::Error(error.to_string()),
-            };
-            if let Ok(mut current) = status.lock() {
-                *current = next;
-            }
-            if let Err(error) = &result
-                && let Ok(mut logs) = logs.lock()
-            {
-                logs.push(format!("Could not remove {}: {error:#}", tool.id()));
-            }
-            result
+            run_tool_removal(
+                &status,
+                &logs,
+                tool.id(),
+                crate::overlay::screen_record::stop_for_component_removal,
+                || remove_external_tool(tool),
+                || match external_tools::current_status(tool) {
+                    external_tools::ExternalToolStatus::Installed { .. } => {
+                        InstallStatus::Installed
+                    }
+                    external_tools::ExternalToolStatus::Missing => InstallStatus::Missing,
+                    external_tools::ExternalToolStatus::Unavailable => InstallStatus::Unavailable,
+                    external_tools::ExternalToolStatus::Error(error) => InstallStatus::Error(error),
+                },
+            )
         },
         move || invalidate_recoveries(tool),
     );
 }
 
+fn run_tool_removal<G>(
+    status: &Mutex<InstallStatus>,
+    logs: &Mutex<Vec<String>>,
+    name: &str,
+    stop_recorder: impl FnOnce() -> anyhow::Result<G>,
+    remove: impl FnOnce() -> anyhow::Result<()>,
+    refresh_status: impl FnOnce() -> InstallStatus,
+) -> anyhow::Result<()> {
+    if let Ok(mut current) = status.lock() {
+        *current = InstallStatus::Checking;
+    }
+    // Keep the recorder's removal guard alive for the entire mutation.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stop_recorder().and_then(|_recorder| remove())
+    }))
+    .unwrap_or_else(|_| Err(anyhow::anyhow!("component removal stopped unexpectedly")));
+    let next = if result.is_ok() {
+        InstallStatus::Missing
+    } else {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(refresh_status)).unwrap_or_else(
+            |_| InstallStatus::Error("component status refresh stopped unexpectedly".into()),
+        )
+    };
+    if let Ok(mut current) = status.lock() {
+        *current = next;
+    }
+    if let Err(error) = &result
+        && let Ok(mut logs) = logs.lock()
+    {
+        logs.push(format!("Could not remove {name}: {error:#}"));
+    }
+    result
+}
+
 fn remove_external_tool(tool: ExternalTool) -> anyhow::Result<()> {
-    match external_tools::remove(tool)? {
-        RemovalOutcome::Missing | RemovalOutcome::Removed | RemovalOutcome::Pending => Ok(()),
+    external_tool_removal_outcome(tool.id(), external_tools::remove(tool)?)
+}
+
+fn external_tool_removal_outcome(id: &str, outcome: RemovalOutcome) -> anyhow::Result<()> {
+    match outcome {
+        RemovalOutcome::Missing | RemovalOutcome::Removed => Ok(()),
+        RemovalOutcome::Pending => anyhow::bail!("{id} removal is pending until active use ends"),
         RemovalOutcome::RequiredBy(dependents) => anyhow::bail!(
             "{} is required by installed components: {}",
-            tool.id(),
+            id,
             dependents.join(", ")
         ),
         RemovalOutcome::PreservedModified(paths) => anyhow::bail!(
             "{} contains {} unrecorded or unsafe path(s); they were preserved",
-            tool.id(),
+            id,
             paths.len()
         ),
     }
@@ -430,3 +411,7 @@ const fn recovery_removal_key(tool: ExternalTool) -> &'static str {
         ExternalTool::Deno => "downloaded-tools:clean-deno-recovery",
     }
 }
+
+#[cfg(test)]
+#[path = "video_downloader/removal_status_tests.rs"]
+mod removal_status_tests;

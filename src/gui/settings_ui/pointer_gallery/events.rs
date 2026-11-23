@@ -5,19 +5,18 @@
 //! worker lifecycle, drain its events, reconcile collection status against the
 //! on-disk file set, and apply a downloaded collection.
 
+use super::apply_worker::{ApplyRequest, ApplyTarget};
 use super::backend::{
-    apply_downloaded_collection, collection_specs, expected_file_count, is_collection_downloading,
-    is_complete_files, required_file_names,
+    collection_specs, expected_file_count, is_collection_downloading, is_complete_files,
+    required_file_names,
 };
 use super::worker::run_preload_worker;
 use super::{
     CollectionState, CollectionStatus, DISK_SYNC_IDLE_INTERVAL_SECS, DISK_SYNC_INTERVAL_SECS,
     GalleryEvent, PointerGallery,
 };
-use crate::gui::locale::LocaleText;
 use eframe::egui;
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 
@@ -27,8 +26,7 @@ impl PointerGallery {
             return;
         }
 
-        self.stop_signal.store(false, Ordering::Relaxed);
-        let stop_signal = self.stop_signal.clone();
+        let stop_signal = super::backend::replace_stop_signal(&mut self.stop_signal);
         let Ok(activity) = crate::install_activity::register(stop_signal.clone()) else {
             self.downloads_paused = true;
             return;
@@ -53,7 +51,6 @@ impl PointerGallery {
     }
 
     pub(super) fn restart_preload(&mut self) {
-        self.stop_signal.store(false, Ordering::Relaxed);
         self.downloads_paused = false;
         self.preload_started = false;
         self.event_rx = None;
@@ -230,7 +227,7 @@ impl PointerGallery {
             .find(|entry| entry.spec.id == id)
     }
 
-    pub(super) fn apply_collection(&mut self, id: &str, text: &LocaleText) {
+    pub(super) fn apply_collection(&mut self, id: &str) {
         let Some(collection_idx) = self.collections.iter().position(|c| c.spec.id == id) else {
             return;
         };
@@ -241,31 +238,17 @@ impl PointerGallery {
         }
 
         self.collections[collection_idx].status = CollectionStatus::Applying;
-        let spec = self.collections[collection_idx].spec;
-        let files = self.collections[collection_idx].files.clone();
-
-        match apply_downloaded_collection(spec, &files, self.pointer_size, false) {
-            Ok(()) => {
-                for entry in &mut self.collections {
-                    if entry.spec.id == id {
-                        entry.status = CollectionStatus::Applied;
-                    } else if matches!(entry.status, CollectionStatus::Applied) {
-                        entry.status = CollectionStatus::Ready;
-                    }
-                }
-                self.status_message = Some((
-                    true,
-                    text.auxiliary
-                        .managed_tools
-                        .pointer_apply_success_fmt
-                        .replace("{}", spec.title),
-                ));
-            }
-            Err(err) => {
-                self.collections[collection_idx].status = CollectionStatus::Error(err.clone());
-                self.status_message = Some((false, err));
-            }
-        }
+        let collection = &self.collections[collection_idx];
+        let request = ApplyRequest {
+            target: ApplyTarget::Pack {
+                spec: collection.spec,
+                files: collection.files.clone(),
+                chosen: true,
+            },
+            size: self.pointer_size,
+            live_preview_only: false,
+        };
+        self.submit_apply(request);
     }
 }
 

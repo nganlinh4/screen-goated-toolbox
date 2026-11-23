@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
 fun openAppUpdate(context: Context, state: AppUpdateUiState): Boolean {
+    if (state.status != AppUpdateStatus.UPDATE_AVAILABLE) return false
     val target = state.actionUrl ?: return false
     return launchView(context, target)
 }

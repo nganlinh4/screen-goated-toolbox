@@ -14,12 +14,15 @@ import {
   dispatchAllSubmissions,
 } from "./durable-dispatch";
 import { frozenGenerationSettings } from "./recovery-settings";
+import { matchingPublishedHistory, RecoveryDiscovery } from "./recovery-discovery";
 import {
   canSubmitItem,
   freshSubmissionSession,
   needsFreshSubmissionSession,
 } from "./submission-policy";
 import { shouldStartAutomaticSegmentation } from "./automatic-segmentation";
+import { cancellationOutcome } from "./cancellation-outcome";
+import { claimContinuation } from "./refinement-policy";
 import { retainPublishedDownload } from "./result-files";
 import {
   AUTOMATIC_SEGMENTATION_START,
@@ -57,6 +60,7 @@ function delay(milliseconds: number) {
 export class JobRunner {
   private monitorActive = false;
   private readonly missingStatusPolls = new Map<string, number>();
+  private readonly recoveryDiscovery = new RecoveryDiscovery();
 
   constructor(private readonly options: JobRunnerOptions) {}
 
@@ -89,12 +93,45 @@ export class JobRunner {
     state.cancelRequested = false;
     updateUi();
     await dispatchAllSubmissions(
-      state.items,
+      () => state.items,
       (item) => this.runItem(item),
       () => state.cancelRequested,
     );
     state.queueActive = false;
     state.cancelRequested = false;
+    updateUi();
+  }
+
+  async cancelItem(item: QueueItem) {
+    const { state, updateUi } = this.options;
+    item.cancelRequested = true;
+    const jobId = item.result?.jobId;
+    if (!jobId) {
+      // runItem cancels a job whose start is still in flight once it has an ID.
+      item.state = "cancelled";
+      state.runningIds.delete(item.id);
+      updateUi();
+      return;
+    }
+    await this.cancelTrackedJob(item, jobId);
+  }
+
+  /**
+   * Settles an item only from a confirmed reply for its own job; otherwise the
+   * job is still running (or unconfirmed) and stays tracked until its real
+   * outcome arrives.
+   */
+  private async cancelTrackedJob(item: QueueItem, jobId: string) {
+    const { state, invoke, busyStages, updateUi } = this.options;
+    const reply = await invoke<JobStatus>("cancel_job", { jobId }).catch(() => undefined);
+    const outcome = cancellationOutcome(jobId, reply, busyStages);
+    if (outcome.kind === "settled") {
+      await this.finishTrackedItem(item, outcome.status);
+      return;
+    }
+    if (outcome.kind === "running") this.applyJobStatus(item, outcome.status);
+    if (item.state === "running") state.runningIds.add(item.id);
+    this.startJobMonitor();
     updateUi();
   }
 
@@ -130,6 +167,7 @@ export class JobRunner {
       id: `revision_${Date.now()}_${crypto.randomUUID()}`,
       sourceProvenance: "presentation",
       submitted: true,
+      cancelRequested: false,
       state: "running",
       historyId: undefined,
       createdAtMs: Date.now(),
@@ -149,12 +187,13 @@ export class JobRunner {
     );
     updateUi();
     const baseResult = item.result!;
-    parent.result.canRefine = false;
-    parent.result.canSegment = false;
-    parent.result.supportedActions = [];
-    parent.result.availableActions = [];
+    const releaseContinuation = claimContinuation(parent.result);
+    let admitted = false;
+    const finishSubmission = this.recoveryDiscovery.beginSubmission();
     try {
       const initial = await invoke<JobStatus>("refine_model", request);
+      admitted = true;
+      finishSubmission(initial.jobId);
       if (!initial.jobId) throw new Error("The model job did not return an ID.");
       this.applyJobStatus(item, initial);
       if (this.options.busyStages.has(initial.stage)) {
@@ -163,6 +202,7 @@ export class JobRunner {
         await this.finishTrackedItem(item, initial);
       }
     } catch {
+      if (!admitted) releaseContinuation();
       item.state = "failed";
       item.result = {
         ...baseResult,
@@ -172,23 +212,29 @@ export class JobRunner {
       };
       state.runningIds.delete(item.id);
     } finally {
+      finishSubmission();
       updateUi();
     }
   }
 
-  async restoreCurrentJobs() {
+  async restoreCurrentJobs(): Promise<boolean> {
     const {
       state, invoke, busyStages, pathLeaf, updateUi, displayItem,
     } = this.options;
+    if (!this.recoveryDiscovery.canDiscover()) return false;
     try {
       const statuses = await invoke<JobStatus[]>("job_statuses");
+      if (!this.recoveryDiscovery.canDiscover()) return false;
       const recoverable = new Map<string, JobStatus>();
       for (const status of statuses) {
         if (
           status.jobId
-          && status.sourceImagePath
-          && frozenGenerationSettings(status)
-          && (busyStages.has(status.stage) || status.stage === "done" && status.outputPath)
+          && (status.error === "recovery_deadline" || (
+            status.sourceImagePath
+            && frozenGenerationSettings(status)
+            && (busyStages.has(status.stage) || status.stage === "failed"
+              || status.stage === "done" && status.outputPath)
+          ))
         ) {
           recoverable.set(status.jobId, status);
         }
@@ -196,13 +242,38 @@ export class JobRunner {
       const knownJobIds = new Set(
         state.items.map((item) => item.result?.jobId).filter(Boolean),
       );
-      const items = [...recoverable.values()]
-        .filter((status) => !knownJobIds.has(status.jobId))
-        .map((status, index): QueueItem => {
-        const path = status.sourceImagePath!;
-        const name = pathLeaf(path);
-        const running = busyStages.has(status.stage);
+      for (const id of knownJobIds) this.recoveryDiscovery.remember(id);
+      const matchedHistory: QueueItem[] = [];
+      for (const status of recoverable.values()) {
+        if (!this.recoveryDiscovery.isUnseen(status.jobId!)) continue;
+        const existing = matchingPublishedHistory(status, state.items);
+        if (!existing) continue;
         const settings = frozenGenerationSettings(status)!;
+        existing.generationMode = settings.generationMode;
+        existing.polycount = settings.polycount;
+        existing.autoSegment = settings.autoSegment;
+        existing.segmentationLevel = settings.segmentationLevel;
+        existing.topology = settings.topology;
+        existing.instruction = settings.instruction;
+        existing.outputDir = settings.outputDir;
+        this.applyJobStatus(existing, status);
+        matchedHistory.push(existing);
+      }
+      const items = [...recoverable.values()]
+        .filter((status) => this.recoveryDiscovery.isUnseen(status.jobId!))
+        .map((status, index): QueueItem => {
+        const path = status.sourceImagePath || "";
+        const name = path ? pathLeaf(path) : t("interrupted");
+        const running = busyStages.has(status.stage);
+        const settings = frozenGenerationSettings(status) || {
+          generationMode: "quality" as const,
+          polycount: 5_000,
+          autoSegment: false,
+          segmentationLevel: "detailed" as const,
+          topology: undefined,
+          instruction: undefined,
+          outputDir: state.outputDir,
+        };
         return {
           id: `recovered_${Date.now()}_${index}`,
           batchId: `recovered_batch_${Date.now()}_${index}`,
@@ -218,7 +289,7 @@ export class JobRunner {
           instruction: settings.instruction,
           outputDir: settings.outputDir,
           submitted: true,
-          state: running ? "running" : "done",
+          state: running ? "running" : status.stage === "done" ? "done" : "failed",
           result: status,
           operationStartedAt:
             running ? Date.now() - Math.max(0, status.elapsedMs || 0) : undefined,
@@ -227,21 +298,25 @@ export class JobRunner {
           createdAtMs: Date.now() - Math.max(0, status.elapsedMs || 0),
         };
       });
-      if (!items.length) {
+      if (!items.length && !matchedHistory.length) {
         updateUi();
-        return;
+        return true;
       }
       const latest = items[items.length - 1];
+      const selectLatest = Boolean(latest) && !state.items.some((item) => item.id === state.selectedId);
       state.items.push(...items);
-      state.selectedId = latest.id;
-      state.selectedStatus = latest.result!;
-      for (const item of items) {
+      for (const item of items) this.recoveryDiscovery.remember(item.result!.jobId);
+      if (selectLatest) {
+        state.selectedId = latest.id;
+        state.selectedStatus = latest.result!;
+      }
+      for (const item of [...items, ...matchedHistory]) {
         if (item.state === "running") state.runningIds.add(item.id);
       }
       updateUi();
-      await displayItem(latest);
-      for (const item of items) {
-        if (shouldStartAutomaticSegmentation(item.autoSegment, item.result)) {
+      if (selectLatest) await displayItem(latest);
+      for (const item of [...items, ...matchedHistory]) {
+        if (shouldStartAutomaticSegmentation(item.autoSegment, item.result, item.cancelRequested)) {
           item.displayedProgress = AUTOMATIC_SEGMENTATION_START;
           item.progressContinues = true;
           await this.startRefinement(item, {
@@ -252,13 +327,16 @@ export class JobRunner {
         }
       }
       this.startJobMonitor();
+      return true;
     } catch {
       updateUi();
+      return false;
     }
   }
 
   private applyJobStatus(item: QueueItem, status: JobStatus) {
     const { state, busyStages, displayItem, updateUi } = this.options;
+    this.recoveryDiscovery.remember(status.jobId);
     status = retainPublishedDownload(item.result, status);
     if (status.projectId) item.batchId = status.projectId;
     if (busyStages.has(status.stage)) {
@@ -329,12 +407,16 @@ export class JobRunner {
     ) {
       request.instruction = item.instruction.trim();
     }
+    const finishSubmission = this.recoveryDiscovery.beginSubmission();
     try {
       const initial = await invoke<JobStatus>("start_job", request);
+      finishSubmission(initial.jobId);
       if (!initial.jobId) throw new Error("The model job did not return an ID.");
-      if (item.cancelRequested && initial.jobId) {
-        const cancelled = await invoke<JobStatus>("cancel_job", { jobId: initial.jobId });
-        await this.finishTrackedItem(item, cancelled);
+      if (item.cancelRequested) {
+        // The cancel arrived while start_job was in flight; the job exists now.
+        item.state = "running";
+        this.applyJobStatus(item, initial);
+        await this.cancelTrackedJob(item, initial.jobId);
         return;
       }
       this.applyJobStatus(item, initial);
@@ -350,6 +432,8 @@ export class JobRunner {
       };
       state.runningIds.delete(item.id);
       updateUi();
+    } finally {
+      finishSubmission();
     }
   }
 
@@ -421,6 +505,7 @@ export class JobRunner {
     const startAutomaticSegmentation = shouldStartAutomaticSegmentation(
       item.autoSegment,
       status,
+      item.cancelRequested,
     );
     item.result = status;
     item.state =

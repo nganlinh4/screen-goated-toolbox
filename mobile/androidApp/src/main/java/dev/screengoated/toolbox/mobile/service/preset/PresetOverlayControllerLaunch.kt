@@ -2,8 +2,10 @@ package dev.screengoated.toolbox.mobile.service.preset
 
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
+import dev.screengoated.toolbox.mobile.preset.audioResumeKind
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
+import dev.screengoated.toolbox.mobile.preset.initialAudioBlocks
 import dev.screengoated.toolbox.mobile.preset.resolvePrompt
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
@@ -18,6 +20,7 @@ internal fun PresetOverlayController.launchPreset(
     closePanel: Boolean,
     continuousMode: Boolean,
 ) {
+    cancelPendingAudioRecovery()
     if (closePanel) {
         panelModule.dismiss()
     }
@@ -38,7 +41,7 @@ internal fun PresetOverlayController.launchPreset(
     if (audioCaptureSession.toggleOrAbortIfMatching(presetId)) {
         return
     }
-    if (!resolved.executionCapability.supported) {
+    if (retireUnsupportedPresetLaunch(resolved, presetRepository::cancelExecution)) {
         Toast.makeText(
             context,
             placeholderReasonLabel(
@@ -98,12 +101,14 @@ internal fun PresetOverlayController.launchPreset(
 }
 
 internal fun PresetOverlayController.launchDefaultMicPreset() {
+    cancelPendingAudioRecovery()
     val resolved = presetRepository.getResolvedPreset("preset_transcribe") ?: return
     if (!inputModule.hasWindow()) {
         // No input window — normal preset launch
         launchPreset(presetId = resolved.preset.id, closePanel = false, continuousMode = false)
         return
     }
+    val inputWindowId = inputModule.currentWindowId() ?: return
     // Input window is open — mic is just a speech-to-text input method.
     // Record audio, transcribe, inject text into input. Do NOT run the preset pipeline.
     // (matches Windows: show_recording_overlay → set_editor_text, input window stays open)
@@ -113,6 +118,7 @@ internal fun PresetOverlayController.launchDefaultMicPreset() {
         resolvedPreset = resolved,
         onRecordingComplete = { capture ->
             onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
+            if (inputModule.currentWindowId() != inputWindowId) return@start
             val transcript = capture.precomputedTranscript
             if (!transcript.isNullOrBlank()) {
                 // Streaming transcript is already available from the capture session.
@@ -120,9 +126,7 @@ internal fun PresetOverlayController.launchDefaultMicPreset() {
                 inputModule.bringToFront()
             } else {
                 // Standard runtime (Whisper/Groq) — call transcription API directly
-                val audioBlock = resolved.preset.blocks.firstOrNull {
-                    it.blockType == dev.screengoated.toolbox.mobile.shared.preset.BlockType.AUDIO
-                } ?: return@start
+                val audioBlock = resolved.preset.initialAudioBlocks().firstOrNull() ?: return@start
                 scope.launch(Dispatchers.Main) {
                     val result = appContainer.audioApiClient.executeStreaming(
                         modelId = audioBlock.model,
@@ -133,6 +137,7 @@ internal fun PresetOverlayController.launchDefaultMicPreset() {
                         inputLanguage = audioBlock.languageVars["input_language"],
                         onChunk = {},
                     )
+                    if (inputModule.currentWindowId() != inputWindowId) return@launch
                     result.getOrNull()?.takeIf { it.isNotBlank() }?.let { text ->
                         inputModule.injectText(text)
                         inputModule.bringToFront()
@@ -149,22 +154,24 @@ internal fun PresetOverlayController.launchDefaultMicPreset() {
         },
         onFailure = { failure ->
             onAudioCaptureForegroundModeChanged(PresetAudioForegroundMode.NONE)
-            handleAudioCaptureFailure(resolved, failure)
+            if (inputModule.currentWindowId() == inputWindowId) {
+                handleAudioCaptureFailure(resolved, failure, AudioPresetLaunchKind.INPUT_DICTATION, inputWindowId)
+            }
         },
     )
 }
 
-internal fun PresetOverlayController.resumePendingAudioLaunch() {
-    val pending = appContainer.audioPresetLaunchStore.take() ?: return
-    if (pending.kind != AudioPresetLaunchKind.CAPTURE) {
-        appContainer.audioPresetLaunchStore.set(pending)
-        return
+internal fun PresetOverlayController.resumePendingAudioLaunch(requestId: String) {
+    val pending = appContainer.audioPresetLaunchStore.takeIfId(requestId, audioRecoveryOwnerId) ?: return
+    when (audioResumeKind(pending, audioRecoveryOwnerId, inputModule.currentWindowId())) {
+        AudioPresetLaunchKind.CAPTURE -> launchPreset(
+            presetId = pending.presetId,
+            closePanel = false,
+            continuousMode = false,
+        )
+        AudioPresetLaunchKind.INPUT_DICTATION -> launchDefaultMicPreset()
+        null -> Unit
     }
-    launchPreset(
-        presetId = pending.presetId,
-        closePanel = false,
-        continuousMode = false,
-    )
 }
 
 /**
@@ -208,7 +215,8 @@ internal fun PresetOverlayController.handleInputClosedWithoutResults() {
     activePreset = null
 }
 
-internal fun PresetOverlayController.submitInput(text: String) {
+internal fun PresetOverlayController.submitInput(submission: TextInputSubmission) {
+    val text = submission.text
     val resolved = activePreset ?: return
     val pendingImage = pendingImageBytes
     if (pendingImage != null) {
@@ -218,7 +226,7 @@ internal fun PresetOverlayController.submitInput(text: String) {
         presetRepository.resetState()
         presetRepository.executePreset(modifiedPreset, PresetInput.Image(pendingImage))
         imageContinuousRearmPending = imageContinuousPresetId == resolved.preset.id
-        inputModule.recordSubmittedText(text)
+        inputModule.recordSubmittedText(submission)
         return
     }
     val pending = pendingTextSelectInput
@@ -229,11 +237,11 @@ internal fun PresetOverlayController.submitInput(text: String) {
         val modifiedPreset = mutateDynamicPromptPreset(resolved, text)
         presetRepository.resetState()
         presetRepository.executePreset(modifiedPreset, PresetInput.Text(pending))
-        inputModule.recordSubmittedText(text)
+        inputModule.recordSubmittedText(submission)
     } else {
         // Normal TEXT_INPUT flow
         presetRepository.resetState()
         presetRepository.executePreset(resolved.preset, PresetInput.Text(text))
-        inputModule.recordSubmittedText(text)
+        inputModule.recordSubmittedText(submission)
     }
 }

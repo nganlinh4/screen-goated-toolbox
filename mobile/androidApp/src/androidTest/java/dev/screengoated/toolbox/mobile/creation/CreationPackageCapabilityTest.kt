@@ -4,8 +4,6 @@ import android.content.ComponentName
 import android.content.pm.PackageManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker0Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker0Service
@@ -32,8 +30,6 @@ class CreationPackageCapabilityTest {
             ImageTo3dWorker1Service::class.java to ":sgt_creation_3d_1",
             ImageToSvgWorker0Service::class.java to ":sgt_creation_svg_0",
             ImageToSvgWorker1Service::class.java to ":sgt_creation_svg_1",
-            ImageCreatorWorker0Service::class.java to ":sgt_creation_image_0",
-            ImageCreatorWorker1Service::class.java to ":sgt_creation_image_1",
         ).map { (serviceClass, processSuffix) ->
             packageManager.getServiceInfo(ComponentName(context, serviceClass), flags).also {
                 assertFalse(it.exported)
@@ -43,6 +39,6 @@ class CreationPackageCapabilityTest {
         }
 
         assertFalse(activity.exported)
-        assertEquals(6, workers.map { it.processName }.distinct().size)
+        assertEquals(4, workers.map { it.processName }.distinct().size)
     }
 }

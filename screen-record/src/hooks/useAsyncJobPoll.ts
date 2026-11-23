@@ -12,7 +12,8 @@ import { invoke } from '@/lib/ipc';
  *   that observes a terminal state — matching the original code, which always
  *   processed results before checking for the terminal branch)
  * - terminal detection via `isTerminal`
- * - dispatching `onComplete` (terminal status) / `onError` (thrown exception)
+ * - dispatching `onComplete` (terminal status) / `onError` (thrown exception,
+ *   after status-fetch failures exhaust `STATUS_FETCH_RETRY_DELAYS_MS`)
  * - rescheduling the next poll with a per-status delay from `intervalFor`
  * - cleanup on unmount / jobId change: sets `cancelled` and runs the optional
  *   `onCleanup` (used by hooks that register extra apply/status timers)
@@ -55,6 +56,13 @@ export interface AsyncJobPollConfig<Status> {
   onCleanup?: () => void;
 }
 
+/**
+ * Backoff (ms) between retries of a failed status fetch. A transient IPC
+ * failure must not abandon a long-running host job; only after every retry
+ * fails does the hook's `onError` (which retires the job) run.
+ */
+export const STATUS_FETCH_RETRY_DELAYS_MS = [100, 200, 400, 800] as const;
+
 export function useAsyncJobPoll<Status>(config: AsyncJobPollConfig<Status>): void {
   const { jobId, enabled = true, restartKey } = config;
 
@@ -66,20 +74,38 @@ export function useAsyncJobPoll<Status>(config: AsyncJobPollConfig<Status>): voi
   useEffect(() => {
     if (!jobId || !enabled) return;
     let cancelled = false;
+    let timer: number | null = null;
+
+    let fetchFailures = 0;
 
     const poll = async () => {
+      if (cancelled) return;
+      timer = null;
       const current = configRef.current;
       try {
-        const status = await current.fetchStatus(jobId);
+        let status: Status;
+        try {
+          status = await current.fetchStatus(jobId);
+        } catch (fetchError) {
+          if (cancelled) return;
+          const retryDelay = STATUS_FETCH_RETRY_DELAYS_MS[fetchFailures];
+          if (retryDelay === undefined) throw fetchError;
+          fetchFailures += 1;
+          console.warn(`[AsyncJobPoll] status fetch failed; retry ${fetchFailures}`, fetchError);
+          timer = window.setTimeout(poll, retryDelay);
+          return;
+        }
+        fetchFailures = 0;
         if (cancelled) return;
         if (current.onTick) {
           await current.onTick(status);
         }
+        if (cancelled) return;
         if (current.isTerminal(status)) {
           await current.onComplete(status);
           return;
         }
-        window.setTimeout(poll, current.intervalFor(status));
+        timer = window.setTimeout(poll, current.intervalFor(status));
       } catch (error) {
         if (cancelled) return;
         await current.onError(error);
@@ -89,6 +115,7 @@ export function useAsyncJobPoll<Status>(config: AsyncJobPollConfig<Status>): voi
     void poll();
     return () => {
       cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
       configRef.current.onCleanup?.();
     };
     // Restart only on these identity changes; everything else is read via ref.

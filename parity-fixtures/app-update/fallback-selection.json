@@ -1,0 +1,634 @@
+{
+  "schema_version": 1,
+  "limits": {
+    "page_size": 100,
+    "maximum_pages": 10
+  },
+  "defaults": {
+    "windows_size": 123456789,
+    "apk_size": 98765432,
+    "windows_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "apk_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "releases": {
+    "stable": {
+      "version": "9.9.9",
+      "body": "Stable release"
+    },
+    "newer": {
+      "version": "10.0.0",
+      "body": "Newer stable release"
+    },
+    "notes_conflict": {
+      "version": "9.9.9",
+      "body": "Different release notes"
+    },
+    "windows_conflict": {
+      "version": "9.9.9",
+      "body": "Stable release",
+      "windows_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "apk_conflict": {
+      "version": "9.9.9",
+      "body": "Stable release",
+      "apk_size": 98765433
+    },
+    "lower": {
+      "version": "9.9.8",
+      "body": "Earlier stable release"
+    },
+    "lower_conflict": {
+      "version": "9.9.8",
+      "body": "Different earlier release notes"
+    },
+    "draft": {
+      "version": "11.0.0",
+      "body": "Draft release",
+      "draft": true
+    },
+    "maximum_component": {
+      "version": "18446744073709551615.0.0",
+      "body": "Large stable version"
+    }
+  },
+  "cases": [
+    {
+      "name": "empty_census",
+      "pages": [
+        {
+          "entries": [],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 1
+    },
+    {
+      "name": "single_partial_page",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "unordered_versions",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "lower",
+              "count": 1
+            },
+            {
+              "release": "newer",
+              "count": 1
+            },
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "identical_page_overlap",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 2
+    },
+    {
+      "name": "conflicting_highest_notes",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            },
+            {
+              "release": "notes_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 1
+    },
+    {
+      "name": "conflicting_highest_installer",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            },
+            {
+              "release": "windows_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": false,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "conflicting_highest_apk",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            },
+            {
+              "release": "apk_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": false,
+      "requests": 1
+    },
+    {
+      "name": "lower_conflict_before_higher",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "lower",
+              "count": 1
+            },
+            {
+              "release": "lower_conflict",
+              "count": 1
+            },
+            {
+              "release": "newer",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "lower_conflict_after_higher",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "newer",
+              "count": 1
+            },
+            {
+              "release": "lower",
+              "count": 1
+            },
+            {
+              "release": "lower_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "higher_page_retires_earlier_conflict",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 99
+            },
+            {
+              "release": "notes_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [
+            {
+              "release": "newer",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 2
+    },
+    {
+      "name": "highest_conflict_across_pages",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [
+            {
+              "release": "notes_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 2
+    },
+    {
+      "name": "identical_overlap_across_three_pages",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 2
+        },
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 3
+    },
+    {
+      "name": "full_page_at_traversal_limit",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 10
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 10
+    },
+    {
+      "name": "partial_page_at_traversal_limit",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 9
+        },
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 10
+    },
+    {
+      "name": "empty_page_at_traversal_limit",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 9
+        },
+        {
+          "entries": [],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 10
+    },
+    {
+      "name": "no_candidate_and_incomplete_census",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "draft",
+              "count": 100
+            }
+          ],
+          "repeat": 10
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 10
+    },
+    {
+      "name": "draft_does_not_terminate_traversal",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "draft",
+              "count": 100
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "stable",
+      "windows": true,
+      "android_full": true,
+      "requests": 2
+    },
+    {
+      "name": "overfull_page_is_rejected",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 101
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 1
+    },
+    {
+      "name": "later_page_failure_discards_partial_result",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 100
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "http_status": 503
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 2
+    },
+    {
+      "name": "latest_version_on_last_page",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "draft",
+              "count": 100
+            }
+          ],
+          "repeat": 9
+        },
+        {
+          "entries": [
+            {
+              "release": "maximum_component",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "maximum_component",
+      "windows": true,
+      "android_full": true,
+      "requests": 10
+    },
+    {
+      "name": "lower_ambiguity_across_pages",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "newer",
+              "count": 1
+            },
+            {
+              "release": "lower",
+              "count": 99
+            }
+          ],
+          "repeat": 1
+        },
+        {
+          "entries": [
+            {
+              "release": "lower_conflict",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 2
+    },
+    {
+      "name": "both_contracts_conflict_below_newer",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            },
+            {
+              "release": "windows_conflict",
+              "count": 1
+            },
+            {
+              "release": "apk_conflict",
+              "count": 1
+            },
+            {
+              "release": "newer",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": "newer",
+      "windows": true,
+      "android_full": true,
+      "requests": 1
+    },
+    {
+      "name": "repeated_primary_then_conflict_then_repetition",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "stable",
+              "count": 1
+            },
+            {
+              "release": "notes_conflict",
+              "count": 1
+            },
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 1
+    },
+    {
+      "name": "conflicting_contract_order_reversed",
+      "pages": [
+        {
+          "entries": [
+            {
+              "release": "notes_conflict",
+              "count": 1
+            },
+            {
+              "release": "stable",
+              "count": 1
+            }
+          ],
+          "repeat": 1
+        }
+      ],
+      "selected": null,
+      "windows": false,
+      "android_full": false,
+      "requests": 1
+    }
+  ]
+}

@@ -1,11 +1,8 @@
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-
 use crate::overlay::window_selector::{
     self, SelectorCallbacks, SelectorEntry, SelectorNotice, SelectorOwner, SelectorText,
 };
 
-use super::{SR_HWND, WM_APP_RUN_SCRIPT};
+use super::post_script;
 
 fn json_u32(value: &serde_json::Value, key: &str, default: u32) -> u32 {
     value[key]
@@ -45,23 +42,6 @@ fn to_selector_entry(
         selection_notice: display_only.then(|| display_only_notice.clone()),
         disabled,
     })
-}
-
-fn post_screen_record_script(script: String) {
-    let sr_hwnd_val = unsafe { std::ptr::addr_of!(SR_HWND).read().0.0 as isize };
-    if sr_hwnd_val == 0 {
-        return;
-    }
-
-    let script_ptr = Box::into_raw(Box::new(script));
-    unsafe {
-        let _ = PostMessageW(
-            Some(HWND(sr_hwnd_val as *mut _)),
-            WM_APP_RUN_SCRIPT,
-            WPARAM(0),
-            LPARAM(script_ptr as isize),
-        );
-    }
 }
 
 pub fn selector_is_closed() -> bool {
@@ -105,13 +85,13 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
                 return;
             }
 
-            post_screen_record_script(format!(
+            post_script(format!(
                 "window.dispatchEvent(new CustomEvent('external-window-selected',{{detail:{{windowId:'{}'}}}}))",
                 window_id
             ));
         },
         || {
-            post_screen_record_script(
+            post_script(
                 "window.dispatchEvent(new CustomEvent('external-window-selection-cancelled'))"
                     .to_string(),
             );

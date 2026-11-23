@@ -1,6 +1,7 @@
+use super::quality::{COMPLETED_QUALITY_PREFIX, common_quality, reported_quality};
 use super::types::DownloadState;
 use super::utils::log;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -8,11 +9,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use crate::process_job::ContainedChild;
 
 const STDERR_TAIL_LINES: usize = 12;
 const STDERR_LINE_CHARS: usize = 2_048;
+
+/// The job of the most recent launch, so tests can inspect containment.
+#[cfg(test)]
+static LAST_LAUNCH: Mutex<Option<(u32, crate::process_job::JobControl)>> = Mutex::new(None);
+
+#[derive(Debug)]
+pub(super) struct CompletedDownload {
+    pub path: Option<PathBuf>,
+    pub quality: Option<u32>,
+}
 
 pub(super) fn run_ytdlp_download_attempt(
     ytdlp_exe: &PathBuf,
@@ -22,7 +32,7 @@ pub(super) fn run_ytdlp_download_attempt(
     logs: &Arc<Mutex<Vec<String>>>,
     cancel_flag: &Arc<AtomicBool>,
     attempt_label: &str,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<CompletedDownload, String> {
     use std::process::Stdio;
     use std::time::Duration;
 
@@ -30,20 +40,22 @@ pub(super) fn run_ytdlp_download_attempt(
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
 
-    log(logs, format!("Running yt-dlp ({})...", attempt_label));
-
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to open yt-dlp stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to open yt-dlp stderr".to_string())?;
+    // The kill-on-close job ties yt-dlp and its ffmpeg children to this
+    // attempt: cancelling, closing the tab or exiting the app ends the tree.
+    let mut child = ContainedChild::spawn(&mut cmd).map_err(|e| e.to_string())?;
+    #[cfg(test)]
+    {
+        *LAST_LAUNCH.lock().unwrap() = Some((child.id(), child.control()));
+    }
+    log(
+        logs,
+        format!("Running yt-dlp ({attempt_label}, pid {})...", child.id()),
+    );
+    let (Some(stdout), Some(stderr)) = (child.take_stdout(), child.take_stderr()) else {
+        stop_contained(&mut child);
+        return Err("Failed to open yt-dlp output".to_string());
+    };
 
     let logs_clone = logs.clone();
     let state_clone = state.clone();
@@ -53,15 +65,21 @@ pub(super) fn run_ytdlp_download_attempt(
     let fmt_str = progress_fmt.to_string();
 
     let stdout_thread = thread::spawn(move || {
+        let mut qualities = HashSet::new();
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
             if stdout_cancel.load(Ordering::Relaxed) {
                 break;
             }
+            if let Some(record) = line.strip_prefix(COMPLETED_QUALITY_PREFIX) {
+                qualities.insert(reported_quality(record));
+                continue;
+            }
             update_progress_from_line(&line, &fmt_str, &state_clone);
             capture_final_path_from_line(&line, &final_filename_clone);
             log(&logs_clone, line);
         }
+        common_quality(&qualities)
     });
 
     let logs_clone_err = logs.clone();
@@ -75,12 +93,17 @@ pub(super) fn run_ytdlp_download_attempt(
         }
     });
 
+    if let Err(error) = child.resume() {
+        stop_contained(&mut child);
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
+        return Err(error.to_string());
+    }
+
     let status = loop {
         if cancel_flag.load(Ordering::Relaxed) {
             log(logs, "Cancelling yt-dlp download...");
-            kill_process_tree(child.id(), logs);
-            let _ = child.kill();
-            let _ = child.wait();
+            stop_contained(&mut child);
             let _ = stdout_thread.join();
             let _ = stderr_thread.join();
             cleanup_cancelled_download(&final_filename, logs);
@@ -93,11 +116,14 @@ pub(super) fn run_ytdlp_download_attempt(
             Err(e) => break Err(e),
         }
     };
-    let _ = stdout_thread.join();
+    let quality = stdout_thread.join().unwrap_or_default();
     let _ = stderr_thread.join();
 
     match status {
-        Ok(exit_status) if exit_status.success() => Ok(final_filename.lock().unwrap().clone()),
+        Ok(exit_status) if exit_status.success() => Ok(CompletedDownload {
+            path: final_filename.lock().unwrap().clone(),
+            quality,
+        }),
         Ok(exit_status) => Err(exit_failure_message(exit_status, &stderr_tail)),
         Err(e) => Err(e.to_string()),
     }
@@ -122,34 +148,15 @@ fn exit_failure_message(exit_status: ExitStatus, tail: &Mutex<VecDeque<String>>)
     )
 }
 
-fn kill_process_tree(pid: u32, logs: &Arc<Mutex<Vec<String>>>) {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("taskkill");
-        cmd.args(["/PID", &pid.to_string(), "/T", "/F"]);
-        cmd.creation_flags(0x08000000);
-        let status = cmd.status();
-        match status {
-            Ok(status) if status.success() => {
-                log(logs, format!("Killed yt-dlp process tree (pid={pid})."));
-            }
-            Ok(status) => {
-                log(
-                    logs,
-                    format!("taskkill failed for yt-dlp process tree (pid={pid}): {status}"),
-                );
-            }
-            Err(error) => {
-                log(
-                    logs,
-                    format!("taskkill unavailable for yt-dlp process tree (pid={pid}): {error}"),
-                );
-            }
-        }
+/// Ends the whole job, then waits until every member has exited so the output
+/// pipes close and no descendant keeps writing into the destination.
+fn stop_contained(child: &mut ContainedChild) {
+    let _ = child.terminate();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !matches!(child.active_processes(), Ok(0)) && std::time::Instant::now() < deadline {
+        thread::sleep(std::time::Duration::from_millis(20));
     }
-
-    #[cfg(not(target_os = "windows"))]
-    let _ = pid;
+    let _ = child.try_wait();
 }
 
 fn cleanup_cancelled_download(
@@ -346,9 +353,53 @@ fn is_subtitle_path(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{STDERR_LINE_CHARS, STDERR_TAIL_LINES, push_stderr_tail};
+    use super::{
+        DownloadState, STDERR_LINE_CHARS, STDERR_TAIL_LINES, capture_final_path_from_line,
+        push_stderr_tail, update_progress_from_line,
+    };
     use std::collections::VecDeque;
-    use std::sync::Mutex;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    const PROGRESS_FMT: &str = "{}% of {} at {}, ETA {}";
+
+    fn progress(line: &str) -> DownloadState {
+        let state = Arc::new(Mutex::new(DownloadState::Idle));
+        update_progress_from_line(line, PROGRESS_FMT, &state);
+        state.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn progress_lines_report_fraction_and_known_fields_only() {
+        assert_eq!(
+            progress("[download]  42.5% of 10.00MiB at 1.00MiB/s ETA 00:05"),
+            DownloadState::Downloading(0.425, "42.5% of 10.00MiB at 1.00MiB/s, ETA 00:05".into())
+        );
+        assert_eq!(
+            progress("[download]  10.0% of Unknown at N/A ETA Unknown"),
+            DownloadState::Downloading(0.1, "10.0%".into())
+        );
+        assert_eq!(progress("[Merger] 100% merged"), DownloadState::Idle);
+    }
+
+    #[test]
+    fn final_path_prefers_the_merged_file_and_ignores_subtitles() {
+        let final_path = Arc::new(Mutex::new(None));
+        for line in [
+            "[info] Writing video subtitles to: clip.en.vtt",
+            "[download] Destination: clip.en.vtt",
+            "[download] Destination: clip.f137.mp4",
+            "[Merger] Merging formats into \"clip.mp4\"",
+            "[download] Destination: clip.f140.m4a",
+        ] {
+            capture_final_path_from_line(line, &final_path);
+        }
+        assert_eq!(*final_path.lock().unwrap(), Some(PathBuf::from("clip.mp4")));
+
+        let already = Arc::new(Mutex::new(None));
+        capture_final_path_from_line("[download] song.mp3 has already been downloaded", &already);
+        assert_eq!(*already.lock().unwrap(), Some(PathBuf::from("song.mp3")));
+    }
 
     #[test]
     fn stderr_tail_is_bounded_and_keeps_the_latest_lines() {
@@ -375,5 +426,66 @@ mod tests {
             tail.lock().unwrap().front().map(String::len),
             Some(STDERR_LINE_CHARS)
         );
+    }
+
+    #[test]
+    fn a_running_download_is_contained_and_cancellation_ends_it() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+        use windows::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+            WaitForSingleObject,
+        };
+        let ping = crate::system_command::system_executable("PING.EXE").unwrap();
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let runner = {
+            let (logs, cancel) = (logs.clone(), cancel.clone());
+            std::thread::spawn(move || {
+                let args = ["-n", "30", "127.0.0.1"].map(String::from);
+                let state = Arc::new(Mutex::new(DownloadState::Idle));
+                super::run_ytdlp_download_attempt(
+                    &ping,
+                    &args,
+                    "",
+                    &state,
+                    &logs,
+                    &cancel,
+                    "contained",
+                )
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let (pid, job) = loop {
+            if let Some(launch) = super::LAST_LAUNCH.lock().unwrap().take() {
+                break launch;
+            }
+            assert!(std::time::Instant::now() < deadline, "nothing was launched");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let process = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                false,
+                pid,
+            )
+        }
+        .unwrap();
+        let contained = job.contains_process(process).unwrap();
+        let kill_on_close = job
+            .limits()
+            .unwrap()
+            .BasicLimitInformation
+            .LimitFlags
+            .contains(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE);
+        cancel.store(true, Ordering::SeqCst);
+        let result = runner.join().unwrap();
+        let exited = unsafe { WaitForSingleObject(process, 5_000) } == WAIT_OBJECT_0;
+        unsafe { CloseHandle(process) }.unwrap();
+        assert!(contained, "the download process ran outside its job");
+        assert!(kill_on_close, "the download job outlives its owner");
+        assert!(matches!(result, Err(ref error) if error == "Cancelled"));
+        assert!(exited);
     }
 }

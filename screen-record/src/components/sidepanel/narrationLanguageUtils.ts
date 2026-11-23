@@ -62,27 +62,3 @@ export function languageMatches(
     || candidate6393 === detected6393
   );
 }
-
-export function kokoroVoiceLanguageForCondition(languageCode: string) {
-  switch (languageCode.toLowerCase()) {
-    case 'eng':
-      return 'en-us';
-    case 'cmn':
-    case 'zho':
-      return 'zh';
-    case 'jpn':
-      return 'ja';
-    case 'spa':
-      return 'es';
-    case 'fra':
-      return 'fr';
-    case 'hin':
-      return 'hi';
-    case 'ita':
-      return 'it';
-    case 'por':
-      return 'pt-br';
-    default:
-      return '';
-  }
-}

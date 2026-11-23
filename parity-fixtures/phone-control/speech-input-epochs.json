@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "pause_does_not_split_collecting_input",
+      "steps": [
+        {"event": "input", "text": "first clause"},
+        {"event": "speech_start", "playing": false},
+        {"event": "input", "text": "second clause"}
+      ],
+      "userTurns": ["first clause second clause"],
+      "active": true
+    },
+    {
+      "name": "completed_playback_tail_accepts_new_input",
+      "steps": [
+        {"event": "input", "text": "first request"},
+        {"event": "output", "text": "first answer"},
+        {"event": "complete"},
+        {"event": "speech_start", "playing": true},
+        {"event": "input", "text": "next request"}
+      ],
+      "userTurns": ["first request", "next request"],
+      "active": true
+    },
+    {
+      "name": "continuing_voice_crosses_completed_boundary",
+      "steps": [
+        {"event": "input", "text": "first request"},
+        {"event": "output", "text": "first answer"},
+        {"event": "speech_start", "playing": true},
+        {"event": "complete"},
+        {"event": "speech_continues", "playing": true},
+        {"event": "input", "text": "next request"}
+      ],
+      "userTurns": ["first request", "next request"],
+      "active": true
+    },
+    {
+      "name": "late_revision_without_voice_does_not_reopen",
+      "steps": [
+        {"event": "input", "text": "first req"},
+        {"event": "complete"},
+        {"event": "input", "text": "first request revised"}
+      ],
+      "userTurns": ["first request revised"],
+      "active": false
+    },
+    {
+      "name": "response_progress_is_not_a_local_boundary",
+      "steps": [
+        {"event": "input", "text": "first clause"},
+        {"event": "output", "text": "response progress"},
+        {"event": "speech_start", "playing": false},
+        {"event": "input", "text": "second clause"}
+      ],
+      "userTurns": ["first clause second clause"],
+      "active": true
+    },
+    {
+      "name": "provider_interruption_arms_new_input",
+      "steps": [
+        {"event": "input", "text": "first request"},
+        {"event": "interrupt"},
+        {"event": "input", "text": "new request"}
+      ],
+      "userTurns": ["first request", "new request"],
+      "active": true
+    },
+    {
+      "name": "unconfirmed_voice_creates_no_turn",
+      "steps": [
+        {"event": "input", "text": "request"},
+        {"event": "complete"},
+        {"event": "speech_start", "playing": true}
+      ],
+      "userTurns": ["request"],
+      "active": false
+    },
+    {
+      "name": "later_completed_epoch_rearms_continuing_voice",
+      "steps": [
+        {"event": "input", "text": "first"},
+        {"event": "complete"},
+        {"event": "speech_start", "playing": true},
+        {"event": "input", "text": "second"},
+        {"event": "complete"},
+        {"event": "speech_continues", "playing": true},
+        {"event": "input", "text": "third"}
+      ],
+      "userTurns": ["first", "second", "third"],
+      "active": true
+    }
+  ]
+}

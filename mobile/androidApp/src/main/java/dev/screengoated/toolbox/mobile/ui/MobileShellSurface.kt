@@ -42,10 +42,10 @@ import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileThemeMode
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
-import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileUiLanguageOption
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 internal data class ShellSectionLayoutBehavior(
@@ -100,12 +100,7 @@ internal fun MobileShellSurface(
         MobileThemeMode.DARK -> true
         MobileThemeMode.LIGHT -> false
     }
-    val isActive = state.phase in setOf(
-        SessionPhase.STARTING,
-        SessionPhase.LISTENING,
-        SessionPhase.TRANSLATING,
-    )
-    val canToggle = true
+    val isActive = state.phase.isLiveSessionRunning()
 
     // Remember last tab across app restarts
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -184,11 +179,11 @@ internal fun MobileShellSurface(
                 val scope = rememberCoroutineScope()
                 var pagerSwipeLocked by remember { mutableStateOf(false) }
 
-                var navigating by remember { mutableStateOf(false) }
+                val tabNavigation = remember { ShellTabNavigation() }
 
                 LaunchedEffect(pagerState) {
                     snapshotFlow { pagerState.settledPage }.collect { page ->
-                        if (!navigating) {
+                        if (!tabNavigation.navigating) {
                             selectedSection = sections[page]
                         }
                     }
@@ -204,16 +199,17 @@ internal fun MobileShellSurface(
                     val onSectionRequested: (MobileShellSection) -> Unit = { section ->
                         if (section != selectedSection) {
                             selectedSection = section
-                            navigating = true
-                            scope.launch {
-                                val target = section.ordinal
-                                val current = pagerState.currentPage
-                                if (kotlin.math.abs(target - current) > 1) {
-                                    pagerState.scrollToPage(target)
-                                } else {
-                                    pagerState.animateScrollToPage(target)
+                            // Undispatched: the gate closes before the settled-page collector runs again.
+                            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                tabNavigation.navigate {
+                                    val target = section.ordinal
+                                    val current = pagerState.currentPage
+                                    if (kotlin.math.abs(target - current) > 1) {
+                                        pagerState.scrollToPage(target)
+                                    } else {
+                                        pagerState.animateScrollToPage(target)
+                                    }
                                 }
-                                navigating = false
                             }
                         }
                     }
@@ -315,52 +311,53 @@ internal fun MobileShellSurface(
                         val section = sections[page]
                         val needsScroll = section.layoutBehavior().usesOuterScroll
                         val scrollState = rememberScrollState()
-                        if (needsScroll) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(scrollState),
-                                verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
-                            ) {
-                                SectionDetail(
-                                    selectedSection = section,
-                                    state = state,
-                                    providerKeys = providerKeys,
-                                    globalTtsSettings = globalTtsSettings,
-                                    presetRuntimeSettings = presetRuntimeSettings,
-                                    historyBundle = historyBundle,
-                                    appUpdateState = appUpdateState,
-                                    locale = locale,
-                                    wideLayout = false,
-                                    settingsActions = settingsActions,
-                                    navActions = navActions,
-                                    uiPreferences = uiPreferences,
-                                    canToggle = canToggle,
-                                    onPagerSwipeLockChanged = { pagerSwipeLocked = it },
-                                    sharedTransitionScope = null,
-                                    animatedVisibilityScope = null,
-                                )
-                            }
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                SectionDetail(
-                                    selectedSection = section,
-                                    state = state,
-                                    providerKeys = providerKeys,
-                                    globalTtsSettings = globalTtsSettings,
-                                    presetRuntimeSettings = presetRuntimeSettings,
-                                    historyBundle = historyBundle,
-                                    appUpdateState = appUpdateState,
-                                    locale = locale,
-                                    wideLayout = false,
-                                    settingsActions = settingsActions,
-                                    navActions = navActions,
-                                    uiPreferences = uiPreferences,
-                                    canToggle = canToggle,
-                                    onPagerSwipeLockChanged = { pagerSwipeLocked = it },
-                                    sharedTransitionScope = null,
-                                    animatedVisibilityScope = null,
-                                )
+                        val pageActive = shellPageActive(page, pagerState.settledPage)
+                        androidx.compose.runtime.CompositionLocalProvider(LocalShellPageActive provides pageActive) {
+                            if (needsScroll) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(scrollState),
+                                    verticalArrangement = Arrangement.spacedBy(ShellSpacing.sectionGap),
+                                ) {
+                                    SectionDetail(
+                                        selectedSection = section,
+                                        liveSessionRunning = isActive,
+                                        providerKeys = providerKeys,
+                                        globalTtsSettings = globalTtsSettings,
+                                        presetRuntimeSettings = presetRuntimeSettings,
+                                        historyBundle = historyBundle,
+                                        appUpdateState = appUpdateState,
+                                        locale = locale,
+                                        wideLayout = false,
+                                        settingsActions = settingsActions,
+                                        navActions = navActions,
+                                        uiPreferences = uiPreferences,
+                                        onPagerSwipeLockChanged = { pagerSwipeLocked = it },
+                                        sharedTransitionScope = null,
+                                        animatedVisibilityScope = null,
+                                    )
+                                }
+                            } else {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    SectionDetail(
+                                        selectedSection = section,
+                                        liveSessionRunning = isActive,
+                                        providerKeys = providerKeys,
+                                        globalTtsSettings = globalTtsSettings,
+                                        presetRuntimeSettings = presetRuntimeSettings,
+                                        historyBundle = historyBundle,
+                                        appUpdateState = appUpdateState,
+                                        locale = locale,
+                                        wideLayout = false,
+                                        settingsActions = settingsActions,
+                                        navActions = navActions,
+                                        uiPreferences = uiPreferences,
+                                        onPagerSwipeLockChanged = { pagerSwipeLocked = it },
+                                        sharedTransitionScope = null,
+                                        animatedVisibilityScope = null,
+                                    )
+                                }
                             }
                         }
                     }

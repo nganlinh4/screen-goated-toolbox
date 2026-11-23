@@ -18,7 +18,6 @@ const MAX_CHUNK_ITEMS: usize = 10_000;
 const MAX_ATLAS_PIXELS: usize = 67_108_864;
 const MAX_CURSOR_OVERRIDES: usize = 64;
 const CURSOR_OVERRIDE_BYTES: usize = 512 * 512 * 4;
-const MAX_ANIMATED_CURSOR_SLOTS: usize = 256;
 const MAX_ANIMATED_CURSOR_FRAMES: usize = 240;
 const MAX_ANIMATED_CURSOR_BYTES: usize = 512 * 1024 * 1024;
 
@@ -176,7 +175,19 @@ fn validate_overrides(overrides: &[CursorSlotOverride]) -> Result<(), String> {
     {
         return Err("Cursor override must contain one 512x512 RGBA tile".to_string());
     }
+    if let Some(bad) = overrides.iter().find(|item| !is_atlas_slot(item.slot_id)) {
+        return Err(format!(
+            "Cursor override slot {} is outside the atlas",
+            bad.slot_id
+        ));
+    }
     Ok(())
+}
+
+/// Overrides and animated frames are written into the fixed cursor atlas, so
+/// a slot past its last tile would address texels outside the texture.
+fn is_atlas_slot(slot_id: u32) -> bool {
+    slot_id < super::super::embedded_assets::CURSOR_ATLAS_SLOT_COUNT
 }
 
 fn validate_atlas(rgba: &[u8], width: u32, height: u32) -> Result<(), String> {
@@ -469,7 +480,7 @@ pub fn append_overlay_frames_for(
 }
 
 pub fn set_animated_cursor_slot(data: AnimatedCursorSlotData) -> Result<(), String> {
-    if data.slot_id >= MAX_ANIMATED_CURSOR_SLOTS as u32
+    if !is_atlas_slot(data.slot_id)
         || data.frames.len() > MAX_ANIMATED_CURSOR_FRAMES
         || !data.loop_duration.is_finite()
         || data.loop_duration <= 0.0
@@ -540,7 +551,27 @@ pub fn take_staged_for(session_id: &str, job_id: &str) -> StagedExportData {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_CHUNK_ITEMS, append_camera_frames, clear_all};
+    use super::{
+        AnimatedCursorSlotData, CURSOR_OVERRIDE_BYTES, CursorSlotOverride, MAX_CHUNK_ITEMS,
+        append_camera_frames, clear_all, set_animated_cursor_slot, validate_overrides,
+    };
+    use crate::overlay::screen_record::embedded_assets::CURSOR_ATLAS_SLOT_COUNT;
+
+    #[test]
+    fn cursor_slots_outside_the_atlas_are_rejected() {
+        let tile = |slot_id| CursorSlotOverride {
+            slot_id,
+            rgba: vec![0; CURSOR_OVERRIDE_BYTES],
+        };
+        assert!(validate_overrides(&[tile(CURSOR_ATLAS_SLOT_COUNT - 1)]).is_ok());
+        assert!(validate_overrides(&[tile(CURSOR_ATLAS_SLOT_COUNT)]).is_err());
+        let animated = AnimatedCursorSlotData {
+            slot_id: CURSOR_ATLAS_SLOT_COUNT,
+            frames: vec![vec![0; CURSOR_OVERRIDE_BYTES]],
+            loop_duration: 1.0,
+        };
+        assert!(set_animated_cursor_slot(animated).is_err());
+    }
 
     #[test]
     fn rejects_oversized_staging_chunks() {

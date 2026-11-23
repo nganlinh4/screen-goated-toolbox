@@ -1,19 +1,22 @@
+pub(crate) mod bounded_cache;
 mod clipboard;
 mod error_messages;
 mod input;
 pub(crate) mod paste_diagnostics;
+mod script_json;
 mod streaming_paste;
 pub(crate) use error_messages::extract_http_status_code;
 
-pub use clipboard::{
-    copy_image_to_clipboard, copy_to_clipboard, get_clipboard_image_bytes,
-    try_copy_image_to_clipboard,
+pub(crate) use clipboard::{
+    copy_image_with_sequence, copy_private_text_with_sequence, copy_text_with_sequence,
 };
+pub use clipboard::{copy_to_clipboard, get_clipboard_image_bytes, try_copy_image_to_clipboard};
 pub use error_messages::{
-    get_error_message, is_billing_exhausted_error, should_advance_retry_chain,
+    get_error_message, is_billing_exhausted_error, retry_message, should_advance_retry_chain,
     should_block_retry_provider, show_api_key_error_notification,
 };
 pub use input::{force_focus_and_paste, get_target_window_for_paste};
+pub use script_json::inline_script_json;
 pub(crate) use streaming_paste::StreamingAutoPaste;
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -66,6 +69,15 @@ pub fn escape_js_double_quoted(s: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "")
+}
+
+/// A complete, quoted JavaScript string literal for `text`, with every quote,
+/// backslash, control character and line separator escaped.
+pub fn js_string_literal(text: &str) -> String {
+    serde_json::to_string(text)
+        .unwrap_or_else(|_| "\"\"".to_owned())
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
 }
 
 /// Initiate a native window drag from a WebView/IPC handler.
@@ -141,10 +153,6 @@ pub fn is_text_input_focused() -> bool {
 pub fn to_wstring(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
-
-/// Global switch for the "context quote" displayed in result windows during refining.
-/// Set to false to hide the quote and only show the glow animation.
-pub const SHOW_REFINING_CONTEXT_QUOTE: bool = false;
 
 pub fn get_context_quote(text: &str) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();

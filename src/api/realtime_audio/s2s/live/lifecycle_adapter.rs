@@ -312,8 +312,9 @@ impl LiveTranslateLifecycleAdapter {
         cancelled: &mut dyn FnMut() -> bool,
         pending_effects: &mut VecDeque<LiveLifecycleEffect>,
     ) {
-        match connect_s2s_socket(&self.settings) {
-            Ok(socket) if !cancelled() => {
+        let settings = self.settings.clone();
+        match super::connect::wait_for_connect(move || connect_s2s_socket(&settings), cancelled) {
+            Ok(Some(socket)) if !cancelled() => {
                 self.pending = Some(PendingConnection { generation, socket });
                 pending_effects.extend(self.lifecycle.reduce(
                     self.now_ms(),

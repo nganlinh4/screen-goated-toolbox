@@ -197,12 +197,11 @@ internal suspend fun ChromeCdpController.waitFor(
         )
     }
     val current = bound ?: return@withLock noBoundTarget()
-    ensureCurrentDocument(current)?.let { return@withLock it }
     val deadline = android.os.SystemClock.elapsedRealtime() +
         timeoutMs.coerceIn(MIN_WAIT_MS, MAX_WAIT_MS)
     val expression = "document.querySelector(${JsonPrimitive(selector)}) !== null"
     do {
-        when (val value = evaluate(current, expression, false)) {
+        when (val value = evaluateOnBoundDocument(current, expression, false)) {
             is CdpEvalResult.Value -> if (value.value.jsonPrimitive.booleanOrNull == true) {
                 return@withLock success(data = buildJsonObject {
                     put("found", true)
@@ -233,14 +232,15 @@ internal suspend fun ChromeCdpController.eval(code: String): BrowserProviderOutc
             )
         }
         val current = bound ?: return@withLock noBoundTarget()
-        ensureCurrentDocument(current)?.let { return@withLock it }
-        when (val result = evaluate(current, code, true)) {
+        when (val result = evaluateOnBoundDocument(current, code, true)) {
             is CdpEvalResult.Failure -> result.outcome
             is CdpEvalResult.Value -> success(
                 effect = EffectCertainty.MAY_HAVE_OCCURRED,
                 snapshotInvalidated = true,
                 data = buildJsonObject {
-                    put("result", result.value)
+                    val (value, truncated) = boundedEvalResult(result.value)
+                    put("result", value)
+                    put("truncated", truncated)
                     put("target", current.binding.toWireJson())
                 },
             )
@@ -260,7 +260,6 @@ internal suspend fun ChromeCdpController.upload(
         )
     }
     val current = bound ?: return@withLock noBoundTarget()
-    ensureCurrentDocument(current)?.let { return@withLock it }
     val document = current.session.send("DOM.getDocument")
     if (document is CdpCommandResult.Failure) return@withLock document.toOutcome()
     val rootId = ((document as CdpCommandResult.Success).result["root"] as? JsonObject)
@@ -290,6 +289,9 @@ internal suspend fun ChromeCdpController.upload(
             "No matching file input exists in the exact target.",
             retryable = true,
         )
+    // Node ids die with their document, so a navigation after this check
+    // makes setFileInputFiles fail rather than fill the replacement page.
+    ensureCurrentDocument(current)?.let { return@withLock it }
     val uploaded = current.session.send(
         "DOM.setFileInputFiles",
         buildJsonObject {
@@ -349,29 +351,10 @@ private suspend fun ChromeCdpController.evaluate(
             put("userGesture", userGesture)
         },
     )
-    if (command is CdpCommandResult.Failure) return CdpEvalResult.Failure(command.toOutcome())
-    val result = (command as CdpCommandResult.Success).result
-    if (result["exceptionDetails"] != null) {
-        return CdpEvalResult.Failure(
-            failure(
-                "browser_eval_exception",
-                CapabilityState.READY,
-                "The page expression threw an exception.",
-                effect = if (userGesture) {
-                    EffectCertainty.MAY_HAVE_OCCURRED
-                } else {
-                    EffectCertainty.PROVEN_NO_EFFECT
-                },
-                snapshotInvalidated = userGesture,
-                retryable = false,
-            ),
-        )
-    }
-    val remote = result["result"] as? JsonObject
-    return CdpEvalResult.Value(remote?.get("value") ?: JsonNull)
+    return cdpEvalResult(command, userGesture)
 }
 
-private suspend fun ChromeCdpController.ensureCurrentDocument(
+internal suspend fun ChromeCdpController.ensureCurrentDocument(
     current: ChromeCdpController.BoundTarget,
 ): BrowserProviderOutcome? = when (val loader = mainLoaderId(current)) {
     is MainLoaderResult.Failure -> loader.outcome
@@ -468,11 +451,6 @@ private fun ChromeCdpController.refreshBinding(
     return value
 }
 
-private sealed interface CdpEvalResult {
-    data class Value(val value: JsonElement) : CdpEvalResult
-    data class Failure(val outcome: BrowserProviderOutcome) : CdpEvalResult
-}
-
 private sealed interface MainLoaderResult {
     data class Ready(val loaderId: String) : MainLoaderResult
     data class Failure(val outcome: BrowserProviderOutcome) : MainLoaderResult
@@ -501,24 +479,65 @@ private fun summarizeNetworkEvents(events: List<JsonObject>): JsonArray = buildJ
     }
 }
 
-private fun summarizeConsoleEvents(events: List<JsonObject>): JsonArray = buildJsonArray {
+internal const val CDP_CONSOLE_API_CALLED = "Runtime.consoleAPICalled"
+internal const val CDP_LOG_ENTRY_ADDED = "Log.entryAdded"
+
+/**
+ * Mirrors Windows `console_api_item` / `log_entry_item` (browser/tab_tools.rs):
+ * console API text joins each argument's string value or description, and a
+ * browser log entry reports its own level, text and url.
+ */
+internal fun summarizeConsoleEvents(events: List<JsonObject>): JsonArray = buildJsonArray {
     events.forEach { event ->
-        val method = event["method"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val params = event["params"] as? JsonObject ?: JsonObject(emptyMap())
-        add(buildJsonObject {
-            put("method", method)
-            params["level"]?.let { put("level", it) }
-            params["text"]?.let { put("text", it) }
-            params["type"]?.let { put("type", it) }
-            params["timestamp"]?.let { put("timestamp", it) }
-        })
+        when (event["method"]?.jsonPrimitive?.contentOrNull) {
+            CDP_CONSOLE_API_CALLED -> add(buildJsonObject {
+                val text = (params["args"] as? JsonArray).orEmpty().joinToString(" ") { arg ->
+                    val fields = arg as? JsonObject
+                    fields?.stringField("value") ?: fields?.stringField("description").orEmpty()
+                }
+                put("level", params["type"] ?: JsonNull)
+                putBoundedConsoleText(text)
+            })
+            CDP_LOG_ENTRY_ADDED -> add(buildJsonObject {
+                val entry = params["entry"] as? JsonObject ?: JsonObject(emptyMap())
+                put("level", entry["level"] ?: JsonNull)
+                putBoundedConsoleText(entry.stringField("text").orEmpty())
+                put("url", boundedText(entry.stringField("url").orEmpty(), MAX_CONSOLE_TEXT_CHARS).first)
+            })
+        }
     }
 }
 
+private fun JsonObject.stringField(name: String): String? =
+    (this[name] as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.contentOrNull
+
+private fun kotlinx.serialization.json.JsonObjectBuilder.putBoundedConsoleText(text: String) {
+    val (bounded, truncated) = boundedText(text, MAX_CONSOLE_TEXT_CHARS)
+    put("text", bounded)
+    put("text_truncated", truncated)
+}
+
+/** A large returnByValue result becomes truncated JSON text, so one eval cannot overflow the Live message. */
+internal fun boundedEvalResult(value: JsonElement): Pair<JsonElement, Boolean> {
+    val serialized = value.toString()
+    val (bounded, truncated) = boundedText(serialized, MAX_EVAL_RESULT_CHARS)
+    return if (truncated) JsonPrimitive(bounded) to true else value to false
+}
+
+private fun boundedText(text: String, maxCodePoints: Int): Pair<String, Boolean> =
+    if (text.codePointCount(0, text.length) > maxCodePoints) {
+        text.substring(0, text.offsetByCodePoints(0, maxCodePoints)) to true
+    } else {
+        text to false
+    }
+
 private const val MAX_PAGE_TEXT_CHARS = 128_000
+private const val MAX_CONSOLE_TEXT_CHARS = 2_000
 private const val READ_PREVIEW_CHARS = 24_000
 private const val MAX_SELECTOR_CHARS = 4_096
 private const val MAX_EVAL_CHARS = 64_000
+internal const val MAX_EVAL_RESULT_CHARS = 32_000
 private const val MIN_WAIT_MS = 100L
 private const val MAX_WAIT_MS = 30_000L
 private const val WAIT_POLL_MS = 150L

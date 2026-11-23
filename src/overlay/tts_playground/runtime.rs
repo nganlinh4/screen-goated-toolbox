@@ -1,8 +1,7 @@
 //! Shared state + facade for the WRY TTS Playground runtime.
 
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Instant;
 
 use crate::api::tts::types::TtsCollectedAudio;
 use crate::config::TtsMethod;
@@ -13,7 +12,6 @@ use super::state::{self, CurrentClip, RecentClip};
 pub(super) const MIN_RECENT_LIMIT: usize = 5;
 pub(super) const MAX_RECENT_LIMIT: usize = 50;
 
-pub(super) static ID_GEN: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
 pub(super) static CANCEL_FLAG: LazyLock<Mutex<Option<Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(None));
 type ClipCacheEntry = (String, Arc<TtsCollectedAudio>);
@@ -26,8 +24,6 @@ pub(super) static PLAYBACK_TIMER: LazyLock<Mutex<Option<PlaybackTimer>>> =
     LazyLock::new(|| Mutex::new(None));
 pub(super) static MIC_SESSION: LazyLock<Mutex<Option<MicSession>>> =
     LazyLock::new(|| Mutex::new(None));
-pub(super) static REFERENCE_MIC_TARGET: LazyLock<Mutex<Option<String>>> =
-    LazyLock::new(|| Mutex::new(None));
 
 pub(super) struct MicSession {
     pub(super) samples: Arc<Mutex<Vec<i16>>>,
@@ -35,12 +31,15 @@ pub(super) struct MicSession {
     pub(super) _stream: cpal::Stream,
 }
 
+// SAFETY: cpal marks every Stream !Send for portability. On Windows (WASAPI) the
+// stream is a handle to its own audio thread, and dropping it from another
+// thread only signals and joins that thread. MicSession lives in a Mutex, so
+// it never needs Sync.
 unsafe impl Send for MicSession {}
-unsafe impl Sync for MicSession {}
 
 #[derive(Clone)]
 pub(super) struct PlaybackTimer {
-    pub(super) start: Instant,
+    pub(super) progress: Arc<crate::api::tts::manager::PlaybackProgress>,
     pub(super) start_sample: usize,
     pub(super) sample_rate: u32,
     pub(super) total_samples: usize,
@@ -50,14 +49,13 @@ pub(super) use super::runtime_clips::{delete_recent, download_wav, play_recent, 
 pub(super) use super::runtime_generation::{cancel_generation, clear_current, start_generation};
 pub(super) use super::runtime_playback::{pause, play, replay, seek, stop, tick_position};
 pub(super) use super::runtime_sources::{
-    add_reference, delete_reference, pick_reference_audio, pick_source_audio, play_reference,
-    preview_voice, recognize_reference, reset_provider, start_mic_recording, start_reference_mic,
-    stop_mic_recording, stop_reference_mic, update_reference, use_current_as_source, use_reference,
+    pick_source_audio, preview_voice, reset_provider, start_mic_recording, stop_mic_recording,
 };
 
-pub(super) fn next_clip_id() -> String {
-    let id = ID_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    format!("clip-{id}")
+pub(super) fn next_clip_id() -> Result<String, String> {
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).map_err(|_| "Could not create a clip identity.".to_string())?;
+    Ok(format!("clip-{}", u128::from_le_bytes(random)))
 }
 
 pub(super) fn recent_limit() -> usize {
@@ -109,23 +107,14 @@ pub(super) fn hydrate_recent_once() {
         return;
     }
     let retained = crate::APP.lock().ok().map(|app| {
-        let mut retained = app
-            .config
-            .step_audio_reference_voices
-            .iter()
-            .map(|reference| reference.audio_path.clone())
-            .collect::<Vec<_>>();
-        retained.push(
-            app.config
-                .tts_playground
-                .step_audio_edit_settings
-                .source_audio_path
-                .clone(),
-        );
-        retained
+        app.config
+            .tts_playground
+            .source_audio
+            .source_audio_path
+            .clone()
     });
     if let Some(retained) = retained {
-        super::library::prune_managed_audio(&retained);
+        super::library::prune_managed_audio(&[retained]);
     }
     let loaded = super::library::load_recent(recent_limit());
     if loaded.is_empty() {
@@ -204,7 +193,7 @@ pub(super) fn clear_recent() {
     for id in ids {
         cache_remove(&id);
     }
-    crate::api::tts::TTS_MANAGER.stop();
+    super::runtime_playback::stop_owned_playback();
     *PLAYBACK_TIMER.lock().unwrap() = None;
     persist_recent();
     state::sync_to_webview();
@@ -239,22 +228,6 @@ pub(super) fn describe_voice(method: TtsMethod) -> String {
         TtsMethod::GeminiLive => pg.gemini_voice.clone(),
         TtsMethod::EdgeTTS => pg.edge_voice.clone(),
         TtsMethod::GoogleTranslate => "Google Translate".to_string(),
-        TtsMethod::StepAudioEditX => pg
-            .step_audio_settings
-            .reference_label
-            .clone()
-            .or_default()
-            .unwrap_or_else(|| pg.step_audio_settings.voice.clone()),
-        TtsMethod::MagpieMultilingual => pg.magpie_settings.voice.clone(),
-        TtsMethod::Kokoro => pg.kokoro_settings.voice.clone(),
-        TtsMethod::Supertonic => format!("Supertonic spk{}", pg.supertonic_settings.speaker_id),
-        TtsMethod::VieneuTts => pg
-            .vieneu_settings
-            .reference_label
-            .clone()
-            .or_default()
-            .unwrap_or_else(|| pg.vieneu_settings.variant.clone()),
-        _ => "TTS".to_string(),
     }
 }
 
@@ -273,59 +246,15 @@ pub(super) fn random_preview_text(text: &LocaleText, speaker_name: &str) -> Stri
         .unwrap_or_else(|| format!("Hello, I am {speaker_name}. This is a voice preview."))
 }
 
-pub(super) fn reference_transcription_preset() -> crate::config::Preset {
-    if let Ok(app) = crate::APP.lock() {
-        if let Some(preset) = app
-            .config
-            .presets
-            .get(app.config.active_preset_idx)
-            .filter(|preset| preset.blocks.iter().any(is_audio_processing_block))
-            .cloned()
-        {
-            return preset;
-        }
-        if let Some(preset) = app
-            .config
-            .presets
-            .iter()
-            .find(|preset| preset.blocks.iter().any(is_audio_processing_block))
-            .cloned()
-        {
-            return preset;
-        }
-    }
-    crate::config::Preset {
-        id: "step_audio_reference_transcribe".to_string(),
-        name: "Step Audio reference transcript".to_string(),
-        blocks: vec![crate::config::ProcessingBlock {
-            block_type: "audio".to_string(),
-            model: crate::model_config::PRESET_AUDIO_TRANSCRIBE_MODEL_ID.to_string(),
-            prompt: "Transcribe the audio exactly. Output ONLY the transcript.".to_string(),
-            selected_language: "Auto".to_string(),
-            show_overlay: false,
-            streaming_enabled: false,
-            ..crate::config::ProcessingBlock::default()
-        }],
-        preset_type: "audio".to_string(),
-        audio_source: "mic".to_string(),
-        ..crate::config::Preset::default()
-    }
-}
-
-fn is_audio_processing_block(block: &crate::config::ProcessingBlock) -> bool {
-    block.block_type == "audio"
-}
-
-trait StringOrDefault {
-    fn or_default(self) -> Option<String>;
-}
-
-impl StringOrDefault for String {
-    fn or_default(self) -> Option<String> {
-        if self.trim().is_empty() {
-            None
-        } else {
-            Some(self)
+#[cfg(test)]
+mod clip_id_tests {
+    #[test]
+    fn generated_clip_ids_are_distinct_and_supported_by_the_clip_store() {
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let id = super::next_clip_id().unwrap();
+            assert!(id.strip_prefix("clip-").unwrap().parse::<u128>().is_ok());
+            assert!(ids.insert(id));
         }
     }
 }

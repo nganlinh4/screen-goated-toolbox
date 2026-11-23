@@ -56,7 +56,13 @@ export class ModelAnimation {
 
   setPlaying(playing: boolean) {
     this.playing = playing && this.action !== null && this.state().duration > 0;
+    // A loop-off clip that ran to its end is clamped there; play replays it.
+    if (this.playing && this.action && !this.loop && this.atClipEnd()) this.seek(0);
     if (this.action) this.action.paused = !this.playing;
+  }
+
+  private atClipEnd() {
+    return (this.action?.time ?? 0) >= this.state().duration - 1e-6;
   }
 
   setLoop(loop: boolean) {
@@ -82,7 +88,7 @@ export class ModelAnimation {
     if (!this.playing || !Number.isFinite(seconds) || seconds <= 0) return false;
     this.mixer.update(Math.min(seconds, 0.1) * this.speed);
     this.root.updateMatrixWorld(true);
-    if (!this.loop && this.playing && this.action && this.action.time >= this.state().duration - 1e-9) {
+    if (!this.loop && this.playing && this.atClipEnd()) {
       this.playing = false;
     }
     return true;

@@ -1,5 +1,9 @@
 # Catalog benchmark
 
+Protocol 17 measures the current production transport and completion parsing,
+including the revised Groq text stream handling and vision repetition guard.
+Protocol 16 remains historical.
+
 Protocol 16 uses provider-native ordinary vision output limits, validates Gemini
 completion explicitly, and normalizes catalog-declared minimum image dimensions.
 Earlier request-policy results remain historical; this change does not rerank models.
@@ -15,7 +19,13 @@ values remain the last reviewed decisions; this protocol change does not rank
 models. Regenerate the two synthetic PNGs with
 `py -3 tests/catalog-benchmark/generate_geometry_fixtures.py` (Pillow required).
 
-Latest applied catalog decisions, candidate ledger and explicit quota gaps:
+Latest applied catalog decisions, candidate ledger and quota gaps:
+[`RESULTS-2026-11-23-PROTOCOL17.md`](RESULTS-2026-11-23-PROTOCOL17.md).
+
+Previous protocol-17 decisions:
+[`RESULTS-2026-11-18-PROTOCOL17.md`](RESULTS-2026-11-18-PROTOCOL17.md).
+
+Previous applied catalog decisions:
 [`RESULTS-2026-10-29-PROTOCOL16.md`](RESULTS-2026-10-29-PROTOCOL16.md).
 
 Previous protocol-16 decisions and full candidate ledger:
@@ -275,8 +285,7 @@ For the selected latest row:
   levels;
 - vision `catalog_latency_ms` uses the OCR row and is the median over successful
   inputs whose effective longest edge is at
-  most 1024 px; current fixtures provide five OCR cases in that representative
-  cohort;
+  most 1024 px. Effective dimensions can vary by endpoint and input profile;
 - catalog P95 describes the representative cohort, while explicit all-case
   median and P95 retain the large-image stress evidence.
 

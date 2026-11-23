@@ -8,6 +8,7 @@ internal class PhoneControlRuntimeInputActivity(
     private val onSpeechStarted: (epoch: Long) -> Unit,
     private val onSpeechEnded: (epoch: Long, elapsedMs: Long, audioFrames: Long) -> Unit,
     private val onLevel: (Float) -> Unit,
+    private val onVoicedActivity: (started: Boolean) -> Unit = {},
 ) {
     private val voiceActivity = VoiceActivityHangover(
         SPEECH_RMS_THRESHOLD,
@@ -78,6 +79,9 @@ internal class PhoneControlRuntimeInputActivity(
         if (startedEpoch != null) {
             firstSpeechObserved.set(true)
             onSpeechStarted(startedEpoch)
+        }
+        if (level.isFinite() && level >= SPEECH_RMS_THRESHOLD) {
+            onVoicedActivity(startedEpoch != null)
         }
         val previous = lastLevelUpdateMs.get()
         if (nowMs - previous < LEVEL_UPDATE_INTERVAL_MS ||

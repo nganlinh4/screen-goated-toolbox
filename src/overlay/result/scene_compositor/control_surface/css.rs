@@ -20,6 +20,22 @@ html, body {
     pointer-events: none;
 }
 
+.result-control-tooltip {
+    position: fixed;
+    z-index: 2147483647;
+    pointer-events: none;
+    width: max-content;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    padding: calc(5px * var(--tooltip-scale)) calc(8px * var(--tooltip-scale));
+    border: 1px solid var(--refine-border);
+    border-radius: calc(6px * var(--tooltip-scale));
+    background: var(--refine-bg);
+    color: var(--refine-text);
+    font-size: calc(12px * var(--tooltip-scale));
+    line-height: 1.35;
+}
+
 .button-group {
     --control-scale: 1;
     position: absolute;

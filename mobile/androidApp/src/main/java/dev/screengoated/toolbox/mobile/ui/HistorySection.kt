@@ -36,6 +36,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,14 +55,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.history.HistoryExternalActions
 import dev.screengoated.toolbox.mobile.history.HistoryItem
+import dev.screengoated.toolbox.mobile.history.HistoryMediaProof
 import dev.screengoated.toolbox.mobile.history.HistoryType
 import dev.screengoated.toolbox.mobile.history.HistoryUiState
+import dev.screengoated.toolbox.mobile.history.HistoryStorageError
 import dev.screengoated.toolbox.mobile.history.MAX_HISTORY_LIMIT
 import dev.screengoated.toolbox.mobile.history.MIN_HISTORY_LIMIT
 import dev.screengoated.toolbox.mobile.history.filterHistoryItems
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import java.io.File
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun HistorySection(
@@ -69,19 +78,39 @@ internal fun HistorySection(
     onClearSearchQuery: () -> Unit,
     onMaxItemsChanged: (Int) -> Unit,
     onDeleteItem: (Long) -> Unit,
+    mediaProofForOpen: (HistoryItem) -> HistoryMediaProof?,
     onClearAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val openScope = rememberCoroutineScope()
+    val openItem: (HistoryItem) -> Unit = { item ->
+        openScope.launch {
+            val proof = withContext(Dispatchers.IO) { mediaProofForOpen(item) }
+            if (proof == null || !HistoryExternalActions.openItem(context, item, proof)) {
+                Toast.makeText(context, locale.historyOpenFailed, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val clipboard = LocalClipboardManager.current
     val isLandscape =
         LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    if (state.storageUnavailable) {
+        ExpressiveSettingsCard(accent = MaterialTheme.colorScheme.error) {
+            Text(if (state.storageError == HistoryStorageError.LOAD_FAILED) locale.historyLoadFailed
+                else locale.historyStorageChanged)
+        }
+        return
+    }
     val filteredItems = filterHistoryItems(state.items, searchQuery)
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (state.storageError != null) {
+            item { Text(locale.historyWriteFailed, color = MaterialTheme.colorScheme.error) }
+        }
         item {
             ExpressiveSettingsCard(
                 accent = MaterialTheme.colorScheme.primary,
@@ -234,12 +263,7 @@ internal fun HistorySection(
                                         Toast.makeText(context, locale.historyCopiedText, Toast.LENGTH_SHORT).show()
                                     },
                                     onOpen = {
-                                        val file = state.mediaDirectoryPath
-                                            ?.takeIf { item.mediaPath.isNotBlank() }
-                                            ?.let { File(it, item.mediaPath) }
-                                        if (file == null || !HistoryExternalActions.openItem(context, file)) {
-                                            Toast.makeText(context, locale.historyOpenFailed, Toast.LENGTH_SHORT).show()
-                                        }
+                                        openItem(item)
                                     },
                                     onDelete = { onDeleteItem(item.id) },
                                 )
@@ -261,12 +285,7 @@ internal fun HistorySection(
                             Toast.makeText(context, locale.historyCopiedText, Toast.LENGTH_SHORT).show()
                         },
                         onOpen = {
-                            val file = state.mediaDirectoryPath
-                                ?.takeIf { item.mediaPath.isNotBlank() }
-                                ?.let { File(it, item.mediaPath) }
-                            if (file == null || !HistoryExternalActions.openItem(context, file)) {
-                                Toast.makeText(context, locale.historyOpenFailed, Toast.LENGTH_SHORT).show()
-                            }
+                            openItem(item)
                         },
                         onDelete = { onDeleteItem(item.id) },
                     )
@@ -282,14 +301,20 @@ private fun HistoryRetentionSlider(
     locale: MobileLocaleText,
     onMaxItemsChanged: (Int) -> Unit,
 ) {
+    var pendingLimit by remember(maxItems) { mutableFloatStateOf(maxItems.toFloat()) }
     HistoryInsetCard(accent = MaterialTheme.colorScheme.primary) {
         Column(
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Slider(
-                value = maxItems.toFloat(),
-                onValueChange = { onMaxItemsChanged(it.roundToInt()) },
+                value = pendingLimit,
+                onValueChange = { pendingLimit = it },
+                onValueChangeFinished = {
+                    val selected = pendingLimit.roundToInt()
+                    pendingLimit = maxItems.toFloat()
+                    onMaxItemsChanged(selected)
+                },
                 valueRange = MIN_HISTORY_LIMIT.toFloat()..MAX_HISTORY_LIMIT.toFloat(),
             )
             Text(

@@ -144,7 +144,7 @@ fun PresetEditorScreen(
     preset: Preset,
     lang: String,
     onBack: () -> Unit,
-    onPresetChanged: (Preset) -> Unit = {},
+    onPresetChanged: (Preset, Preset) -> Boolean = { _, _ -> false },
     onRestoreDefault: () -> Unit = {},
     providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
         dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
@@ -153,29 +153,28 @@ fun PresetEditorScreen(
     var editState by remember(preset) { mutableStateOf(preset.copy()) }
     var resetCounter by remember { mutableIntStateOf(0) }
 
-    fun autoSave(newState: Preset) {
-        editState = newState
-        onPresetChanged(newState)
+    fun autoSave(newState: Preset): Boolean {
+        val attempt = attemptPresetEdit(editState, newState, onPresetChanged)
+        editState = attempt.state
+        return attempt.saved
     }
 
-    var isRenamingPreset by remember { mutableStateOf(false) }
-    var renameText by remember(editState.nameEn) { mutableStateOf(editState.nameEn) }
+    var renameDraft by remember(editState.id) { mutableStateOf(PresetTextDraft(editState.name(lang), false)) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    if (isRenamingPreset && !isBuiltIn) {
+                    if (renameDraft.isOpen && !isBuiltIn) {
                         OutlinedTextField(
-                            value = renameText,
-                            onValueChange = { renameText = it },
+                            value = renameDraft.text,
+                            onValueChange = { renameDraft = renameDraft.copy(text = it) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = MaterialTheme.typography.titleMedium,
                             trailingIcon = {
                                 IconButton(onClick = {
-                                    autoSave(editState.copy(nameEn = renameText))
-                                    isRenamingPreset = false
+                                    renameDraft = savePresetTextDraft(renameDraft) { autoSave(editState.withCustomName(it)) }
                                 }) { Icon(painterResource(R.drawable.ms_check), contentDescription = null) }
                             },
                         )
@@ -184,12 +183,14 @@ fun PresetEditorScreen(
                             text = editState.name(lang),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = if (!isBuiltIn) Modifier.clickable { isRenamingPreset = true } else Modifier,
+                            modifier = if (!isBuiltIn) Modifier.clickable {
+                                renameDraft = PresetTextDraft(editState.name(lang), true)
+                            } else Modifier,
                         )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { if (isRenamingPreset) isRenamingPreset = false else onBack() }) {
+                    IconButton(onClick = { if (renameDraft.isOpen) renameDraft = renameDraft.copy(isOpen = false) else onBack() }) {
                         Icon(painterResource(R.drawable.ms_arrow_back), contentDescription = null)
                     }
                 },
@@ -233,7 +234,6 @@ fun PresetEditorScreen(
                         editState = editState,
                         lang = lang,
                         isBuiltIn = isBuiltIn,
-                        onNameChanged = { autoSave(editState.copy(nameEn = it)) },
                         onTypeGroupChanged = { group ->
                             autoSave(editState.copy(presetType = group.defaultPresetType()))
                         },
@@ -291,7 +291,6 @@ fun PresetEditorScreen(
                     editState = editState,
                     lang = lang,
                     isBuiltIn = isBuiltIn,
-                    onNameChanged = { autoSave(editState.copy(nameEn = it)) },
                     onTypeGroupChanged = { group ->
                         autoSave(editState.copy(presetType = group.defaultPresetType()))
                     },

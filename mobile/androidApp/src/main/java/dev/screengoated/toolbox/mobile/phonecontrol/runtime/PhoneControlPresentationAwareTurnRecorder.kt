@@ -2,6 +2,14 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 
 import java.util.concurrent.ConcurrentHashMap
 
+internal fun phoneControlSessionTurnRecorder(
+    persistentRecorder: PhoneControlTurnRecorder,
+    authorityRecorders: List<PhoneControlTurnRecorder>,
+    conversationSurfaceSuppressed: () -> Boolean,
+): PhoneControlTurnRecorder = CompositePhoneControlTurnRecorder(
+    listOf(PhoneControlPresentationAwareTurnRecorder(persistentRecorder, conversationSurfaceSuppressed)) + authorityRecorders,
+)
+
 /**
  * Keeps app-originated control turns out of durable conversation memory.
  *

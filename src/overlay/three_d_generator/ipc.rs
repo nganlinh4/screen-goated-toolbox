@@ -1,36 +1,53 @@
-use serde::Deserialize;
+pub(super) use crate::overlay::creation_commands::{Envelope as IpcEnvelope, reply_script};
+use crate::overlay::creation_error::CreationError;
+use crate::overlay::generation_history::commands::ResultPathHooks;
 use serde_json::{Value, json};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE};
 
-#[derive(Deserialize)]
-struct IpcEnvelope {
-    #[serde(default)]
-    id: String,
-    cmd: String,
-    #[serde(default)]
-    args: Value,
-}
-
 pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
-    let envelope: IpcEnvelope = match serde_json::from_str(body) {
-        Ok(env) => env,
-        Err(err) => {
-            eprintln!("[3d-generator] invalid ipc: {err}");
+    let envelope = match parse_request(body) {
+        Ok(envelope) => envelope,
+        Err(diagnostic) => {
+            crate::log_info!("{diagnostic}");
             return;
         }
     };
     if envelope.cmd == "read_image_preview" {
         if let Err(error) = request_image_preview(hwnd, &envelope) {
-            send_reply(&envelope.id, Err(error));
+            send_reply(&envelope.cmd, &envelope.id, Err(error.into()));
         }
         return;
     }
-    let reply = dispatch(hwnd, &envelope.cmd, &envelope.args);
-    if let Err(error) = &reply {
-        eprintln!("[3d-generator] {} failed: {error}", envelope.cmd);
+    if let Some(reply) = dispatch_window(hwnd, &envelope.cmd) {
+        send_reply(&envelope.cmd, &envelope.id, reply.map_err(Into::into));
+        return;
     }
-    send_reply(&envelope.id, reply);
+    let (id, cmd) = (envelope.id.clone(), envelope.cmd.clone());
+    if let Err(error) = super::ipc_worker::request(hwnd, envelope, body.len()) {
+        send_reply(&cmd, &id, Err(error));
+    }
+}
+
+/// Admits one WebView message, or returns the diagnostic explaining why it was
+/// dropped. The body itself is never echoed into the log.
+fn parse_request(body: &str) -> Result<IpcEnvelope, String> {
+    if body.len() > super::ipc_worker::MAX_REQUEST_BYTES {
+        return Err(format!(
+            "[3D Generator] Ignored a {}-byte request above the {}-byte limit",
+            body.len(),
+            super::ipc_worker::MAX_REQUEST_BYTES
+        ));
+    }
+    serde_json::from_str(body).map_err(|error| format!("[3D Generator] Invalid request: {error}"))
+}
+
+/// The UI receives only a stable failure code, so the cause is logged here.
+fn failure_diagnostic(cmd: &str, result: &Result<Value, CreationError>) -> Option<String> {
+    result
+        .as_ref()
+        .err()
+        .map(|error| format!("[3D Generator] {cmd} failed: {error}"))
 }
 
 fn request_image_preview(hwnd: HWND, envelope: &IpcEnvelope) -> Result<(), String> {
@@ -64,7 +81,77 @@ pub(super) fn flush_preview_replies(hwnd: HWND) {
     });
 }
 
-fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
+pub(super) fn flush_replies(hwnd: HWND) {
+    let replies = super::ipc_worker::take_replies(hwnd);
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            for script in replies {
+                let _ = webview.evaluate_script(&script);
+            }
+        }
+    });
+}
+
+fn dispatch_window(hwnd: HWND, cmd: &str) -> Option<Result<Value, String>> {
+    Some(match cmd {
+        "pick_images" => {
+            crate::overlay::creation_file_dialogs::pick_images_dialog(hwnd).map(|paths| {
+                Value::Array(
+                    paths
+                        .into_iter()
+                        .map(|path| Value::String(path.to_string_lossy().into_owned()))
+                        .collect(),
+                )
+            })
+        }
+        "close_window" => {
+            unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    WM_CLOSE,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(0),
+                );
+            }
+            Ok(Value::Null)
+        }
+        "minimize_window" => {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            }
+            Ok(Value::Null)
+        }
+        "start_drag" => {
+            crate::overlay::utils::begin_window_drag(hwnd);
+            Ok(Value::Null)
+        }
+        _ => return None,
+    })
+}
+
+const HISTORY_HOOKS: ResultPathHooks = ResultPathHooks {
+    remap: super::runtime::remap_result_path,
+    forget: super::runtime::forget_result_path,
+};
+
+pub(super) fn dispatch(
+    cmd: &str,
+    args: &Value,
+    active: &std::sync::atomic::AtomicBool,
+) -> Result<Value, CreationError> {
+    if let Some(reply) =
+        crate::overlay::generation_history::commands::dispatch("3d", cmd, args, &HISTORY_HOOKS)
+    {
+        return reply;
+    }
+    Ok(dispatch_command(cmd, args, active)?)
+}
+
+fn dispatch_command(
+    cmd: &str,
+    args: &Value,
+    active: &std::sync::atomic::AtomicBool,
+) -> Result<Value, String> {
     match cmd {
         "validate_image" => {
             let path = args
@@ -79,26 +166,10 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 return Err("Invalid generation mode".to_string());
             }
             match crate::overlay::creation_source::inspect_image(path) {
-                Ok(image) => Ok(json!({"error": super::input_policy::error(&image)})),
+                Ok(_) => Ok(json!({"error": Value::Null})),
                 Err(_) => Ok(json!({"error": "image_invalid"})),
             }
         }
-        "pick_image" => super::file_dialogs::pick_image_dialog().map(|opt| {
-            opt.map(|path| Value::String(path.to_string_lossy().to_string()))
-                .unwrap_or(Value::Null)
-        }),
-        "pick_images" => super::file_dialogs::pick_images_dialog().map(|paths| {
-            Value::Array(
-                paths
-                    .into_iter()
-                    .map(|path| Value::String(path.to_string_lossy().to_string()))
-                    .collect(),
-            )
-        }),
-        "pick_output_dir" => super::file_dialogs::pick_output_dir_dialog().map(|opt| {
-            opt.map(|path| Value::String(path.to_string_lossy().to_string()))
-                .unwrap_or(Value::Null)
-        }),
         "default_output_dir" => Ok(Value::String(
             super::runtime::default_output_dir()?
                 .to_string_lossy()
@@ -116,14 +187,6 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             let request: super::runtime::StartJobRequest =
                 serde_json::from_value(args.clone()).map_err(|err| err.to_string())?;
             serde_json::to_value(super::runtime::start_job(request)?).map_err(|err| err.to_string())
-        }
-        "segment_model" => {
-            let continuation_id = args
-                .get("continuationId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "continuationId is required".to_string())?;
-            serde_json::to_value(super::runtime::start_segmentation(continuation_id)?)
-                .map_err(|err| err.to_string())
         }
         "refine_model" => {
             let request: super::runtime::RefineRequest =
@@ -155,105 +218,40 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|err| err.to_string())
         }
-        "history_results" => {
-            let entries = crate::overlay::generation_history::list("3d")?;
-            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
-                .map_err(|err| err.to_string())
-        }
-        "rename_history_result" => {
-            let id = args
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "id is required".to_string())?;
-            let new_name = args
-                .get("newName")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "newName is required".to_string())?;
-            let previous = crate::overlay::generation_history::list("3d")?
-                .into_iter()
-                .find(|entry| entry.id == id)
-                .ok_or_else(|| "Result is no longer in history.".to_string())?;
-            let updated = crate::overlay::generation_history::rename("3d", id, new_name)?;
-            super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
-            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
-                .map_err(|err| err.to_string())
-        }
-        "delete_history_result" => {
-            let id = args
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "id is required".to_string())?;
-            let previous = crate::overlay::generation_history::list("3d")?
-                .into_iter()
-                .find(|entry| entry.id == id)
-                .ok_or_else(|| "Result is no longer in history.".to_string())?;
-            crate::overlay::generation_history::delete("3d", id)?;
-            super::runtime::forget_result_path(&previous.output_path);
-            Ok(Value::Null)
-        }
-        "delete_all_history_results" => {
-            let previous = crate::overlay::generation_history::list("3d")?;
-            let deleted = crate::overlay::generation_history::delete_all("3d")?;
-            for entry in previous {
-                super::runtime::forget_result_path(&entry.output_path);
-            }
-            Ok(Value::from(deleted as u64))
-        }
+        "recovery_pending" => Ok(Value::Bool(super::runtime::recovery_pending())),
         "model_asset_url" => {
             let path = args
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "path is required".to_string())?;
-            super::asset_protocol::issue(path)
+            super::asset_protocol::issue(path, active)
         }
         "release_model_asset" => {
             super::asset_protocol::clear();
-            Ok(Value::Null)
-        }
-        "open_output" => {
-            let kind = args.get("kind").and_then(Value::as_str).unwrap_or("folder");
-            let path = args.get("path").and_then(Value::as_str);
-            super::runtime::open_output(kind, path)?;
-            Ok(Value::Null)
-        }
-        "close_window" => {
-            unsafe {
-                let _ = PostMessageW(
-                    Some(hwnd),
-                    WM_CLOSE,
-                    windows::Win32::Foundation::WPARAM(0),
-                    windows::Win32::Foundation::LPARAM(0),
-                );
-            }
-            Ok(Value::Null)
-        }
-        "minimize_window" => {
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_MINIMIZE);
-            }
-            Ok(Value::Null)
-        }
-        "start_drag" => {
-            crate::overlay::utils::begin_window_drag(hwnd);
             Ok(Value::Null)
         }
         _ => Err(format!("unknown cmd: {cmd}")),
     }
 }
 
-fn send_reply(id: &str, result: Result<Value, String>) {
+fn send_reply(cmd: &str, id: &str, result: Result<Value, CreationError>) {
+    if let Some(diagnostic) = failure_diagnostic(cmd, &result) {
+        crate::log_info!("{diagnostic}");
+    }
     if id.is_empty() {
         return;
     }
-    let payload = match result {
-        Ok(value) => json!({ "id": id, "result": value }),
-        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
-    };
-    let script =
-        format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");
+    let script = reply_script(id, result);
     super::WEBVIEW.with(|slot| {
         if let Some(webview) = slot.borrow().as_ref() {
             let _ = webview.evaluate_script(&script);
         }
     });
 }
+
+#[cfg(test)]
+#[path = "input_retired_mode_tests.rs"]
+mod input_retired_mode_tests;
+#[cfg(test)]
+#[path = "input_validation_tests.rs"]
+mod input_validation_tests;

@@ -26,6 +26,7 @@ class DownloaderViewModel(
 
     // URL & analysis
     fun updateUrl(url: String) = repository.updateUrl(url)
+    fun scanFormats() = repository.scanFormats()
 
     // Download config
     fun setDownloadType(type: DownloadType) = repository.setDownloadType(type)

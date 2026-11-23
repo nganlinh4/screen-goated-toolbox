@@ -14,6 +14,7 @@ import {
   ProjectCompositionMode,
   VideoSegment,
   RecordingMode,
+  WebcamConfig,
 } from "@/types/video";
 import {
   applyCanvasConfig,
@@ -36,6 +37,10 @@ export type PersistOptions = {
   skipLiveCompositionSync?: boolean;
   allowDuringProjectTransition?: boolean;
   throwOnError?: boolean;
+  expectedProjectId?: string;
+  onCommitted?: () => void;
+  canCommit?: () => boolean;
+  onInvalidated?: (listener: () => void) => () => void;
 };
 
 export interface UseSequenceCompositionParams {
@@ -49,6 +54,7 @@ export interface UseSequenceCompositionParams {
   setCurrentProjectData: (p: Project | null) => void;
   // live editor state
   backgroundConfig: BackgroundConfig;
+  webcamConfig: WebcamConfig;
   segment: VideoSegment | null;
   mousePositions: MousePosition[];
   duration: number;
@@ -122,6 +128,7 @@ export function useSequenceComposition({
   currentProjectData,
   setCurrentProjectData,
   backgroundConfig,
+  webcamConfig,
   segment,
   mousePositions,
   duration,
@@ -243,6 +250,7 @@ export function useSequenceComposition({
             ? applyCanvasConfig(backgroundConfig, canvasConfig)
             : currentClipBackground,
         mousePositions,
+        webcamConfig,
         duration: Math.max(duration, segment.trimEnd),
         recordingMode: currentRecordingMode,
         rawVideoPath: currentRawVideoPath || undefined,
@@ -266,6 +274,7 @@ export function useSequenceComposition({
     });
   }, [
     backgroundConfig,
+    webcamConfig,
     composition?.focusedClipId,
     composition?.selectedClipId,
     composition?.mode,

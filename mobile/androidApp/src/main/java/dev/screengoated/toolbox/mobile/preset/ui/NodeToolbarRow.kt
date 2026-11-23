@@ -104,8 +104,9 @@ internal fun NodeToolbarRow(
             modifier = Modifier.size(24.dp),
         ) {
             Icon(
-                imageVector = if (block.autoCopy) FileCopyIcon
-                    else FileCopyOffIcon,
+                painter = painterResource(
+                    if (block.autoCopy) R.drawable.ms_file_copy else R.drawable.ms_file_copy_off,
+                ),
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
             )

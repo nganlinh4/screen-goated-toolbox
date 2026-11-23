@@ -13,10 +13,11 @@ The TypeScript preview is canonical. Rust export must reproduce camera, zoom, an
 ## Contract
 
 - Identical segment/sample input yields identical `{zoom, posX, posY}` across preview and export.
-- Golden cases cover auto zoom, moving paths, manual blocks and ramps, auto gaps, default blending, and follow-cursor behavior.
+- Golden cases cover auto zoom, moving paths, manual blocks and ramps, auto gaps, default blending, follow-cursor behavior, cropped targets, scaled backgrounds, and differing canvas aspect ratios.
 - Shared cursor primitives cover Catmull-Rom interpolation, angle normalization/interpolation, damped scalar motion, and scalar/angle springs.
 - Cursor smoothing is three passes of a uniform box blur over the same symmetric window, with the same interpolation-frame clamp and `<2px` idle-skip guard.
 - Squish/click-fuse/release has no standalone TypeScript twin; Rust tests lock that export state machine while preview behavior remains visually checked.
+- Text, keystroke, webcam, and frame radius/shadow lengths are authored in pixels of the clip's preview canvas (the export "Original" size). Export multiplies them by output height / preview height in [renderScale.ts](../src/lib/renderer/renderScale.ts) before baking overlays and webcam frames and before sending the frame styling to Rust.
 
 ## Change Procedure
 

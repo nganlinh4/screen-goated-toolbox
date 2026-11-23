@@ -16,9 +16,6 @@ export const DEFAULT_SUBTITLE_METHOD_CAPABILITIES: SubtitleMethodCapability[] = 
   { method: 'groq-whisper-large-v3-turbo', available: true, reason: null },
   { method: 'gemini-3-1-flash-lite', available: true, reason: null },
   { method: 'gemini-3-flash-preview', available: true, reason: null },
-  { method: 'qwen-local-0-6b', available: true, reason: null },
-  { method: 'qwen-local-1-7b', available: true, reason: null },
-  { method: 'parakeet-tdt-0-6b-v3', available: true, reason: null },
 ];
 
 export const DEFAULT_SUBTITLE_AUTO_SPLIT_MAX_UNITS = 8;
@@ -37,27 +34,12 @@ function normalizeLegacySubtitleSource(value: string | null): string | null {
 }
 
 function isSubtitleMethod(value: string): value is SubtitleMethod {
-  return (
-    value === 'groq-whisper-accurate' ||
-    value === 'groq-whisper-large-v3-turbo' ||
-    value === 'gemini-3-1-flash-lite' ||
-    value === 'gemini-3-flash-preview' ||
-    value === 'qwen-local-0-6b' ||
-    value === 'qwen-local-1-7b' ||
-    value === 'parakeet-tdt-0-6b-v3'
-  );
+  return DEFAULT_SUBTITLE_METHOD_CAPABILITIES.some((entry) => entry.method === value);
 }
 
-function normalizeStoredSubtitleMethod(value: string | null): SubtitleMethod | null {
-  return value && isSubtitleMethod(value) ? value : null;
-}
-
-export function isQwenLocalSubtitleMethod(method: SubtitleMethod) {
-  return method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b';
-}
-
-export function isParakeetTdtSubtitleMethod(method: SubtitleMethod) {
-  return method === 'parakeet-tdt-0-6b-v3';
+/** Unknown or retired methods (such as the removed offline engines) fall back to the default. */
+export function normalizeStoredSubtitleMethod(value: string | null): SubtitleMethod {
+  return value && isSubtitleMethod(value) ? value : 'groq-whisper-accurate';
 }
 
 const subtitleSourceSetting = createPersistedSetting<SubtitleSource>(SUBTITLE_SOURCE_KEY, {
@@ -70,7 +52,7 @@ const subtitleSourceSetting = createPersistedSetting<SubtitleSource>(SUBTITLE_SO
 });
 
 const subtitleMethodSetting = createPersistedSetting<SubtitleMethod>(SUBTITLE_METHOD_KEY, {
-  parse: (raw) => normalizeStoredSubtitleMethod(raw) ?? 'groq-whisper-accurate',
+  parse: normalizeStoredSubtitleMethod,
   serialize: (value) => value,
   fallback: 'groq-whisper-accurate',
 });

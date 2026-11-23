@@ -21,7 +21,7 @@
 - Windows: global TTS settings — Gemini voice selection and per-language instruction conditions.
 
 ## Deliberate Deviation
-- Android is Gemini-only for this catalog. The Windows open-weight / local TTS engines (Kokoro, Supertonic, and the other Windows-local methods) and their voices are intentionally excluded on Android and are not part of this fixture. This exclusion is also captured in [parity-fixtures/tts-runtime/queue-semantics.json](../../parity-fixtures/tts-runtime/queue-semantics.json) (`android_open_weight_methods_are_feature_excluded`).
+- Both platforms are Gemini-only for this catalog: no offline TTS engine ships on Windows or Android (the last one, Supertonic 3, was removed on 2026-11-13). Saved selections of retired offline methods normalize to Gemini Live, as captured in [parity-fixtures/tts-runtime/queue-semantics.json](../../parity-fixtures/tts-runtime/queue-semantics.json) (`android_open_weight_methods_are_feature_excluded`).
 - Android organizes voices into separate male/female lists for the picker UI, whereas Windows keeps a single tagged list. Both encode the identical `(name, gender)` set, so this is a presentation-only split, not a catalog deviation.
 
 ## Fixtures

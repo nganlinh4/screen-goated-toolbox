@@ -295,7 +295,18 @@ internal object PhoneControlVisualProvider {
         } else {
             PhoneControlAccessibilityProvider.screenshot(windowId, windowBounds)
         }
-        return when (val captured = primary) {
+        // The projection fallback is cached like any other capture, so the
+        // replaced full-display bitmap is recycled instead of left to GC.
+        val routed = if (primary is AccessibilityProviderResult.Failure &&
+            windowId != null &&
+            primary.retryable &&
+            PhoneControlProjectionProvider.isReady
+        ) {
+            capturePhoneControlProjectionScreenshot(observationGeneration)
+        } else {
+            primary
+        }
+        return when (val captured = routed) {
             is AccessibilityProviderResult.Success -> {
                 cachedScreenshot?.bitmap?.let { bitmap ->
                     if (!bitmap.isRecycled) bitmap.recycle()
@@ -304,12 +315,6 @@ internal object PhoneControlVisualProvider {
                 captured
             }
             is AccessibilityProviderResult.Failure -> {
-                if (windowId != null &&
-                    captured.retryable &&
-                    PhoneControlProjectionProvider.isReady
-                ) {
-                    return capturePhoneControlProjectionScreenshot(observationGeneration)
-                }
                 val fallback = cachedScreenshot?.takeIf { screenshot ->
                     captured.code == "screenshot_rate_limited" &&
                         screenshot.generation == observationGeneration &&

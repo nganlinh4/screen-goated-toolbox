@@ -10,12 +10,22 @@ import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReadySession
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEvent
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleFrame
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePhase
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionLifecycle
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSocketConnector
+import dev.screengoated.toolbox.mobile.shared.live.OkHttpGeminiLiveSocketConnector
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveWebSocketRequest
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
-import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveReadySession
+import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveConnectedSession
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
+import dev.screengoated.toolbox.mobile.shared.live.geminiLiveCloseRetryable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -24,6 +34,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.IOException
@@ -40,6 +52,9 @@ class TranslationGummyRuntime(
     internal val audioPlayer = AudioTrackPlayer(context)
     private val bargeInDetector = TranslationGummyBargeInDetector()
     private var sessionJob: Job? = null
+    private val sessionLock = Any()
+    private val audioLease = Mutex()
+    private val owner = TranslationGummyOwner()
     private var debugSessionOrdinal: Long = 0L
     internal var lastStuckPlaybackLogAtMs: Long = 0L
     private var speakerTurnActive = false
@@ -55,12 +70,16 @@ class TranslationGummyRuntime(
     private var lastLocalSpeechAtMs: Long = 0L
 
     fun start(scope: CoroutineScope) {
-        if (sessionJob?.isActive == true) {
-            Log.d(TAG, "start ignored because session is already active")
-            return
-        }
-        sessionJob = scope.launch {
-            runLoop()
+        synchronized(sessionLock) {
+            if (sessionJob?.isActive == true) return
+            val generation = owner.replace()
+            val next = scope.launch(start = CoroutineStart.LAZY) {
+                audioLease.withLock {
+                    if (owner.isCurrent(generation)) runLoop(generation)
+                }
+            }
+            sessionJob = next
+            next.start()
         }
     }
 
@@ -72,22 +91,21 @@ class TranslationGummyRuntime(
 
     fun stop() {
         Log.d(TAG, "stop requested")
-        sessionJob?.cancel()
-        sessionJob = null
-        clearSpeakerTurnState()
-        resetLocalInputTurnState()
-        localBargeInPending = false
-        resetBargeInCandidateState()
-        audioPlayer.stopImmediate()
-        repository.finalizeActiveTranscripts(SystemClock.elapsedRealtime())
-        repository.markStopped()
+        synchronized(sessionLock) {
+            val generation = owner.replace()
+            sessionJob?.cancel()
+            owner.ifCurrent(generation) {
+                repository.finalizeActiveTranscripts(SystemClock.elapsedRealtime())
+                repository.markStopped()
+            }
+        }
     }
 
-    private suspend fun runLoop() {
+    private suspend fun runLoop(ownerId: Long) {
         val applied = repository.currentAppliedConfig()
         if (!applied.isValid()) {
             Log.w(TAG, "runLoop aborted because applied config is invalid")
-            repository.markNotConfigured()
+            owner.ifCurrent(ownerId) { repository.markNotConfigured() }
             return
         }
 
@@ -98,24 +116,33 @@ class TranslationGummyRuntime(
             "runLoop starting sessionId=$debugSessionId first=${applied.first.language}/${applied.first.accent}/${applied.first.tone} second=${applied.second.language}/${applied.second.accent}/${applied.second.tone}",
         )
 
-        var attempt = 0
+        val lifecycle = gummyLifecycle()
+        lifecycle.reduce(SystemClock.elapsedRealtime(), GeminiLiveLifecycleEvent.Start)
         while (currentCoroutineContext().isActive) {
+            if (!owner.isCurrent(ownerId)) return
+            if (lifecycle.state.phase == GeminiLiveLifecyclePhase.BACKING_OFF) {
+                val remaining = (lifecycle.state.reconnectDeadlineMs ?: SystemClock.elapsedRealtime()) - SystemClock.elapsedRealtime()
+                if (remaining > 0) delay(remaining)
+                lifecycle.reduce(SystemClock.elapsedRealtime(), GeminiLiveLifecycleEvent.Tick)
+                continue
+            }
             val apiKey = repository.currentApiKey()
             val modelName = repository.currentGeminiModel()
             val voiceName = repository.currentGeminiVoice().ifBlank { DEFAULT_VOICE_NAME }
             if (apiKey.isBlank()) {
                 Log.w(TAG, "runLoop aborting sessionId=$debugSessionId because apiKey is blank")
-                repository.fail(repository.localeText().translationGummyApiKeyRequired)
+                owner.ifCurrent(ownerId) { repository.fail(repository.localeText().translationGummyApiKeyRequired) }
                 return
             }
 
-            repository.markConnecting(reconnecting = attempt > 0)
+            val attempt = lifecycle.state.reconnectAttempt
+            owner.ifCurrent(ownerId) { repository.markConnecting(reconnecting = attempt > 0) }
             try {
                 Log.d(
                     TAG,
                     "runLoop connecting sessionId=$debugSessionId attempt=$attempt model=$modelName voice=$voiceName",
                 )
-                runSession(debugSessionId, apiKey, applied, modelName, voiceName)
+                runSession(ownerId, lifecycle, debugSessionId, apiKey, applied, modelName, voiceName)
                 Log.d(TAG, "runLoop session completed normally sessionId=$debugSessionId")
                 break
             } catch (cancelled: CancellationException) {
@@ -130,14 +157,25 @@ class TranslationGummyRuntime(
                     "runLoop failure sessionId=$debugSessionId attempt=$attempt message=${error.message}",
                     error,
                 )
-                repository.fail(repository.localeText().translationGummyConnectionLost)
-                delay((1_000L * (attempt + 1)).coerceAtMost(5_000L))
-                attempt += 1
+                val retryable = when (error) {
+                    is GeminiLiveSessionException -> gummyFailureRetryable(error.failure)
+                    is TranslationGummyClosed -> geminiLiveCloseRetryable(error.code)
+                    else -> gummyTransportRetryable(error)
+                }
+                lifecycle.reduce(SystemClock.elapsedRealtime(), GeminiLiveLifecycleEvent.TransportFailure(lifecycle.state.generation, retryable))
+                if (lifecycle.state.phase == GeminiLiveLifecyclePhase.FAILED) {
+                    val detail = ((error as? GeminiLiveSessionException)?.failure as? GeminiLiveSessionFailure.Server)?.message
+                    owner.ifCurrent(ownerId) { repository.fail(detail?.take(1024)?.ifBlank { null } ?: repository.localeText().translationGummyConnectionLost) }
+                    return
+                }
+                owner.ifCurrent(ownerId) { repository.markConnecting(reconnecting = true) }
             }
         }
     }
 
     private suspend fun runSession(
+        ownerId: Long,
+        lifecycle: GeminiLiveSessionLifecycle,
         debugSessionId: String,
         apiKey: String,
         config: TranslationGummyConfig,
@@ -149,40 +187,66 @@ class TranslationGummyRuntime(
             instruction = config.buildSystemInstruction(),
             voiceName = voiceName,
         )
-        openGeminiLiveReadySession(httpClient, apiKey, setupPayload).use { session ->
-            repository.markReady()
+        val connector = OkHttpGeminiLiveSocketConnector(httpClient, geminiLiveWebSocketRequest(apiKey))
+        val ownedConnector = GeminiLiveSocketConnector { listener ->
+            owner.ifCurrent(ownerId) { connector.connect(listener) }
+                ?: throw CancellationException("Translation Gummy session retired")
+        }
+        openGeminiLiveConnectedSession(ownedConnector).use { connected ->
+          connected.activate(setupPayload, dispatchSetup = { send -> owner.ifCurrent(ownerId) { send() } ?: false }).use { session ->
+            val generation = lifecycle.state.generation
+            if (!owner.isCurrent(ownerId)) return@withContext
+            lifecycle.reduce(SystemClock.elapsedRealtime(), GeminiLiveLifecycleEvent.SocketOpened(generation))
+            lifecycle.reduce(SystemClock.elapsedRealtime(), GeminiLiveLifecycleEvent.Frame(GeminiLiveLifecycleFrame(generation, setupComplete = true)))
+            owner.ifCurrent(ownerId) { repository.markReady() }
             Log.d(TAG, "setup complete sessionId=$debugSessionId")
 
             coroutineScope {
+                if (!owner.isCurrent(ownerId)) return@coroutineScope
                 audioPlayer.beginCommunicationSession()
+                if (!owner.isCurrent(ownerId)) {
+                    audioPlayer.endCommunicationSession()
+                    return@coroutineScope
+                }
                 val outboundAudio = LinkedBlockingDeque<ShortArray>()
                 val captureJob = launch(Dispatchers.IO) {
                     audioCaptureController.open(
                         config = LiveSessionConfig(sourceMode = SourceMode.MIC),
-                        onRms = repository::updateVisualizerLevel,
+                        onRms = { level -> owner.ifCurrent(ownerId) { repository.updateVisualizerLevel(level) } },
+                        startMicrophone = { start ->
+                            if (!owner.isCurrent(ownerId)) false else {
+                                start()
+                                owner.isCurrent(ownerId)
+                            }
+                        },
                     ).collect { chunk ->
                         debugCaptureChunk(debugSessionId, chunk)
-                        outboundAudio.offer(chunk)
+                        owner.ifCurrent(ownerId) { outboundAudio.offer(chunk) }
                     }
                 }
 
                 try {
                     while (currentCoroutineContext().isActive) {
+                        if (!owner.isCurrent(ownerId)) return@coroutineScope
                         refreshSpeakerTurnState(debugSessionId)
-                        flushOutboundAudio(debugSessionId, session, outboundAudio)
+                        flushOutboundAudio(ownerId, debugSessionId, session, outboundAudio)
                         when (val result = session.receive(50)) {
                             GeminiLiveReceiveResult.TimedOut -> Unit
-                            is GeminiLiveReceiveResult.Frame -> handleSocketFrame(debugSessionId, result.frame)
+                            is GeminiLiveReceiveResult.Frame -> {
+                                if (!owner.isCurrent(ownerId)) return@coroutineScope
+                                lifecycle.observeGummyFrame(SystemClock.elapsedRealtime(), generation, result.frame)
+                                handleSocketFrame(ownerId, debugSessionId, result.frame)
+                            }
                             is GeminiLiveReceiveResult.Unparsed -> Unit
                             is GeminiLiveReceiveResult.Failed -> throw GeminiLiveSessionException(result.failure)
                             is GeminiLiveReceiveResult.Closed -> {
-                                throw IOException("Translation Gummy websocket closed.")
+                                throw TranslationGummyClosed(result.code)
                             }
                         }
                     }
                 } finally {
                     captureJob.cancel()
-                    val streamEndSent = session.trySend(buildTranslationGummyAudioStreamEndPayload())
+                    val streamEndSent = owner.ifCurrent(ownerId) { session.trySend(buildTranslationGummyAudioStreamEndPayload()) } ?: false
                     if (!streamEndSent) {
                         Log.w(TAG, "audio stream end rejected during cleanup sessionId=$debugSessionId")
                     }
@@ -190,16 +254,18 @@ class TranslationGummyRuntime(
                     resetBargeInCandidateState()
                     resetLocalInputTurnState()
                     clearSpeakerTurnState()
+                    owner.ifCurrent(ownerId) { repository.finalizeActiveTranscripts(SystemClock.elapsedRealtime()) }
                     audioPlayer.stopImmediate()
                     Log.d(TAG, "audio stream end finalized sessionId=$debugSessionId sent=$streamEndSent")
-                    repository.finalizeActiveTranscripts(SystemClock.elapsedRealtime())
                     audioPlayer.endCommunicationSession()
                 }
             }
+          }
         }
     }
 
     private fun flushOutboundAudio(
+        ownerId: Long,
         debugSessionId: String,
         session: GeminiLiveReadySession,
         outboundAudio: LinkedBlockingDeque<ShortArray>,
@@ -215,7 +281,7 @@ class TranslationGummyRuntime(
         val suppressionReason = outboundMicSuppressionReason()
         if (suppressionReason == "speaker_turn_active") {
             combined.forEach { chunk ->
-                if (!tryBargeInDuringSpeakerTurn(debugSessionId, session, chunk)) {
+                if (!tryBargeInDuringSpeakerTurn(ownerId, debugSessionId, session, chunk)) {
                     debugDroppedOutboundAudio(debugSessionId, chunk, 1, suppressionReason)
                 }
             }
@@ -229,11 +295,12 @@ class TranslationGummyRuntime(
             return
         }
         for (chunk in combined) {
-            processOutboundAudioChunk(debugSessionId, session, chunk)
+            processOutboundAudioChunk(ownerId, debugSessionId, session, chunk)
         }
     }
 
-    private fun handleSocketFrame(
+    private suspend fun handleSocketFrame(
+        ownerId: Long,
         debugSessionId: String,
         frame: GeminiLiveServerFrame,
     ) {
@@ -241,14 +308,14 @@ class TranslationGummyRuntime(
         val nowMs = SystemClock.elapsedRealtime()
         update.inputTranscript?.let {
             debugInputTranscript(debugSessionId, it, update.turnComplete, nowMs)
-            repository.upsertTranscript(TranslationGummyTranscriptRole.INPUT, it, update.turnComplete, nowMs)
+            publishTranscript(ownerId, TranslationGummyTranscriptRole.INPUT, it, update.turnComplete, nowMs)
         }
         update.outputTranscript?.let {
             Log.d(
                 TAG,
                 "outputTranscript sessionId=$debugSessionId final=${update.turnComplete} text=${it.debugSnippet()}",
             )
-            repository.upsertTranscript(TranslationGummyTranscriptRole.OUTPUT, it, update.turnComplete, nowMs)
+            publishTranscript(ownerId, TranslationGummyTranscriptRole.OUTPUT, it, update.turnComplete, nowMs)
         }
         if (update.audioChunks.isNotEmpty() && localBargeInPending) {
             val bytes = update.audioChunks.sumOf(ByteArray::size)
@@ -266,10 +333,17 @@ class TranslationGummyRuntime(
                     TAG,
                     "audioChunk sessionId=$debugSessionId bytes=${pcm24k.size} transcriptPresent=${update.outputTranscript != null}",
                 )
-                audioPlayer.playPcm24k(
+                audioPlayer.playPcm24kInterruptibly(
                     pcm24k = pcm24k,
                     speedPercent = 100,
                     volumePercent = repository.currentOutputVolumePercent(),
+                    isCurrent = { owner.isCurrent(ownerId) },
+                    dispatch = { action ->
+                        if (!owner.isCurrent(ownerId)) false else {
+                            action()
+                            owner.isCurrent(ownerId)
+                        }
+                    },
                 )
             }
         }
@@ -279,20 +353,33 @@ class TranslationGummyRuntime(
             resetBargeInCandidateState()
             clearSpeakerTurnState(resumeDelayMs = INTERRUPT_MIC_COOLDOWN_MS, nowMs = nowMs)
             audioPlayer.stopImmediate()
-            repository.finalizeActiveTranscripts(nowMs)
+            owner.ifCurrent(ownerId) { repository.finalizeActiveTranscripts(nowMs) }
         } else if (update.turnComplete) {
             Log.d(TAG, "turn complete sessionId=$debugSessionId")
             localBargeInPending = false
             resetBargeInCandidateState()
             speakerTurnCompletedAtMs = nowMs
-            repository.finalizeActiveTranscripts(nowMs)
+            owner.ifCurrent(ownerId) { repository.finalizeActiveTranscripts(nowMs) }
         }
         if (update.goAway) {
             throw IOException("Server GoAway — reconnecting")
         }
     }
 
+    private suspend fun publishTranscript(ownerId: Long, role: TranslationGummyTranscriptRole, text: String, final: Boolean, nowMs: Long) {
+        while (owner.isCurrent(ownerId)) {
+            val prepared = repository.prepareTranscript(role, text, final, nowMs) ?: return
+            val item = prepared.updated[prepared.index]
+            val language = if (role == TranslationGummyTranscriptRole.OUTPUT && (item.lang.isBlank() || item.isFinal)) {
+                TranslationGummyClassifier.detect(item.text, repository::detectTranscriptLanguage, repository::fallbackTranscriptLanguage).ifBlank { item.lang }
+            } else if (role == TranslationGummyTranscriptRole.OUTPUT) item.lang else ""
+            val committed = owner.ifCurrent(ownerId) { repository.commitTranscript(prepared, language) } ?: return
+            if (committed) return
+        }
+    }
+
     private fun processOutboundAudioChunk(
+        ownerId: Long,
         debugSessionId: String,
         session: GeminiLiveReadySession,
         chunk: ShortArray,
@@ -309,27 +396,27 @@ class TranslationGummyRuntime(
                     "localInputTurnOpened sessionId=$debugSessionId rms=${"%.4f".format(rms)} preRollChunks=$preRollCount",
                 )
                 while (localInputPreRoll.isNotEmpty()) {
-                    sendOutboundAudioChunk(debugSessionId, session, localInputPreRoll.removeFirst())
+                    sendOutboundAudioChunk(ownerId, debugSessionId, session, localInputPreRoll.removeFirst())
                 }
             }
             lastLocalSpeechAtMs = nowMs
-            sendOutboundAudioChunk(debugSessionId, session, chunk)
+            sendOutboundAudioChunk(ownerId, debugSessionId, session, chunk)
             return
         }
 
         if (!localInputTurnActive) {
-            sendOutboundAudioChunk(debugSessionId, session, chunk)
+            sendOutboundAudioChunk(ownerId, debugSessionId, session, chunk)
             return
         }
 
         val silenceMs = ageMs(lastLocalSpeechAtMs, nowMs)
-        sendOutboundAudioChunk(debugSessionId, session, chunk)
+        sendOutboundAudioChunk(ownerId, debugSessionId, session, chunk)
         if (silenceMs <= LOCAL_INPUT_TRAILING_AUDIO_MS) {
             return
         }
 
         if (silenceMs >= LOCAL_INPUT_END_SILENCE_MS) {
-            if (!session.trySend(buildTranslationGummyAudioStreamEndPayload())) {
+            if (!sendOwned(ownerId, session, buildTranslationGummyAudioStreamEndPayload())) {
                 throw IOException("Translation Gummy audio stream end payload was rejected.")
             }
             Log.d(
@@ -341,6 +428,7 @@ class TranslationGummyRuntime(
     }
 
     private fun tryBargeInDuringSpeakerTurn(
+        ownerId: Long,
         debugSessionId: String,
         session: GeminiLiveReadySession,
         chunk: ShortArray,
@@ -381,20 +469,24 @@ class TranslationGummyRuntime(
         localBargeInPending = true
         audioPlayer.stopImmediate()
         clearSpeakerTurnState(resumeDelayMs = 0L, nowMs = nowMs)
-        processOutboundAudioChunk(debugSessionId, session, chunk, nowMs)
+        processOutboundAudioChunk(ownerId, debugSessionId, session, chunk, nowMs)
         return true
     }
 
     private fun sendOutboundAudioChunk(
+        ownerId: Long,
         debugSessionId: String,
         session: GeminiLiveReadySession,
         chunk: ShortArray,
     ) {
         debugOutboundAudio(debugSessionId, chunk, 1)
-        if (!session.trySend(buildTranslationGummyAudioPayload(chunk))) {
+        if (!sendOwned(ownerId, session, buildTranslationGummyAudioPayload(chunk))) {
             throw IOException("Translation Gummy audio payload was rejected.")
         }
     }
+
+    private fun sendOwned(ownerId: Long, session: GeminiLiveReadySession, payload: String): Boolean =
+        owner.ifCurrent(ownerId) { session.trySend(payload) } ?: throw CancellationException("Translation Gummy session retired")
 
     private fun bufferLocalInputPreRoll(chunk: ShortArray) {
         if (localInputPreRoll.size == LOCAL_INPUT_PREROLL_CHUNKS) {

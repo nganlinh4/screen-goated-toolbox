@@ -46,7 +46,7 @@ test("a presentation-only recovered item is never dispatched", () => {
 test("later admissions do not wait for an earlier job to finish", async () => {
   const jobs = [item("first", "queued"), item("second", "queued")];
   const starts: string[] = [];
-  await dispatchAllSubmissions(jobs, async (claimed) => {
+  await dispatchAllSubmissions(() => jobs, async (claimed) => {
     starts.push(claimed.id);
     claimed.result = {
       jobId: `job-${claimed.id}`,
@@ -67,4 +67,19 @@ test("a missing durable status resolves after a bounded successful-poll window",
     count: 75,
     timedOut: true,
   });
+});
+
+test("a submission added after the queue list is replaced is still dispatched", async () => {
+  const state = { items: [item("first", "queued")] };
+  const starts: string[] = [];
+  await dispatchAllSubmissions(() => state.items, async (claimed) => {
+    starts.push(claimed.id);
+    claimed.result = { jobId: `job-${claimed.id}`, stage: "queued", progressText: "Queued" };
+    if (claimed.id === "first") {
+      // A history refresh rebuilds the list, then the user submits another image.
+      state.items = state.items.filter(() => true);
+      state.items.push(item("pressed-later", "queued"));
+    }
+  });
+  assert.deepEqual(starts, ["first", "pressed-later"]);
 });

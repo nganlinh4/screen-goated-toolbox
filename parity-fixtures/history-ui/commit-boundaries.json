@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "limit": 10,
+  "cases": [
+    {
+      "name": "save_failure_keeps_committed_history",
+      "initial": 1,
+      "actions": [
+        "save"
+      ],
+      "write_success": false,
+      "expected_count": 1,
+      "expected_media": 1,
+      "expected_writes": 1,
+      "expected_error": true,
+      "expected_order": [
+        "old-0"
+      ]
+    },
+    {
+      "name": "delete_failure_keeps_committed_history",
+      "initial": 1,
+      "actions": [
+        "delete"
+      ],
+      "write_success": false,
+      "expected_count": 1,
+      "expected_media": 1,
+      "expected_writes": 1,
+      "expected_error": true,
+      "expected_order": [
+        "old-0"
+      ]
+    },
+    {
+      "name": "clear_failure_keeps_committed_history",
+      "initial": 1,
+      "actions": [
+        "clear"
+      ],
+      "write_success": false,
+      "expected_count": 1,
+      "expected_media": 1,
+      "expected_writes": 1,
+      "expected_error": true,
+      "expected_order": [
+        "old-0"
+      ]
+    },
+    {
+      "name": "prune_failure_keeps_committed_history",
+      "initial": 11,
+      "initial_limit": 20,
+      "actions": [
+        "prune"
+      ],
+      "write_success": false,
+      "expected_count": 11,
+      "expected_media": 11,
+      "expected_writes": 1,
+      "expected_error": true,
+      "expected_order": [
+        "old-0",
+        "old-1",
+        "old-2",
+        "old-3",
+        "old-4",
+        "old-5",
+        "old-6",
+        "old-7",
+        "old-8",
+        "old-9",
+        "old-10"
+      ]
+    },
+    {
+      "name": "prune_success_commits_before_cleanup",
+      "initial": 11,
+      "initial_limit": 20,
+      "actions": [
+        "prune"
+      ],
+      "write_success": true,
+      "expected_count": 10,
+      "expected_media": 10,
+      "expected_writes": 1,
+      "expected_error": false,
+      "expected_order": [
+        "old-0",
+        "old-1",
+        "old-2",
+        "old-3",
+        "old-4",
+        "old-5",
+        "old-6",
+        "old-7",
+        "old-8",
+        "old-9"
+      ]
+    },
+    {
+      "name": "startup_retention_commits_before_cleanup",
+      "initial": 11,
+      "actions": [],
+      "write_success": true,
+      "expected_count": 10,
+      "expected_media": 10,
+      "expected_writes": 1,
+      "expected_error": false,
+      "expected_order": [
+        "old-0",
+        "old-1",
+        "old-2",
+        "old-3",
+        "old-4",
+        "old-5",
+        "old-6",
+        "old-7",
+        "old-8",
+        "old-9"
+      ]
+    },
+    {
+      "name": "startup_failure_preserves_loaded_history",
+      "initial": 11,
+      "actions": [],
+      "write_success": false,
+      "expected_count": 11,
+      "expected_media": 11,
+      "expected_writes": 1,
+      "expected_error": true,
+      "expected_order": [
+        "old-0",
+        "old-1",
+        "old-2",
+        "old-3",
+        "old-4",
+        "old-5",
+        "old-6",
+        "old-7",
+        "old-8",
+        "old-9",
+        "old-10"
+      ]
+    },
+    {
+      "name": "save_success_publishes_and_retains_media",
+      "initial": 1,
+      "actions": [
+        "save"
+      ],
+      "write_success": true,
+      "expected_count": 2,
+      "expected_media": 2,
+      "expected_writes": 1,
+      "expected_error": false,
+      "expected_order": [
+        "new",
+        "old-0"
+      ]
+    },
+    {
+      "name": "delete_success_commits_before_cleanup",
+      "initial": 1,
+      "actions": [
+        "delete"
+      ],
+      "write_success": true,
+      "expected_count": 0,
+      "expected_media": 0,
+      "expected_writes": 1,
+      "expected_error": false,
+      "expected_order": []
+    },
+    {
+      "name": "clear_success_commits_before_cleanup",
+      "initial": 1,
+      "actions": [
+        "clear"
+      ],
+      "write_success": true,
+      "expected_count": 0,
+      "expected_media": 0,
+      "expected_writes": 1,
+      "expected_error": false,
+      "expected_order": []
+    },
+    {
+      "name": "clear_retires_old_save_and_accepts_new_save",
+      "initial": 1,
+      "actions": [
+        "save",
+        "clear",
+        "save"
+      ],
+      "write_success": true,
+      "expected_count": 1,
+      "expected_media": 1,
+      "expected_writes": 2,
+      "expected_error": false,
+      "expected_order": [
+        "new"
+      ]
+    },
+    {
+      "name": "failed_clear_preserves_old_and_allows_later_save",
+      "initial": 1,
+      "actions": [
+        "clear",
+        "save"
+      ],
+      "write_results": [
+        false,
+        true
+      ],
+      "expected_count": 2,
+      "expected_media": 2,
+      "expected_writes": 2,
+      "expected_error": false,
+      "expected_order": [
+        "new",
+        "old-0"
+      ]
+    },
+    {
+      "name": "ambiguous_delete_identity_is_rejected",
+      "initial": 2,
+      "duplicate_ids": true,
+      "actions": [
+        "delete"
+      ],
+      "write_success": true,
+      "expected_count": 2,
+      "expected_media": 2,
+      "expected_writes": 0,
+      "expected_error": true,
+      "expected_order": [
+        "old-0",
+        "old-1"
+      ]
+    }
+  ]
+}

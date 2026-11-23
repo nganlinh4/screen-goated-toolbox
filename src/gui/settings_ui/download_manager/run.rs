@@ -1,9 +1,6 @@
-use std::path::PathBuf;
+use eframe::egui;
 use std::sync::atomic::Ordering;
 use std::thread;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt as _;
 
 use super::DownloadManager;
 use super::types::{DownloadState, InstallStatus};
@@ -112,22 +109,12 @@ impl DownloadManager {
         }
     }
 
-    pub fn change_download_folder(&mut self) {
-        let mut command = std::process::Command::new("powershell");
-        command.args([
-            "-Command",
-            "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowDialog() | Out-Null; $f.SelectedPath",
-        ]);
-        #[cfg(windows)]
-        command.creation_flags(0x08000000);
-        if let Ok(output) = command.output()
-            && let Ok(path) = String::from_utf8(output.stdout)
+    pub fn change_download_folder(&mut self, ctx: &egui::Context) {
+        if let Err(error) = self
+            .folder_picker
+            .start(self.custom_download_path.clone(), ctx.clone())
         {
-            let path = path.trim();
-            if !path.is_empty() {
-                self.custom_download_path = Some(PathBuf::from(path));
-                self.save_settings();
-            }
+            crate::log_info!("[Downloader] Folder picker unavailable: {error}");
         }
     }
 

@@ -3,13 +3,18 @@ package dev.screengoated.toolbox.mobile.service
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
+import dev.screengoated.toolbox.mobile.service.tts.PlaybackWriteResult
+import dev.screengoated.toolbox.mobile.service.tts.PlaybackDrainResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicInteger
 
+@OptIn(InternalCoroutinesApi::class)
 internal suspend fun runGeminiS2sPlaybackCoordinator(
     player: AudioTrackPlayer,
     contextMemory: S2sContextMemory,
@@ -18,11 +23,41 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     logTag: String,
     backlogMs: AtomicInteger,
+    visibilityGate: S2sVisibilityGate,
 ) {
     val tracked = TreeMap<Long, SegmentPlayback>()
     var nextPlay = 0L
+    var nextText = 0L
     var sourceCommitted = ""
     var targetCommitted = ""
+    val job = requireNotNull(currentCoroutineContext()[Job])
+    val ownership = S2sPlaybackOwnership()
+    val retireOnCancellation = job.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { ownership.retire() }
+    val current = { job.isActive && ownership.isCurrent() }
+
+    fun requireWrite(result: PlaybackWriteResult, epoch: Long?) {
+        when (result) {
+            PlaybackWriteResult.COMPLETE, PlaybackWriteResult.NO_OUTPUT -> Unit
+            PlaybackWriteResult.INTERRUPTED -> if (!current()) throw CancellationException("Playback retired")
+            PlaybackWriteResult.PARTIAL -> if (!current()) throw CancellationException("Playback retired") else if (visibilityGate.isCurrent(epoch)) error("Audio playback was partial")
+            PlaybackWriteResult.FAILED -> error("Audio playback failed")
+        }
+    }
+
+    fun finishPlayback(epoch: Long?) {
+        if (!visibilityGate.isCurrent(epoch)) return
+        val canPlay = { current() && visibilityGate.isCurrent(epoch) }
+        val dispatch = { effect: () -> Unit ->
+            var allowed = false
+            ownership.dispatch { allowed = visibilityGate.dispatch(epoch, effect) } && allowed
+        }
+        requireWrite(player.finishPcm24kInterruptibly(settingsProvider().realtime.volumePercent, canPlay, dispatch), epoch)
+        when (player.drain(5_000, canPlay)) {
+            PlaybackDrainResult.COMPLETE -> Unit
+            PlaybackDrainResult.INTERRUPTED -> if (!current()) throw CancellationException("Playback retired")
+            PlaybackDrainResult.TIMED_OUT -> error("Audio playback did not finish")
+        }
+    }
 
     suspend fun publish() {
         onDisplay(
@@ -35,9 +70,36 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
         )
     }
 
+    suspend fun drainText() {
+        while (true) {
+            val id = nextText
+            val item = tracked[id] ?: break
+            if (!item.done) break
+            if (item.sourceText.isNotBlank()) sourceCommitted = mergeGeminiS2sSegmentText(sourceCommitted, item.sourceText)
+            if (item.targetText.isNotBlank()) {
+                targetCommitted = mergeGeminiS2sSegmentText(targetCommitted, item.targetText)
+                contextMemory.push(item.targetText)
+            }
+            nextText++
+            if (id < nextPlay) tracked.remove(id)
+            publish()
+        }
+    }
+
+    fun advancePlayback(playback: SegmentPlayback) {
+        val id = nextPlay++
+        decrementBacklog(backlogMs, playback.audioMs)
+        if (id < nextText) tracked.remove(id)
+    }
+
     suspend fun drainReady() {
         while (currentCoroutineContext().isActive) {
             val playback = tracked[nextPlay] ?: break
+            if (!visibilityGate.isCurrent(playback.playbackEpoch)) {
+                playback.audioChunks.clear()
+                advancePlayback(playback)
+                continue
+            }
             if (
                 playback.audioChunks.isEmpty() &&
                 !playback.done &&
@@ -47,14 +109,14 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     logTag,
                     "skip-play segment=$nextPlay reason=pending-timeout delay_ms=${segmentDelayMs(playback)} source_audio_ms=${playback.audioMs} input_text=${playback.sourceText.isNotBlank()} output_text=${playback.targetText.isNotBlank()} backlog_ms=${backlogMs.get()}",
                 )
-                tracked.remove(nextPlay)
-                decrementBacklog(backlogMs, playback.audioMs)
-                nextPlay++
+                advancePlayback(playback)
                 continue
             }
             if (playback.audioChunks.isEmpty() && !playback.done) break
             while (playback.audioChunks.isNotEmpty()) {
                 val bytes = playback.audioChunks.removeFirst()
+                val epoch = playback.playbackEpoch
+                if (!visibilityGate.isCurrent(epoch)) continue
                 val settings = settingsProvider()
                 val backlogMs = tracked.tailMap(nextPlay).values.sumOf { it.audioMs }
                 val speed = geminiS2sPlaybackSpeed(settings, backlogMs)
@@ -62,22 +124,17 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     logTag,
                     "play-start segment=$nextPlay bytes=${bytes.size} backlog_ms=$backlogMs speed=$speed",
                 )
-                player.playPcm24k(bytes, speed, settings.realtime.volumePercent)
+                val canPlay = { current() && visibilityGate.isCurrent(epoch) }
+                val dispatch = { effect: () -> Unit ->
+                    var allowed = false
+                    ownership.dispatch { allowed = visibilityGate.dispatch(epoch, effect) } && allowed
+                }
+                requireWrite(player.playPcm24kInterruptibly(bytes, speed, settings.realtime.volumePercent, canPlay, dispatch), epoch)
             }
             if (playback.done) {
-                if (playback.sourceText.isNotBlank()) {
-                    sourceCommitted = mergeGeminiS2sSegmentText(sourceCommitted, playback.sourceText)
-                }
-                if (playback.targetText.isNotBlank()) {
-                    targetCommitted = mergeGeminiS2sSegmentText(targetCommitted, playback.targetText)
-                    contextMemory.push(playback.targetText)
-                }
-                tracked.remove(nextPlay)
-                decrementBacklog(backlogMs, playback.audioMs)
-                nextPlay++
-                publish()
-                if (!tracked.containsKey(nextPlay)) {
-                    player.drain(5_000)
+                advancePlayback(playback)
+                if (tracked[nextPlay]?.audioChunks?.isNotEmpty() != true) {
+                    finishPlayback(playback.playbackEpoch)
                 }
             } else {
                 break
@@ -87,11 +144,13 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
 
     try {
         for (event in events) {
+            if (event.segmentId < nextText) continue
             val playback = tracked.getOrPut(event.segmentId) { SegmentPlayback(audioMs = 0) }
             when (event) {
                 is S2sEvent.Queued -> {
                     playback.audioMs = event.audioMs
                     playback.queuedAtMs = event.queuedAtMs
+                    playback.playbackEpoch = event.playbackEpoch
                 }
                 is S2sEvent.SourceText -> playback.sourceText =
                     mergeGeminiS2sSegmentText(playback.sourceText, event.text)
@@ -107,7 +166,7 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     )
                 }
                 is S2sEvent.Audio -> {
-                    playback.audioChunks.add(event.bytes)
+                    if (event.segmentId >= nextPlay && visibilityGate.isCurrent(playback.playbackEpoch)) playback.audioChunks.add(event.bytes)
                     if (event.bytes.isNotEmpty()) {
                         Log.i(logTag, "audio-ready segment=${event.segmentId} bytes=${event.bytes.size}")
                     }
@@ -117,12 +176,14 @@ internal suspend fun runGeminiS2sPlaybackCoordinator(
                     playback.empty = event.empty
                 }
             }
+            drainText()
             drainReady()
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } finally {
-        player.drain(1_000)
+        ownership.retire()
+        retireOnCancellation.dispose()
     }
 }
 

@@ -1,9 +1,11 @@
 mod app_sidecar;
 mod device_audio;
 mod device_sidecar;
+mod follow_default;
+mod loopback_format;
 mod mic_capture;
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use ringbuf::HeapRb;
 use ringbuf::traits::*;
 use std::sync::Arc;
@@ -17,7 +19,7 @@ use windows_capture::encoder::AudioEncoderHandle;
 
 pub(crate) use app_sidecar::record_app_audio_sidecar;
 use device_audio::record_per_app_audio;
-pub(crate) use device_sidecar::record_device_audio_sidecar;
+pub(crate) use device_sidecar::{DeviceSidecarState, record_device_audio_sidecar};
 pub(crate) use mic_capture::record_mic_audio_sidecar;
 
 pub(super) const AUDIO_POLL_SLEEP_MS: u64 = 5;
@@ -82,68 +84,23 @@ pub fn record_audio(
             DeviceAudioCaptureSource::SystemOutput => {}
         }
 
-        let host = match cpal::host_from_id(cpal::HostId::Wasapi) {
-            Ok(host) => host,
-            Err(error) => {
-                eprintln!("Failed to get WASAPI host: {}", error);
-                cpal::default_host()
-            }
-        };
-
         let buffer_len = 4 * 1024 * 1024;
         let rb = HeapRb::<f32>::new(buffer_len);
         let (mut producer, mut consumer) = rb.split();
 
-        let mut loopback_stream = None;
-        let mut loopback_available = false;
-        let mut sample_rate = fallback_sample_rate;
-        let mut channels = fallback_channels as usize;
-
-        if let Some(device) = host.default_output_device() {
-            match device.default_output_config() {
-                Ok(config) => {
-                    let stream_config: cpal::StreamConfig = config.into();
-                    sample_rate = stream_config.sample_rate;
-                    channels = stream_config.channels as usize;
-
-                    let err_fn = |err| eprintln!("Audio stream error: {}", err);
-                    match device.build_input_stream(
-                        stream_config,
-                        move |data: &[f32], _: &_| {
-                            let _ = producer.push_slice(data);
-                        },
-                        err_fn,
-                        None,
-                    ) {
-                        Ok(stream) => {
-                            if let Err(error) = stream.play() {
-                                eprintln!(
-                                    "Failed to start audio stream; falling back to silence: {}",
-                                    error
-                                );
-                            } else {
-                                loopback_available = true;
-                                loopback_stream = Some(stream);
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "Failed to build audio input stream; falling back to silence: {}",
-                                error
-                            );
-                        }
-                    }
-                }
-                Err(error) => {
-                    eprintln!(
-                        "Failed to get default output config; falling back to silence: {}",
-                        error
-                    );
-                }
-            }
-        } else {
-            eprintln!("No default output device found for loopback; falling back to silence");
-        }
+        let sample_rate = fallback_sample_rate;
+        let channels = fallback_channels as usize;
+        let loopback_stream = follow_default::DefaultLoopback::start(
+            sample_rate,
+            channels,
+            move |data, _, _| {
+                let _ = producer.push_slice(data);
+            },
+            |error| eprintln!("Audio stream error: {error}"),
+        )
+        .map_err(|error| eprintln!("Loopback unavailable; falling back to silence: {error}"))
+        .ok();
+        let loopback_available = loopback_stream.is_some();
 
         if channels == 0 {
             eprintln!("Invalid loopback channel count: 0");

@@ -2,10 +2,12 @@ use super::html::get_wheel_template;
 use super::state::{
     HwndWrapper, IS_WARMED_UP, IS_WARMING_UP, OVERLAY_HWND, PENDING_CSS, PENDING_DISMISS_LABEL,
     PENDING_ITEMS_HTML, PENDING_POS, PENDING_SIZE, REGISTER_OVERLAY_CLASS, REGISTER_WHEEL_CLASS,
-    WHEEL_ACTIVE, WHEEL_HEIGHT, WHEEL_HWND, WHEEL_RESULT, WHEEL_WEB_CONTEXT, WHEEL_WEBVIEW,
-    WHEEL_WIDTH, WM_APP_HIDE, WM_APP_REAL_SHOW, WM_APP_SHOW,
+    WHEEL_ACTIVE, WHEEL_HEIGHT, WHEEL_HWND, WHEEL_LIVENESS, WHEEL_PAGE_READY_ID,
+    WHEEL_PROTOCOL_LOCK, WHEEL_READY_ID, WHEEL_REQUEST_ID, WHEEL_RESULT, WHEEL_WEB_CONTEXT,
+    WHEEL_WEBVIEW, WHEEL_WIDTH, WM_APP_HIDE, WM_APP_REAL_SHOW, WM_APP_SHOW,
 };
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
@@ -16,7 +18,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-    GetSystemMetrics, HWND_TOPMOST, IDC_ARROW, KillTimer, LWA_ALPHA, LoadCursorW, MSG,
+    GetSystemMetrics, HWND_TOPMOST, IDC_ARROW, IsWindow, KillTimer, LWA_ALPHA, LoadCursorW, MSG,
     PostMessageW, PostQuitMessage, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetLayeredWindowAttributes, SetTimer, SetWindowPos,
@@ -27,7 +29,26 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::w;
 use wry::{Rect, WebViewBuilder};
 
+struct WheelThreadLifecycle;
+
+impl Drop for WheelThreadLifecycle {
+    fn drop(&mut self) {
+        let _protocol = WHEEL_PROTOCOL_LOCK.lock().unwrap();
+        IS_WARMING_UP.store(true, Ordering::SeqCst);
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
+        WHEEL_HWND.store(0, Ordering::SeqCst);
+        OVERLAY_HWND.store(0, Ordering::SeqCst);
+        WHEEL_PAGE_READY_ID.store(0, Ordering::SeqCst);
+        WHEEL_READY_ID.store(0, Ordering::SeqCst);
+        WHEEL_ACTIVE.store(false, Ordering::SeqCst);
+        WHEEL_LIVENESS.lock().unwrap().clear();
+        let _ = WHEEL_RESULT.compare_exchange(-1, -2, Ordering::SeqCst, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
+    }
+}
+
 pub(crate) fn internal_create_window_loop() {
+    let _lifecycle = WheelThreadLifecycle;
     unsafe {
         let _ = CoInitialize(None);
 
@@ -133,8 +154,6 @@ pub(crate) fn internal_create_window_loop() {
                 } else {
                     WebViewBuilder::new()
                 };
-                let builder =
-                    crate::overlay::html_components::font_manager::configure_webview(builder);
 
                 let ui_language = crate::APP
                     .lock()
@@ -163,24 +182,37 @@ pub(crate) fn internal_create_window_loop() {
                         )),
                     })
                     .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                        let body = msg.body();
-                        if body == "ready_to_show" {
-                            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
-                            let wheel_hwnd = HWND(hwnd_val as *mut _);
-                            if !wheel_hwnd.is_invalid() {
-                                let _ = PostMessageW(
-                                    Some(wheel_hwnd),
-                                    WM_APP_REAL_SHOW,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
+                        let Some((id, event)) = parse_wheel_message(msg.body()) else {
+                            return;
+                        };
+                        match event {
+                            WheelEvent::Ready => {
+                                {
+                                    let _protocol = WHEEL_PROTOCOL_LOCK.lock().unwrap();
+                                    if !request_is_active(id) {
+                                        return;
+                                    }
+                                    WHEEL_PAGE_READY_ID.store(id, Ordering::SeqCst);
+                                    WHEEL_LIVENESS.lock().unwrap().refresh(id, Instant::now());
+                                }
+                                let wheel_hwnd = HWND(WHEEL_HWND.load(Ordering::SeqCst) as *mut _);
+                                if !wheel_hwnd.is_invalid() {
+                                    let _ = PostMessageW(
+                                        Some(wheel_hwnd),
+                                        WM_APP_REAL_SHOW,
+                                        WPARAM(id as usize),
+                                        LPARAM(0),
+                                    );
+                                }
                             }
-                        } else if body == "dismiss" {
-                            hide_wheel_with_result(-2);
-                        } else if let Some(idx_str) = body.strip_prefix("select:")
-                            && let Ok(idx) = idx_str.parse::<i32>()
-                        {
-                            hide_wheel_with_result(idx);
+                            WheelEvent::Heartbeat => {
+                                let _protocol = WHEEL_PROTOCOL_LOCK.lock().unwrap();
+                                if request_is_active(id) {
+                                    WHEEL_LIVENESS.lock().unwrap().refresh(id, Instant::now());
+                                }
+                            }
+                            WheelEvent::Dismiss => hide_wheel_with_result(id, -2),
+                            WheelEvent::Select(index) => hide_wheel_with_result(id, index),
                         }
                     })
                     .build(&wrapper)
@@ -203,43 +235,101 @@ pub(crate) fn internal_create_window_loop() {
             });
             let _ = ShowWindow(hwnd, SW_HIDE);
             WHEEL_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
-            IS_WARMING_UP.store(false, Ordering::SeqCst);
             IS_WARMED_UP.store(true, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
         } else {
             let _ = DestroyWindow(hwnd);
             let _ = DestroyWindow(overlay_hwnd);
-            IS_WARMING_UP.store(false, Ordering::SeqCst);
-            OVERLAY_HWND.store(0, Ordering::SeqCst);
-            WHEEL_HWND.store(0, Ordering::SeqCst);
+            WHEEL_WEB_CONTEXT.with(|cell| {
+                *cell.borrow_mut() = None;
+            });
             CoUninitialize();
             return;
         }
 
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).into() {
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
 
+        IS_WARMING_UP.store(true, Ordering::SeqCst);
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
         WHEEL_WEBVIEW.with(|cell| {
             *cell.borrow_mut() = None;
         });
-        WHEEL_HWND.store(0, Ordering::SeqCst);
-        OVERLAY_HWND.store(0, Ordering::SeqCst);
-        IS_WARMING_UP.store(false, Ordering::SeqCst);
+        WHEEL_WEB_CONTEXT.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+        if IsWindow(Some(hwnd)).as_bool() {
+            let _ = DestroyWindow(hwnd);
+        }
+        if IsWindow(Some(overlay_hwnd)).as_bool() {
+            let _ = DestroyWindow(overlay_hwnd);
+        }
         CoUninitialize();
     }
 }
 
-unsafe fn hide_wheel_with_result(result: i32) {
+fn request_is_active(id: u64) -> bool {
+    request_matches(
+        id,
+        WHEEL_REQUEST_ID.load(Ordering::SeqCst),
+        WHEEL_ACTIVE.load(Ordering::SeqCst),
+        WHEEL_RESULT.load(Ordering::SeqCst),
+    )
+}
+
+fn request_matches(id: u64, current: u64, active: bool, result: i32) -> bool {
+    active && result == -1 && current == id
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WheelEvent {
+    Ready,
+    Heartbeat,
+    Dismiss,
+    Select(i32),
+}
+
+fn parse_wheel_message(body: &str) -> Option<(u64, WheelEvent)> {
+    if let Some(id) = body.strip_prefix("heartbeat:") {
+        return Some((id.parse().ok()?, WheelEvent::Heartbeat));
+    }
+    if let Some(id) = body.strip_prefix("ready_to_show:") {
+        return Some((id.parse().ok()?, WheelEvent::Ready));
+    }
+    if let Some(id) = body.strip_prefix("dismiss:") {
+        return Some((id.parse().ok()?, WheelEvent::Dismiss));
+    }
+    let (id, index) = body.strip_prefix("select:")?.split_once(':')?;
+    let index: i32 = index.parse().ok()?;
+    (index >= 0).then_some((id.parse().ok()?, WheelEvent::Select(index)))
+}
+
+unsafe fn hide_wheel_with_result(id: u64, result: i32) {
+    {
+        let _protocol = WHEEL_PROTOCOL_LOCK.lock().unwrap();
+        if !request_is_active(id)
+            || WHEEL_RESULT
+                .compare_exchange(-1, result, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            return;
+        }
+    }
     let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
     let wheel_hwnd = HWND(hwnd_val as *mut _);
     if !wheel_hwnd.is_invalid() {
         unsafe {
-            let _ = PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(
+                Some(wheel_hwnd),
+                WM_APP_HIDE,
+                WPARAM(id as usize),
+                LPARAM(0),
+            );
         }
     }
-    WHEEL_RESULT.store(result, Ordering::SeqCst);
 }
 
 unsafe extern "system" fn overlay_wnd_proc(
@@ -251,7 +341,7 @@ unsafe extern "system" fn overlay_wnd_proc(
     unsafe {
         match msg {
             WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
-                hide_wheel_with_result(-2);
+                hide_wheel_with_result(WHEEL_REQUEST_ID.load(Ordering::SeqCst), -2);
                 LRESULT(0)
             }
             WM_CLOSE => LRESULT(0),
@@ -270,6 +360,9 @@ unsafe extern "system" fn wheel_wnd_proc(
     unsafe {
         match msg {
             WM_APP_SHOW => {
+                if !request_is_active(wparam.0 as u64) {
+                    return LRESULT(0);
+                }
                 let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
                 let (wheel_width, wheel_height) = *PENDING_SIZE.lock().unwrap();
                 let dismiss_label = PENDING_DISMISS_LABEL.lock().unwrap().clone();
@@ -305,12 +398,13 @@ unsafe extern "system" fn wheel_wnd_proc(
                         let _ = webview.evaluate_script(&css_script);
 
                         let script = format!(
-                            "window.updateContent(`{}`, `{}`);",
+                            "window.updateContent(`{}`, `{}`, '{}');",
                             items_html
                                 .replace("\\", "\\\\")
                                 .replace("`", "\\`")
                                 .replace("$", "\\$"),
-                            dismiss_label.replace("`", "\\`").replace("$", "\\$")
+                            dismiss_label.replace("`", "\\`").replace("$", "\\$"),
+                            wparam.0
                         );
                         let _ = webview.evaluate_script(&script);
                         let _ = webview.set_bounds(Rect {
@@ -330,6 +424,9 @@ unsafe extern "system" fn wheel_wnd_proc(
             }
 
             WM_APP_REAL_SHOW => {
+                if !request_is_active(wparam.0 as u64) {
+                    return LRESULT(0);
+                }
                 let _ = KillTimer(Some(hwnd), 99);
                 let (target_x, target_y) = *PENDING_POS.lock().unwrap();
                 let (wheel_width, wheel_height) = *PENDING_SIZE.lock().unwrap();
@@ -354,7 +451,7 @@ unsafe extern "system" fn wheel_wnd_proc(
                 }
 
                 let _ = InvalidateRect(Some(hwnd), None, true);
-                let _ = SetWindowPos(
+                let shown = SetWindowPos(
                     hwnd,
                     Some(HWND_TOPMOST),
                     target_x,
@@ -363,40 +460,54 @@ unsafe extern "system" fn wheel_wnd_proc(
                     wheel_height,
                     SWP_NOACTIVATE,
                 );
+                if shown.is_ok() && WHEEL_PAGE_READY_ID.load(Ordering::SeqCst) == wparam.0 as u64 {
+                    WHEEL_READY_ID.store(wparam.0 as u64, Ordering::SeqCst);
+                }
 
                 LRESULT(0)
             }
 
             WM_TIMER => {
                 if wparam.0 == 99 {
-                    let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
+                    let id = WHEEL_REQUEST_ID.load(Ordering::SeqCst);
+                    let message = if WHEEL_PAGE_READY_ID.load(Ordering::SeqCst) == id {
+                        WM_APP_REAL_SHOW
+                    } else {
+                        WM_APP_SHOW
+                    };
+                    let _ = PostMessageW(Some(hwnd), message, WPARAM(id as usize), LPARAM(0));
                 }
                 LRESULT(0)
             }
 
             WM_APP_HIDE => {
-                let _ = KillTimer(Some(hwnd), 99);
-                let _ = ShowWindow(hwnd, SW_HIDE);
-                let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
-                let overlay = HWND(overlay_val as *mut _);
-                if !overlay.is_invalid() {
-                    let _ = ShowWindow(overlay, SW_HIDE);
+                {
+                    let _protocol = WHEEL_PROTOCOL_LOCK.lock().unwrap();
+                    if WHEEL_REQUEST_ID.load(Ordering::SeqCst) != wparam.0 as u64 {
+                        return LRESULT(0);
+                    }
+                    let _ = KillTimer(Some(hwnd), 99);
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
+                    let overlay = HWND(overlay_val as *mut _);
+                    if !overlay.is_invalid() {
+                        let _ = ShowWindow(overlay, SW_HIDE);
+                    }
+                    WHEEL_ACTIVE.store(false, Ordering::SeqCst);
                 }
 
                 WHEEL_WEBVIEW.with(|wv| {
                     if let Some(webview) = wv.borrow().as_ref() {
                         let _ = webview
-                            .evaluate_script("document.getElementById('grid').innerHTML = '';");
+                            .evaluate_script(&format!("window.clearContent('{}');", wparam.0));
                     }
                 });
-
-                WHEEL_ACTIVE.store(false, Ordering::SeqCst);
                 LRESULT(0)
             }
 
             WM_KEYDOWN => {
                 if wparam.0 as u32 == 0x1B {
-                    hide_wheel_with_result(-2);
+                    hide_wheel_with_result(WHEEL_REQUEST_ID.load(Ordering::SeqCst), -2);
                 }
                 LRESULT(0)
             }
@@ -422,5 +533,49 @@ unsafe extern "system" fn wheel_wnd_proc(
 
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WheelEvent, parse_wheel_message, request_matches};
+
+    #[test]
+    fn page_messages_are_bound_to_a_valid_request() {
+        assert_eq!(
+            parse_wheel_message("heartbeat:5"),
+            Some((5, WheelEvent::Heartbeat))
+        );
+        assert_eq!(
+            parse_wheel_message("ready_to_show:5"),
+            Some((5, WheelEvent::Ready))
+        );
+        assert_eq!(
+            parse_wheel_message("dismiss:5"),
+            Some((5, WheelEvent::Dismiss))
+        );
+        assert_eq!(
+            parse_wheel_message("select:5:17"),
+            Some((5, WheelEvent::Select(17)))
+        );
+        for invalid in [
+            "ready_to_show",
+            "heartbeat:5:6",
+            "heartbeat:",
+            "dismiss",
+            "select:17",
+            "select:5:-1",
+            "select:5:7:8",
+        ] {
+            assert_eq!(parse_wheel_message(invalid), None);
+        }
+    }
+
+    #[test]
+    fn stale_or_completed_requests_cannot_publish_page_events() {
+        assert!(request_matches(5, 5, true, -1));
+        assert!(!request_matches(4, 5, true, -1));
+        assert!(!request_matches(5, 5, false, -1));
+        assert!(!request_matches(5, 5, true, 7));
     }
 }

@@ -30,15 +30,24 @@ class AudioCaptureController(
     fun open(
         config: LiveSessionConfig,
         onRms: (Float) -> Unit,
-    ): Flow<ShortArray> {
+        startMicrophone: ((() -> Unit) -> Boolean)? = null,
+    ): Flow<ShortArray> = openMapped(config, onRms, startMicrophone = startMicrophone) { { samples -> samples } }
+
+    internal fun <T> openMapped(
+        config: LiveSessionConfig,
+        onRms: (Float) -> Unit,
+        captureGeneration: (() -> Long)? = null,
+        startMicrophone: ((() -> Unit) -> Boolean)? = null,
+        beginRead: () -> (ShortArray) -> T,
+    ): Flow<T> {
         return when (config.sourceMode) {
-            SourceMode.MIC -> microphoneFlow(onRms)
-            SourceMode.DEVICE -> playbackFlow(onRms)
+            SourceMode.MIC -> microphoneFlow(onRms, captureGeneration, startMicrophone, beginRead)
+            SourceMode.DEVICE -> playbackFlow(onRms, captureGeneration, beginRead)
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun microphoneFlow(onRms: (Float) -> Unit): Flow<ShortArray> = callbackFlow {
+    private fun <T> microphoneFlow(onRms: (Float) -> Unit, captureGeneration: (() -> Long)?, startMicrophone: ((() -> Unit) -> Boolean)?, beginRead: () -> (ShortArray) -> T): Flow<T> = callbackFlow {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(SAMPLE_RATE_HZ)
@@ -80,7 +89,17 @@ class AudioCaptureController(
             }.getOrNull()
         } else null
 
-        audioRecord.startRecording()
+        val fence = captureGeneration?.let { CaptureGenerationFence(it, audioRecord::restartForGeneration) }
+        val started = startCaptureWithAdmission(startMicrophone, { audioRecord.startRecording() }) {
+            runCatching { audioRecord.stop() }
+            runCatching { aec?.release() }
+            runCatching { ns?.release() }
+            audioRecord.release()
+        }
+        if (!started) {
+            close()
+            return@callbackFlow
+        }
         Log.d(TAG, "Mic capture started (VOICE_COMMUNICATION + AEC + NS), bufferBytes=${minBufferSize * 2}")
 
         val reader = launch(Dispatchers.IO) {
@@ -88,7 +107,10 @@ class AudioCaptureController(
             var chunkCount = 0
             var lastLogAtMs = System.currentTimeMillis()
             while (isActive) {
+                val generation = try { fence?.prepareRead() } catch (error: Exception) { close(error); return@launch }
+                val finishRead = beginRead()
                 val count = audioRecord.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+                if (generation != null && fence?.acceptsRead(generation) == false) continue
                 if (count > 0) {
                     chunkCount += 1
                     val now = System.currentTimeMillis()
@@ -98,7 +120,7 @@ class AudioCaptureController(
                     }
                     val chunk = buffer.copyOf(count)
                     onRms(chunk.rmsLevel())
-                    trySend(chunk)
+                    trySend(finishRead(chunk))
                 } else if (count < 0) {
                     Log.w(TAG, "Mic capture read returned error=$count")
                     close(AudioCaptureReadException(count))
@@ -117,9 +139,11 @@ class AudioCaptureController(
     }
 
     @SuppressLint("MissingPermission")
-    private fun playbackFlow(
+    private fun <T> playbackFlow(
         onRms: (Float) -> Unit,
-    ): Flow<ShortArray> = callbackFlow {
+        captureGeneration: (() -> Long)?,
+        beginRead: () -> (ShortArray) -> T,
+    ): Flow<T> = callbackFlow {
         val mediaProjection = cachedProjection ?: run {
             val projectionManager = context.getSystemService(MediaProjectionManager::class.java)
                 ?: error("MediaProjectionManager unavailable on this device.")
@@ -128,35 +152,41 @@ class AudioCaptureController(
         }
         cachedProjection = null // consumed — will be re-cached in awaitClose if preserveConsentOnClose
 
-        val format = AudioFormat.Builder()
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setSampleRate(SAMPLE_RATE_HZ)
-            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
-            .build()
-
         val minBufferSize = AudioRecord.getMinBufferSize(
             SAMPLE_RATE_HZ,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-        check(minBufferSize > 0) { "Unable to allocate playback capture buffer." }
-
-        val playbackBuilder = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
-            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_GAME)
-            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-        val playbackConfig = playbackBuilder.build()
-
-        val audioRecord = AudioRecord.Builder()
-            .setAudioFormat(format)
-            .setAudioPlaybackCaptureConfig(playbackConfig)
-            .setBufferSizeInBytes(minBufferSize * 2)
-            .build()
-        check(audioRecord.state == AudioRecord.STATE_INITIALIZED) {
-            "Playback AudioRecord failed to initialize."
+        var setupRecord: AudioRecord? = null
+        val (audioRecord, fence) = setUpCaptureOrRelease(release = {
+            runCatching { setupRecord?.release() }
+            runCatching { mediaProjection.stop() }
+            projectionConsentStore.clear()
+        }) {
+            check(minBufferSize > 0) { "Unable to allocate playback capture buffer." }
+            val format = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(SAMPLE_RATE_HZ)
+                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                .build()
+            val playbackConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
+            val record = AudioRecord.Builder()
+                .setAudioFormat(format)
+                .setAudioPlaybackCaptureConfig(playbackConfig)
+                .setBufferSizeInBytes(minBufferSize * 2)
+                .build()
+            setupRecord = record
+            check(record.state == AudioRecord.STATE_INITIALIZED) {
+                "Playback AudioRecord failed to initialize."
+            }
+            val generationFence = captureGeneration?.let { CaptureGenerationFence(it, record::restartForGeneration) }
+            record.startRecording()
+            record to generationFence
         }
-
-        audioRecord.startRecording()
         Log.d(TAG, "Playback capture started with bufferBytes=${minBufferSize * 2}")
 
         val reader = launch(Dispatchers.IO) {
@@ -164,7 +194,10 @@ class AudioCaptureController(
             var chunkCount = 0
             var lastLogAtMs = System.currentTimeMillis()
             while (isActive) {
+                val generation = try { fence?.prepareRead() } catch (error: Exception) { close(error); return@launch }
+                val finishRead = beginRead()
                 val count = audioRecord.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+                if (generation != null && fence?.acceptsRead(generation) == false) continue
                 if (count > 0) {
                     chunkCount += 1
                     val now = System.currentTimeMillis()
@@ -174,7 +207,7 @@ class AudioCaptureController(
                     }
                     val chunk = buffer.copyOf(count)
                     onRms(chunk.rmsLevel())
-                    trySend(chunk)
+                    trySend(finishRead(chunk))
                 } else if (count < 0) {
                     Log.w(TAG, "Playback capture read returned error=$count")
                     close(AudioCaptureReadException(count))
@@ -206,6 +239,12 @@ class AudioCaptureController(
 internal class ProjectionConsentInvalidException(
     message: String,
 ) : IllegalStateException(message)
+
+private fun AudioRecord.restartForGeneration() {
+    stop()
+    startRecording()
+    check(recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Audio capture could not be restarted." }
+}
 
 internal class AudioCaptureReadException(
     val errorCode: Int,

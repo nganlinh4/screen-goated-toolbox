@@ -11,6 +11,8 @@ pub(super) fn cdp_on_tab_cleanup_until(
     deadline: Instant,
 ) -> anyhow::Result<Value> {
     super::capabilities::require(super::capabilities::CDP)?;
+    super::capabilities::require(super::capabilities::CDP_DISPATCH_ADMISSION)?;
+    super::capabilities::require(super::capabilities::EFFECT_ADMISSION)?;
     super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)?;
     let response = super::bridge::request_cleanup_until(
         json!({

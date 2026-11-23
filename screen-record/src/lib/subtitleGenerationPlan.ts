@@ -6,6 +6,7 @@ import { getEffectiveCompositionMode } from '@/lib/projectComposition';
 import { getTrimSegments } from '@/lib/trimSegments';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import type { ImportedAudioSegment, ProjectComposition, VideoSegment } from '@/types/video';
+import { audioSegmentPlaybackRate } from '@/lib/audioSegmentTime';
 
 export type SubtitleSource = 'video' | 'mic' | 'audio' | `audio:${string}`;
 
@@ -16,6 +17,14 @@ export interface AudioSubtitleClipTransform {
   sourcePath: string;
   timelineOffsetSec: number;
   sourceLocalOffsetSec: number;
+  /** Absent in jobs created before playback-rate-aware transforms. */
+  playbackRate?: number;
+}
+
+export function audioSubtitleSourceToTimeline(time: number, transform: AudioSubtitleClipTransform): number {
+  const rate = audioSegmentPlaybackRate(transform.playbackRate);
+  return transform.timelineOffsetSec + transform.sourceLocalOffsetSec
+    + (time - transform.sourceLocalOffsetSec) / rate;
 }
 
 export interface SubtitleClipPayload {
@@ -169,7 +178,9 @@ function buildMusicClipPayload(
 ) {
   const inPoint = Math.max(0, Math.min(segment.inPoint, segment.duration));
   const outPoint = Math.max(inPoint, Math.min(segment.outPoint, segment.duration));
-  const visibleDuration = outPoint - inPoint;
+  const rate = audioSegmentPlaybackRate(segment.playbackRate);
+  const sourceDuration = outPoint - inPoint;
+  const visibleDuration = sourceDuration / rate;
   if (!segment.rawAudioPath || visibleDuration <= 0.0001) return null;
 
   const timelineStart = segment.startTime;
@@ -182,8 +193,8 @@ function buildMusicClipPayload(
     : timelineEnd;
   if (selectedEnd <= timelineStart || selectedStart >= timelineEnd) return null;
 
-  const sourceStart = inPoint + Math.max(0, selectedStart - timelineStart);
-  const sourceEnd = inPoint + Math.min(visibleDuration, selectedEnd - timelineStart);
+  const sourceStart = inPoint + Math.max(0, selectedStart - timelineStart) * rate;
+  const sourceEnd = inPoint + Math.min(visibleDuration, selectedEnd - timelineStart) * rate;
   const clampedStart = Math.max(inPoint, Math.min(sourceStart, outPoint));
   const clampedEnd = Math.max(clampedStart, Math.min(sourceEnd, outPoint));
   if (clampedEnd - clampedStart <= 0.0001) return null;
@@ -201,8 +212,8 @@ function buildMusicClipPayload(
     },
     replacementRanges: [
       {
-        startTime: clampedStart + segment.startTime - inPoint,
-        endTime: clampedEnd + segment.startTime - inPoint,
+        startTime: segment.startTime + (clampedStart - inPoint) / rate,
+        endTime: segment.startTime + (clampedEnd - inPoint) / rate,
       },
     ],
     transform: {
@@ -212,6 +223,7 @@ function buildMusicClipPayload(
       sourcePath: segment.rawAudioPath,
       timelineOffsetSec: segment.startTime - inPoint,
       sourceLocalOffsetSec: inPoint,
+      playbackRate: rate,
     },
   };
 }

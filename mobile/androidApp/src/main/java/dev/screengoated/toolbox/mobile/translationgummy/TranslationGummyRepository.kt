@@ -4,10 +4,10 @@ import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
 import dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector
 import dev.screengoated.toolbox.mobile.storage.SecureSettingsStore
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.Executors
 
 class TranslationGummyRepository(
     private val settingsStore: SecureSettingsStore,
@@ -18,7 +18,15 @@ class TranslationGummyRepository(
     private val transcriptIdCounter = AtomicLong(
         (savedTranscripts.maxOfOrNull { it.id } ?: 0L) + 1L,
     )
-    private val mutableState = MutableStateFlow(
+    private val transcriptWriter = CoalescingSnapshotWriter(
+        executor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "gummy-transcript-persistence").apply { isDaemon = true }
+        },
+        snapshot = { mutableState.value.transcripts.filter { it.isFinal } },
+        save = settingsStore::saveTranslationGummyTranscripts,
+        onFailure = { android.util.Log.e("SGTTranslationGummy", "Unable to persist transcripts", it) },
+    )
+    private val presentation = TranslationGummyPresentation(
         TranslationGummyState(
             appliedConfig = savedConfig,
             draftConfig = savedConfig,
@@ -27,29 +35,28 @@ class TranslationGummyRepository(
         ).normalize(),
     )
 
-    val state: StateFlow<TranslationGummyState> = mutableState.asStateFlow()
+    private val mutableState = presentation.mutableState
+    val state: StateFlow<TranslationGummyState> = presentation.state
+    val visualizerLevels = presentation.visualizerLevels
 
     fun updateDraft(
         transform: (TranslationGummyConfig) -> TranslationGummyConfig,
     ) {
         // Don't call .normalized() here — trim() strips trailing spaces while typing.
         // Normalization happens in applyDraft() and buildSystemInstruction() instead.
-        mutableState.value = mutableState.value.copy(
-            draftConfig = transform(mutableState.value.draftConfig),
-        ).normalize()
+        mutableState.update { current -> current.copy(draftConfig = transform(current.draftConfig)).normalize() }
     }
 
     fun applyDraft(): TranslationGummyConfig {
+        presentation.resetMeter()
         val previousState = mutableState.value
         val applied = previousState.draftConfig.normalized()
             .copy(guideSeen = previousState.guideSeen)
         settingsStore.saveTranslationGummyConfig(applied)
-        mutableState.value = previousState.afterApplyingDraftForWindowsParity(
-            applied = applied,
-            nextSeparatorId = transcriptIdCounter.getAndIncrement(),
-            separatorText = currentSessionSeparatorText(),
-            nowMs = android.os.SystemClock.elapsedRealtime(),
-        ).normalize()
+        val separatorId = transcriptIdCounter.getAndIncrement()
+        val separatorText = currentSessionSeparatorText()
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        mutableState.update { current -> current.afterApplyingDraftForWindowsParity(applied, separatorId, separatorText, nowMs).normalize() }
         persistTranscripts()
         return applied
     }
@@ -59,11 +66,11 @@ class TranslationGummyRepository(
     fun dismissGuide() {
         val applied = mutableState.value.appliedConfig.normalized().copy(guideSeen = true)
         settingsStore.saveTranslationGummyConfig(applied)
-        mutableState.value = mutableState.value.copy(
+        mutableState.update { current -> current.copy(
             appliedConfig = applied,
-            draftConfig = mutableState.value.draftConfig.copy(guideSeen = true),
+            draftConfig = current.draftConfig.copy(guideSeen = true),
             guideSeen = true,
-        ).normalize()
+        ).normalize() }
     }
 
     fun currentApiKey(): String = settingsStore.loadApiKey().trim()
@@ -78,16 +85,17 @@ class TranslationGummyRepository(
         MobileLocaleText.forLanguage(settingsStore.loadUiPreferences().uiLanguage)
 
     fun markNotConfigured() {
-        mutableState.value = mutableState.value.copy(
+        presentation.resetMeter()
+        mutableState.update { it.copy(
             connectionState = TranslationGummyConnectionState.NOT_CONFIGURED,
             isRunning = false,
             lastError = null,
-            visualizerLevel = 0f,
-        ).normalize()
+        ).normalize() }
     }
 
     fun markConnecting(reconnecting: Boolean) {
-        mutableState.value = mutableState.value.copy(
+        presentation.resetMeter()
+        mutableState.update { it.copy(
             connectionState = if (reconnecting) {
                 TranslationGummyConnectionState.RECONNECTING
             } else {
@@ -95,23 +103,20 @@ class TranslationGummyRepository(
             },
             isRunning = true,
             lastError = null,
-        ).normalize()
+        ).normalize() }
     }
 
     fun markReady() {
         insertSessionSeparator()
-        mutableState.value = mutableState.value.copy(
+        mutableState.update { it.copy(
             connectionState = TranslationGummyConnectionState.READY,
             isRunning = true,
             lastError = null,
-        ).normalize()
+        ).normalize() }
     }
 
     fun insertSessionSeparator() {
-        val transcripts = mutableState.value.transcripts
-        if (transcripts.isEmpty()) return
-        if (transcripts.last().role == TranslationGummyTranscriptRole.SEPARATOR) return
-        val updated = transcripts + TranslationGummyTranscriptItem(
+        val separator = TranslationGummyTranscriptItem(
             id = transcriptIdCounter.getAndIncrement(),
             role = TranslationGummyTranscriptRole.SEPARATOR,
             text = currentSessionSeparatorText(),
@@ -119,96 +124,86 @@ class TranslationGummyRepository(
             updatedAtMs = android.os.SystemClock.elapsedRealtime(),
             lang = "",
         )
-        mutableState.value = mutableState.value.copy(
-            transcripts = updated.takeLast(MAX_TRANSCRIPTS),
-        ).normalize()
+        mutableState.update { current ->
+            val transcripts = current.transcripts
+            if (transcripts.isEmpty() || transcripts.last().role == TranslationGummyTranscriptRole.SEPARATOR) current
+            else current.copy(transcripts = (transcripts + separator).takeLast(MAX_TRANSCRIPTS)).normalize()
+        }
         persistTranscripts()
     }
 
     fun markStopped() {
-        mutableState.value = mutableState.value.copy(
-            connectionState = if (mutableState.value.appliedConfig.isValid()) {
+        presentation.resetMeter()
+        mutableState.update { current -> current.copy(
+            connectionState = if (current.appliedConfig.isValid()) {
                 TranslationGummyConnectionState.STOPPED
             } else {
                 TranslationGummyConnectionState.NOT_CONFIGURED
             },
             isRunning = false,
-            visualizerLevel = 0f,
-        ).normalize()
+        ).normalize() }
     }
 
     fun fail(message: String) {
-        mutableState.value = mutableState.value.copy(
+        presentation.resetMeter()
+        mutableState.update { it.copy(
             connectionState = TranslationGummyConnectionState.ERROR,
             isRunning = false,
             lastError = message,
-            visualizerLevel = 0f,
-        ).normalize()
+        ).normalize() }
     }
 
     fun clearError() {
-        mutableState.value = mutableState.value.copy(lastError = null).normalize()
+        mutableState.update { it.copy(lastError = null).normalize() }
     }
 
     fun clearTranscripts() {
-        mutableState.value = mutableState.value.copy(transcripts = emptyList()).normalize()
+        mutableState.update { it.copy(transcripts = emptyList()).normalize() }
         persistTranscripts()
     }
 
     fun updateVisualizerLevel(level: Float) {
-        mutableState.value = mutableState.value.copy(
-            visualizerLevel = level.coerceIn(0f, 1f),
-        ).normalize()
+        presentation.updateVisualizerLevel(level)
     }
 
     fun updateVolumePercent(volumePercent: Int) {
-        mutableState.value = mutableState.value.copy(
-            volume = mutableState.value.volume.withPercent(volumePercent),
-        ).normalize()
+        mutableState.update { it.copy(volume = it.volume.withPercent(volumePercent)).normalize() }
     }
 
     fun toggleMuted() {
-        mutableState.value = mutableState.value.copy(
-            volume = mutableState.value.volume.toggleMuted(),
-        ).normalize()
+        mutableState.update { it.copy(volume = it.volume.toggleMuted()).normalize() }
     }
 
     fun currentOutputVolumePercent(): Int = mutableState.value.volume.percent
 
-    fun upsertTranscript(
+    internal fun prepareTranscript(
         role: TranslationGummyTranscriptRole,
         text: String,
         final: Boolean,
         nowMs: Long,
-    ) {
+    ): PreparedGummyTranscript? {
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) {
-            return
-        }
+        if (trimmed.isEmpty()) return null
         val existing = mutableState.value.transcripts
         val idx = existing.indexOfLast { it.role == role && !it.isFinal }
         val updated = existing.toMutableList()
+        val index: Int
         if (idx >= 0) {
-            // Merge into unfinal item of same role
             val merged = mergeTranscriptText(updated[idx].text, trimmed)
-            val lang = detectTranscriptLang(role, merged, updated[idx].lang, final)
             updated[idx] = updated[idx].copy(
                 text = merged,
                 isFinal = final,
                 updatedAtMs = nowMs,
-                lang = lang,
             )
+            index = idx
         } else if (updated.isNotEmpty() && updated.last().role == role && updated.last().isFinal) {
-            // Merge late fragment into the last finalized item of same role
-            // (Gemini splits long translations into multiple chunks after turnComplete)
             val lastIdx = updated.lastIndex
             val merged = mergeTranscriptText(updated[lastIdx].text, trimmed)
-            val lang = detectTranscriptLang(role, merged, updated[lastIdx].lang, final = true)
             updated[lastIdx] = updated[lastIdx].copy(
                 text = merged,
                 updatedAtMs = nowMs,
-                lang = lang,
             )
+            index = lastIdx
         } else {
             updated += TranslationGummyTranscriptItem(
                 id = transcriptIdCounter.getAndIncrement(),
@@ -216,19 +211,20 @@ class TranslationGummyRepository(
                 text = trimmed,
                 isFinal = final,
                 updatedAtMs = nowMs,
-                lang = detectTranscriptLang(role, trimmed, existingLang = "", final = final),
+                lang = "",
             )
+            index = updated.lastIndex
         }
-        mutableState.value = mutableState.value.copy(
-            transcripts = updated.takeLast(MAX_TRANSCRIPTS),
-        ).normalize()
+        return PreparedGummyTranscript(existing, updated, index)
     }
 
+    internal fun commitTranscript(prepared: PreparedGummyTranscript, language: String): Boolean =
+        commitPreparedGummyTranscript(mutableState, prepared, language, MAX_TRANSCRIPTS) { it.normalize() }
+
     fun finalizeActiveTranscripts(nowMs: Long) {
-        val updated = mutableState.value.transcripts.map { item ->
+        mutableState.update { current -> current.copy(transcripts = current.transcripts.map { item ->
             if (item.isFinal) item else item.copy(isFinal = true, updatedAtMs = nowMs)
-        }
-        mutableState.value = mutableState.value.copy(transcripts = updated).normalize()
+        }).normalize() }
         persistTranscripts()
     }
 
@@ -248,27 +244,10 @@ class TranslationGummyRepository(
         )
     }
 
-    private fun detectTranscriptLang(
-        role: TranslationGummyTranscriptRole,
-        text: String,
-        existingLang: String,
-        final: Boolean,
-    ): String {
-        if (role != TranslationGummyTranscriptRole.OUTPUT) {
-            return ""
-        }
-        return if (existingLang.isBlank() || final) {
-            languageDetector.detectIso639_3(text).ifBlank { existingLang }
-        } else {
-            existingLang
-        }
-    }
+    internal fun detectTranscriptLanguage(text: String): String = languageDetector.detectIso639_3(text)
+    internal fun fallbackTranscriptLanguage(text: String): String = languageDetector.fallbackIso639_3(text)
 
-    private fun persistTranscripts() {
-        settingsStore.saveTranslationGummyTranscripts(
-            mutableState.value.transcripts.filter { it.isFinal },
-        )
-    }
+    private fun persistTranscripts() = transcriptWriter.request()
 
     private companion object {
         private const val MAX_TRANSCRIPTS = 200
@@ -319,7 +298,6 @@ internal fun TranslationGummyState.afterApplyingDraftForWindowsParity(
         guideSeen = applied.guideSeen,
         dirty = false,
         lastError = null,
-        visualizerLevel = 0f,
         transcripts = nextTranscripts.takeLast(200),
     )
 }

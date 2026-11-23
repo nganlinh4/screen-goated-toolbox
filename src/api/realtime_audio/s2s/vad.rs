@@ -6,31 +6,59 @@ use super::*;
 )]
 #[cfg(not(feature = "recorder-worker"))]
 pub(super) fn run_vad_loop(
-    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    capture: &mut super::live::capture_owner::S2sCapture,
     stop_signal: Arc<AtomicBool>,
     segment_senders: Vec<mpsc::Sender<Segment>>,
     event_tx: mpsc::Sender<S2sEvent>,
     overlay_hwnd: HWND,
     session_id: u64,
+    engine_revision: u64,
     adaptive_vad: Arc<Mutex<AdaptiveS2sVadState>>,
     mode: S2sMode,
-) {
+    backlog: Arc<super::backlog::S2sBacklogRun>,
+) -> Result<()> {
     let mut pending = Vec::<i16>::new();
     let mut preroll = VecDeque::<i16>::new();
     let mut active = Vec::<i16>::new();
+    let mut active_playback_epoch = None;
     let mut active_speech_frames = 0usize;
     let mut active_peak_rms = 0.0f32;
     let mut segment_id = 0u64;
     let mut silence_frames = 0usize;
     let mut noise_floor = 0.004f32;
+    let mut input_epoch = capture.epoch();
 
-    while !stop_signal.load(Ordering::Relaxed) {
+    while !stop_signal.load(Ordering::Relaxed)
+        && crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
+    {
         let stale_session = is_stale_session(session_id);
         let audio_changed = AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst);
         let model_changed = TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst);
         let language_changed = LANGUAGE_CHANGE.load(Ordering::SeqCst);
         if stale_session || audio_changed || model_changed || language_changed {
             break;
+        }
+
+        if capture.needs_reopen() {
+            pending.clear();
+            preroll.clear();
+            active.clear();
+            active_speech_frames = 0;
+            active_peak_rms = 0.0;
+            silence_frames = 0;
+            capture.reopen()?;
+            input_epoch = capture.epoch();
+            continue;
+        }
+
+        let current_epoch = crate::api::tts::TTS_MANAGER.realtime_epoch();
+        if current_epoch != input_epoch {
+            pending.clear();
+            preroll.clear();
+            if let Ok(mut guard) = capture.buffer().lock() {
+                guard.clear();
+            }
+            input_epoch = current_epoch;
         }
 
         if !overlay_hwnd.is_invalid() {
@@ -44,26 +72,38 @@ pub(super) fn run_vad_loop(
         }
 
         {
-            let mut guard = audio_buffer.lock().unwrap();
+            let mut guard = capture.buffer().lock().unwrap();
             if !guard.is_empty() {
                 pending.extend(guard.drain(..));
             }
         }
 
         while pending.len() >= FRAME_SAMPLES {
+            if crate::api::tts::TTS_MANAGER.realtime_epoch() != input_epoch {
+                pending.clear();
+                preroll.clear();
+                break;
+            }
             let frame: Vec<i16> = pending.drain(..FRAME_SAMPLES).collect();
             let rms = calculate_rms(&frame);
-            REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-            if !overlay_hwnd.is_invalid() {
-                unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                        Some(overlay_hwnd),
-                        WM_VOLUME_UPDATE,
-                        windows::Win32::Foundation::WPARAM(0),
-                        windows::Win32::Foundation::LPARAM(0),
-                    );
-                }
-            }
+            crate::overlay::realtime_webview::state::publish_if_engine_current(
+                session_id,
+                &stop_signal,
+                engine_revision,
+                || {
+                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                    if !overlay_hwnd.is_invalid() {
+                        unsafe {
+                            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                                Some(overlay_hwnd),
+                                WM_VOLUME_UPDATE,
+                                windows::Win32::Foundation::WPARAM(0),
+                                windows::Win32::Foundation::LPARAM(0),
+                            );
+                        }
+                    }
+                },
+            );
 
             let speech_threshold = speech_threshold_for_noise(noise_floor);
             let is_speech = rms >= speech_threshold || rms >= ABSOLUTE_SPEECH_RMS;
@@ -75,6 +115,7 @@ pub(super) fn run_vad_loop(
                     preroll.pop_front();
                 }
                 if is_speech {
+                    active_playback_epoch = capture.playback_epoch();
                     active.extend(preroll.drain(..));
                     active.extend(frame);
                     active_speech_frames = 1;
@@ -116,6 +157,8 @@ pub(super) fn run_vad_loop(
                     id: segment.id,
                     audio_ms,
                     queued_at,
+                    playback_epoch: active_playback_epoch,
+                    backlog: backlog.lease(audio_ms),
                 });
                 eprintln!(
                     "[{}][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
@@ -138,10 +181,6 @@ pub(super) fn run_vad_loop(
                     stop_signal.store(true, Ordering::SeqCst);
                     break;
                 }
-                crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
-                    .fetch_add(1, Ordering::Relaxed);
-                crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG_MS
-                    .fetch_add(audio_ms as u32, Ordering::Relaxed);
                 segment_id += 1;
                 silence_frames = 0;
                 preroll.clear();
@@ -151,7 +190,14 @@ pub(super) fn run_vad_loop(
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    if active.len() >= MIN_SEGMENT_SAMPLES {
+    if !stop_signal.load(Ordering::SeqCst)
+        && !is_stale_session(session_id)
+        && crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
+        && !AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+        && !TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+        && !LANGUAGE_CHANGE.load(Ordering::SeqCst)
+        && active.len() >= MIN_SEGMENT_SAMPLES
+    {
         let worker = (segment_id as usize) % segment_senders.len();
         let audio_ms = samples_to_ms(active.len());
         let queued_at = Instant::now();
@@ -159,12 +205,14 @@ pub(super) fn run_vad_loop(
         let vad_snapshot = adaptive_vad_snapshot(&adaptive_vad);
         if !is_segment_worth_sending(&segment, vad_snapshot) {
             log_adaptive_vad_skip(&segment, vad_snapshot);
-            return;
+            return Ok(());
         }
         let _ = event_tx.send(S2sEvent::Queued {
             id: segment_id,
             audio_ms,
             queued_at,
+            playback_epoch: active_playback_epoch,
+            backlog: backlog.lease(audio_ms),
         });
         eprintln!(
             "[{}][Segment] queued id={} worker={} audio_ms={} samples={} speech_frames={} speech_ratio={:.2} speech_like_ratio={:.2} confidence={:.2} strictness={:.2} mean_rms={:.4} peak_rms={:.4} peak_sample={:.4} backlog_ms={}",
@@ -184,11 +232,8 @@ pub(super) fn run_vad_loop(
             s2s_backlog_ms()
         );
         let _ = segment_senders[worker].send(segment);
-        crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG
-            .fetch_add(1, Ordering::Relaxed);
-        crate::overlay::realtime_webview::state::REALTIME_S2S_AUDIO_BACKLOG_MS
-            .fetch_add(audio_ms as u32, Ordering::Relaxed);
     }
+    Ok(())
 }
 
 pub(super) fn collect_vad_segments(samples: Vec<i16>) -> Vec<TimedSegment> {

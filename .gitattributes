@@ -47,8 +47,7 @@
 
 # Generated bundles and verbatim third-party notices preserve upstream whitespace.
 /3d-generator-ui/viewer-dist/** -whitespace
+/mobile/androidApp/src/main/assets/promptdj/assets/index.js -whitespace
 /component-notices/** -whitespace
 /mobile/native/**/assets/third_party/** -whitespace
-/mobile/native/sherpa-runtime/*.patch text eol=lf -whitespace
 /scripts/*.patch text eol=lf -whitespace
-/third_party/parakeet-rs/LICENSE text eol=lf

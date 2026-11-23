@@ -1,11 +1,69 @@
 {
-  "version": 3,
+  "version": 4,
   "default_models": {
     "text": "groq-qwen-3-8-27b-text",
     "image": "groq-qwen-3-8-27b-vision",
     "audio": "groq-whisper-large-v3-audio"
   },
   "cases": [
+    {
+      "name": "new_connection_replaces_occupied_input",
+      "initial_connections": [[0, 2]],
+      "new_connection": [1, 2],
+      "expected_connections": [[1, 2]]
+    },
+    {
+      "name": "branch_priority_survives_node_edit",
+      "blocks": ["input", "first", "second"],
+      "connections": [[0, 2], [0, 1]],
+      "graph_explicit": true,
+      "expected_saved_blocks": ["input", "first", "second"],
+      "expected_saved_connections": [[0, 2], [0, 1]],
+      "expected_initial_branch": "second"
+    },
+    {
+      "name": "disconnected_draft_round_trip",
+      "blocks": ["input", "connected", "draft"],
+      "connections": [[0, 1]],
+      "graph_explicit": true,
+      "expected_saved_blocks": ["input", "connected", "draft"],
+      "expected_execution": ["input", "connected"]
+    },
+    {
+      "name": "empty_explicit_graph_keeps_drafts_inactive",
+      "blocks": ["input", "draft"],
+      "connections": [],
+      "graph_explicit": true,
+      "expected_saved_blocks": ["input", "draft"],
+      "expected_execution": ["input"]
+    },
+    {
+      "name": "empty_legacy_graph_remains_linear",
+      "blocks": ["first", "second"],
+      "connections": [],
+      "graph_explicit": false,
+      "save_operation": "unrelated_setting",
+      "expected_saved_blocks": ["first", "second"],
+      "expected_execution": ["first", "second"]
+    },
+    {
+      "name": "invalid_connections_preserve_original_graph",
+      "blocks": ["input", "draft"],
+      "connections": [[0, 1], [9, 1], [1, 8]],
+      "graph_explicit": true,
+      "expected_graph_editable": false,
+      "expected_saved_blocks": ["input", "draft"],
+      "expected_saved_connections": [[0, 1], [9, 1], [1, 8]]
+    },
+    {
+      "name": "empty_blocks_with_connections_are_read_only",
+      "blocks": [],
+      "connections": [[0, 1]],
+      "graph_explicit": true,
+      "expected_graph_editable": false,
+      "expected_saved_blocks": [],
+      "expected_saved_connections": [[0, 1]]
+    },
     {
       "name": "inline_node_editor_chrome_comes_from_language",
       "locales": [
@@ -16,8 +74,8 @@
           "expected_add_language": "+ Language",
           "expected_prompt_placeholder": "Prompt…",
           "expected_language_search": "Search...",
-          "expected_stream_on": "Stream",
-          "expected_stream_off": "No Stream"
+          "expected_stream_on": "Stream on",
+          "expected_stream_off": "Stream off"
         },
         {
           "lang": "vi",
@@ -26,8 +84,8 @@
           "expected_add_language": "+ Ngôn ngữ",
           "expected_prompt_placeholder": "Lệnh…",
           "expected_language_search": "Tìm kiếm...",
-          "expected_stream_on": "Stream",
-          "expected_stream_off": "Không stream"
+          "expected_stream_on": "Stream bật",
+          "expected_stream_off": "Stream tắt"
         },
         {
           "lang": "ko",
@@ -36,8 +94,8 @@
           "expected_add_language": "+ 언어",
           "expected_prompt_placeholder": "프롬프트…",
           "expected_language_search": "검색...",
-          "expected_stream_on": "스트림",
-          "expected_stream_off": "스트림 없음"
+          "expected_stream_on": "스트림 켜짐",
+          "expected_stream_off": "스트림 꺼짐"
         }
       ]
     }

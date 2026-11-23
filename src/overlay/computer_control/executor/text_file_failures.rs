@@ -118,6 +118,17 @@ pub(super) fn concurrent_change(path: &Path, expected: &str, actual: Option<&str
     })
 }
 
+pub(super) fn no_effect_replace(path: &Path, error: &str, staging: Option<&Path>) -> Value {
+    let mut result = failure("ERR_TEXT_FILE_ATOMIC_REPLACE", Some(path), error, true);
+    result["target_effect_may_have_occurred"] = json!(false);
+    result["retained_staging_path"] = json!(staging);
+    if staging.is_some() {
+        result["effect_may_have_occurred"] = json!(true);
+        result["executed"] = json!(true);
+    }
+    result
+}
+
 pub(super) fn ambiguous_commit(
     path: &Path,
     error: &str,
@@ -125,6 +136,7 @@ pub(super) fn ambiguous_commit(
     external_change_detected: bool,
     recovery_backup: Option<&Path>,
     recovery_sha256: Option<&str>,
+    retained_staging: Option<&Path>,
 ) -> Value {
     json!({
         "ok": false,
@@ -140,6 +152,7 @@ pub(super) fn ambiguous_commit(
         "recovery_required": recovery_backup.is_some(),
         "recovery_backup_path": recovery_backup.map(|path| path.to_string_lossy().to_string()),
         "recovery_backup_sha256": recovery_sha256,
+        "retained_staging_path": retained_staging,
         "recovery_note": "A competing file captured by the atomic replacement is preserved at recovery_backup_path. Do not overwrite either copy until the user chooses which bytes to keep.",
     })
 }

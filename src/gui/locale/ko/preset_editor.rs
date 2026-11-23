@@ -2,6 +2,7 @@ use crate::gui::locale::PresetEditorLocaleText;
 
 pub(super) fn get() -> PresetEditorLocaleText {
     PresetEditorLocaleText {
+        graph_invalid_readonly: "그래프에 잘못된 데이터가 있어 읽기 전용입니다. 저장된 데이터는 유지됩니다.",
         text_input_mode_label: "작동 방식:",
         text_mode_select: "단축키 후 텍스트 선택",
         text_mode_type: "단축키 후 입력",
@@ -25,6 +26,10 @@ pub(super) fn get() -> PresetEditorLocaleText {
         add_text_preset_btn: "+ 텍스트",
         add_image_preset_btn: "+ 이미지",
         add_audio_preset_btn: "+ 오디오",
+        controller_mode_title: "컨트롤러 모드",
+        controller_mode_description: "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 사용할 프리셋을 선택할 수 있습니다.
+
+하나의 단축키로 여러 프리셋에 빠르게 접근하세요.",
         node_input_prefix: "입력:",
         node_input_audio: "오디오",
         node_input_image: "이미지",
@@ -39,5 +44,16 @@ pub(super) fn get() -> PresetEditorLocaleText {
         node_menu_add_special_audio: "오디오 → 텍스트 노드 추가",
         input_auto_copy_tooltip: "자동 복사 (소스)",
         input_auto_speak_tooltip: "소스 읽기",
+        node_model_label: "모델:",
+        node_scanning_local_models: "로컬 모델 스캔 중...",
+        node_language_label: "언어:",
+        node_input_language_label: "입력 언어:",
+        node_prompt_label: "프롬프트:",
+        node_add_language: "+ 언어",
+        node_prompt_placeholder: "프롬프트…",
+        node_language_search: "검색...",
+        node_stream_on: "스트림 켜짐",
+        node_stream_off: "스트림 꺼짐",
+        node_delete: "노드 삭제",
     }
 }

@@ -44,8 +44,6 @@ enum class TranscriptionMethod {
     GEMINI_LIVE,
     GEMINI_TRANSCRIBE,
     GEMINI_LIVE_S2S,
-    PARAKEET,
-    MOONSHINE,
 }
 
 @Serializable
@@ -128,6 +126,8 @@ data class LiveTextState(
     val lastCommittedPos: Int = 0,
     val lastProcessedLen: Int = 0,
     val committedTranslation: String = "",
+    val translationRevision: Long = 0L,
+    val translationRequestRevision: Long = 0L,
     val uncommittedTranslation: String = "",
     val uncommittedSourceStart: Int = 0,
     val uncommittedSourceEnd: Int = 0,
@@ -172,6 +172,7 @@ data class TranslationRequest(
     val draftSource: String,
     val previousDraftTranslation: String = "",
     val history: List<TranslationHistoryEntry> = emptyList(),
+    val revision: Long = 0L,
 ) {
     val hasFinishedDelimiter: Boolean
         get() = finalizedSourceEnd > sourceStart

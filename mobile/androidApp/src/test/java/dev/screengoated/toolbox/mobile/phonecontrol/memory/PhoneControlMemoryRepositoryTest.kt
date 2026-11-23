@@ -1,5 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.memory
 
+import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlMemoryStartup
 import java.io.File
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -81,14 +82,23 @@ class PhoneControlMemoryRepositoryTest {
     @Test
     fun `unknown schema is preserved and never mistaken for corruption`() {
         val root = newRoot()
+        appendAndFinalize(repository(root), "healthy", 20L)
         repository(root).append("future", turn("turn", 10L))
         val futureFile = File(File(root, "sessions"), sessionFileName("future"))
-        futureFile.writeText(
-            futureFile.readText().replaceFirst("\"schemaVersion\":1", "\"schemaVersion\":99"),
-        )
+        val futureText = futureFile.readText()
+            .replaceFirst("\"schemaVersion\":1", "\"schemaVersion\":99")
+        futureFile.writeText(futureText)
+        val index = File(root, "index.json")
+        val indexBefore = index.readText()
 
-        assertThrows(PhoneControlMemorySchemaException::class.java) { repository(root) }
-        assertTrue(futureFile.isFile)
+        // Windows parity: memory operations fail and neither the record nor the index is
+        // rewritten. Construction and startup recovery run in Application.onCreate, so
+        // they must survive instead of crashing the process.
+        val reopened = repository(root)
+        assertFalse(PhoneControlMemoryStartup(reopened) { 30L }.recoverOnce())
+        assertThrows(PhoneControlMemorySchemaException::class.java) { reopened.list() }
+        assertEquals(futureText, futureFile.readText())
+        assertEquals(indexBefore, index.readText())
         assertFalse(File(File(root, "corrupt"), futureFile.name).exists())
 
         val indexRoot = newRoot()
@@ -97,7 +107,8 @@ class PhoneControlMemoryRepositoryTest {
         futureIndex.writeText(
             futureIndex.readText().replaceFirst("\"schemaVersion\":1", "\"schemaVersion\":99"),
         )
-        assertThrows(PhoneControlMemorySchemaException::class.java) { repository(indexRoot) }
+        val indexed = repository(indexRoot)
+        assertThrows(PhoneControlMemorySchemaException::class.java) { indexed.list() }
         assertTrue(futureIndex.readText().contains("\"schemaVersion\":99"))
     }
 

@@ -6,33 +6,6 @@ use crate::gui::locale::LocaleText;
 use eframe::egui;
 
 impl SettingsApp {
-    pub(crate) fn render_fade_overlay(&mut self, ctx: &egui::Context) {
-        if let Some(start_time) = self.fade_in_start {
-            let elapsed = ctx.input(|i| i.time) - start_time;
-            if elapsed < 0.6 {
-                let opacity = 1.0 - (elapsed / 0.6) as f32;
-                let rect = ctx.input(|i| {
-                    i.viewport().inner_rect.unwrap_or(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        egui::Vec2::ZERO,
-                    ))
-                });
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("fade_overlay"),
-                ));
-                painter.rect_filled(
-                    rect,
-                    0.0,
-                    eframe::egui::Color32::from_black_alpha((opacity * 255.0) as u8),
-                );
-                ctx.request_repaint();
-            } else {
-                self.fade_in_start = None;
-            }
-        }
-    }
-
     /// Render a drop overlay when files are being dragged over the window
     pub(crate) fn render_drop_overlay(&mut self, ctx: &egui::Context) {
         use super::super::input_handler::is_files_hovered;

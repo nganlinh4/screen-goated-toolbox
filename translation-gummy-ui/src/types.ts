@@ -25,6 +25,8 @@ export type TranslationGummyState = {
   };
   hotkeys: HotkeyItem[];
   guideSeen: boolean;
+  volumePercent: number;
+  volumeRestorePercent: number;
   ttsModel: string;
   ttsVoice: string;
   hotkeyError?: string | null;
@@ -69,6 +71,7 @@ declare global {
   interface Window {
     __TG_INITIAL_STATE__?: TranslationGummyState;
     __TG_SET_STATE?: (payload: TranslationGummyState) => void;
+    __TG_SET_AUDIO_LEVEL?: (level: number) => void;
     invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   }
 }

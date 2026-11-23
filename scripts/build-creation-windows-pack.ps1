@@ -48,12 +48,12 @@ else {
     }
 }
 
-Push-Location (Join-Path $repo "3d-generator-ui")
+$creationFrontend = Join-Path $repo "3d-generator-ui"
+if (-not $SkipNpmInstall) {
+    & (Join-Path $PSScriptRoot "build-frontend-dependencies.ps1") -Project $creationFrontend
+}
+Push-Location $creationFrontend
 try {
-    if (-not $SkipNpmInstall -and -not (Test-Path "node_modules")) {
-        & npm.cmd install
-        if ($LASTEXITCODE -ne 0) { throw "3D Creation npm install failed" }
-    }
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw "3D Creation frontend build failed" }
 }

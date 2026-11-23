@@ -180,32 +180,32 @@ class CreationMiniAppLifetimeTest {
     }
 
     @Test
-    fun `image demand expands only for two accepted jobs`() {
+    fun `vector demand expands only for two accepted jobs`() {
         val leases = CreationWorkerLeaseRegistry()
         leases.acquire(
-            CreationTool.IMAGE_CREATOR,
+            CreationTool.IMAGE_TO_SVG,
             "surface-a",
             CreationWorkerLeaseKind.SURFACE,
         )
-        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
         leases.acquire(
-            CreationTool.IMAGE_CREATOR,
+            CreationTool.IMAGE_TO_SVG,
             "job-a",
             CreationWorkerLeaseKind.JOB,
         )
-        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
         leases.acquire(
-            CreationTool.IMAGE_CREATOR,
+            CreationTool.IMAGE_TO_SVG,
             "job-b",
             CreationWorkerLeaseKind.JOB,
         )
-        assertEquals(2, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
-        leases.release(CreationTool.IMAGE_CREATOR, "job-b")
-        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
-        leases.release(CreationTool.IMAGE_CREATOR, "surface-a")
-        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
-        leases.release(CreationTool.IMAGE_CREATOR, "job-a")
-        assertEquals(0, leases.requestedCapacity(CreationTool.IMAGE_CREATOR, 1, 2))
+        assertEquals(2, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
+        leases.release(CreationTool.IMAGE_TO_SVG, "job-b")
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
+        leases.release(CreationTool.IMAGE_TO_SVG, "surface-a")
+        assertEquals(1, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
+        leases.release(CreationTool.IMAGE_TO_SVG, "job-a")
+        assertEquals(0, leases.requestedCapacity(CreationTool.IMAGE_TO_SVG, 1, 2))
     }
 
     @Test
@@ -221,23 +221,23 @@ class CreationMiniAppLifetimeTest {
             releaseWorker = { tool, owner -> released += tool to owner },
         )
 
-        leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
-        leases.acquire("image-job", CreationTool.IMAGE_CREATOR)
+        leases.acquire("svg-job", CreationTool.IMAGE_TO_SVG)
+        leases.acquire("svg-job", CreationTool.IMAGE_TO_SVG)
         assertEquals(
-            listOf(Triple(CreationTool.IMAGE_CREATOR, "recovery:image-job", null)),
+            listOf(Triple(CreationTool.IMAGE_TO_SVG, "recovery:svg-job", null)),
             acquired,
         )
-        leases.assign("image-job", CreationTool.IMAGE_CREATOR, "image-1")
-        leases.assign("image-job", CreationTool.IMAGE_CREATOR, "image-1")
+        leases.assign("svg-job", CreationTool.IMAGE_TO_SVG, "svg-1")
+        leases.assign("svg-job", CreationTool.IMAGE_TO_SVG, "svg-1")
         assertEquals(
-            listOf(Triple(CreationTool.IMAGE_CREATOR, "recovery:image-job", "image-1")),
+            listOf(Triple(CreationTool.IMAGE_TO_SVG, "recovery:svg-job", "svg-1")),
             required,
         )
 
-        leases.release("image-job", CreationTool.IMAGE_CREATOR)
-        leases.release("image-job", CreationTool.IMAGE_CREATOR)
+        leases.release("svg-job", CreationTool.IMAGE_TO_SVG)
+        leases.release("svg-job", CreationTool.IMAGE_TO_SVG)
         assertEquals(
-            listOf(CreationTool.IMAGE_CREATOR to "recovery:image-job"),
+            listOf(CreationTool.IMAGE_TO_SVG to "recovery:svg-job"),
             released,
         )
     }
@@ -249,7 +249,7 @@ class CreationMiniAppLifetimeTest {
                 active = null,
                 retained = emptySet(),
                 ready = emptySet(),
-                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+                surfacePriority = listOf(CreationTool.IMAGE_TO_SVG),
             ),
         )
 
@@ -263,12 +263,12 @@ class CreationMiniAppLifetimeTest {
         assertEquals(CreationTool.IMAGE_TO_3D, selected)
         assertEquals(2, CreationContract.maximumParallelJobs(requireNotNull(selected)))
         assertEquals(
-            CreationTool.IMAGE_CREATOR,
+            CreationTool.IMAGE_TO_SVG,
             selectCreationPreparationTool(
                 active = CreationTool.IMAGE_TO_3D,
                 retained = CreationTool.entries.toSet(),
                 ready = emptySet(),
-                surfacePriority = listOf(CreationTool.IMAGE_CREATOR),
+                surfacePriority = listOf(CreationTool.IMAGE_TO_SVG),
             ),
         )
     }

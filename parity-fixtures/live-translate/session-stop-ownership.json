@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"replacement_during_stop_join","result":"replacement_preserved"},
+    {"event":"replacement_during_download_cancel","result":"replacement_preserved"},
+    {"event":"old_cleanup_after_replacement","result":"replacement_preserved"},
+    {"event":"stop_before_delayed_start","result":"no_late_start"},
+    {"event":"current_session_stops","result":"current_retired"}
+  ]
+}

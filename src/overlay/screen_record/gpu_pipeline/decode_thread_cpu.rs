@@ -1,5 +1,4 @@
 use std::sync::atomic::Ordering;
-use std::sync::mpsc;
 use std::time::Instant;
 
 use windows::Win32::Graphics::Direct3D11::*;
@@ -9,21 +8,35 @@ use windows::core::Interface;
 use super::super::d3d_interop::{D3D11Readback, VideoProcessor, create_d3d11_device};
 use super::super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::frame_timing::get_speed;
-use super::types::{DecodeOutput, PipelineConfig};
+use super::types::{CpuDecodeContext, DecodeOutput};
 
-/// CPU fallback decode thread: D3D11 VP + CPU readback (legacy path).
+/// CPU fallback decode thread: D3D11 VP + CPU readback (legacy path). Serves
+/// the primary stream and, when its shared ring is unavailable, the webcam.
 ///
 /// `cur_bgra` and `next_bgra` are PERMANENT buffers owned by this thread (never sent across
 /// threads). Per output frame we copy `cur_bgra` into a recycled `send_buf` and send that.
 /// This correctly handles the "hold" case (same source frame reused for multiple output frames)
 /// which occurs whenever output fps > source fps.
-pub(super) fn run_decode_thread_cpu(
-    config: &PipelineConfig,
-    cancel_flag: &std::sync::atomic::AtomicBool,
-    source_times: &[f64],
-    tx: mpsc::SyncSender<DecodeOutput>,
-    recycle_rx: mpsc::Receiver<Vec<u8>>,
-) -> Result<(), String> {
+pub(super) fn run_decode_thread_cpu(context: CpuDecodeContext<'_>) -> Result<(), String> {
+    let CpuDecodeContext {
+        label,
+        cancel_flag,
+        source_video_path,
+        source_times,
+        speed_points,
+        trim_segments,
+        fallback_seek,
+        framerate,
+        crop_x,
+        crop_y,
+        source_rect_width,
+        source_rect_height,
+        output_width,
+        output_height,
+        active_mask,
+        tx,
+        recycle_rx,
+    } = context;
     let t_thread = Instant::now();
 
     // D3D11 device (CPU decode thread creates its own)
@@ -38,21 +51,19 @@ pub(super) fn run_decode_thread_cpu(
     }
 
     let device_manager = DxgiDeviceManager::new(&d3d11_device)?;
-    let decoder = MfDecoder::new(&config.source_video_path, &device_manager, true)?;
+    let decoder = MfDecoder::new(source_video_path, &device_manager, true)?;
     let source_w = decoder.width();
     let source_h = decoder.height();
 
-    let initial_seek = if !config.trim_segments.is_empty() {
-        config.trim_segments[0].start_time
-    } else {
-        config.trim_start
-    };
+    let initial_seek = trim_segments
+        .first()
+        .map_or(fallback_seek, |segment| segment.start_time);
     if initial_seek > 0.0 {
         decoder.seek_seconds(initial_seek)?;
     }
 
-    let vp_out_w = config.video_width;
-    let vp_out_h = config.video_height;
+    let vp_out_w = output_width;
+    let vp_out_h = output_height;
     let decode_vp = VideoProcessor::new(
         &d3d11_device,
         &d3d11_context,
@@ -61,7 +72,10 @@ pub(super) fn run_decode_thread_cpu(
         vp_out_w,
         vp_out_h,
     )?;
-    decode_vp.set_source_rect(config.crop_x, config.crop_y, vp_out_w, vp_out_h);
+    if crop_x != 0 || crop_y != 0 || source_rect_width != source_w || source_rect_height != source_h
+    {
+        decode_vp.set_source_rect(crop_x, crop_y, source_rect_width, source_rect_height);
+    }
 
     let vp_output = VideoProcessor::create_texture(
         &d3d11_device,
@@ -182,17 +196,28 @@ pub(super) fn run_decode_thread_cpu(
             .get(frame_idx + 1)
             .copied()
             .unwrap_or(source_time);
-        let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
-        let expected_step = speed / config.framerate as f64;
+        let speed = get_speed(source_time, speed_points).clamp(0.1, 16.0);
+        let expected_step = speed / framerate.max(1) as f64;
         let mut source_step = next_source_time - source_time;
         if source_step <= 0.0 || source_step > expected_step * 1.05 {
             source_step = expected_step;
         }
 
+        if active_mask.is_some_and(|mask| !mask[frame_idx]) {
+            let inactive = DecodeOutput::Inactive {
+                source_time,
+                source_step,
+                frame_idx: frame_idx as u32,
+            };
+            if tx.send(inactive).is_err() {
+                break;
+            }
+            continue;
+        }
+
         // Seek on trim segment boundary change.
-        if !config.trim_segments.is_empty() {
-            let target_seg = config
-                .trim_segments
+        if !trim_segments.is_empty() {
+            let target_seg = trim_segments
                 .iter()
                 .position(|s| {
                     source_time >= s.start_time - 0.001 && source_time <= s.end_time + 0.001
@@ -200,7 +225,7 @@ pub(super) fn run_decode_thread_cpu(
                 .unwrap_or(current_segment_idx);
 
             if target_seg != current_segment_idx {
-                decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
+                decoder.seek_seconds(trim_segments[target_seg].start_time)?;
                 current_segment_idx = target_seg;
                 flush_and_refill_cpu!();
             }
@@ -260,7 +285,8 @@ pub(super) fn run_decode_thread_cpu(
 
     let elapsed = t_thread.elapsed().as_secs_f64();
     println!(
-        "[Decode] CPU: {} src -> {} out ({} held) in {:.1}s",
+        "[Decode:{}] CPU: {} src -> {} out ({} held) in {:.1}s",
+        label,
         src_decoded,
         source_times.len(),
         frames_held,

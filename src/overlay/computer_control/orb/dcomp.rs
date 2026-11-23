@@ -39,7 +39,7 @@ use windows::Win32::Graphics::DirectComposition::{
     DCompositionCreateDevice, IDCompositionDevice, IDCompositionTarget, IDCompositionVisual,
 };
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 use windows::core::{Interface, PCWSTR};
 
 /// Bootstrap injected before the page loads: provide the `window.ipc` shim wry would
@@ -197,7 +197,7 @@ unsafe fn attach_process_failure(webview: &ICoreWebView2, hwnd: HWND) -> windows
             };
             let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
             args.ProcessFailedKind(&mut kind)?;
-            eprintln!("orb WebView2 process failed kind={kind:?}");
+            cc_diagnostic!("orb WebView2 process failed kind={kind:?}");
             if matches!(
                 kind,
                 COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
@@ -205,7 +205,12 @@ unsafe fn attach_process_failure(webview: &ICoreWebView2, hwnd: HWND) -> windows
                     | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
                     | COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
             ) {
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::WM_APP_ORB_PROCESS_FAILED,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
             }
             Ok(())
         }));

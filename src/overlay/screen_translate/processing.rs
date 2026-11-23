@@ -23,13 +23,13 @@ impl Progress {
         })
     }
 
-    pub(super) fn geometry(&mut self, sources: &[DetectedTextRegion], width: u32, height: u32) {
+    pub(super) fn geometry(&mut self, sources: &[DetectedTextRegion]) {
         if self.glow.is_none() {
             return;
         }
         self.remaining = sources
             .iter()
-            .zip(super::geometry::processing_cells(sources, width, height))
+            .zip(super::geometry::processing_cells(sources))
             .map(|(source, rect)| (source.id, vec![rect]))
             .collect();
         self.publish();
@@ -94,7 +94,7 @@ mod tests {
     fn disabled_glow_has_no_native_effect_or_pending_geometry() {
         let mut progress = Progress::show(Default::default(), false).unwrap();
         assert!(progress.id().is_none());
-        progress.geometry(&[], 100, 100);
+        progress.geometry(&[]);
         progress.partition(&[super::super::units::Unit {
             id: 1,
             members: vec![1],

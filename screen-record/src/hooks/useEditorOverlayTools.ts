@@ -17,8 +17,6 @@ export interface UseEditorOverlayToolsParams {
   videoRef: RefObject<HTMLVideoElement | null>;
   mousePositions: MousePosition[];
   backgroundConfig: BackgroundConfig;
-  currentProjectId: string | null;
-  loadProjects: () => Promise<void>;
   activePanel: ActivePanel;
   setActivePanel: (panel: ActivePanel) => void;
   renderFrame: () => void;
@@ -33,8 +31,6 @@ export function useEditorOverlayTools({
   videoRef,
   mousePositions,
   backgroundConfig,
-  currentProjectId,
-  loadProjects,
   activePanel,
   setActivePanel,
   renderFrame,
@@ -57,7 +53,7 @@ export function useEditorOverlayTools({
     setZoomFactor,
     handleAddKeyframe,
     handleDeleteKeyframe,
-    throttledUpdateZoom,
+    updateZoom,
   } = zoomKeyframes;
 
   // Text overlays
@@ -83,9 +79,6 @@ export function useEditorOverlayTools({
     videoRef,
     mousePositions,
     duration,
-    currentProjectId,
-    backgroundConfig,
-    loadProjects,
     setActivePanel,
   });
 
@@ -115,7 +108,7 @@ export function useEditorOverlayTools({
     setZoomFactor,
     handleAddKeyframe,
     handleDeleteKeyframe,
-    throttledUpdateZoom,
+    updateZoom,
     // Text
     editingTextId,
     setEditingTextId,

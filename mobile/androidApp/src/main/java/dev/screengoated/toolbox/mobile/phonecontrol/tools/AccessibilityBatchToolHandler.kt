@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -134,7 +135,7 @@ private fun staleBatch(
             capability = POINTER_CAPABILITY,
             provider = ACCESSIBILITY_PROVIDER,
             providerState = CapabilityState.READY,
-            code = "stale_target",
+            code = STALE_TARGET_CODE,
             observationGeneration = backend.observationGeneration,
             effect = effect,
             snapshotInvalidated = invalidated,
@@ -157,22 +158,54 @@ private fun batchResult(
 ): PhoneControlToolExecution {
     val effect = aggregateBatchEffect(outcomes)
     val invalidated = effect.effectMayHaveOccurred == true
+    val promoted = if (stopped) promotedStopCode(outcomes.lastOrNull()) else null
+    val response = toolResponse(
+        job = job,
+        requestedTool = "do_steps",
+        capability = POINTER_CAPABILITY,
+        provider = ACCESSIBILITY_PROVIDER,
+        providerState = CapabilityState.READY,
+        code = promoted?.code ?: if (stopped) "partial" else "ok",
+        observationGeneration = backend.observationGeneration,
+        effect = effect,
+        snapshotInvalidated = invalidated,
+        retryable = promoted?.retryable ?: false,
+        freshObservationRequired = invalidated || promoted?.freshObservationRequired == true,
+        data = batchData(outcomes, completed, requested, stopped, requestedCapabilities),
+    )
+    val withRecovery = promoted?.requiredUserStep
+        ?.let { step -> JsonObject(response + ("required_user_step" to step)) }
+        ?: response
     return PhoneControlToolExecution(
-        response = toolResponse(
-            job = job,
-            requestedTool = "do_steps",
-            capability = POINTER_CAPABILITY,
-            provider = ACCESSIBILITY_PROVIDER,
-            providerState = CapabilityState.READY,
-            code = if (stopped) "partial" else "ok",
-            observationGeneration = backend.observationGeneration,
-            effect = effect,
-            snapshotInvalidated = invalidated,
-            freshObservationRequired = invalidated,
-            data = batchData(outcomes, completed, requested, stopped, requestedCapabilities),
-        ),
+        response = withRecovery,
         mutating = invalidated,
-        refreshScreenFrame = invalidated,
+        refreshScreenFrame = invalidated || promoted != null,
+    )
+}
+
+/**
+ * A step that stopped on a checkpoint or a stale target keeps its typed code
+ * and recovery fields at the batch's top level, as the Windows sequence does
+ * for a stale target. Only an ordinary failed step leaves the batch `partial`.
+ */
+internal data class PromotedStopCode(
+    val code: String,
+    val retryable: Boolean,
+    val freshObservationRequired: Boolean,
+    val requiredUserStep: JsonObject?,
+)
+
+internal fun promotedStopCode(stoppingStep: JsonObject?): PromotedStopCode? {
+    val step = stoppingStep ?: return null
+    val code = (step["code"] as? JsonPrimitive)?.contentOrNull ?: return null
+    val requiredUserStep = step["required_user_step"] as? JsonObject
+    if (code != STALE_TARGET_CODE && requiredUserStep == null) return null
+    return PromotedStopCode(
+        code = code,
+        retryable = (step["retryable"] as? JsonPrimitive)?.booleanOrNull ?: false,
+        freshObservationRequired = code == STALE_TARGET_CODE ||
+            (step["fresh_observation_required"] as? JsonPrimitive)?.booleanOrNull == true,
+        requiredUserStep = requiredUserStep,
     )
 }
 
@@ -202,17 +235,16 @@ private fun completedCount(outcomes: List<JsonObject>): Int = outcomes.count { o
     outcome["code"]?.jsonPrimitive?.contentOrNull == "ok"
 }
 
-private fun aggregateBatchEffect(outcomes: List<JsonObject>): EffectCertainty {
+internal fun aggregateBatchEffect(outcomes: List<JsonObject>): EffectCertainty {
     if (outcomes.isEmpty()) return EffectCertainty.PROVEN_NO_EFFECT
-    val statuses = outcomes.mapNotNull { outcome ->
-        outcome["effect_status"]?.jsonPrimitive?.contentOrNull
-    }.toSet()
+    val statuses = outcomes.map { outcome ->
+        (outcome["effect_status"] as? JsonPrimitive)?.contentOrNull
+    }
     return when {
-        EffectCertainty.VERIFIED.wireName in statuses -> EffectCertainty.VERIFIED
-        EffectCertainty.MAY_HAVE_OCCURRED.wireName in statuses -> EffectCertainty.MAY_HAVE_OCCURRED
-        statuses.isNotEmpty() && statuses.all { it == EffectCertainty.PROVEN_NO_EFFECT.wireName } ->
-            EffectCertainty.PROVEN_NO_EFFECT
-        else -> EffectCertainty.UNKNOWN
+        statuses.any { it != EffectCertainty.VERIFIED.wireName && it != EffectCertainty.PROVEN_NO_EFFECT.wireName } ->
+            EffectCertainty.MAY_HAVE_OCCURRED
+        statuses.any { it == EffectCertainty.VERIFIED.wireName } -> EffectCertainty.VERIFIED
+        else -> EffectCertainty.PROVEN_NO_EFFECT
     }
 }
 
@@ -223,3 +255,4 @@ private fun parseBatchActionVerb(value: String?): AccessibilityActionVerb? = val
 private const val ACCESSIBILITY_PROVIDER = "accessibility"
 private const val POINTER_CAPABILITY = "ui.pointer_action"
 private const val MAX_BATCH_STEPS = 8
+private const val STALE_TARGET_CODE = "stale_target"

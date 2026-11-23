@@ -14,20 +14,39 @@ pub(super) fn validate_file_name(value: &str) -> Result<String, String> {
     {
         return Err("File name contains characters Windows does not allow".to_string());
     }
+    if is_reserved_device_name(value) {
+        return Err("File name is reserved by Windows".to_string());
+    }
+    Ok(value.to_string())
+}
+
+/// Windows maps these stems to devices regardless of extension, and it
+/// ignores trailing spaces before the extension ("nul .mp4" is still NUL).
+/// Superscript 1-3 count as port digits ("COM¹").
+fn is_reserved_device_name(value: &str) -> bool {
     let stem = value
         .split('.')
         .next()
         .unwrap_or_default()
-        .to_ascii_uppercase();
-    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || stem
-            .strip_prefix("COM")
-            .or_else(|| stem.strip_prefix("LPT"))
-            .is_some_and(|number| number.len() == 1 && matches!(number.as_bytes()[0], b'1'..=b'9'));
-    if reserved {
-        return Err("File name is reserved by Windows".to_string());
+        .trim_end_matches(' ')
+        .to_uppercase();
+    if matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
     }
-    Ok(value.to_string())
+    let Some(port) = stem
+        .strip_prefix("COM")
+        .or_else(|| stem.strip_prefix("LPT"))
+    else {
+        return false;
+    };
+    let mut digits = port.chars();
+    matches!(
+        (digits.next(), digits.next()),
+        (Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+    )
 }
 
 pub(super) fn safe_suggested_file_name(
@@ -84,7 +103,16 @@ mod tests {
 
     #[test]
     fn file_names_reject_traversal_and_windows_devices() {
-        for value in ["../outside.mp4", r"..\outside.mp4", "CON.mp4", "bad?.mp4"] {
+        for value in [
+            "../outside.mp4",
+            r"..\outside.mp4",
+            "CON.mp4",
+            "bad?.mp4",
+            "nul .mp4",
+            "Com1 .srt",
+            "conout$.txt",
+            "LPT\u{b9}.mp4",
+        ] {
             assert!(validate_file_name(value).is_err(), "{value}");
         }
         assert_eq!(

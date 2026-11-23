@@ -1,9 +1,31 @@
-use std::time::Instant;
+use std::sync::{LazyLock, Mutex};
 
 use crate::api::tts::TTS_MANAGER;
 
 use super::runtime::{PLAYBACK_TIMER, PlaybackTimer, cache_get};
 use super::state;
+
+static PLAYBACK_OWNER: LazyLock<Mutex<Option<u64>>> = LazyLock::new(|| Mutex::new(None));
+
+fn replace_owned_playback<T>(start: impl FnOnce() -> (u64, T)) -> T {
+    let mut owner = PLAYBACK_OWNER.lock().unwrap();
+    if let Some(id) = owner.take() {
+        TTS_MANAGER.stop_if_active(id);
+    }
+    let (id, result) = start();
+    *owner = Some(id);
+    result
+}
+
+pub(super) fn stop_owned_playback() {
+    if let Some(id) = PLAYBACK_OWNER.lock().unwrap().take() {
+        TTS_MANAGER.stop_if_active(id);
+    }
+}
+
+pub(super) fn preview_profile(text: &str, profile: crate::api::tts::types::TtsRequestProfile) {
+    replace_owned_playback(|| (TTS_MANAGER.speak_with_profile(text, 0, profile), ()));
+}
 
 pub(super) fn start_pcm_playback(
     pcm: Vec<i16>,
@@ -11,24 +33,24 @@ pub(super) fn start_pcm_playback(
     total_samples: usize,
     start_sample: usize,
 ) {
-    TTS_MANAGER.play_pcm_interrupt(pcm, start_sample);
+    let progress = replace_owned_playback(|| TTS_MANAGER.play_pcm(pcm, start_sample));
     *PLAYBACK_TIMER.lock().unwrap() = Some(PlaybackTimer {
-        start: Instant::now(),
+        progress,
         start_sample,
         sample_rate,
         total_samples,
     });
 }
 
-/// Returns the current playback position in seconds based on wall-clock since
-/// the last `start_pcm_playback` call. Caller is responsible for clamping.
+/// Returns the position from frames consumed by the output device.
 fn current_position_sec() -> f32 {
     let timer = PLAYBACK_TIMER.lock().unwrap();
     let Some(t) = timer.as_ref() else { return 0.0 };
-    let elapsed = t.start.elapsed().as_secs_f32();
-    let pos_sample = t
-        .start_sample
-        .saturating_add((elapsed * t.sample_rate as f32) as usize);
+    let frames = t.progress.played_frames();
+    let elapsed_samples = ((frames as u128 * t.sample_rate as u128)
+        / crate::api::tts::types::PLAYBACK_SAMPLE_RATE as u128)
+        .min(usize::MAX as u128) as usize;
+    let pos_sample = t.start_sample.saturating_add(elapsed_samples);
     (pos_sample.min(t.total_samples) as f32) / (t.sample_rate.max(1) as f32)
 }
 
@@ -57,7 +79,7 @@ pub(super) fn play() {
 
 pub(super) fn pause() {
     let pos = current_position_sec();
-    TTS_MANAGER.stop();
+    stop_owned_playback();
     state::with_state(|s| {
         s.is_playing = false;
         s.paused = true;
@@ -68,7 +90,7 @@ pub(super) fn pause() {
 }
 
 pub(super) fn stop() {
-    TTS_MANAGER.stop();
+    stop_owned_playback();
     state::with_state(|s| {
         s.is_playing = false;
         s.paused = false;
@@ -126,16 +148,21 @@ pub(super) fn seek(sec: f32) {
 
 pub(super) fn tick_position() {
     let pos = current_position_sec();
+    let finished = PLAYBACK_TIMER
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|timer| (timer.progress.is_finished(), timer.progress.completed()));
     let mut should_finish = false;
     state::with_state(|s| {
         if !s.is_playing {
             return;
         }
         s.position_sec = pos;
-        if let Some(current) = &s.current
-            && pos >= current.duration_sec
-        {
-            s.position_sec = current.duration_sec;
+        if let Some((true, completed)) = finished {
+            if completed && let Some(current) = &s.current {
+                s.position_sec = current.duration_sec;
+            }
             s.is_playing = false;
             s.paused = false;
             should_finish = true;

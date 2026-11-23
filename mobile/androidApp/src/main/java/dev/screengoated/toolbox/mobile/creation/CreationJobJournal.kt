@@ -51,22 +51,10 @@ internal class CreationJobJournal(context: Context) {
                     decoded.distinctBy { it.request.jobId }.size == decoded.size &&
                     decoded.distinctBy { it.request.dispatchId }.size == decoded.size,
             )
-            decoded.map(::migrateRecord)
+            decoded
         }.getOrElse {
             throw IllegalStateException("Creation state is unavailable", it)
         }
-    }
-
-    private fun migrateRecord(record: CreationJournalRecord): CreationJournalRecord {
-        val tool = CreationTool.fromWireName(record.request.tool) ?: return record
-        val operation = CreationContract.normalizedOperation(tool, record.request.operation)
-            ?: record.request.operation
-        return record.copy(
-            request = record.request.copy(operation = operation),
-            status = record.status.copy(
-                operation = CreationContract.normalizedOperation(tool, record.status.operation),
-            ),
-        )
     }
 
     fun save(records: Collection<CreationJournalRecord>) {

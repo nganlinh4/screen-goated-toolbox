@@ -60,9 +60,8 @@ fn downloaded_background_path(url: &str) -> Result<PathBuf, String> {
     ) {
         return Err("Downloadable background extension is unsupported".to_string());
     }
-    let root = dirs::data_local_dir()
+    let root = super::super::runtime_paths::optional_local_data_dir()
         .ok_or_else(|| "Failed to resolve local app data directory".to_string())?
-        .join("screen-goated-toolbox")
         .join("backgrounds");
     Ok(root.join(rel))
 }

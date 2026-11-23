@@ -6,12 +6,11 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::layout::CardRole;
-use super::protocol::{CardText, DownloadState, HostCommand};
+use super::protocol::DownloadState;
 use super::state::*;
 use crate::api::realtime_audio::{
-    REALTIME_RMS, WM_COPY_TEXT, WM_DOWNLOAD_PROGRESS, WM_EXEC_SCRIPT, WM_MODEL_SWITCH,
-    WM_REALTIME_UPDATE, WM_THEME_UPDATE, WM_TOGGLE_MIC, WM_TOGGLE_TRANS, WM_TRANSLATION_UPDATE,
-    WM_UPDATE_TTS_SPEED, WM_VOLUME_UPDATE,
+    REALTIME_RMS, WM_DOWNLOAD_PROGRESS, WM_MODEL_SWITCH, WM_REALTIME_UPDATE, WM_THEME_UPDATE,
+    WM_TRANSLATION_UPDATE, WM_UPDATE_TTS_SPEED, WM_VOLUME_UPDATE,
 };
 
 pub unsafe extern "system" fn realtime_wnd_proc(
@@ -25,29 +24,24 @@ pub unsafe extern "system" fn realtime_wnd_proc(
             WM_REALTIME_UPDATE => {
                 close_card_modals_if_requested();
                 sync_tts_ui_state();
-                super::parent::update_text(CardRole::Transcription, transcription_text());
+                publish_transcription();
+                // Transcript corrections can clear the translation before the next
+                // translation result posts its own update.
+                speak_committed_translation(hwnd);
                 LRESULT(0)
             }
             WM_TRANSLATION_UPDATE => {
                 close_card_modals_if_requested();
-                let (is_s2s, text) = translation_text();
-                if !is_s2s {
-                    super::controller::process_committed_translation_for_tts(
-                        &text.committed,
-                        hwnd.0 as isize,
-                    );
+                if speak_committed_translation(hwnd) {
                     sync_tts_ui_state();
                 }
-                super::parent::update_text(CardRole::Translation, text);
+                publish_translation();
                 LRESULT(0)
             }
             WM_MODEL_SWITCH => {
-                let model = if wparam.0 == 1 {
-                    "google-gtx"
-                } else {
-                    "text-llm"
-                };
-                super::parent::update_translation_model(model.to_string());
+                refresh_translation_settings(&REALTIME_SESSION_PUBLICATION, || {
+                    super::parent::update_settings();
+                });
                 LRESULT(0)
             }
             WM_DOWNLOAD_PROGRESS => {
@@ -79,30 +73,16 @@ pub unsafe extern "system" fn realtime_wnd_proc(
                 super::parent::update_theme(is_dark, font_size);
                 LRESULT(0)
             }
-            WM_EXEC_SCRIPT => {
-                let ptr = lparam.0 as *mut String;
-                if !ptr.is_null() {
-                    super::parent::run_script(None, &Box::from_raw(ptr));
-                }
-                LRESULT(0)
-            }
-            WM_COPY_TEXT => {
-                let ptr = lparam.0 as *mut String;
-                if !ptr.is_null() {
-                    crate::overlay::utils::copy_to_clipboard(&Box::from_raw(ptr), hwnd);
-                }
-                LRESULT(0)
-            }
-            WM_TOGGLE_MIC => {
-                set_visibility(CardRole::Transcription, wparam.0 != 0);
-                LRESULT(0)
-            }
-            WM_TOGGLE_TRANS => {
-                set_visibility(CardRole::Translation, wparam.0 != 0);
-                LRESULT(0)
-            }
-            WM_CLOSE | WM_APP_REALTIME_HIDE => {
+            WM_CLOSE => {
                 stop_session();
+                LRESULT(0)
+            }
+            WM_APP_REALTIME_HIDE => {
+                dispatch_close(
+                    wparam.0,
+                    REALTIME_SESSION_ID.load(Ordering::SeqCst),
+                    stop_session,
+                );
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -112,6 +92,20 @@ pub unsafe extern "system" fn realtime_wnd_proc(
             _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
+}
+
+fn dispatch_close(tag: usize, current: u64, stop: impl FnOnce()) {
+    // Zero is reserved for the pre-existing unconditional non-renderer stop.
+    if tag == 0 || u64::try_from(tag).ok() == Some(current) {
+        stop();
+    }
+}
+
+fn refresh_translation_settings(publication: &std::sync::Mutex<()>, refresh: impl FnOnce()) {
+    let _publication = publication
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    refresh();
 }
 
 pub(super) fn post_text_refresh(role: CardRole) {
@@ -128,33 +122,20 @@ pub(super) fn post_text_refresh(role: CardRole) {
     }
 }
 
-fn set_visibility(role: CardRole, visible: bool) {
-    match role {
-        CardRole::Transcription => MIC_VISIBLE.store(visible, Ordering::SeqCst),
-        CardRole::Translation => TRANS_VISIBLE.store(visible, Ordering::SeqCst),
+pub(super) fn post_model_and_download_refresh() {
+    let hwnd = unsafe { std::ptr::addr_of!(REALTIME_HWND).read() };
+    if hwnd.is_invalid() {
+        return;
     }
-    let layout = {
-        let mut scene = super::parent::SCENE.lock().unwrap();
-        match role {
-            CardRole::Transcription => scene.layout.transcription.visible = visible,
-            CardRole::Translation => scene.layout.translation.visible = visible,
-        }
-        scene.layout
-    };
-    super::parent::send(HostCommand::Layout { layout });
-    if !MIC_VISIBLE.load(Ordering::SeqCst) && !TRANS_VISIBLE.load(Ordering::SeqCst) {
-        stop_session();
-    } else if visible {
-        post_text_refresh(role);
+    unsafe {
+        let _ = PostMessageW(Some(hwnd), WM_MODEL_SWITCH, WPARAM(0), LPARAM(0));
+        let _ = PostMessageW(Some(hwnd), WM_DOWNLOAD_PROGRESS, WPARAM(0), LPARAM(0));
     }
 }
 
 fn stop_session() {
-    if REALTIME_STATE
-        .lock()
-        .is_ok_and(|state| state.is_downloading)
-    {
-        crate::api::realtime_audio::cancel_download_and_revert_to_gemini();
+    if super::download::current().active {
+        super::controller::cancel_download_for_stop();
     }
     super::controller::stop_runtime_flags();
     super::manager::finish_stop();
@@ -176,38 +157,55 @@ fn close_card_modals_if_requested() {
     }
 }
 
-fn transcription_text() -> CardText {
+/// Publishes the transcription card's change since its last update. The
+/// state lock is held while the parent diffs against the shown text, so the
+/// transcript is never copied.
+fn publish_transcription() {
     let Ok(state) = REALTIME_STATE.lock() else {
-        return CardText::default();
+        return;
     };
     let full = &state.full_transcript;
-    let position = clamp_to_char_boundary(full, state.transcript_committed_pos.min(full.len()));
-    join_committed_and_draft(&full[..position], &full[position..])
+    let position = clamp_to_char_boundary(full, state.transcript_committed_pos);
+    super::parent::publish_text(
+        CardRole::Transcription,
+        &full[..position],
+        &full[position..],
+    );
 }
 
-fn translation_text() -> (bool, CardText) {
+fn publish_translation() {
     let Ok(state) = REALTIME_STATE.lock() else {
-        return (false, CardText::default());
+        return;
     };
-    let is_s2s = state.transcription_method
-        == crate::api::realtime_audio::TranscriptionMethod::GeminiLiveS2s;
-    (
-        is_s2s,
-        join_committed_and_draft(&state.committed_translation, &state.uncommitted_translation),
-    )
+    super::parent::publish_text(
+        CardRole::Translation,
+        &state.committed_translation,
+        &state.uncommitted_translation,
+    );
 }
 
-fn join_committed_and_draft(committed: &str, draft: &str) -> CardText {
-    let committed = committed.trim_end();
-    let draft = draft.trim_start();
-    CardText {
-        committed: committed.to_string(),
-        draft: if !committed.is_empty() && !draft.is_empty() {
-            format!(" {draft}")
-        } else {
-            draft.to_string()
-        },
-    }
+/// Hands committed translation to read-aloud, copying it only while
+/// read-aloud is on. Returns false in direct speech (S2S) sessions.
+fn speak_committed_translation(hwnd: HWND) -> bool {
+    let (revision, committed) = {
+        let Ok(state) = REALTIME_STATE.lock() else {
+            return true;
+        };
+        if state.transcription_method
+            == crate::api::realtime_audio::TranscriptionMethod::GeminiLiveS2s
+        {
+            return false;
+        }
+        if !REALTIME_TTS_ENABLED.load(Ordering::SeqCst) || !TRANS_VISIBLE.load(Ordering::SeqCst) {
+            return true;
+        }
+        (
+            state.translation_revision,
+            state.committed_translation.trim_end().to_owned(),
+        )
+    };
+    super::controller::process_committed_translation_for_tts(&committed, revision, hwnd.0 as isize);
+    true
 }
 
 fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
@@ -219,26 +217,58 @@ fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
 }
 
 fn download_state() -> DownloadState {
-    REALTIME_STATE
-        .lock()
-        .map(|state| DownloadState {
-            active: state.is_downloading,
-            title: state.download_title.clone(),
-            message: state.download_message.clone(),
-            progress: state.download_progress,
-        })
-        .unwrap_or_default()
+    super::download::current()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_to_char_boundary, join_committed_and_draft};
+    use super::{clamp_to_char_boundary, dispatch_close, refresh_translation_settings};
+    use std::cell::Cell;
+    use std::sync::{Arc, Mutex, mpsc};
 
     #[test]
-    fn text_splits_preserve_utf8_boundaries_and_word_spacing() {
+    fn delayed_renderer_close_cannot_stop_a_replacement_session() {
+        let stops = Cell::new(0);
+        dispatch_close(7, 8, || stops.set(stops.get() + 1));
+        assert_eq!(stops.get(), 0);
+        dispatch_close(8, 8, || stops.set(stops.get() + 1));
+        assert_eq!(stops.get(), 1);
+        dispatch_close(0, 9, || stops.set(stops.get() + 1));
+        assert_eq!(stops.get(), 2);
+    }
+
+    #[test]
+    fn delayed_fallback_notification_refreshes_current_model() {
+        let publication = Arc::new(Mutex::new(()));
+        let selected = Arc::new(Mutex::new("fallback"));
+        let displayed = Arc::new(Mutex::new("initial"));
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (deliver_tx, deliver_rx) = mpsc::channel();
+        let worker = {
+            let publication = publication.clone();
+            let selected = selected.clone();
+            let displayed = displayed.clone();
+            std::thread::spawn(move || {
+                ready_tx.send(()).unwrap();
+                deliver_rx.recv().unwrap();
+                refresh_translation_settings(&publication, || {
+                    *displayed.lock().unwrap() = *selected.lock().unwrap();
+                });
+            })
+        };
+        ready_rx.recv().unwrap();
+        {
+            let _publication = publication.lock().unwrap();
+            *selected.lock().unwrap() = "user selection";
+        }
+        deliver_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert_eq!(*displayed.lock().unwrap(), "user selection");
+    }
+
+    #[test]
+    fn text_splits_preserve_utf8_boundaries() {
         assert_eq!(clamp_to_char_boundary("a한", 2), 1);
-        let text = join_committed_and_draft("done ", " next");
-        assert_eq!(text.committed, "done");
-        assert_eq!(text.draft, " next");
+        assert_eq!(clamp_to_char_boundary("a한", 9), 4);
     }
 }

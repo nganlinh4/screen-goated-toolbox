@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "remainingOutputCases": [
+    {"artifactBytes": 1024, "materializedBytes": null, "prepared": false, "expectedRemaining": 1024},
+    {"artifactBytes": 1024, "materializedBytes": 0, "prepared": false, "expectedRemaining": 1024},
+    {"artifactBytes": 1024, "materializedBytes": null, "prepared": true, "expectedRemaining": 0}
+  ],
+  "reconciliationCases": [
+    {"available": [false, true], "expectedCompleted": [1], "expectedRetained": [0]},
+    {"available": [true, false], "expectedCompleted": [0], "expectedRetained": [1]}
+  ],
+  "deliveryWithoutIntentCases": [
+    {"artifactBytes": 1024, "prepared": false, "managed": false, "expectedOutputReservationBytes": 1024, "expectedManagedBytes": 0},
+    {"artifactBytes": 1024, "prepared": false, "managed": true, "expectedOutputReservationBytes": 1024, "expectedManagedBytes": 1024},
+    {"artifactBytes": 1024, "prepared": true, "managed": true, "expectedOutputReservationBytes": 0, "expectedManagedBytes": 0}
+  ]
+}

@@ -17,6 +17,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
@@ -157,6 +160,46 @@ class PhoneControlDispatcherCancellationTest {
                 terminal.response.getValue("terminal_cancellation_acknowledged")
                     .jsonPrimitive.boolean,
             )
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun cancellationReceiptWaitsForAndPreservesTerminalRecoveryEvidence() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val accepted = CompletableDeferred<Unit>()
+        val platformTerminal = CompletableDeferred<Unit>()
+        val completion = CompletableDeferred<PhoneControlToolExecutionResult>()
+        val evidence = buildJsonObject {
+            put("kind", "file_transaction")
+            put("retained_backup", "/owned/recovery")
+        }
+        val boundary = PhoneControlToolDispatchBoundary { job, _, _ ->
+            val lease = requireNotNull(job.effectOwner.beginEffect())
+            lease.markAccepted()
+            accepted.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    platformTerminal.await()
+                    lease.recordTerminalEvidence(evidence)
+                    lease.close()
+                }
+            }
+        }
+        try {
+            val job = PhoneControlDispatcherToolExecutor(boundary, scope).execute(
+                request("retained-recovery"), PhoneControlToolCompletion { completion.complete(it) },
+            )
+            withTimeout(TIMEOUT_MS) { accepted.await() }
+            assertEquals(PhoneControlEffectCertainty.MAY_HAVE_OCCURRED, job.cancel())
+            assertNull(withTimeoutOrNull(SHORT_WAIT_MS) { completion.await() })
+            platformTerminal.complete(Unit)
+            val result = withTimeout(TIMEOUT_MS) { completion.await() }
+            assertEquals(PhoneControlEffectCertainty.MAY_HAVE_OCCURRED, result.certainty)
+            assertEquals(evidence, result.response.getValue("terminal_effect_evidence").jsonArray.single())
         } finally {
             scope.cancel()
         }

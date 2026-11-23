@@ -27,7 +27,6 @@ internal data class CreationNativeItem(
     val segmentationLevel: String = "detailed",
     val model: String = "simple",
     val backgroundMode: String = "opaque",
-    val prompt: String = "",
     val instruction: String = "",
     val allowsInstruction: Boolean = false,
     val submitted: Boolean = false,
@@ -47,6 +46,7 @@ internal data class CreationNativeUiState(
     val preparationStatus: String = "busy",
     val generationModes: Set<String>? = null,
     val transientError: String? = null,
+    val svgRecoveryPending: Boolean = false,
     val inputValidation: CreationInputValidation? = null,
     val validatingItemId: String? = null,
 ) {
@@ -64,8 +64,8 @@ internal fun CreationJobStatus.toNativeStage(): CreationNativeStage = when (stag
     "done" -> CreationNativeStage.DONE
     "failed" -> CreationNativeStage.FAILED
     "cancelled" -> CreationNativeStage.CANCELLED
-    "preparing", "uploading", "waiting_for_user",
-    "generating", "segmenting", "refining", "finalizing" ->
+    "queued", "preparing", "uploading", "waiting_for_user",
+    "generating", "segmenting", "refining", "finalizing", "cancelling" ->
         CreationNativeStage.RUNNING
     else -> CreationNativeStage.QUEUED
 }

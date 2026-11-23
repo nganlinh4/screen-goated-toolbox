@@ -1,19 +1,22 @@
 use std::collections::VecDeque;
 use std::sync::{
-    Arc, Mutex,
+    Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::System::Com::*;
 
-use crate::api::tts::manager::TtsManager;
+use super::device_failure::DeviceFailure;
+use super::render_state::{RenderState, playback_format, with_output_deck};
 use crate::api::tts::types::SOURCE_SAMPLE_RATE;
 use crate::api::tts::wsola::WsolaStretcher;
-
-struct AutoSpeedState {
-    speed: u32,
-}
+use auto_speed::compute_realtime_auto_speed;
+use output_device::{StreamRetry, default_render_endpoint_id, resolve_render_device};
+mod auto_speed;
+mod output_device;
+mod pcm_frames;
+mod stream_tail;
 
 struct WasapiApartment;
 
@@ -29,30 +32,40 @@ pub(crate) struct AudioPlayer {
     shared_buffer: Arc<Mutex<VecDeque<i16>>>,
     device_padding_frames: Arc<AtomicU32>,
     submitted_frames: Arc<AtomicU64>,
+    reset_generation: Arc<AtomicU64>,
+    device_failure: Arc<DeviceFailure>,
     shutdown: Arc<AtomicBool>,
+    /// Paired with `shared_buffer`; wakes the idle render thread when audio is
+    /// queued, a reset is requested or the player shuts down.
+    deck_ready: Arc<Condvar>,
     _thread: Option<std::thread::JoinHandle<()>>,
     wsola: Mutex<WsolaStretcher>,
 }
 
+/// Safety-net wake for a parked idle render thread.
+const IDLE_PARK: Duration = Duration::from_secs(5);
+const DEFAULT_DEVICE_CHECK: Duration = Duration::from_millis(750);
+
 impl AudioPlayer {
-    fn current_default_render_endpoint_id() -> Option<String> {
-        unsafe {
-            let enumerator: IMMDeviceEnumerator =
-                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-            device.GetId().ok()?.to_string().ok()
-        }
+    pub(crate) fn new(sample_rate: u32) -> Self {
+        Self::new_with_progress(sample_rate, Arc::new(AtomicU64::new(0)))
     }
 
-    pub(crate) fn new(sample_rate: u32, manager: Arc<TtsManager>) -> Self {
+    pub(super) fn new_with_progress(sample_rate: u32, played_frames: Arc<AtomicU64>) -> Self {
         let shared_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let buffer_clone = shared_buffer.clone();
         let device_padding_frames = Arc::new(AtomicU32::new(0));
         let device_padding_clone = device_padding_frames.clone();
         let submitted_frames = Arc::new(AtomicU64::new(0));
         let submitted_clone = submitted_frames.clone();
+        let reset_generation = Arc::new(AtomicU64::new(0));
+        let reset_clone = reset_generation.clone();
+        let device_failure = Arc::new(DeviceFailure::default());
+        let failure_clone = device_failure.clone();
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_clone = shutdown.clone();
+        let deck_ready = Arc::new(Condvar::new());
+        let deck_ready_clone = deck_ready.clone();
 
         let thread = std::thread::spawn(move || {
             crate::log_info!("[TTS Player] WASAPI thread starting...");
@@ -64,32 +77,48 @@ impl AudioPlayer {
 
             eprintln!("[TTS Player] COM initialized, entering audio stream loop...");
 
+            let mut retry = StreamRetry::default();
             while !shutdown_clone.load(Ordering::Relaxed) {
                 let target_device_id = Self::current_target_device_id();
 
+                let stream_started = Instant::now();
                 let stream_result = unsafe {
                     Self::run_wasapi_excluded(
                         sample_rate,
-                        buffer_clone.clone(),
-                        device_padding_clone.clone(),
-                        shutdown_clone.clone(),
                         target_device_id,
-                        manager.clone(),
-                        submitted_clone.clone(),
+                        &deck_ready_clone,
+                        RenderState {
+                            shared_buffer: buffer_clone.clone(),
+                            device_padding_frames: device_padding_clone.clone(),
+                            shutdown: shutdown_clone.clone(),
+                            reset_generation: reset_clone.clone(),
+                            submitted_frames: submitted_clone.clone(),
+                            played_frames: played_frames.clone(),
+                            device_failure: failure_clone.clone(),
+                        },
                     )
                 };
-                device_padding_clone.store(0, Ordering::Release);
+                {
+                    let _deck = buffer_clone.lock().unwrap();
+                    failure_clone
+                        .finish_stream(stream_result.is_err(), reset_clone.load(Ordering::SeqCst));
+                    device_padding_clone.store(0, Ordering::Release);
+                }
                 match stream_result {
                     Ok(()) => break,
                     Err(e) => {
                         if shutdown_clone.load(Ordering::Relaxed) {
                             break;
                         }
-                        crate::log_info!(
-                            "[TTS Player] WARNING: WASAPI stream failed: {}. Reinitializing...",
-                            e
-                        );
-                        std::thread::sleep(Duration::from_millis(750));
+                        let (delay, log) =
+                            retry.record_failure(&e.to_string(), stream_started.elapsed());
+                        if log {
+                            crate::log_info!(
+                                "[TTS Player] WARNING: WASAPI stream failed: {}. Reinitializing...",
+                                e
+                            );
+                        }
+                        std::thread::sleep(delay);
                     }
                 }
             }
@@ -100,7 +129,10 @@ impl AudioPlayer {
             shared_buffer,
             device_padding_frames,
             submitted_frames,
+            reset_generation,
+            device_failure,
             shutdown,
+            deck_ready,
             _thread: Some(thread),
             wsola: Mutex::new(WsolaStretcher::new(SOURCE_SAMPLE_RATE)),
         }
@@ -116,69 +148,48 @@ impl AudioPlayer {
     }
 
     unsafe fn run_wasapi_excluded(
-        _sample_rate: u32,
-        shared_buffer: Arc<Mutex<VecDeque<i16>>>,
-        device_padding_frames: Arc<AtomicU32>,
-        shutdown: Arc<AtomicBool>,
+        sample_rate: u32,
         target_device_id: Option<String>,
-        manager: Arc<TtsManager>,
-        submitted_frames: Arc<AtomicU64>,
+        deck_ready: &Condvar,
+        state: RenderState,
     ) -> anyhow::Result<()> {
+        let RenderState {
+            shared_buffer,
+            device_padding_frames,
+            shutdown,
+            reset_generation,
+            submitted_frames,
+            played_frames,
+            device_failure,
+        } = state;
         unsafe {
             eprintln!("[TTS WASAPI] Initializing audio output...");
 
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-            let device = if let Some(ref id_str) = target_device_id {
-                eprintln!("[TTS WASAPI] Using specified device: {}", id_str);
-                let id_hstring = windows::core::HSTRING::from(id_str.clone());
-                match enumerator.GetDevice(&id_hstring) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        eprintln!("[TTS WASAPI] ERROR: Specified device not found: {:?}", e);
-                        return Err(anyhow::anyhow!(
-                            "Configured TTS output device is unavailable; waiting for it to return"
-                        ));
-                    }
-                }
-            } else {
-                eprintln!("[TTS WASAPI] Using default audio device");
-                enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
-            };
+            let (device, follows_default_device) =
+                resolve_render_device(&enumerator, target_device_id.as_deref())?;
 
-            let active_device_id = device.GetId()?.to_string().ok();
+            let active_device_id = crate::api::audio::endpoint_id::read(&device)?;
             crate::log_info!(
                 "[TTS WASAPI] selected_endpoint={:?} follows_default={}",
                 active_device_id,
-                target_device_id.is_none()
+                follows_default_device
             );
-            let follows_default_device = target_device_id.is_none();
 
             let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
-            let mix_format_ptr = client.GetMixFormat()?;
-            let mix_format = *mix_format_ptr;
-
-            let channels = mix_format.nChannels;
-            let sample_rate = mix_format.nSamplesPerSec;
-            let bits = mix_format.wBitsPerSample;
-            crate::log_info!(
-                "[TTS WASAPI] Device format: {} channels, {} Hz, {} bits",
-                channels,
-                sample_rate,
-                bits
-            );
-
-            let initialize_result = client.Initialize(
+            // The queue contains mono PCM at `sample_rate`; let the shared-mode
+            // audio engine convert it to the endpoint's actual mix format.
+            let stream_format = playback_format(sample_rate);
+            client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
-                0,
+                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
                 1000000,
                 0,
-                mix_format_ptr,
+                &stream_format,
                 None,
-            );
-            CoTaskMemFree(Some(mix_format_ptr.cast()));
-            initialize_result?;
+            )?;
 
             let buffer_size = client.GetBufferSize()?;
             let render_client: IAudioRenderClient = client.GetService()?;
@@ -190,47 +201,70 @@ impl AudioPlayer {
                 buffer_size
             );
 
-            let channels = mix_format.nChannels as usize;
-            let is_float = mix_format.wFormatTag == 3
-                || (mix_format.wFormatTag == 65534 && (mix_format.cbSize >= 22));
-
-            let mut last_clear_gen = manager.buffer_clear_generation.load(Ordering::SeqCst);
-            let mut last_default_device_check = Instant::now();
+            let mut last_clear_gen = reset_generation.load(Ordering::SeqCst);
+            device_failure.reset_applied(last_clear_gen);
+            let mut next_default_device_check = Instant::now() + DEFAULT_DEVICE_CHECK;
+            let mut last_padding = 0u32;
 
             while !shutdown.load(Ordering::Relaxed) {
-                let current_clear_gen = manager.buffer_clear_generation.load(Ordering::SeqCst);
-                if current_clear_gen > last_clear_gen {
-                    if let Ok(mut deck) = shared_buffer.lock() {
-                        deck.clear();
+                let padding = with_output_deck(&shared_buffer, || -> anyhow::Result<u32> {
+                    // Reset and account for consumed frames under the same lock
+                    // that establishes the next request's baseline.
+                    let current_clear_gen = reset_generation.load(Ordering::SeqCst);
+                    synchronize_reset(&mut last_clear_gen, current_clear_gen, || {
+                        if client_started {
+                            client.Stop()?;
+                            client_started = false;
+                        }
+                        client.Reset()?;
+                        device_padding_frames.store(0, Ordering::Release);
+                        last_padding = 0;
+                        device_failure.reset_applied(current_clear_gen);
+                        Ok(())
+                    })?;
+                    if follows_default_device && Instant::now() >= next_default_device_check {
+                        let current_default_id = default_render_endpoint_id(&enumerator);
+                        if current_default_id.is_some() && current_default_id != active_device_id {
+                            return Err(anyhow::anyhow!(
+                                "Windows default audio output changed; rebuilding TTS output"
+                            ));
+                        }
+                        next_default_device_check = Instant::now() + DEFAULT_DEVICE_CHECK;
                     }
-                    last_clear_gen = current_clear_gen;
-                }
-                if follows_default_device
-                    && last_default_device_check.elapsed() >= Duration::from_millis(750)
-                {
-                    let current_default_id = Self::current_default_render_endpoint_id();
-                    if current_default_id.is_some() && current_default_id != active_device_id {
-                        return Err(anyhow::anyhow!(
-                            "Windows default audio output changed; rebuilding TTS output"
-                        ));
-                    }
-                    last_default_device_check = Instant::now();
-                }
-                let padding = client.GetCurrentPadding()?;
-                device_padding_frames.store(padding, Ordering::Release);
+                    let padding = client.GetCurrentPadding()?;
+                    played_frames.fetch_add(
+                        last_padding.saturating_sub(padding) as u64,
+                        Ordering::Release,
+                    );
+                    last_padding = padding;
+                    device_failure.set_padding(padding);
+                    device_padding_frames.store(padding, Ordering::Release);
+                    Ok(padding)
+                })?;
                 let available = buffer_size.saturating_sub(padding);
 
                 if available > 0 {
-                    let has_audio = shared_buffer
-                        .lock()
-                        .map(|deck| !deck.is_empty())
-                        .unwrap_or(false);
-                    if !has_audio {
+                    let mut deck = shared_buffer.lock().unwrap();
+                    if reset_generation.load(Ordering::SeqCst) != last_clear_gen {
+                        continue;
+                    }
+                    if deck.is_empty() {
                         if client_started && padding == 0 {
                             client.Stop()?;
                             client_started = false;
                         }
-                        std::thread::sleep(Duration::from_millis(20));
+                        if client_started {
+                            drop(deck);
+                            std::thread::sleep(Duration::from_millis(20));
+                            continue;
+                        }
+                        // Fully idle: park until audio, a reset or shutdown
+                        // arrives, then re-check the default endpoint first.
+                        drop(park_until_work(deck_ready, deck, || {
+                            shutdown.load(Ordering::Relaxed)
+                                || reset_generation.load(Ordering::SeqCst) != last_clear_gen
+                        }));
+                        next_default_device_check = Instant::now();
                         continue;
                     }
                     if !client_started {
@@ -247,46 +281,18 @@ impl AudioPlayer {
                     device_padding_frames
                         .store(padding.saturating_add(available), Ordering::Release);
                     let buffer_ptr = render_client.GetBuffer(available)?;
-                    let mut deck = shared_buffer.lock().unwrap();
 
-                    if is_float {
-                        let out_slice = std::slice::from_raw_parts_mut(
-                            buffer_ptr as *mut f32,
-                            (available as usize) * channels,
-                        );
-
-                        for i in 0..available as usize {
-                            if let Some(sample) = deck.pop_front() {
-                                let s = (sample as f32) / 32768.0;
-                                for c in 0..channels {
-                                    out_slice[i * channels + c] = s;
-                                }
-                            } else {
-                                for c in 0..channels {
-                                    out_slice[i * channels + c] = 0.0;
-                                }
-                            }
-                        }
-                    } else {
-                        let out_slice = std::slice::from_raw_parts_mut(
-                            buffer_ptr as *mut i16,
-                            (available as usize) * channels,
-                        );
-                        for i in 0..available as usize {
-                            if let Some(sample) = deck.pop_front() {
-                                for c in 0..channels {
-                                    out_slice[i * channels + c] = sample;
-                                }
-                            } else {
-                                for c in 0..channels {
-                                    out_slice[i * channels + c] = 0;
-                                }
-                            }
-                        }
+                    let out_slice =
+                        std::slice::from_raw_parts_mut(buffer_ptr as *mut i16, available as usize);
+                    device_failure.begin_submission(deck.len().min(available as usize) as u32);
+                    for sample in out_slice {
+                        *sample = deck.pop_front().unwrap_or(0);
                     }
 
                     render_client.ReleaseBuffer(available, 0)?;
+                    device_failure.finish_submission(padding.saturating_add(available));
                     submitted_frames.fetch_add(available as u64, Ordering::Relaxed);
+                    last_padding = padding.saturating_add(available);
                 }
 
                 std::thread::sleep(Duration::from_millis(10));
@@ -329,28 +335,17 @@ impl AudioPlayer {
 
         let speed_ratio = effective_speed as f64 / 100.0;
 
-        let input_samples: Vec<i16> = audio_data
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-            .collect();
+        let input_samples: Vec<i16> = pcm_frames::decode_pcm16_le(audio_data).collect();
 
         if input_samples.is_empty() {
             return;
         }
 
-        let stretched_samples = if (speed_ratio - 1.0).abs() < 0.05 {
-            input_samples
-        } else if let Ok(mut wsola) = self.wsola.lock() {
-            let result = wsola.stretch(&input_samples, speed_ratio);
-            if result.is_empty() {
-                return;
-            }
-            result
-        } else {
-            input_samples
-        };
+        let mut wsola = self.wsola.lock().unwrap_or_else(|error| error.into_inner());
+        let stretched_samples = wsola.stretch(&input_samples, speed_ratio);
+        if stretched_samples.is_empty() {
+            return;
+        }
 
         let vol = if is_realtime {
             crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME.load(Ordering::Relaxed)
@@ -360,16 +355,14 @@ impl AudioPlayer {
             1.0
         };
 
-        let output_samples: Vec<i16> = stretched_samples
-            .iter()
-            .flat_map(|&s| {
-                let scaled = (s as f32 * vol).clamp(-32768.0, 32767.0) as i16;
-                [scaled, scaled]
-            })
-            .collect();
+        self.enqueue(pcm_frames::scaled_stereo_frames(stretched_samples, vol));
+    }
 
+    /// Appends samples to the deck and wakes a parked render thread.
+    fn enqueue(&self, samples: Vec<i16>) {
         if let Ok(mut buf) = self.shared_buffer.lock() {
-            buf.extend(output_samples);
+            buf.extend(samples);
+            self.deck_ready.notify_all();
         }
     }
 
@@ -377,45 +370,54 @@ impl AudioPlayer {
         let vol = crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
             .load(Ordering::Relaxed) as f32
             / 100.0;
-        let output_samples = audio_data
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .flat_map(|chunk| {
-                let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
-                let scaled = (sample as f32 * vol).clamp(-32768.0, 32767.0) as i16;
-                [scaled, scaled]
-            })
-            .collect::<Vec<_>>();
+        let output_samples =
+            pcm_frames::scaled_stereo_frames(pcm_frames::decode_pcm16_le(audio_data), vol);
 
         if output_samples.is_empty() {
             return;
         }
-        if let Ok(mut buf) = self.shared_buffer.lock() {
-            buf.extend(output_samples);
-        }
+        self.enqueue(output_samples);
     }
 
-    pub(super) fn drain(&self) {
-        let start = Instant::now();
+    pub(super) fn drain(&self, cancelled: impl Fn() -> bool) -> bool {
+        let mut last_progress = Instant::now();
+        let mut last_submitted = self.submitted_frames();
+        let mut last_padding = self.device_padding_frames.load(Ordering::Acquire);
         loop {
+            if cancelled() {
+                self.stop();
+                return false;
+            }
             let len = self.shared_buffer.lock().map(|b| b.len()).unwrap_or(0);
-            if len == 0 {
+            let padding = self.device_padding_frames.load(Ordering::Acquire);
+            if cancelled() {
+                self.stop();
+                return false;
+            }
+            if !playback_work_present(len != 0, padding) {
                 break;
             }
-            if start.elapsed() > Duration::from_secs(30) {
+            let submitted = self.submitted_frames();
+            if padding != last_padding {
+                last_padding = padding;
+                last_progress = Instant::now();
+            }
+            if playback_stalled(
+                &mut last_submitted,
+                &mut last_progress,
+                submitted,
+                Instant::now(),
+            ) {
                 eprintln!(
-                    "[TTS Player] WARNING: drain() timed out after 30s, {} samples remaining",
+                    "[TTS Player] WARNING: playback stalled for 30s, {} samples remaining",
                     len
                 );
-                if let Ok(mut buf) = self.shared_buffer.lock() {
-                    buf.clear();
-                }
-                break;
+                self.stop();
+                return false;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(10));
         }
-        std::thread::sleep(Duration::from_millis(100));
+        true
     }
 
     pub(crate) fn has_pending_playback(&self) -> bool {
@@ -431,85 +433,77 @@ impl AudioPlayer {
         self.submitted_frames.load(Ordering::Relaxed)
     }
 
+    pub(super) fn failure_generation(&self) -> u64 {
+        self.device_failure.generation()
+    }
+
+    pub(super) fn begin_request(
+        &self,
+        progress: Option<&crate::api::tts::manager::PlaybackProgress>,
+    ) -> u64 {
+        with_output_deck(&self.shared_buffer, || {
+            if let Some(progress) = progress {
+                progress.start();
+            }
+            self.failure_generation()
+        })
+    }
+
     pub(crate) fn stop(&self) {
+        let mut wsola = self.wsola.lock().unwrap_or_else(|error| error.into_inner());
+        wsola.reset();
         if let Ok(mut buf) = self.shared_buffer.lock() {
             buf.clear();
+            self.reset_generation.fetch_add(1, Ordering::SeqCst);
+            self.deck_ready.notify_all();
         }
     }
+}
+
+/// Blocks an idle render thread on the deck until audio is queued or `wake`
+/// reports a reset/shutdown, bounded by [`IDLE_PARK`].
+fn park_until_work<'a>(
+    deck_ready: &Condvar,
+    deck: std::sync::MutexGuard<'a, VecDeque<i16>>,
+    wake: impl Fn() -> bool,
+) -> std::sync::MutexGuard<'a, VecDeque<i16>> {
+    deck_ready
+        .wait_timeout_while(deck, IDLE_PARK, |deck| deck.is_empty() && !wake())
+        .map(|(deck, _)| deck)
+        .unwrap_or_else(|error| error.into_inner().0)
+}
+
+fn synchronize_reset(
+    applied: &mut u64,
+    requested: u64,
+    reset: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    if requested != *applied {
+        reset()?;
+        *applied = requested;
+    }
+    Ok(())
+}
+
+fn playback_stalled(
+    last_submitted: &mut u64,
+    last_progress: &mut Instant,
+    submitted: u64,
+    now: Instant,
+) -> bool {
+    if submitted != *last_submitted {
+        *last_submitted = submitted;
+        *last_progress = now;
+    }
+    now.duration_since(*last_progress) > Duration::from_secs(30)
 }
 
 impl Drop for AudioPlayer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
+        let _deck = self.shared_buffer.lock();
+        self.deck_ready.notify_all();
     }
-}
-
-fn compute_realtime_auto_speed() -> AutoSpeedState {
-    use crate::overlay::realtime_webview::state::{
-        COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED, REALTIME_S2S_AUDIO_BACKLOG,
-        REALTIME_S2S_AUDIO_BACKLOG_MS, REALTIME_S2S_AUDIO_DELAY_MS, REALTIME_S2S_READY_BACKLOG_MS,
-        REALTIME_TTS_AUTO_SPEED, REALTIME_TTS_SPEED,
-    };
-
-    let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
-    let auto_enabled = REALTIME_TTS_AUTO_SPEED.load(Ordering::Relaxed);
-    let text_queue_len = COMMITTED_TRANSLATION_QUEUE
-        .lock()
-        .map(|q| q.len())
-        .unwrap_or(0);
-    let s2s_segment_backlog = REALTIME_S2S_AUDIO_BACKLOG.load(Ordering::Relaxed);
-    let s2s_delay_ms = REALTIME_S2S_AUDIO_DELAY_MS.load(Ordering::Relaxed);
-    let s2s_backlog_ms = REALTIME_S2S_AUDIO_BACKLOG_MS.load(Ordering::Relaxed);
-    let s2s_ready_backlog_ms = REALTIME_S2S_READY_BACKLOG_MS.load(Ordering::Relaxed);
-    let text_queue_delay_ms = (text_queue_len as u32).saturating_mul(1_200);
-    let s2s_ready_delay_ms = s2s_ready_backlog_ms.saturating_add(s2s_delay_ms);
-    let s2s_waiting_delay_ms = s2s_backlog_ms.saturating_sub(5_000);
-    let effective_delay_ms = text_queue_delay_ms
-        .max(s2s_ready_delay_ms)
-        .max(s2s_waiting_delay_ms);
-
-    let target_speed = if auto_enabled {
-        let boost = match effective_delay_ms {
-            0..=1_800 => 0,
-            1_801..=2_600 => 10,
-            2_601..=3_600 => 25,
-            3_601..=5_000 => 40,
-            5_001..=7_000 => 55,
-            _ => 75,
-        };
-        let cap = if text_queue_len > 0 || s2s_ready_backlog_ms > 0 {
-            200
-        } else if s2s_segment_backlog > 1 {
-            base_speed.saturating_add(35).min(170)
-        } else {
-            base_speed.saturating_add(15).min(150)
-        };
-        (base_speed + boost).min(cap)
-    } else {
-        base_speed
-    };
-
-    let current_speed = CURRENT_TTS_SPEED.load(Ordering::Relaxed);
-    let current_speed = if current_speed < base_speed && target_speed >= base_speed {
-        base_speed
-    } else {
-        current_speed
-    };
-    let speed = if target_speed > current_speed {
-        (current_speed + 15).min(target_speed)
-    } else if target_speed < current_speed {
-        let step_down = if s2s_segment_backlog > 0 || text_queue_len > 0 {
-            2
-        } else {
-            5
-        };
-        current_speed.saturating_sub(step_down).max(target_speed)
-    } else {
-        current_speed
-    }
-    .clamp(50, 200);
-
-    AutoSpeedState { speed }
 }
 
 fn playback_work_present(queued: bool, device_padding_frames: u32) -> bool {
@@ -517,48 +511,5 @@ fn playback_work_present(queued: bool, device_padding_frames: u32) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::playback_work_present;
-
-    #[test]
-    fn device_padding_remains_pending_work_after_shared_queue_handoff() {
-        assert!(playback_work_present(true, 0));
-        assert!(playback_work_present(false, 480));
-        assert!(!playback_work_present(false, 0));
-    }
-
-    #[test]
-    #[ignore = "plays a short quiet generated tone on the configured Windows output"]
-    fn native_playback_device_acceptance() {
-        let player = super::AudioPlayer::new(
-            crate::api::tts::types::PLAYBACK_SAMPLE_RATE,
-            crate::api::tts::TTS_MANAGER.clone(),
-        );
-        let sample_rate = crate::api::tts::types::SOURCE_SAMPLE_RATE;
-        let count = sample_rate as usize * 3 / 4;
-        let pcm = (0..count)
-            .flat_map(|index| {
-                let envelope = (index.min(count - index) as f32 / 240.0).min(1.0);
-                let phase = index as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32;
-                ((phase.sin() * 1600.0 * envelope) as i16).to_le_bytes()
-            })
-            .collect::<Vec<_>>();
-        player.play_native_stream(&pcm);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while player.has_pending_playback() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        let drained = !player.has_pending_playback();
-        let submitted = player.submitted_frames();
-        player.stop();
-        eprintln!("[PlaybackAcceptance] submitted_frames={submitted} drained={drained}");
-        assert!(
-            submitted > 0,
-            "Windows did not accept generated audio frames"
-        );
-        assert!(
-            drained,
-            "generated audio did not drain from queue and device"
-        );
-    }
-}
+#[path = "audio_player_tests.rs"]
+mod tests;

@@ -14,9 +14,9 @@ class RealtimeTranslationClientParityTest {
         val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
 
         assertTrue(clientSource.contains("preflightSkipReason("))
-        assertTrue(clientSource.contains("claimPresetModelAttempt(descriptor.id)"))
-        assertTrue(clientSource.contains("recordPresetModelFailure(descriptor.id, message)"))
-        assertTrue(clientSource.contains("recordPresetModelSuccess(descriptor.id)"))
+        assertTrue(clientSource.contains("claimPresetModelAttempt(modelAttempt)"))
+        assertTrue(clientSource.contains("recordPresetModelFailure(modelAttempt, message)"))
+        assertTrue(clientSource.contains("recordPresetModelSuccess(modelAttempt)"))
         assertTrue(clientSource.contains("catch (cancelled: CancellationException)"))
         assertTrue(clientSource.contains("newPresetCall(httpRequest, descriptor, streamingEnabled = false)"))
         assertTrue(runtimeSource.contains("runtimeSettings = repository.currentPresetRuntimeSettings()"))
@@ -132,19 +132,11 @@ class RealtimeTranslationClientParityTest {
     }
 
     @Test
-    fun `fallback switch is persisted only after accepted fallback response`() {
+    fun `fallback never persists a provider switch`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
-
-        val rejectedPrimaryIndex = runtimeSource.indexOf("if (!applied && usedProvider == requestedProvider)")
-        val fallbackApplyIndex = runtimeSource.indexOf("applied = repository.applyTranslationResponse(", rejectedPrimaryIndex + 1)
-        val rejectedFallbackIndex = runtimeSource.indexOf("if (!applied)", fallbackApplyIndex)
-        val persistSwitchIndex = runtimeSource.indexOf("repository.updateTranslationModel(usedProvider)")
-
-        assertTrue(rejectedPrimaryIndex >= 0)
-        assertTrue(fallbackApplyIndex > rejectedPrimaryIndex)
-        assertTrue(rejectedFallbackIndex > fallbackApplyIndex)
-        assertTrue(persistSwitchIndex > rejectedFallbackIndex)
-        assertTrue(runtimeSource.contains("repository.translationModelId() == requestedProvider"))
+        val repositorySource = loadSourceFile(REPOSITORY_SOURCE_PATH).readText()
+        assertTrue(!runtimeSource.contains("updateTranslationModelIfCurrent"))
+        assertTrue(!repositorySource.contains("updateTranslationModelIfCurrent"))
     }
 
     @Test
@@ -159,7 +151,6 @@ class RealtimeTranslationClientParityTest {
         assertTrue(webViewSource.contains("put(\"s2sTargetLanguageTitle\", overlay.s2sTargetLanguageTitle)"))
         assertTrue(webViewSource.contains("put(\"directSpeechTitle\", overlay.directSpeechTitle)"))
         assertTrue(webViewSource.contains("put(\"ttsS2sLockedTitle\", overlay.ttsS2sLockedTitle)"))
-        assertTrue(webViewSource.contains("put(\"unavailableSuffix\", overlay.unavailableSuffix)"))
         assertTrue(builderSource.contains("private val baseHtml by lazy { asset(\"base.html\") }"))
         assertTrue(builderSource.contains("val locale = MobileLocaleText.forLanguage(DEFAULT_TEMPLATE_LANGUAGE)"))
         assertTrue(!builderSource.contains("val uiLanguage: String"))
@@ -172,27 +163,25 @@ class RealtimeTranslationClientParityTest {
         assertTrue(htmlTemplateSource.contains("id=\"tts-modal-title-text\""))
         assertTrue(htmlTemplateSource.contains("id=\"tts-speed-label\""))
         assertTrue(htmlTemplateSource.contains("id=\"tts-volume-label\""))
-        assertTrue(htmlTemplateSource.contains("id=\"download-cancel-text\""))
+        assertTrue(!htmlTemplateSource.contains("download-modal"))
         assertTrue(overlaySource.contains("overlayLocale.s2sTranslationModelTitle"))
         assertTrue(overlaySource.contains("overlayLocale.s2sTargetLanguageTitle"))
         assertTrue(overlaySource.contains("overlayLocale.directSpeechTitle"))
         assertTrue(overlaySource.contains("overlayLocale.ttsS2sLockedTitle"))
-        assertTrue(overlaySource.contains("overlayLocale.unavailableSuffix"))
         assertTrue(overlaySource.contains("applyS2sMode(s2sMode);"))
     }
 
     @Test
-    fun `android parakeet remains visibly unavailable and cannot run as fake active transcription`() {
+    fun `selectors Android cannot run stay visibly unavailable and never start a session`() {
         val runtimeSource = loadSourceFile(RUNTIME_SOURCE_PATH).readText()
-        val overlaySource = loadOverlayJsSource()
+        val webViewSource = loadSourceFile(OVERLAY_WEBVIEW_SOURCE_PATH).readText()
         val modelOptionsSource = loadSourceFile(OVERLAY_MODEL_OPTIONS_SOURCE_PATH).readText()
 
-        assertTrue(modelOptionsSource.contains("RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
-        assertTrue(modelOptionsSource.contains("parakeetLabel(unavailableSuffix)"))
-        assertTrue(overlaySource.contains("modelName === 'parakeet'"))
-        assertTrue(overlaySource.contains("labels[modelName] + ' (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')'"))
-        assertTrue(runtimeSource.contains("config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET"))
-        assertTrue(runtimeSource.contains("Parakeet is visible for Windows parity but is not available on Android yet."))
+        assertTrue(modelOptionsSource.contains("RealtimeModelIds.isUnavailableOnAndroid(option.id)"))
+        assertTrue(modelOptionsSource.contains("label = \"\${option.label} (\$unavailableSuffix)\""))
+        assertTrue(webViewSource.contains("RealtimeOverlayModelOptions.transcriptionOptions(overlay.unavailableSuffix)"))
+        assertTrue(runtimeSource.contains("RealtimeModelIds.isUnavailableOnAndroid(modelId)"))
+        assertTrue(runtimeSource.contains("This transcription model is not available on Android."))
     }
 
     @Test

@@ -85,6 +85,7 @@ where
                     &failed,
                     &blocked_providers,
                     RetryChainKind::TextToText,
+                    false,
                     &config,
                 )
             })
@@ -177,6 +178,7 @@ where
                     &excluded,
                     &blocked_providers,
                     RetryChainKind::TextToText,
+                    false,
                     &config,
                 )
                 .is_some()
@@ -199,6 +201,8 @@ where
                     )),
                     max_output_tokens: Some(prepared.max_output_tokens),
                     search_enabled: false,
+                    search_capability: None,
+                    search_tool_enabled_by_default: None,
                     search_label: None,
                     ui_language: &config.ui_language,
                     cancel_token: Some(attempt_cancel),
@@ -364,6 +368,7 @@ where
             &failed,
             &blocked_providers,
             RetryChainKind::TextToText,
+            false,
             &config,
         ) else {
             return Ok(finish_confirmation(
@@ -415,12 +420,15 @@ fn completed_document(
     {
         return None;
     }
-    Some(assembled_document(accepted))
+    Some(assembled_document(accepted, candidates))
 }
 
-fn assembled_document(accepted: &[TranslationRegion]) -> TranslationDocument {
+fn assembled_document(
+    accepted: &[TranslationRegion],
+    candidates: &[DetectedTextRegion],
+) -> TranslationDocument {
     let mut regions = accepted.to_vec();
-    regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
+    super::contract::sort_regions(&mut regions, candidates);
     TranslationDocument { regions }
 }
 
@@ -430,7 +438,7 @@ fn unresolved_outcome(
     covered: &HashSet<u16>,
 ) -> TranslationOutcome {
     TranslationOutcome {
-        document: assembled_document(accepted),
+        document: assembled_document(accepted, candidates),
         unresolved: pending_candidates(candidates, covered)
             .iter()
             .map(|candidate| candidate.id)

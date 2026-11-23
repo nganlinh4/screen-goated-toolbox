@@ -20,6 +20,22 @@ internal data class ImportableOpenRouterModel(
     val type: PresetModelType,
 )
 
+/** Rows rendered at once; the search always runs over the whole scanned list. */
+internal const val OPENROUTER_IMPORT_RENDER_LIMIT = 30
+
+/** Matches Windows openrouter_import.rs: case-insensitive substring of name or id. */
+internal fun filterOpenRouterImports(
+    models: List<ImportableOpenRouterModel>,
+    query: String,
+    limit: Int = OPENROUTER_IMPORT_RENDER_LIMIT,
+): List<ImportableOpenRouterModel> {
+    val needle = query.lowercase()
+    return models.asSequence()
+        .filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.id.lowercase().contains(needle) }
+        .take(limit)
+        .toList()
+}
+
 internal val CUSTOM_MODELS_EDITABLE_PROVIDERS = listOf(
     PresetModelProvider.GOOGLE,
     PresetModelProvider.GROQ,
@@ -33,19 +49,19 @@ internal suspend fun fetchOpenRouterModels(apiKey: String): List<ImportableOpenR
         if (apiKey.isNotBlank()) {
             builder.header("Authorization", "Bearer ${apiKey.trim()}")
         }
-        OkHttpClient().newCall(builder.build()).execute().use { response ->
+        readScanResponse(OkHttpClient().newCall(builder.build())) { response ->
             if (!response.isSuccessful) {
                 error("OpenRouter scan failed: HTTP ${response.code}")
             }
-            val data = JSONObject(response.body.string().orEmpty()).optJSONArray("data")
-                ?: return@withContext emptyList()
+            val data = JSONObject(readBoundedScanText(response.body)).optJSONArray("data")
+                ?: return@readScanResponse emptyList()
             List(data.length()) { index ->
                 val item = data.getJSONObject(index)
                 val id = item.getString("id")
                 ImportableOpenRouterModel(
                     id = id,
                     name = item.optString("name", id),
-                    type = inferModelType(item, id),
+                    type = inferOpenRouterModelType(item),
                 )
             }
         }
@@ -56,12 +72,12 @@ internal suspend fun fetchOllamaModels(baseUrl: String): List<CustomPresetModelD
         val normalized = baseUrl.trim().trimEnd('/')
         require(normalized.isNotBlank()) { "Set the Ollama URL in API Keys first." }
         val request = Request.Builder().url("$normalized/api/tags").build()
-        OkHttpClient().newCall(request).execute().use { response ->
+        readScanResponse(OkHttpClient().newCall(request)) { response ->
             if (!response.isSuccessful) {
                 error("Ollama scan failed: HTTP ${response.code}")
             }
-            val models = JSONObject(response.body.string().orEmpty()).optJSONArray("models")
-                ?: return@withContext emptyList()
+            val models = JSONObject(readBoundedScanText(response.body)).optJSONArray("models")
+                ?: return@readScanResponse emptyList()
             List(models.length()) { index ->
                 val name = models.getJSONObject(index).getString("name")
                 newCustomModel(PresetModelProvider.OLLAMA, emptyList(), name)
@@ -69,15 +85,9 @@ internal suspend fun fetchOllamaModels(baseUrl: String): List<CustomPresetModelD
         }
     }
 
-private fun inferModelType(item: JSONObject, id: String): PresetModelType {
-    val text = "$item $id".lowercase()
-    return if (
-        text.contains("\"image\"") ||
-        text.contains("vision") ||
-        text.contains("-vl") ||
-        text.contains("/vl") ||
-        text.contains("llava")
-    ) {
+internal fun inferOpenRouterModelType(item: JSONObject): PresetModelType {
+    val input = item.optJSONObject("architecture")?.optJSONArray("input_modalities")
+    return if (input != null && (0 until input.length()).any { input.opt(it) == "image" }) {
         PresetModelType.VISION
     } else {
         PresetModelType.TEXT
@@ -97,6 +107,21 @@ internal fun importedOpenRouterModel(
     quotaVi = "Theo OpenRouter",
     quotaKo = "OpenRouter 기준",
 )
+
+internal fun planOllamaScan(
+    scanned: List<CustomPresetModelDefinition>,
+    existing: List<CustomPresetModelDefinition>,
+): List<CustomPresetModelDefinition> {
+    val combined = existing.toMutableList()
+    val additions = mutableListOf<CustomPresetModelDefinition>()
+    for (candidate in scanned) {
+        if (combined.any { it.provider == PresetModelProvider.OLLAMA && it.fullName == candidate.fullName }) continue
+        val added = candidate.copy(id = uniqueCustomId("ollama", candidate.fullName, combined))
+        combined.add(added)
+        additions.add(added)
+    }
+    return additions
+}
 
 internal fun newCustomModel(
     provider: PresetModelProvider,

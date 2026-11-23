@@ -5,3 +5,4 @@ local.properties
 .adb-phone.json
 release.keystore
 .idea/
+.sgtp.json

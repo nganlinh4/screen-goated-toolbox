@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "cases": [
+    {"event": "stop_during_startup", "old_input_allowed": false, "active_after_retirement": false},
+    {"event": "startup_failure", "old_input_allowed": false, "active_after_retirement": false},
+    {"event": "replacement_during_retirement", "overlap_allowed": false, "replacement_after_retirement": true},
+    {"event": "stale_retirement", "replacement_remains_active": true},
+    {"event": "stop_active_drag", "first_stop": "cancel_drag", "second_stop": "retire_after_release"}
+  ]
+}

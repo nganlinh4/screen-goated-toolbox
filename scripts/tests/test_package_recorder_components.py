@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,25 @@ SPEC.loader.exec_module(MODULE)
 
 
 class RecorderPackageContractTests(unittest.TestCase):
+    def test_missing_standard_text_requires_an_explicit_complete_corpus(self) -> None:
+        packages = [{"name": "fixture", "version": "1", "licenseExpression": "MPL-2.0", "files": []}]
+        with self.assertRaisesRegex(RuntimeError, "complete MPL-2.0 text is missing"):
+            MODULE.complete_license_inventory("fixture", packages)
+        with tempfile.TemporaryDirectory() as raw_temp:
+            license_path = Path(raw_temp) / "MPL-2.0.txt"
+            license_path.write_bytes(b"Mozilla Public License Version 2.0\n")
+            text = MODULE.license_record(license_path)
+        result = MODULE.complete_license_inventory("fixture", packages, {"MPL-2.0": text})
+        self.assertEqual(result["standardLicenseTexts"]["MPL-2.0"], text)
+        self.assertEqual(result["packages"][0]["licenseTextIds"], ["MPL-2.0"])
+
+    def test_supplemental_text_cannot_substitute_an_unrelated_license(self) -> None:
+        packages = [{"name": "fixture", "version": "1", "licenseExpression": "MPL-2.0", "files": []}]
+        with self.assertRaisesRegex(RuntimeError, "invalid identity"):
+            MODULE.complete_license_inventory("fixture", packages, {
+                "MPL-2.0": {"base64": base64.b64encode(b"unrelated text").decode("ascii")},
+            })
+
     def test_package_is_deterministic_and_content_addressed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temp:
             temp = Path(raw_temp)

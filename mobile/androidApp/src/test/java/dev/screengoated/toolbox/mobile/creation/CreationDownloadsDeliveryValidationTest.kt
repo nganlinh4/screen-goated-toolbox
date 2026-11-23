@@ -59,7 +59,6 @@ class CreationDownloadsDeliveryValidationTest {
             tool = CreationTool.IMAGE_TO_SVG.wireName,
             operation = "generate",
             imagePath = "creation/job-inputs/source.png",
-            imagePaths = listOf("creation/job-inputs/source.png"),
             outputPath = output,
             outputName = "result.svg",
         )

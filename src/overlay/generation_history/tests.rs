@@ -1,7 +1,14 @@
 use super::*;
 
 mod artifact_refresh;
+mod cleanup_recovery;
+mod companion_migration;
+mod error_codes;
+#[cfg(windows)]
+mod nonblocking;
 mod persistence;
+mod rename_recovery;
+mod retention_pairs;
 
 const TEST_FILE_IDENTITY: &str = "00000000:0000000000000001";
 
@@ -16,6 +23,7 @@ fn entry(id: usize, tool: &str, size: u64, managed: bool) -> ResultHistoryEntry 
         artifact_size_bytes: size,
         artifact_sha256: "digest".to_string(),
         managed_artifact: managed,
+        companion_origin_path: None,
         metadata: Value::Null,
     }
 }
@@ -63,6 +71,7 @@ fn delete_all_removes_only_the_requested_tools_results() {
     for (tool, name) in [("3d", "one.glb"), ("3d", "two.glb"), ("svg", "keep.svg")] {
         let output = root.join(name);
         std::fs::write(&output, b"result").unwrap();
+        let artifact = inspect_delivery_artifact(output.to_str().unwrap()).unwrap();
         record_at(
             &store_path,
             tool,
@@ -70,7 +79,13 @@ fn delete_all_removes_only_the_requested_tools_results() {
             output.to_str().unwrap(),
             Value::Null,
             DEFAULT_RESULTS_PER_TOOL,
-            (None, None),
+            (
+                Some((artifact.size_bytes, artifact.sha256, artifact.managed)),
+                Some(DeliveryIdentity {
+                    dispatch_id: name,
+                    artifact_file_identity: &artifact.file_identity,
+                }),
+            ),
         )
         .unwrap();
     }
@@ -466,6 +481,7 @@ fn filters_missing_results_and_renames_and_deletes_real_files() {
     let store_path = root.join("history.json");
     let output = root.join("model.glb");
     std::fs::write(&output, b"glTF").unwrap();
+    let artifact = inspect_delivery_artifact(output.to_str().unwrap()).unwrap();
 
     let entry = record_at(
         &store_path,
@@ -474,11 +490,21 @@ fn filters_missing_results_and_renames_and_deletes_real_files() {
         output.to_str().unwrap(),
         serde_json::json!({ "isSegmented": true }),
         DEFAULT_RESULTS_PER_TOOL,
-        (None, None),
+        (
+            Some((
+                artifact.size_bytes,
+                artifact.sha256.clone(),
+                artifact.managed,
+            )),
+            Some(DeliveryIdentity {
+                dispatch_id: "model",
+                artifact_file_identity: &artifact.file_identity,
+            }),
+        ),
     )
     .unwrap();
     assert_eq!(entry.artifact_size_bytes, 4);
-    assert!(entry.artifact_sha256.is_empty());
+    assert_eq!(entry.artifact_sha256, artifact.sha256);
     assert!(!entry.managed_artifact);
     assert_eq!(list_snapshot_at(&store_path, "3d").unwrap().len(), 1);
     assert_eq!(

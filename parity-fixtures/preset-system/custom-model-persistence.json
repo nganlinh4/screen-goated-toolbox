@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"missing_value","payload":null,"expected":"loaded","count":0},
+    {"name":"empty_list","payload":"[]","expected":"loaded","count":0},
+    {"name":"saved_model_with_future_field","payload":"[{\"id\":\"x\",\"displayName\":\"Example\",\"fullName\":\"vendor/model\",\"futureField\":true}]","expected":"loaded","count":1},
+    {"name":"truncated_json","payload":"[{\"id\":","expected":"unavailable","scope":"custom_models"},
+    {"name":"wrong_shape","payload":"{}","expected":"unavailable","scope":"custom_models"},
+    {"name":"missing_required_fields","payload":"[{\"id\":\"x\"}]","expected":"unavailable","scope":"custom_models"},
+    {"name":"unknown_future_type","payload":"[{\"id\":\"x\",\"displayName\":\"X\",\"fullName\":\"x\",\"modelType\":\"FUTURE\"}]","expected":"unavailable","scope":"custom_models"}
+  ]
+}

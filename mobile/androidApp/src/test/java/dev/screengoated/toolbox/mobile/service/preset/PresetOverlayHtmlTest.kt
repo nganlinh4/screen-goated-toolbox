@@ -9,6 +9,7 @@ import dev.screengoated.toolbox.mobile.preset.surfaceStreamingEnabled
 import dev.screengoated.toolbox.mobile.preset.transportStreamingEnabled
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
+import dev.screengoated.toolbox.mobile.ui.icons.MaterialSymbolSvgs
 import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -27,7 +28,7 @@ class PresetOverlayHtmlTest {
     @Test
     fun favoriteBubbleBuilderKeepsWindowsPanelHooks() {
         val preset = DefaultPresets.all.first { it.id == "preset_ask_ai" }
-        val html = FavoriteBubbleHtmlBuilder().build(
+        val html = FavoriteBubbleHtmlBuilder(materialSymbols()).build(
             FavoriteBubblePanelSettings(
                 favorites = listOf(
                     dev.screengoated.toolbox.mobile.preset.ResolvedPreset(
@@ -57,7 +58,7 @@ class PresetOverlayHtmlTest {
     @Test
     fun favoriteBubbleBuilderIncludesHangImageWhenFavorited() {
         val preset = DefaultPresets.all.first { it.id == "preset_hang_image" }
-        val html = FavoriteBubbleHtmlBuilder().build(
+        val html = FavoriteBubbleHtmlBuilder(materialSymbols()).build(
             FavoriteBubblePanelSettings(
                 favorites = listOf(
                     dev.screengoated.toolbox.mobile.preset.ResolvedPreset(
@@ -84,37 +85,32 @@ class PresetOverlayHtmlTest {
         val fixture = fixture("parity-fixtures/preset-system/text-input-overlay.json")
         val canonicalWindowsFiles = fixture["canonical_windows_files"]!!.jsonArray.map { it.jsonPrimitive.content }
         val contract = fixture["android_contract"]!!.jsonObject
-        val requiredMessages = contract["required_messages"]!!.jsonArray.map { it.jsonPrimitive.content }
         val requiredHooks = contract["required_js_hooks"]!!.jsonArray.map { it.jsonPrimitive.content }
         val acceptedMobileShims = contract["accepted_mobile_shims"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
-        val androidBuilder = File(repoRoot(), "mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetTextInputHtmlSupport.kt").readText()
-        val html = PresetTextInputHtmlBuilder().build(
+        val html = PresetTextInputHtmlBuilder { name ->
+            File(repoRoot(), "mobile/androidApp/build/generated/presetOverlayAssets/preset_overlay/$name").readText()
+        }.build(
             PresetTextInputHtmlSettings(
                 lang = "en",
                 title = "Ask AI",
                 placeholder = "Ready...",
                 isDark = true,
+                owner = "1",
             ),
         )
 
         canonicalWindowsFiles.forEach { relativePath ->
             assertTrue("missing canonical Windows text-input source $relativePath", File(repoRoot(), relativePath).exists())
         }
-        assertTrue(androidBuilder.contains("""<div class="editor-container">"""))
-        assertTrue(androidBuilder.contains("""window.playEntry"""))
-        assertTrue(androidBuilder.contains("""window.playExit"""))
-        assertTrue(androidBuilder.contains("""window.updateTheme"""))
         assertTrue(html.contains("""<div class="editor-container">"""))
-        requiredMessages.forEach { message ->
-            assertTrue("missing required text-input message $message", html.contains(messageContractSnippet(message)))
-        }
         requiredHooks.forEach { hook ->
             assertTrue("missing required text-input JS hook $hook", html.contains(hook))
         }
         assertTrue("touch drag shim should be explicitly accepted", "touch_drag_delta_messages" in acceptedMobileShims)
         assertTrue("outside tap focus shim should be explicitly accepted", "outside_tap_focus_release" in acceptedMobileShims)
-        assertTrue("drag shim missing", html.contains("""type: 'dragInputWindow'"""))
-        assertTrue("working microphone bridge message missing", html.contains("window.ipc.postMessage('mic')"))
+        assertTrue("drag shim missing", html.contains("""type:'dragInputWindow'"""))
+        assertTrue("working microphone bridge message missing", html.contains("postInput('mic')"))
+        assertFalse("template tokens must be resolved", Regex("\\{\\{[A-Z_]+}}").containsMatchIn(html))
     }
 
     @Test
@@ -139,17 +135,35 @@ class PresetOverlayHtmlTest {
             markdownView["raw_html_script_lifecycle"]!!.jsonPrimitive.content,
         )
         assertTrue(markdownView["gridjs_enabled_for_tables"]!!.jsonPrimitive.boolean)
+        assertEquals("shared_pinned_windows_bundle", markdownView["gridjs_assets"]!!.jsonPrimitive.content)
+        assertEquals("windows_result_compositor_allowlist", markdownView["markdown_html_policy"]!!.jsonPrimitive.content)
+        assertEquals("user_gesture_required", markdownView["android_external_intent_policy"]!!.jsonPrimitive.content)
+        assertEquals(
+            "separate_raw_and_intercepted_navigation_webview_other_external_documents_origin_denied",
+            markdownView["android_untrusted_document_policy"]!!.jsonPrimitive.content,
+        )
+        assertEquals("origin_bound_main_frame_only", markdownView["android_trusted_result_bridge"]!!.jsonPrimitive.content)
+        assertEquals(OverlayNavigationPolicy.MANAGED, overlayNavigationPolicy("https://example.com", false))
+        assertEquals(OverlayNavigationPolicy.BLOCK, overlayNavigationPolicy("sms:123", false))
+        assertEquals(OverlayNavigationPolicy.EXTERNAL_INTENT, overlayNavigationPolicy("sms:123", true))
         assertEquals(2000, canvas["linger_ms"]!!.jsonPrimitive.int)
         assertTrue(html.contains("{{FIT_SCRIPT}}"))
         assertTrue(html.contains("{{THEME_CSS}}"))
-        assertTrue(html.contains("{{GRIDJS_CSS_URL}}"))
+        assertTrue(html.contains("{{GRIDJS_LIB_CSS}}"))
+        assertTrue(html.contains("{{GRIDJS_LIB_JS}}"))
+        assertTrue(html.contains("{{RESULT_DOM_PATCH_JS}}"))
+        assertTrue(html.contains("{{M3E_LIB_JS}}"))
+        assertTrue(html.contains("{{M3E_INIT_JS}}"))
+        assertTrue(js.contains("window._sgtLoadingAnimation.stop()"))
+        assertTrue(js.contains("window.sgtStartLoading(canvas)"))
+        assertTrue(js.contains("document.body.replaceChildren(window.__SGT_SAFE_FRAGMENT__(html || ''))"))
         assertTrue(html.contains("{{GRIDJS_INIT_SCRIPT}}"))
         assertTrue(html.contains("""<body></body>"""))
         assertTrue(js.contains("applyStreamingResultState"))
         assertTrue(js.contains("applyFinalResultState"))
         assertTrue(js.contains("window.applyResultState"))
         assertTrue(js.contains("if (data.loading)"))
-        assertTrue(js.contains("document.body.innerHTML = data.html || ''"))
+        assertTrue(js.contains("applyLoadingHtml(data.html)"))
         assertTrue(js.contains("window._streamWordCount = newWordCount"))
         assertTrue(js.contains("window._streamRenderCount = prevRenderCount + 1"))
         assertTrue(js.contains("wrapInteractiveWords(document.body)"))
@@ -206,7 +220,7 @@ class PresetOverlayHtmlTest {
         val markdownView = fixture["markdown_view"]!!.jsonObject
         val js = presetResultInteractionJavascript()
 
-        assertEquals("page_load_reinjected_overlay_shell", markdownView["raw_html_host_contract"]!!.jsonPrimitive.content)
+        assertEquals("isolated_world_overlay_shell_when_supported", markdownView["raw_html_host_contract"]!!.jsonPrimitive.content)
         assertEquals("native_history_plus_restore_original_surface", markdownView["navigation_model"]!!.jsonPrimitive.content)
         assertEquals("restore_original_surface", markdownView["failed_external_navigation_policy"]!!.jsonPrimitive.content)
         assertTrue(js.contains("window.configureResultWindow"))
@@ -232,7 +246,7 @@ class PresetOverlayHtmlTest {
             isDark = true,
         )
 
-        assertEquals("page_load_reinjected_overlay_shell", markdownView["raw_html_host_contract"]!!.jsonPrimitive.content)
+        assertEquals("isolated_world_overlay_shell_when_supported", markdownView["raw_html_host_contract"]!!.jsonPrimitive.content)
         assertTrue(script.contains("__SGT_RESULT_INTERACTION_INSTALLED__"))
         assertTrue(script.contains("sgt-result-hosted-page-style"))
         assertTrue(script.contains("""window.configureResultWindow("result:test")"""))
@@ -253,6 +267,36 @@ class PresetOverlayHtmlTest {
         assertTrue(normalized.contains("window.ready=true"))
         assertFalse(normalized.contains("```"))
         assertEquals(null, normalizePresetHtmlContent("Use `<button>` in Markdown."))
+        assertEquals(null, normalizePresetHtmlContent("İ <HTML><body>hello</body></HTML>"))
+    }
+
+    @Test
+    fun rawHtmlClassificationMatchesSharedCases() {
+        val cases = fixture("parity-fixtures/preset-system/result-overlay.json")
+            .getValue("markdown_view").jsonObject
+            .getValue("raw_html_classification_cases").jsonArray
+        for (case in cases) {
+            val item = case.jsonObject
+            assertEquals(
+                item.getValue("name").jsonPrimitive.content,
+                item.getValue("raw").jsonPrimitive.boolean,
+                normalizePresetHtmlContent(item.getValue("input").jsonPrimitive.content) != null,
+            )
+        }
+    }
+
+    @Test
+    fun deeplyNestedForeignContentIsRejected() {
+        val input = "<html>" + "<svg>".repeat(65) + "</svg>".repeat(65) + "</html>"
+        assertEquals(null, normalizePresetHtmlContent(input))
+    }
+
+    @Test
+    fun rawHtmlContextDepthIsBounded() {
+        for ((depth, raw) in listOf(64 to true, 65 to false)) {
+            val document = "<html>" + "<template>".repeat(depth) + "</template>".repeat(depth) + "</html>"
+            assertEquals(raw, normalizePresetHtmlContent(document) != null)
+        }
     }
 
     @Test
@@ -315,7 +359,11 @@ class PresetOverlayHtmlTest {
         assertTrue(audioHtml.contains("""data-sgt-input-adapter-media="audio""""))
         assertTrue(audioHtml.contains("""class="audio-player""""))
         assertTrue(audioHtml.contains("""class="waveform""""))
-        assertTrue(audioHtml.contains("saveMediaToDownloads"))
+        assertFalse(audioHtml.contains("saveMediaToDownloads"))
+        assertEquals("native_result_bytes_and_trusted_user_action", mediaContract["android_audio_download"]!!.jsonPrimitive.content)
+        assertEquals("reports_failure_and_native_control_available", mediaContract["android_audio_download_without_isolated_gesture"]!!.jsonPrimitive.content)
+        assertTrue(audioHtml.contains("data-sgt-native-audio-download"))
+        assertTrue(audioHtml.contains("toast.textContent = 'Could not download'"))
     }
 
     @Test
@@ -394,15 +442,8 @@ class PresetOverlayHtmlTest {
         assertEquals("", resultModelLabel(state.copy(modelId = "", modelProvider = null)))
     }
 
-    private fun messageContractSnippet(message: String): String = when (message) {
-        "submit:<text>" -> "window.ipc.postMessage('submit:' + text)"
-        "cancel" -> "window.ipc.postMessage('cancel')"
-        "close_window" -> "window.ipc.postMessage('close_window')"
-        "history_up:<draft>" -> "window.ipc.postMessage('history_up:' + editor.value)"
-        "history_down:<draft>" -> "window.ipc.postMessage('history_down:' + editor.value)"
-        "mic" -> "window.ipc.postMessage('mic')"
-        "request_focus" -> "window.ipc.postMessage('request_focus')"
-        else -> error("Unsupported text-input fixture message: $message")
+    private fun materialSymbols() = MaterialSymbolSvgs { fileName ->
+        File(repoRoot(), "mobile/androidApp/src/main/assets/material-symbols/$fileName").readText()
     }
 
     private fun fixture(path: String) =

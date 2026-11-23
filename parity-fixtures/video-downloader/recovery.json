@@ -4,7 +4,8 @@
     "ignoreUserConfiguration": true,
     "disableUserPluginDirectories": true,
     "managedJavaScriptRuntime": true,
-    "managedChallengeScripts": true
+    "managedChallengeScripts": true,
+    "endOptionsBeforeUrl": true
   },
   "analysisIsOptional": true,
   "failure": {
@@ -13,5 +14,15 @@
     "retryOnlyWhenIdentityChanges": true,
     "maximumRetries": 1,
     "allowUpstreamSelfUpdate": false
+  },
+  "androidFullUpdate": {
+    "source": "official-upstream-stable",
+    "automaticCheckHours": 24,
+    "useExistingBootstrap": true,
+    "verifySignedChecksum": true,
+    "atomicActivation": true,
+    "runningJobKeepsVersion": true,
+    "retainPrevious": true,
+    "dependsOnSgtCatalog": false
   }
 }

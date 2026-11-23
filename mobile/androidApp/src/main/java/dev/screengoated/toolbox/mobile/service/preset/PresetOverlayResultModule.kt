@@ -36,20 +36,24 @@ internal class PresetOverlayResultModule(
     internal val onDismissAll: () -> Unit,
     internal val onNoOverlaysRemaining: () -> Unit,
     internal val onMicRequested: () -> Unit,
+    internal val onCopyInputImage: (ByteArray) -> Boolean = { false },
     internal val ttsRuntimeService: TtsRuntimeService? = null,
     internal val ttsSettingsSnapshotProvider: (() -> TtsRequestSettingsSnapshot)? = null,
     internal val overlayOpacityProvider: () -> Int = { 100 },
 ) {
     internal val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     internal val resultWindows = LinkedHashMap<PresetResultWindowId, ActivePresetResultWindow>()
+    internal val audioDownloadsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<PresetResultWindowId>()
     internal var canvasWindow: PresetOverlayWindow? = null
     internal var activeResultWindowId: PresetResultWindowId? = null
     internal var topmostResultWindowId: PresetResultWindowId? = null
     internal var canvasSuspendedForGesture: Boolean = false
+    internal val refineJobs = PresetRefineJobs()
 
     fun hasResults(): Boolean = resultWindows.isNotEmpty()
 
     fun destroy() {
+        refineJobs.cancelAll()
         resultWindows.values.forEach { active ->
             if (active.runtimeState.ttsRequestId != 0L) {
                 ttsRuntimeService?.stopIfActive(active.runtimeState.ttsRequestId)
@@ -115,6 +119,13 @@ internal class PresetOverlayResultModule(
         }
 
         if (windowsToRender.isEmpty()) {
+            // A session whose every window was dropped (for example, downstream
+            // blocks skipped after an upstream failure) closes the ones still shown.
+            // The graph retired them, so the preset stays active for later state.
+            state.sessionId?.let { sessionId ->
+                resultWindows.keys.filter { it.sessionId == sessionId }
+                    .forEach { closeResultWindowSupport(it, notifyWhenEmpty = false) }
+            }
             if (!state.isExecuting) {
                 ensureCanvasWindowSupport()
             }
@@ -133,16 +144,15 @@ internal class PresetOverlayResultModule(
 
     fun handleResultMessage(message: String) {
         val payload = message.jsonOrNull() ?: return
-        if (payload.optString("type") == "gestureDebug") {
-            logResultGestureDebug(TAG, payload)
-            return
-        }
-
         val id = payload.optString("windowId").toResultWindowIdOrNull() ?: return
         val active = resultWindows[id] ?: return
         when (payload.optString("type")) {
-            "activateResultWindow" -> setActiveResultWindow(id)
+            "activateResultWindow" -> {
+                setActiveResultWindow(id)
+                canvasWindow?.runScript("window.revealWindow && window.revealWindow(${JSONObject.quote(id.wireValue())}, $CANVAS_LINGER_MS);")
+            }
             "promoteResultWindow" -> promoteResultWindow(id)
+            "downloadInputAudio" -> downloadInputAudioSupport(active)
             "dragResultWindow" -> {
                 dismissTarget.ensureShown()
                 suspendCanvasForGesture()
@@ -235,10 +245,11 @@ internal class PresetOverlayResultModule(
             "copySelectedText" -> {
                 val text = payload.optString("text").trim()
                 if (text.isNotEmpty()) {
-                    clipboardManager.setPrimaryClip(
-                        ClipData.newPlainText("preset_result_selection", text),
-                    )
-                    Toast.makeText(context, copyStatusText(), Toast.LENGTH_SHORT).show()
+                    val copied = resultTextFitsClipboard(text) && runCatching {
+                        clipboardManager.setPrimaryClip(ClipData.newPlainText("preset_result_selection", text))
+                    }.isSuccess
+                    val message = copyToastText(uiLanguage(), copied)
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                 }
                 setActiveResultWindow(id)
             }
@@ -312,7 +323,8 @@ internal class PresetOverlayResultModule(
         val window = resultWindows[windowId] ?: return
         if (window.runtimeState.ttsRequestId == requestId) {
             updateRuntimeState(windowId) { it.copy(ttsRequestId = 0L, ttsLoading = false) }
-            if (completionStatus == dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus.FAILED) {
+            if (completionStatus == dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus.FAILED ||
+                completionStatus == dev.screengoated.toolbox.mobile.service.tts.TtsCompletionStatus.PARTIAL) {
                 android.widget.Toast.makeText(
                     context,
                     overlayLocalized(uiLanguage(), "TTS failed. Check TTS settings.", "TTS thất bại. Kiểm tra cài đặt.", "TTS 실패. 설정을 확인하세요."),
@@ -324,32 +336,7 @@ internal class PresetOverlayResultModule(
 
     internal fun handleResultPageFinished(id: PresetResultWindowId, url: String?) {
         val active = resultWindows[id]
-        if (active != null && !active.runtimeState.isRawHtml) {
-            val cacheDir = resultHtmlBuilder.m3eCacheDir
-            val libPath = cacheDir.resolve("m3e_loading_indicator.js").absolutePath
-            val initPath = cacheDir.resolve("m3e_loading_init.js").absolutePath
-            active.window.runScript(
-                """
-                (function(){
-                    if(window._m3eLoaded) return;
-                    window._m3eLoaded = true;
-                    var s1 = document.createElement('script');
-                    s1.src = 'file://$libPath';
-                    s1.onload = function(){
-                        var s2 = document.createElement('script');
-                        s2.src = 'file://$initPath';
-                        s2.onload = function(){
-                            var c = document.getElementById('sgt-m3e-canvas');
-                            if (c && window.initM3ELoading) {
-                                window.initM3ELoading(c, {size:36, isDark:true, showContainer:false});
-                            }
-                        };
-                        document.head.appendChild(s2);
-                    };
-                    document.head.appendChild(s1);
-                })();
-                """.trimIndent(),
-            )
+        if (active != null && !active.runtimeState.isRawHtml && isTrustedResultUrl(url)) {
             // Re-apply current state now that the page is ready.
             // The initial updateResultWindowSupport call races with page load —
             // applyResultState may have silently failed before the base JS was parsed.
@@ -364,12 +351,6 @@ internal class PresetOverlayResultModule(
     ) {
         handleResultNavigationFailureSupport(id, failure)
     }
-
-    internal fun loadingStatusText(): String =
-        overlayLocalized(uiLanguage(), "Loading", "Đang tải", "로딩")
-
-    internal fun copyStatusText(): String =
-        overlayLocalized(uiLanguage(), "Copied", "Đã sao chép", "복사됨")
 
     internal companion object {
         internal const val TAG = "PresetOverlay"

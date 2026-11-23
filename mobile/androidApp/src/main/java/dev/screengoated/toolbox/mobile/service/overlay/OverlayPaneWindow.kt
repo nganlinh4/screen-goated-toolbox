@@ -21,6 +21,7 @@ import dev.screengoated.toolbox.mobile.service.OverlayPaneHolder
 import dev.screengoated.toolbox.mobile.service.OverlayPaneId
 import dev.screengoated.toolbox.mobile.service.OverlayPaneRuntimeSettings
 import dev.screengoated.toolbox.mobile.service.buildOverlayWebView
+import dev.screengoated.toolbox.mobile.service.resizeOverlayFromCorner
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -364,23 +365,18 @@ internal class OverlayPaneWindow(
      * @param dy vertical drag delta in pixels
      */
     fun resizeFromCorner(corner: String, dx: Int, dy: Int) {
-        val current = currentBounds()
         val screen = screenBoundsProvider()
-        when (corner) {
-            "br" -> {
-                // Bottom-right: width grows with dx, height grows with dy, position unchanged
-                val nextWidth = (current.width + dx).coerceIn(minWidthPx, screen.width() - current.x)
-                val nextHeight = (current.height + dy).coerceIn(minHeightPx, screen.height() - current.y)
-                updateBounds(current.copy(width = nextWidth, height = nextHeight))
-            }
-            "bl" -> {
-                // Bottom-left: width shrinks with dx (x moves), height grows with dy
-                val nextWidth = (current.width - dx).coerceIn(minWidthPx, current.x + current.width)
-                val nextX = (current.x + current.width - nextWidth).coerceAtLeast(0)
-                val nextHeight = (current.height + dy).coerceIn(minHeightPx, screen.height() - current.y)
-                updateBounds(current.copy(x = nextX, width = nextWidth, height = nextHeight))
-            }
-        }
+        val next = resizeOverlayFromCorner(
+            current = currentBounds(),
+            corner = corner,
+            dx = dx,
+            dy = dy,
+            screenWidth = screen.width(),
+            screenHeight = screen.height(),
+            minWidth = minWidthPx,
+            minHeight = minHeightPx,
+        ) ?: return
+        updateBounds(next)
     }
 
     private fun resizeByGesture(detector: ScaleGestureDetector) {

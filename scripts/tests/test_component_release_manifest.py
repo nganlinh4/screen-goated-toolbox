@@ -13,6 +13,16 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ComponentReleaseManifestTests(unittest.TestCase):
+    def test_delivery_compatibility_survives_staging_without_local_paths(self):
+        base = {"component": {"id": "worker", "version": "1.0.0", "asset": "old.zip"}}
+        package = {"component": {"id": "worker", "version": "2.0.0", "protocol": "stream-v1",
+                                 "asset": "new.zip", "assetPath": "local.zip"}}
+        candidate = MODULE.merge_candidate(base, package, set())
+        self.assertEqual(candidate["component"]["protocol"], "stream-v1")
+        self.assertEqual(candidate["component"]["version"], "2.0.0")
+        self.assertNotIn("assetPath", candidate["component"])
+        self.assertNotIn("protocol", base["component"])
+
     def test_selected_component_merges_without_changing_sibling(self):
         base = {
             "components": [

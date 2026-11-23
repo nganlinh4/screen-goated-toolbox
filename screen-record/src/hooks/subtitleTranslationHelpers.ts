@@ -18,6 +18,9 @@ import type { ProjectComposition, VideoSegment } from '@/types/video';
 import type { BaseAsyncJobStatus } from '@/hooks/asyncJobTypes';
 import { localizeMessageKey } from '@/lib/statusFormat';
 import { createPersistedSetting } from '@/lib/persistedState';
+import { isSequenceAudioSubtitle } from '@/lib/compositionSubtitles';
+import { updateCompositionClip } from '@/lib/projectComposition';
+import { buildSequenceTimeline, getSequenceClipById, replaceSequenceClipSegmentInGlobal } from '@/lib/sequenceTimeline';
 
 const SUBTITLE_TRANSLATION_LANGUAGE_KEY =
   'screen-record-subtitle-translation-language-v1';
@@ -263,26 +266,30 @@ export function buildCompositionTranslationItems(
   editingSubtitleId: string | null,
   source: SubtitleTranslationSource,
 ) {
+  const globalAudio = getSubtitleTracks(composition.globalSegment).find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)
+    ?.segments.filter(isSequenceAudioSubtitle) ?? [];
+  const globalIds = new Set(globalAudio.map((cue) => cue.id));
   const targetIds = new Set<string>(
     selectedSubtitleIds.length > 0
       ? selectedSubtitleIds
       : editingSubtitleId
         ? [editingSubtitleId]
-        : composition.clips.flatMap((clip) =>
+        : [...globalIds, ...composition.clips.flatMap((clip) =>
             (
               getSubtitleTracks(clip.segment).find(
                 (track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID,
               )?.segments ?? []
             ).map((subtitle) => subtitle.id),
-          ),
+          )],
   );
 
-  return composition.clips.flatMap((clip) => {
-    const originalTrack = getSubtitleTracks(clip.segment).find(
+  const collect = (segment: VideoSegment, clipId: string | null) => {
+    const originalTrack = getSubtitleTracks(segment).find(
       (track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID,
     );
     return (originalTrack?.segments ?? [])
       .filter((subtitle) => targetIds.has(subtitle.id))
+      .filter((subtitle) => clipId === null ? globalIds.has(subtitle.id) : !globalIds.has(subtitle.id))
       .filter(
         (subtitle) =>
           source === 'current' ||
@@ -298,7 +305,7 @@ export function buildCompositionTranslationItems(
       })
       .map((subtitle) => ({
         id: subtitle.id,
-        clipId: clip.id,
+        clipId,
         text: subtitle.text,
         sourceGroupId:
           source === 'current' || source === 'all' || source === 'audio'
@@ -309,7 +316,11 @@ export function buildCompositionTranslationItems(
           subtitle.provenance?.sourceName ??
           null,
       }));
-  });
+  };
+  return [
+    ...composition.clips.flatMap((clip) => collect(clip.segment, clip.id)),
+    ...(composition.globalSegment ? collect(composition.globalSegment, null) : []),
+  ];
 }
 
 export function clampTranslationChunkCount(value: number, itemCount: number) {
@@ -364,6 +375,37 @@ export function applyTranslationResultsToSegment(
     patchSubtitleTrackTexts(ensured.segment, ensured.track.id, patches),
     ensured.track.id,
   );
+}
+
+export function applyCompositionTranslationResults(
+  composition: ProjectComposition,
+  results: SubtitleTranslationResultItem[],
+  context: SubtitleTranslationJobContext,
+): ProjectComposition {
+  const globalAudio = getSubtitleTracks(composition.globalSegment)
+    .find((track) => track.id === ORIGINAL_SUBTITLE_TRACK_ID)?.segments.filter(isSequenceAudioSubtitle) ?? [];
+  const globalIds = new Set(globalAudio.map((cue) => cue.id));
+  const sequenceAudioIds = new Set([
+    ...(composition.audioSegments ?? []).map((audio) => audio.id),
+    ...globalAudio.map((cue) => (cue.sourceGroup?.audioSegmentId ?? cue.provenance?.audioSegmentId)!),
+  ]);
+  const sequenceResults = results.filter((result) => globalIds.has(result.id));
+  let next = sequenceResults.length && composition.globalSegment ? { ...composition,
+    globalSegment: applyTranslationResultsToSegment(composition.globalSegment, sequenceResults, context),
+  } : composition;
+  const timeline = buildSequenceTimeline(composition);
+  for (const clip of next.clips) {
+    const clipResults = results.filter((result) => !globalIds.has(result.id) && (result.clipId ?? 'root') === clip.id);
+    if (!clipResults.length) continue;
+    const segment = applyTranslationResultsToSegment(clip.segment, clipResults, context);
+    next = updateCompositionClip(next, clip.id, { segment });
+    const timelineClip = timeline && getSequenceClipById(timeline, clip.id);
+    if (next.globalSegment && timelineClip) next = { ...next,
+      globalSegment: replaceSequenceClipSegmentInGlobal(next.globalSegment, segment, timelineClip,
+        timeline!.totalDuration, sequenceAudioIds),
+    };
+  }
+  return next;
 }
 
 export function updateSubtitleViewAcrossComposition(

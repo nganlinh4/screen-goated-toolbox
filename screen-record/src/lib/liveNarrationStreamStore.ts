@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { NarrationSegment } from "@/types/video";
+import { preserveNarrationGroupEdits } from "@/lib/narrationGroupTakes";
 
 interface LiveNarrationState {
   segments: NarrationSegment[];
@@ -38,7 +39,7 @@ function scheduleEmit() {
   globalThis.setTimeout(flush, 0);
 }
 
-function getState(projectId: string | null | undefined): LiveNarrationState {
+export function getLiveNarrationState(projectId: string | null | undefined): LiveNarrationState {
   if (!projectId) return EMPTY_STATE;
   return states.get(projectId) ?? EMPTY_STATE;
 }
@@ -49,7 +50,7 @@ export function applyLiveNarrationSegments(
   replaceSubtitleIds: string[],
 ) {
   if (!projectId) return;
-  const previous = getState(projectId);
+  const previous = getLiveNarrationState(projectId);
   const hiddenSourceSubtitleIds = new Set(previous.hiddenSourceSubtitleIds);
   replaceSubtitleIds.forEach((id) => hiddenSourceSubtitleIds.add(id));
   const replaceSet = new Set(replaceSubtitleIds);
@@ -60,10 +61,20 @@ export function applyLiveNarrationSegments(
       if (getNarrationSourceIds(segment).some((id) => replaceSet.has(id))) return false;
       return true;
     }),
-    ...segments,
+    ...preserveNarrationGroupEdits(previous.segments, segments),
   ].sort((left, right) => left.startTime - right.startTime);
 
   states.set(projectId, { segments: nextSegments, hiddenSourceSubtitleIds });
+  scheduleEmit();
+}
+
+export function updateLiveNarrationSegments(
+  projectId: string | null | undefined,
+  updater: (segments: NarrationSegment[]) => NarrationSegment[],
+) {
+  if (!projectId || !states.has(projectId)) return;
+  const previous = getLiveNarrationState(projectId);
+  states.set(projectId, { ...previous, segments: updater(previous.segments) });
   scheduleEmit();
 }
 
@@ -106,7 +117,7 @@ export function useLiveNarrationState(projectId: string | null | undefined) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    () => getState(projectId),
+    () => getLiveNarrationState(projectId),
     () => EMPTY_STATE,
   );
 }

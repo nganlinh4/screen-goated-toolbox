@@ -429,7 +429,14 @@ class PhoneControlRuntimeWiringTest {
         beginTurn: Boolean,
         vararg calls: GeminiLiveFunctionCall,
     ) {
-        if (beginTurn) coordinator.userSpeechStarted(assistantPlaybackActive = false)
+        if (beginTurn) {
+            if (coordinator.phase == PhoneControlTurnPhase.WORKING || coordinator.phase == PhoneControlTurnPhase.FINALIZING) {
+                coordinator.handleFrame(GeminiLiveServerFrame(interrupted = true),
+                    listOf(GeminiLiveLifecycleEffect.FinalizeInterruptedGeneration))
+            } else {
+                coordinator.userSpeechActivity(assistantPlaybackActive = false, burstStarted = true)
+            }
+        }
         coordinator.handleFrame(
             frame = GeminiLiveServerFrame(
                 inputTranscript = "fixture request".takeIf { beginTurn },

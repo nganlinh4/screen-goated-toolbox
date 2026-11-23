@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use super::layout::CardRole;
 use super::protocol::HostCommand;
 
 pub(super) const MAX_BUFFERED_COMMANDS: usize = 128;
@@ -36,7 +37,7 @@ impl CommandBuffer {
             .iter()
             .rposition(|pending| same_replaceable_lane(pending, &command))
         {
-            self.commands[index] = command;
+            coalesce(&mut self.commands[index], command);
             return PushResult::Queued;
         }
         if self.commands.len() >= MAX_BUFFERED_COMMANDS {
@@ -53,6 +54,12 @@ impl CommandBuffer {
         self.commands.clear();
         self.commands.push_back(command);
         self.awaiting_snapshot = false;
+    }
+
+    /// Drops queued text edits whose changes a snapshot already carries.
+    pub(super) fn drop_text_edits(&mut self) {
+        self.commands
+            .retain(|command| !matches!(command, HostCommand::TextEdit { .. }));
     }
 
     pub(super) fn drain(&mut self) -> Vec<HostCommand> {
@@ -74,17 +81,35 @@ fn same_replaceable_lane(previous: &HostCommand, next: &HostCommand) -> bool {
         | (HostCommand::TranslationModel { .. }, HostCommand::TranslationModel { .. })
         | (HostCommand::Download { .. }, HostCommand::Download { .. })
         | (HostCommand::Theme { .. }, HostCommand::Theme { .. }) => true,
-        (HostCommand::Text { role: previous, .. }, HostCommand::Text { role: next, .. }) => {
-            previous == next
-        }
-        _ => false,
+        (previous, next) => text_role(previous).is_some_and(|role| text_role(next) == Some(role)),
+    }
+}
+
+fn text_role(command: &HostCommand) -> Option<CardRole> {
+    match command {
+        HostCommand::Text { role, .. } | HostCommand::TextEdit { role, .. } => Some(*role),
+        _ => None,
+    }
+}
+
+/// Replaces a pending command with a newer one of the same lane. A text edit
+/// is relative to the text before it, so it is folded into the pending text
+/// or edit instead of replacing it.
+fn coalesce(pending: &mut HostCommand, next: HostCommand) {
+    let HostCommand::TextEdit { role, edit } = next else {
+        *pending = next;
+        return;
+    };
+    match pending {
+        HostCommand::Text { text, .. } => super::text_edit::apply(text, &edit),
+        HostCommand::TextEdit { edit: first, .. } => super::text_edit::compose(first, edit),
+        other => *other = HostCommand::TextEdit { role, edit },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::overlay::realtime_webview::layout::CardRole;
     use crate::overlay::realtime_webview::protocol::{CardText, RealtimeScene};
 
     fn text(role: CardRole, value: &str) -> HostCommand {

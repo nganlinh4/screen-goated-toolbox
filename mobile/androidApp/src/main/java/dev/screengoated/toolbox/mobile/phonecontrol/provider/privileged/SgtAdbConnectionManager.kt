@@ -9,6 +9,7 @@ import java.io.IOException
 import java.security.PrivateKey
 import java.security.cert.Certificate
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,6 +25,11 @@ internal class SgtAdbConnectionManager(
         .toString()
         .take(MAX_DEVICE_NAME_CHARS)
         .ifBlank { DEFAULT_DEVICE_NAME }
+    private val generation = AtomicLong(nextSgtAdbConnectionGeneration())
+
+    /** Changes whenever the transport may be a different adbd session. */
+    val connectionGeneration: Long
+        get() = generation.get()
 
     init {
         setApi(Build.VERSION.SDK_INT)
@@ -38,6 +44,9 @@ internal class SgtAdbConnectionManager(
     override fun getDeviceName(): String = deviceName
 
     suspend fun pairAndConnect(pairingCode: String, timeoutMs: Long): SgtAdbPairResult {
+        if (!SgtAdbPeerTrust.isAvailable()) {
+            return SgtAdbPairResult(SgtAdbPairStatus.PEER_AUTHENTICATION_UNAVAILABLE)
+        }
         val deadlineMs = monotonicDeadline(timeoutMs)
         val pairingEndpoint = SgtAdbDiscovery.pairing(
             appContext,
@@ -89,6 +98,9 @@ internal class SgtAdbConnectionManager(
         connectDiscoveredUntil(monotonicDeadline(timeoutMs))
 
     private suspend fun connectDiscoveredUntil(deadlineMs: Long): SgtAdbConnectResult {
+        if (!SgtAdbPeerTrust.isAvailable()) {
+            return SgtAdbConnectResult(SgtAdbConnectStatus.PEER_AUTHENTICATION_UNAVAILABLE)
+        }
         if (isConnected) return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTED)
         val deviceIdentity = SgtAdbPairingStore.deviceIdentity(appContext)
             ?: return SgtAdbConnectResult(SgtAdbConnectStatus.PAIRING_STATE_MISSING)
@@ -111,6 +123,7 @@ internal class SgtAdbConnectionManager(
             val connected = withTimeoutOrNull(remainingMs) {
                 withContext(Dispatchers.IO) {
                     setTimeout(remainingMs, TimeUnit.MILLISECONDS)
+                    generation.set(nextSgtAdbConnectionGeneration())
                     connect(host, endpoint.port) || isConnected
                 }
             } ?: return SgtAdbConnectResult(SgtAdbConnectStatus.CONNECTION_INTERRUPTED)
@@ -133,6 +146,7 @@ internal class SgtAdbConnectionManager(
     }
 
     fun disconnectPreservingKey() {
+        generation.set(nextSgtAdbConnectionGeneration())
         runCatching(::disconnect)
     }
 
@@ -142,6 +156,10 @@ internal class SgtAdbConnectionManager(
         const val CONNECTION_TIMEOUT_MS = 10_000L
     }
 }
+
+private val sgtAdbConnectionGenerations = AtomicLong()
+
+private fun nextSgtAdbConnectionGeneration(): Long = sgtAdbConnectionGenerations.incrementAndGet()
 
 internal fun monotonicDeadline(timeoutMs: Long, nowMs: Long = SystemClock.elapsedRealtime()): Long =
     nowMs + timeoutMs.coerceAtLeast(0L)
@@ -158,6 +176,7 @@ internal data class SgtAdbPairResult(
 )
 
 internal enum class SgtAdbPairStatus {
+    PEER_AUTHENTICATION_UNAVAILABLE,
     PAIRING_ENDPOINT_UNAVAILABLE,
     PAIRING_FAILED,
     PAIRING_STATE_PERSIST_FAILED,
@@ -173,6 +192,7 @@ internal data class SgtAdbConnectResult(
 }
 
 internal enum class SgtAdbConnectStatus {
+    PEER_AUTHENTICATION_UNAVAILABLE,
     CONNECTED,
     PAIRING_STATE_MISSING,
     ENDPOINT_NOT_DISCOVERED,

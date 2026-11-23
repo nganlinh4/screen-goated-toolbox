@@ -53,7 +53,7 @@ internal val PIN_OUTPUT_COLOR = Color(0xFF42A5F5)
 internal val WIRE_DRAG_COLOR = Color(0xFFFFAB40)
 
 // ---------------------------------------------------------------------------
-// Shared fonts / icon assets (lazy singletons)
+// Shared fonts / language list (lazy singletons)
 // ---------------------------------------------------------------------------
 
 /** Google Sans Flex at wdth=75 for condensed descriptive text. */
@@ -77,71 +77,4 @@ internal val ALL_ISO_LANGUAGES: List<String> by lazy {
         }
         .distinct()
         .sorted()
-}
-
-// Material Symbol: file_copy (rounded, 24px)
-// SVG path from viewBox="0 -960 960 960", all Y coords shifted by +960
-internal val FileCopyIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
-    androidx.compose.ui.graphics.vector.ImageVector.Builder(
-        name = "FileCopy", defaultWidth = 24.dp, defaultHeight = 24.dp,
-        viewportWidth = 960f, viewportHeight = 960f,
-    ).apply {
-        addPath(
-            pathData = androidx.compose.ui.graphics.vector.PathData {
-                // M760-200 → M760,760
-                moveTo(760f, 760f); horizontalLineTo(320f)
-                quadTo(287f, 760f, 263.5f, 736.5f); quadTo(240f, 713f, 240f, 680f)
-                verticalLineTo(120f)
-                quadTo(240f, 87f, 263.5f, 63.5f); quadTo(287f, 40f, 320f, 40f)
-                horizontalLineTo(600f); lineTo(840f, 280f); verticalLineTo(680f)
-                quadTo(840f, 713f, 816.5f, 736.5f); quadTo(793f, 760f, 760f, 760f)
-                close()
-                moveTo(560f, 320f); verticalLineTo(120f); horizontalLineTo(320f)
-                verticalLineTo(680f); horizontalLineTo(760f); verticalLineTo(320f)
-                horizontalLineTo(560f); close()
-                moveTo(160f, 920f)
-                quadTo(127f, 920f, 103.5f, 896.5f); quadTo(80f, 873f, 80f, 840f)
-                verticalLineTo(280f); horizontalLineTo(160f); verticalLineTo(840f)
-                horizontalLineTo(600f); verticalLineTo(920f); horizontalLineTo(160f)
-                close()
-                moveTo(320f, 120f); verticalLineTo(320f); verticalLineTo(120f)
-                verticalLineTo(680f); verticalLineTo(120f); close()
-            },
-            fill = androidx.compose.ui.graphics.SolidColor(Color.Black),
-        )
-    }.build()
-}
-
-// Material Symbol: file_copy_off (rounded, 24px)
-// SVG path from viewBox="0 -960 960 960", all Y coords shifted by +960
-internal val FileCopyOffIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
-    androidx.compose.ui.graphics.vector.ImageVector.Builder(
-        name = "FileCopyOff", defaultWidth = 24.dp, defaultHeight = 24.dp,
-        viewportWidth = 960f, viewportHeight = 960f,
-    ).apply {
-        addPath(
-            pathData = androidx.compose.ui.graphics.vector.PathData {
-                moveTo(840f, 726f); lineTo(760f, 646f); verticalLineTo(320f)
-                horizontalLineTo(560f); verticalLineTo(120f); horizontalLineTo(320f)
-                verticalLineTo(206f); lineTo(240f, 126f); verticalLineTo(120f)
-                quadTo(240f, 87f, 263.5f, 63.5f); quadTo(287f, 40f, 320f, 40f)
-                horizontalLineTo(600f); lineTo(840f, 280f); verticalLineTo(726f)
-                close()
-                moveTo(320f, 680f); horizontalLineTo(568f); lineTo(320f, 432f)
-                verticalLineTo(680f); close()
-                moveTo(820f, 932f); lineTo(648f, 760f); horizontalLineTo(320f)
-                quadTo(287f, 760f, 263.5f, 736.5f); quadTo(240f, 713f, 240f, 680f)
-                verticalLineTo(352f); lineTo(28f, 140f); lineTo(84f, 84f)
-                lineTo(876f, 876f); lineTo(820f, 932f); close()
-                moveTo(540f, 383f); close()
-                moveTo(444f, 556f); close()
-                moveTo(160f, 920f)
-                quadTo(127f, 920f, 103.5f, 896.5f); quadTo(80f, 873f, 80f, 840f)
-                verticalLineTo(320f); horizontalLineTo(160f); verticalLineTo(840f)
-                horizontalLineTo(640f); verticalLineTo(920f); horizontalLineTo(160f)
-                close()
-            },
-            fill = androidx.compose.ui.graphics.SolidColor(Color.Black),
-        )
-    }.build()
 }

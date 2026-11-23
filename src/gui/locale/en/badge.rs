@@ -25,10 +25,6 @@ pub(super) fn get() -> BadgeLocaleText {
         fetching_runtime_manifest: "Fetching runtime manifest...",
         downloading_file_fmt: "Downloading {name}...",
         preparing_runtime_fmt: "Preparing {name} runtime...",
-        downloading_sherpa_runtime: "Downloading sherpa-onnx runtime",
-        required_for_offline_tts_fmt: "Required for {name} offline TTS",
-        downloading_model_fmt: "Downloading {name}",
-        preparing_model_fmt: "Preparing {name}...",
         model_ready_fmt: "{name} ready",
         model_installed_fmt: "{name} installed",
         model_download_failed_fmt: "Failed to download {name}",
@@ -38,6 +34,9 @@ pub(super) fn get() -> BadgeLocaleText {
         webview2_install_failed: "WebView2 installation failed",
         webview2_ready: "WebView2 Runtime ready",
         webview2_installed_restarting: "Microsoft Edge WebView2 Runtime installed. Restarting the app...",
+        webview2_installed_restart_manually: "Microsoft Edge WebView2 Runtime installed. Restart the app when you are ready.",
+        restart_in_progress_title: "Restart in progress",
+        restart_in_progress_body: "The app is restarting. Your new request was not applied.",
         export_failed: "Export failed",
         subtitles_saved: "Subtitles saved",
         feature_needs_webview2_fmt: "{name} needs WebView2 Runtime",
@@ -47,7 +46,6 @@ pub(super) fn get() -> BadgeLocaleText {
         feature_tts_playground: "TTS Playground",
         feature_text_input: "Text input overlay",
         feature_screen_record: "Screen recorder",
-        feature_markdown_view: "Markdown view",
         install_webview2_hint: "Open Downloaded Tools, install Microsoft Edge WebView2 Runtime, then try again.",
     }
 }

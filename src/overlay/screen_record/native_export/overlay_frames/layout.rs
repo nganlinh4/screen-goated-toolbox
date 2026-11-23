@@ -1,4 +1,6 @@
 // Keystroke lane layout logic (mirrors layoutKeystrokeLane from JS).
+// Every fixed pixel floor and cap is authored on the preview canvas and is
+// multiplied by `render_scale` (output pixels per preview pixel).
 
 use super::types::{
     KEYSTROKE_SLOT_SPARSE_GAP_LIMIT, VisualState, compute_percentile,
@@ -23,14 +25,14 @@ pub(super) struct Placement {
     pub y: f64,
 }
 
-fn get_keystroke_pair_gap_px(primary_font_size: f64, secondary_font_size: f64) -> f64 {
+pub(super) fn get_lane_gap_px(
+    primary_font_size: f64,
+    secondary_font_size: f64,
+    render_scale: f64,
+) -> f64 {
     (primary_font_size.max(secondary_font_size) * 0.58)
-        .max(14.0)
+        .max(14.0 * render_scale)
         .round()
-}
-
-pub(super) fn get_lane_gap_px(primary_font_size: f64, secondary_font_size: f64) -> f64 {
-    get_keystroke_pair_gap_px(primary_font_size, secondary_font_size)
 }
 
 fn get_slot_advance_px(
@@ -52,15 +54,30 @@ fn get_slot_advance_px(
     }
 }
 
+/// Where both keystroke lanes sit on the output canvas, shared by the
+/// keyboard and mouse lanes of one frame.
+#[derive(Clone, Copy)]
+pub(super) struct LaneGeometry {
+    pub canvas_width: f64,
+    pub lane_gap_px: f64,
+    pub anchor_x_px: f64,
+    pub baseline_y_px: f64,
+    pub render_scale: f64,
+}
+
 pub(super) fn layout_keystroke_lane(
     items: &[LaneItem],
-    canvas_width: f64,
-    lane_gap_px: f64,
+    geometry: LaneGeometry,
     align_right: bool,
     slot_width_hints: &[f64],
-    anchor_x_px: f64,
-    baseline_y_px: f64,
 ) -> Vec<Placement> {
+    let LaneGeometry {
+        canvas_width,
+        lane_gap_px,
+        anchor_x_px,
+        baseline_y_px,
+        render_scale,
+    } = geometry;
     if items.is_empty() {
         return Vec::new();
     }
@@ -68,8 +85,8 @@ pub(super) fn layout_keystroke_lane(
     let max_font = items
         .iter()
         .map(|i| i.layout_font_size)
-        .fold(16.0_f64, f64::max);
-    let margin_x = (max_font * 0.34).max(10.0).round();
+        .fold(16.0 * render_scale, f64::max);
+    let margin_x = (max_font * 0.34).max(10.0 * render_scale).round();
     let left_bound = margin_x;
     let right_bound = (canvas_width - margin_x).max(left_bound);
     let barrier_x = anchor_x_px;
@@ -78,7 +95,7 @@ pub(super) fn layout_keystroke_lane(
     } else {
         barrier_x + lane_gap_px * 0.5
     };
-    let bubble_gap = get_keystroke_lane_bubble_gap_px(max_font);
+    let bubble_gap = get_keystroke_lane_bubble_gap_px(max_font, render_scale);
     let hint_average = if !slot_width_hints.is_empty() {
         slot_width_hints.iter().sum::<f64>() / slot_width_hints.len() as f64
     } else {
@@ -95,7 +112,7 @@ pub(super) fn layout_keystroke_lane(
     }
 
     // Compress if spread exceeds max
-    compress_slot_offsets(&mut slot_offsets, max_slot, canvas_width);
+    compress_slot_offsets(&mut slot_offsets, max_slot, canvas_width, render_scale);
 
     let mut placements: Vec<Placement> = items
         .iter()
@@ -119,9 +136,21 @@ pub(super) fn layout_keystroke_lane(
 
     // Collision avoidance
     if align_right {
-        apply_collision_right_align(&mut placements, items, left_bound, right_bound);
+        apply_collision_right_align(
+            &mut placements,
+            items,
+            left_bound,
+            right_bound,
+            render_scale,
+        );
     } else {
-        apply_collision_left_align(&mut placements, items, left_bound, right_bound);
+        apply_collision_left_align(
+            &mut placements,
+            items,
+            left_bound,
+            right_bound,
+            render_scale,
+        );
     }
 
     // Final clamp
@@ -134,9 +163,16 @@ pub(super) fn layout_keystroke_lane(
     placements
 }
 
-fn compress_slot_offsets(slot_offsets: &mut [f64], max_slot: usize, canvas_width: f64) {
+fn compress_slot_offsets(
+    slot_offsets: &mut [f64],
+    max_slot: usize,
+    canvas_width: f64,
+    render_scale: f64,
+) {
     let max_raw_offset = *slot_offsets.last().unwrap_or(&0.0);
-    let max_spread_px = (canvas_width * 0.24).clamp(150.0, 290.0).round();
+    let max_spread_px = (canvas_width * 0.24)
+        .clamp(150.0 * render_scale, 290.0 * render_scale)
+        .round();
     if max_raw_offset > max_spread_px {
         let preserve_slot = 2.min(max_slot);
         let preserve_px = slot_offsets.get(preserve_slot).copied().unwrap_or(0.0);
@@ -159,12 +195,13 @@ fn apply_collision_right_align(
     items: &[LaneItem],
     left_bound: f64,
     right_bound: f64,
+    render_scale: f64,
 ) {
     for i in 1..placements.len() {
         let prev_x = placements[i - 1].x;
         let prev_font = items[placements[i - 1].item_idx].layout_font_size;
         let cur_font = items[placements[i].item_idx].layout_font_size;
-        let pair_gap = get_keystroke_lane_bubble_gap_px(prev_font.max(cur_font));
+        let pair_gap = get_keystroke_lane_bubble_gap_px(prev_font.max(cur_font), render_scale);
         let cur_bw = items[placements[i].item_idx].bubble_width;
         let max_allowed_x = prev_x - pair_gap - cur_bw;
         if placements[i].x > max_allowed_x {
@@ -194,13 +231,14 @@ fn apply_collision_left_align(
     items: &[LaneItem],
     left_bound: f64,
     right_bound: f64,
+    render_scale: f64,
 ) {
     for i in 1..placements.len() {
         let prev_x = placements[i - 1].x;
         let prev_bw = items[placements[i - 1].item_idx].bubble_width;
         let prev_font = items[placements[i - 1].item_idx].layout_font_size;
         let cur_font = items[placements[i].item_idx].layout_font_size;
-        let pair_gap = get_keystroke_lane_bubble_gap_px(prev_font.max(cur_font));
+        let pair_gap = get_keystroke_lane_bubble_gap_px(prev_font.max(cur_font), render_scale);
         let min_allowed_x = prev_x + prev_bw + pair_gap;
         if placements[i].x < min_allowed_x {
             placements[i].x = min_allowed_x;
@@ -234,6 +272,7 @@ pub(super) fn compute_slot_width_hints(
     representative_widths: &[f64],
     lane_items: &[LaneItem],
     canvas_height: f64,
+    render_scale: f64,
 ) -> Vec<f64> {
     let mut measured_widths: Vec<f64> = representative_widths
         .iter()
@@ -251,9 +290,9 @@ pub(super) fn compute_slot_width_hints(
     } else if lane_average > 0.0 {
         lane_average
     } else {
-        (canvas_height * 0.09).max(110.0)
+        (canvas_height * 0.09).max(110.0 * render_scale)
     };
-    let min_width = (fallback_width * 0.56).max(36.0);
+    let min_width = (fallback_width * 0.56).max(36.0 * render_scale);
     let max_width = (fallback_width * 1.24).max(min_width);
 
     representative_widths

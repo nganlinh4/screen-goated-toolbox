@@ -6,6 +6,8 @@ enum class ToolInstallStatus {
     CHECKING, MISSING, DOWNLOADING, EXTRACTING, INSTALLED, REMOVAL_PENDING, ERROR
 }
 
+enum class YtDlpUpdateStatus { IDLE, CHECKING, UPDATED, UP_TO_DATE, FAILED }
+
 data class ToolState(
     val status: ToolInstallStatus = ToolInstallStatus.MISSING,
     val progress: Float = 0f,
@@ -40,14 +42,18 @@ data class DownloadSessionState(
     val analysisError: String? = null,
     val finishedFilePath: String? = null,
     val finishedFileUri: String? = null,
+    val finishedQuality: Int? = null,
     val errorMessage: String? = null,
     val logs: List<String> = emptyList(),
     val showErrorLog: Boolean = false,
     val isAnalyzing: Boolean = false,
+    val analysisGeneration: Long = 0,
     val lastUrlAnalyzed: String = "",
-    val lastInputChangeMs: Long = 0L,
     val processId: String? = null,
 )
+
+internal fun newDownloadSession(id: Int, tabName: String, type: DownloadType, preferredFormat: String?): DownloadSessionState =
+    DownloadSessionState(id = id, tabName = tabName, downloadType = type, selectedFormat = preferredFormat)
 
 @Serializable
 data class DownloaderSettings(
@@ -64,6 +70,7 @@ data class DownloaderSettings(
 data class DownloaderUiState(
     val ytdlp: ToolState = ToolState(),
     val ffmpeg: ToolState = ToolState(),
+    val ytDlpUpdate: YtDlpUpdateStatus = YtDlpUpdateStatus.IDLE,
     val sessions: List<DownloadSessionState> = listOf(
         DownloadSessionState(id = 1, tabName = "Tab 1"),
     ),

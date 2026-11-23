@@ -20,7 +20,13 @@ data class HistoryItem(
     val itemType: HistoryType,
     val text: String,
     val mediaPath: String,
+    val mediaProof: HistoryMediaProof? = null,
 )
+
+@Serializable
+data class HistoryMediaProof(val identity: String, val size: Long, val sha256: String)
+
+enum class HistoryStorageError { LOAD_FAILED, WRITE_FAILED, STORAGE_CHANGED }
 
 @Serializable
 data class StoredHistoryDatabase(
@@ -40,6 +46,8 @@ data class HistoryUiState(
     val maxItems: Int = DEFAULT_HISTORY_LIMIT,
     val mediaDirectoryPath: String? = null,
     val supportsFolderOpen: Boolean = false,
+    val storageError: HistoryStorageError? = null,
+    val storageUnavailable: Boolean = false,
 )
 
 internal fun clampHistoryLimit(value: Int): Int {

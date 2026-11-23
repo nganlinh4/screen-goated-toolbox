@@ -30,11 +30,6 @@ fun extractCargoPackageVersion(cargoToml: File): String {
 }
 
 val canonicalAppVersion = extractCargoPackageVersion(rootProject.projectDir.parentFile.resolve("Cargo.toml"))
-val imageCreationContractFile = rootProject.projectDir.parentFile
-    .resolve("parity-fixtures/image-creation-editing/state-contract.json")
-val imageCreationContract = JsonSlurper().parse(imageCreationContractFile) as Map<*, *>
-val imageCreatorReleaseEnabled =
-    ((imageCreationContract["releaseAvailability"] as Map<*, *>)["enabled"] as Boolean)
 val imageToSvgContractFile = rootProject.projectDir.parentFile
     .resolve("parity-fixtures/image-to-svg/state-contract.json")
 val imageToSvgContract = JsonSlurper().parse(imageToSvgContractFile) as Map<*, *>
@@ -56,11 +51,39 @@ val creationAcceptanceNativeAbi = providers.gradleProperty("creationAcceptanceNa
     ?.also { require(it in setOf("arm64-v8a", "x86_64")) }
     ?: "arm64-v8a"
 
+// Release signing credentials never live in tracked source. Supply them through the
+// SGT_RELEASE_STORE_PASSWORD / SGT_RELEASE_KEY_PASSWORD environment variables or the
+// sgt.release.storePassword / sgt.release.keyPassword Gradle properties (~/.gradle/gradle.properties).
+class ReleaseSigning(val keystore: File, val storePassword: String?, val keyPassword: String?) {
+    val ready: Boolean
+        get() = keystore.isFile && !storePassword.isNullOrEmpty() && !keyPassword.isNullOrEmpty()
+}
+
+fun releaseSecret(property: String, variable: String): String? =
+    providers.gradleProperty(property).orElse(providers.environmentVariable(variable)).orNull
+
+val releaseSigning = ReleaseSigning(
+    keystore = rootProject.projectDir.resolve("release.keystore"),
+    storePassword = releaseSecret("sgt.release.storePassword", "SGT_RELEASE_STORE_PASSWORD"),
+    keyPassword = releaseSecret("sgt.release.keyPassword", "SGT_RELEASE_KEY_PASSWORD"),
+)
+
+// Without credentials AGP silently emits an unsigned artifact; fail the signed packaging instead.
+if (!releaseSigning.ready) {
+    val releasePackaging = Regex("^(package|sign)(Full|Play)Release(Bundle)?$")
+    tasks.matching { releasePackaging.matches(it.name) }.configureEach {
+        doFirst {
+            error(
+                "Release signing needs mobile/release.keystore and SGT_RELEASE_STORE_PASSWORD plus " +
+                    "SGT_RELEASE_KEY_PASSWORD (or sgt.release.storePassword / sgt.release.keyPassword).",
+            )
+        }
+    }
+}
+
 val generatedPresetOverlayAssets = layout.buildDirectory.dir("generated/presetOverlayAssets")
 val generatedPresetModelCatalogSources = layout.buildDirectory.dir("generated/presetModelCatalog")
 val generatedPhoneControlContract = layout.buildDirectory.dir("generated/phoneControlContract")
-val generatedNativeRuntimeContractAssets =
-    layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
 val generatedComponentUpdateTrustAssets =
     layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
 val generatedModelFeedTrustAssets =
@@ -123,6 +146,7 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     val gridJsSource = repoRoot.resolve("src/overlay/html_components/grid_js.rs")
     val recordingUiSource = repoRoot.resolve("src/overlay/recording/ui.rs")
     val selectionBadgeSource = repoRoot.resolve("src/overlay/text_selection/html.rs")
+    val textInputSources = repoRoot.resolve("src/overlay/text_input")
     val iconsSource = repoRoot.resolve("src/overlay/html_components/icons.rs")
     inputs.file(fitSource)
     inputs.files(fitScriptSources)
@@ -131,14 +155,20 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
     inputs.file(buttonCanvasJsSource)
     inputs.file(buttonCanvasThemeSource)
     inputs.file(gridJsSource)
+    inputs.dir(repoRoot.resolve("src/overlay/result/scene_compositor/vendor"))
+    inputs.file(repoRoot.resolve("src/overlay/result/scene_compositor/dom_patch_runtime.js"))
     inputs.file(recordingUiSource)
     inputs.file(selectionBadgeSource)
+    inputs.files(listOf("styles.rs", "activation.rs", "editor_text.rs").map { textInputSources.resolve(it) })
+    inputs.files(fileTree(repoRoot.resolve("src/gui/locale")) { include("**/preset_editor.rs", "**/overlay.rs") })
+    inputs.file(rootProject.projectDir.resolve("scripts/preset_overlay_text_input.py"))
     inputs.file(iconsSource)
+    inputs.dir(repoRoot.resolve("ui-shared/material-symbols"))
     inputs.file(generator)
     inputs.dir(projectDir.resolve("src/main/assets/preset_overlay_static"))
     outputs.dir(generatedPresetOverlayAssets)
     commandLine(
-        "py", "-3", generator.absolutePath,
+        "py", "-3", "-B", generator.absolutePath,
         "--fit-source", fitSource.absolutePath,
         "--css-source", cssSource.absolutePath,
         "--button-css-source", buttonCanvasCssSource.absolutePath,
@@ -147,6 +177,7 @@ val generatePresetOverlayAssets by tasks.registering(Exec::class) {
         "--grid-source", gridJsSource.absolutePath,
         "--recording-source", recordingUiSource.absolutePath,
         "--selection-source", selectionBadgeSource.absolutePath,
+        "--text-input-source", textInputSources.resolve("styles.rs").absolutePath,
         "--icons-source", iconsSource.absolutePath,
         "--static-assets", projectDir.resolve("src/main/assets/preset_overlay_static").absolutePath,
         "--output", generatedPresetOverlayAssets.get().asFile.absolutePath,
@@ -159,6 +190,10 @@ val generatePresetModelCatalog by tasks.registering(Exec::class) {
     val generator = repoRoot.resolve("scripts/generate_android_preset_model_catalog.py")
     inputs.file(manifestSource)
     inputs.file(generator)
+    inputs.files(
+        listOf("model_catalog_validation.py", "model_catalog_realtime.py")
+            .map { repoRoot.resolve("scripts/$it") },
+    )
     val outputFile = generatedPresetModelCatalogSources.get()
         .asFile
         .resolve("dev/screengoated/toolbox/mobile/preset/GeneratedPresetModelCatalogData.kt")
@@ -218,13 +253,15 @@ val generatePhoneControlContract by tasks.registering(Exec::class) {
 }
 android {
     namespace = "dev.screengoated.toolbox.mobile"
-    dynamicFeatures += setOf(
-        ":feature_asr_ort",
-        ":feature_asr_moonshine",
-        ":feature_asr_sherpa",
-        ":feature_creation_runtime",
-    )
+    dynamicFeatures += setOf(":feature_creation_runtime")
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
+    externalNativeBuild {
+        cmake {
+            path = file("native/file_namespace/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     // Build Tools 36 escapes Windows paths in generated AIDL comments; older output can
     // contain path fragments that javac interprets as malformed Unicode escapes.
     buildToolsVersion = "36.1.0"
@@ -242,11 +279,6 @@ android {
         buildConfigField("String", "PARITY_PROFILE", "\"windows-live-translate-v2\"")
         // Overlay (float-over-other-apps) shipped on every distribution, including Play.
         buildConfigField("boolean", "OVERLAY_SUPPORTED", "true")
-        buildConfigField(
-            "boolean",
-            "IMAGE_CREATOR_RELEASE_ENABLED",
-            imageCreatorReleaseEnabled.toString(),
-        )
         buildConfigField(
             "boolean",
             "IMAGE_TO_SVG_RELEASE_ENABLED",
@@ -281,12 +313,11 @@ android {
 
     signingConfigs {
         create("release") {
-            val ks = rootProject.projectDir.resolve("release.keystore")
-            if (ks.exists()) {
-                storeFile = ks
-                storePassword = "screengoated"
+            if (releaseSigning.ready) {
+                storeFile = releaseSigning.keystore
+                storePassword = releaseSigning.storePassword
                 keyAlias = "sgt-release"
-                keyPassword = "screengoated"
+                keyPassword = releaseSigning.keyPassword
             }
         }
     }
@@ -333,15 +364,12 @@ android {
             // only for Full, so Play has no downloader launchers or dependency payload.
             excludes += "**/libpython.zip.so"
             excludes += "**/libffmpeg.zip.so"
-            // Native ASR runtimes are distribution-delivered by NativeLibManager.
-            excludes += "**/libonnxruntime.so"
+            // The downloader's ffmpeg AAR carries libc++_shared.so; no APK packages it.
             excludes += "**/libc++_shared.so"
-            excludes += "**/libmoonshine.so"
-            excludes += "**/libmoonshine-jni.so"
-            excludes += "**/libsherpa-onnx-jni.so"
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            merges += "/META-INF/LICENSE.md"
             // Orphaned Bouncy Castle resources retained through libadb's transitive
             // graph even though the corresponding providers are absent after R8.
             excludes += "/org/bouncycastle/pqc/crypto/picnic/lowmcL1.bin.properties"
@@ -353,20 +381,17 @@ android {
     }
 
     sourceSets.named("main") {
+        assets.directories.add(rootProject.projectDir.parentFile.resolve("parity-fixtures/tts-runtime").absolutePath)
         // Saved models remain viewable after the removable creation runtime is uninstalled.
         assets.directories.add(sharedCreationModelViewerAssets.absolutePath)
         assets.directories.add(generatedPresetOverlayAssets.get().asFile.absolutePath)
         kotlin.directories.add(generatedPresetModelCatalogSources.get().asFile.absolutePath)
         assets.directories.add(generatedPhoneControlContract.get().dir("assets").asFile.absolutePath)
         kotlin.directories.add(generatedPhoneControlContract.get().dir("kotlin").asFile.absolutePath)
-        assets.directories.add(generatedNativeRuntimeContractAssets.get().asFile.absolutePath)
         assets.directories.add(generatedModelFeedTrustAssets.get().asFile.absolutePath)
         assets.directories.add(generatedHelpIndexDeliveryAssets.get().asFile.absolutePath)
     }
     sourceSets.named("full") {
-        assets.directories.add(rootProject.projectDir.resolve("native/sherpa-runtime/assets").absolutePath)
-        assets.directories.add(rootProject.projectDir.resolve("native/ort-runtime/assets").absolutePath)
-        assets.directories.add(rootProject.projectDir.resolve("native/moonshine-runtime/assets").absolutePath)
         assets.directories.add(generatedFullCreationRuntimeDeliveryAssets.get().asFile.absolutePath)
         assets.directories.add(generatedFullDownloaderRuntimeDeliveryAssets.get().asFile.absolutePath)
         assets.directories.add(generatedComponentUpdateTrustAssets.get().asFile.absolutePath)
@@ -374,6 +399,13 @@ android {
     }
     sourceSets.maybeCreate("testFullDebug").kotlin.directories.add(file("src/testDebug/java").absolutePath)
     sourceSets.maybeCreate("testPlayDebug").kotlin.directories.add(file("src/testDebug/java").absolutePath)
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(generatePresetOverlayAssets)
+    inputs.dir(generatedPresetOverlayAssets).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.projectDir.parentFile.resolve("parity-fixtures"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.matching {
@@ -430,6 +462,7 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.browser)
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)
@@ -439,9 +472,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    add("fullImplementation", libs.bouncycastle.openpgp)
     implementation(libs.jsoup)
-    implementation(libs.moonshine.voice)
-    implementation(files("libs/sherpa-onnx-static-1.12.35.aar"))
     implementation(libs.commonmark)
     implementation(libs.commonmark.ext.gfm.tables)
     implementation(libs.commonmark.ext.gfm.strikethrough)

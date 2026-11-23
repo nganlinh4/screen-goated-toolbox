@@ -11,7 +11,7 @@ pub(in crate::overlay::three_d_generator) fn start_job(
 ) -> Result<JobStatus, String> {
     crate::overlay::creation_close::ensure_accepting("3d")?;
     ensure_recovery_started();
-    generation_mode::normalize_request(&mut request);
+    generation_mode::normalize_request(&mut request)?;
     if request
         .topology
         .as_deref()
@@ -25,9 +25,6 @@ pub(in crate::overlay::three_d_generator) fn start_job(
         return Err("Pick an image first.".to_string());
     }
     let inspected = crate::overlay::creation_source::inspect_image(&request.image_path)?;
-    if let Some(error) = super::super::input_policy::error(&inspected) {
-        return Err(error.to_string());
-    }
     request.image_path = inspected.path.to_string_lossy().to_string();
     request.source_descriptors.clear();
     let source_bytes = inspected.size_bytes;
@@ -57,6 +54,9 @@ pub(in crate::overlay::three_d_generator) fn start_job(
         "glb",
     )?;
     crate::overlay::creation_output::require_unoccupied(&final_output_dir, &request.output_name)?;
+    let admission_guard = super::admission::acquire();
+    ensure_queue_capacity()?;
+    let lifecycle = crate::overlay::creation_lifecycle::acquire()?;
     let staging = crate::overlay::creation_output::prepare_staging(
         &request.dispatch_id,
         &request.output_name,
@@ -79,14 +79,16 @@ pub(in crate::overlay::three_d_generator) fn start_job(
             runtime_status: runtime_status_label(),
         },
     );
-    let mut state = STATE
+    let state = STATE
         .lock()
         .map_err(|_| "3D generator state is unavailable".to_string())?;
     crate::overlay::creation_close::ensure_accepting("3d")?;
     if state.pending_count() >= MAX_QUEUED_JOBS {
         return Err("The model queue is full.".to_string());
     }
-    let recorded = crate::overlay::generation_history::admit_and_record(
+    drop(state);
+    let mut publication_uncertain = false;
+    let admission = crate::overlay::generation_history::admit_and_record(
         "3d",
         &final_output_dir,
         source_bytes,
@@ -101,17 +103,36 @@ pub(in crate::overlay::three_d_generator) fn start_job(
             request.source_descriptors = snapshot.descriptors().to_vec();
             let frozen = serde_json::to_value(&request)
                 .map_err(|_| "Model request could not be saved.".to_string())?;
-            let recorded = crate::overlay::creation_intent_journal::record(
+            let recorded = match crate::overlay::creation_intent_journal::record(
                 "3d",
                 &job_id,
                 &request.dispatch_id,
                 frozen,
-            )?;
+            ) {
+                Ok(recorded) => recorded,
+                Err(error) => {
+                    if error.is_uncertain() {
+                        publication_uncertain = true;
+                        snapshot.persist();
+                    }
+                    return Err(error.to_string());
+                }
+            };
             snapshot.persist();
             Ok(recorded)
         },
-    )?;
+    );
+    let recorded = match admission {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            if publication_uncertain {
+                staging.persist();
+            }
+            return Err(error);
+        }
+    };
     let staging_dir = staging.persist();
+    let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
     state.insert_job(job_id.clone(), status.clone());
     state.operations.insert(
         job_id.clone(),
@@ -125,24 +146,18 @@ pub(in crate::overlay::three_d_generator) fn start_job(
         .request_fingerprints
         .insert(job_id.clone(), recorded.arguments_fingerprint);
     state.deadlines.insert(job_id, recorded.deadline_at_ms);
-    let active_demand = state.pending_count();
     drop(state);
-    crate::overlay::creation_runtime::maintain_readiness_for_demand("3d", active_demand, false);
-    schedule_next();
+    drop(lifecycle);
+    drop(admission_guard);
+    #[cfg(test)]
+    if std::env::var_os("SGT_TEST_INTENT_PUBLICATION_UNCERTAIN").is_some() {
+        return Ok(status);
+    }
+    if !crate::overlay::creation_close::is_closing("3d") {
+        crate::overlay::creation_runtime::maintain_readiness("3d", false);
+        schedule_next();
+    }
     Ok(status)
-}
-
-pub(in crate::overlay::three_d_generator) fn start_segmentation(
-    continuation_id: &str,
-) -> Result<JobStatus, String> {
-    start_refinement(RefineRequest {
-        continuation_id: continuation_id.to_string(),
-        kind: RefinementKind::SeparateParts,
-        segmentation_level: Some("balanced".to_string()),
-        topology: None,
-        face_limit: None,
-        animation: None,
-    })
 }
 
 pub(in crate::overlay::three_d_generator) fn start_refinement(
@@ -154,6 +169,9 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
         return Err("The model continuation is missing.".to_string());
     }
     validate_refinement(&request)?;
+    let mut admission_guard = super::admission::acquire();
+    ensure_queue_capacity()?;
+    let lifecycle = crate::overlay::creation_lifecycle::acquire()?;
     let (mut continuation, runtime_status) = {
         let mut state = STATE
             .lock()
@@ -242,6 +260,7 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
         "previousOutputPath": &continuation.previous_output_path,
         "generationMode": continuation.generation_mode,
         "generationTopology": continuation.topology,
+        "generationSegmentationLevel": &continuation.segmentation_level,
         "polycount": continuation.polycount,
         "autoSegment": continuation.auto_segment,
         "instruction": &continuation.instruction,
@@ -277,31 +296,56 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
     {
         return Err("This model can no longer be refined.".to_string());
     }
+    admission_guard.reserve_continuation(&mut state, &request.continuation_id);
+    drop(state);
     let (source_bytes, source_count) = retained_source_reservation(&continuation);
-    let recorded = crate::overlay::generation_history::admit_and_record(
+    let mut publication_uncertain = false;
+    let admission = crate::overlay::generation_history::admit_and_record(
         "3d",
         &continuation.output_dir,
         source_bytes,
         source_count,
         || {
-            let recorded = crate::overlay::creation_intent_journal::record(
+            let recorded = match crate::overlay::creation_intent_journal::record(
                 "3d",
                 &job_id,
                 &continuation.dispatch_id,
                 frozen,
-            )?;
+            ) {
+                Ok(recorded) => recorded,
+                Err(error) => {
+                    publication_uncertain = error.is_uncertain();
+                    return Err(error.to_string());
+                }
+            };
             if let Err(error) = crate::overlay::creation_source_snapshot::claim_intent(
                 std::slice::from_ref(&continuation.source_descriptor),
                 &continuation.dispatch_id,
             ) {
-                crate::overlay::creation_intent_journal::clear("3d", &job_id);
+                if crate::overlay::creation_intent_journal::clear_required("3d", &job_id).is_err() {
+                    publication_uncertain = true;
+                    return Err(format!(
+                        "Creation request status is uncertain; do not retry until recovery is checked. {error}"
+                    ));
+                }
                 return Err(error);
             }
             Ok(recorded)
         },
-    )?;
+    );
+    let recorded = match admission {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            if publication_uncertain {
+                staging.persist();
+            }
+            return Err(error);
+        }
+    };
     let staging_dir = staging.persist();
+    let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
     let Ok(mut consumed) = state.take_continuation(&request.continuation_id, now_ms()) else {
+        drop(state);
         crate::overlay::creation_intent_journal::clear("3d", &job_id);
         return Err("This model can no longer be refined.".to_string());
     };
@@ -309,10 +353,8 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
     consumed.output_name = continuation.output_name;
     consumed.staging_dir = staging_dir;
     consumed.refinement = Some(request.clone());
-    let _ = crate::overlay::creation_source_snapshot::release_continuation(
-        std::slice::from_ref(&consumed.source_descriptor),
-        &request.continuation_id,
-    );
+    let source_descriptor = consumed.source_descriptor.clone();
+    admission_guard.release_continuation(&mut state);
     state.insert_job(job_id.clone(), status.clone());
     state.operations.insert(
         job_id.clone(),
@@ -325,7 +367,19 @@ pub(in crate::overlay::three_d_generator) fn start_refinement(
         .insert(job_id.clone(), recorded.arguments_fingerprint);
     state.deadlines.insert(job_id, recorded.deadline_at_ms);
     drop(state);
-    schedule_next();
+    let _ = crate::overlay::creation_source_snapshot::release_continuation(
+        std::slice::from_ref(&source_descriptor),
+        &request.continuation_id,
+    );
+    drop(lifecycle);
+    drop(admission_guard);
+    #[cfg(test)]
+    if std::env::var_os("SGT_TEST_INTENT_PUBLICATION_UNCERTAIN").is_some() {
+        return Ok(status);
+    }
+    if !crate::overlay::creation_close::is_closing("3d") {
+        schedule_next();
+    }
     Ok(status)
 }
 
@@ -410,4 +464,19 @@ fn queued_status(job_id: &str, fields: QueuedStatusFields) -> JobStatus {
         error: None,
         runtime_status: fields.runtime_status,
     }
+}
+
+fn ensure_queue_capacity() -> Result<(), String> {
+    let pending = STATE
+        .lock()
+        .map_err(|_| "3D generator state is unavailable".to_string())?
+        .jobs
+        .iter()
+        .filter(|(_, job)| job.stage == "queued" || super::status_is_busy(&job.stage))
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    if crate::overlay::creation_lifecycle::count_pending("3d", pending)? >= MAX_QUEUED_JOBS {
+        return Err("The model queue is full.".to_string());
+    }
+    Ok(())
 }

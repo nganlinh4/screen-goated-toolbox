@@ -7,9 +7,6 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::RECT;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-};
 
 struct Active {
     visual: ProcessingVisual,
@@ -52,16 +49,7 @@ impl ProcessingGlow {
         let visual = ProcessingVisual {
             id,
             control_id: None,
-            rect: SceneRect {
-                x: rect
-                    .left
-                    .saturating_sub(unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) }),
-                y: rect
-                    .top
-                    .saturating_sub(unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) }),
-                width: rect.right.saturating_sub(rect.left),
-                height: rect.bottom.saturating_sub(rect.top),
-            },
+            rect: screen_rect(rect),
             cells: Vec::new(),
             revision: 0,
             elapsed_ms: 0,
@@ -135,6 +123,15 @@ impl ProcessingGlow {
     }
 }
 
+fn screen_rect(rect: RECT) -> SceneRect {
+    SceneRect {
+        x: rect.left,
+        y: rect.top,
+        width: rect.right.saturating_sub(rect.left),
+        height: rect.bottom.saturating_sub(rect.top),
+    }
+}
+
 impl Drop for ProcessingGlow {
     fn drop(&mut self) {
         self.begin_close(false);
@@ -187,6 +184,20 @@ pub(super) fn apply(effects: &[ProcessingVisual]) {
         .collect();
 }
 
+/// Rebase renderer-owned effects after the host origin changes. Parent state
+/// stays in screen coordinates, and an overflow must not leave a partial frame.
+pub(super) fn rebase_child(dx: i32, dy: i32) -> Option<Vec<ProcessingVisual>> {
+    let mut child = CHILD.lock().unwrap();
+    let mut rebased = child.clone();
+    for effect in rebased.values_mut() {
+        effect.rect.x = effect.rect.x.checked_add(dx)?;
+        effect.rect.y = effect.rect.y.checked_add(dy)?;
+    }
+    *child = rebased;
+    CONTROL_RECTS.lock().unwrap().clear();
+    Some(child.values().cloned().collect())
+}
+
 pub(super) fn child_finished(id: u64) {
     let mut effects = CHILD.lock().unwrap();
     if effects.get(&id).is_some_and(|effect| effect.closing) {
@@ -236,11 +247,87 @@ pub(super) fn is_visible() -> bool {
     !CHILD.lock().unwrap().is_empty()
 }
 
+pub(super) fn control_ids() -> Vec<isize> {
+    CHILD
+        .lock()
+        .unwrap()
+        .values()
+        .filter_map(|effect| effect.control_id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::input_surface::{REGION_LOCK, create_input_surface, update_input_regions};
     use super::*;
     use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, IsWindowVisible};
+
+    #[test]
+    fn processing_capture_rect_remains_screen_absolute() {
+        let rect = screen_rect(RECT {
+            left: -800,
+            top: -200,
+            right: -100,
+            bottom: 400,
+        });
+        assert_eq!(
+            (rect.x, rect.y, rect.width, rect.height),
+            (-800, -200, 700, 600)
+        );
+    }
+
+    #[test]
+    fn rebase_child_moves_only_effect_bounds_and_clears_stale_controls() {
+        let _guard = REGION_LOCK.lock().unwrap();
+        let effect = ProcessingVisual {
+            id: 77,
+            control_id: Some(1),
+            rect: SceneRect {
+                x: 20,
+                y: 30,
+                width: 100,
+                height: 80,
+            },
+            cells: vec![[2, 3, 4, 5]],
+            revision: 1,
+            elapsed_ms: 0,
+            closing: false,
+            finish: false,
+        };
+        apply(std::slice::from_ref(&effect));
+        control_regions(
+            &serde_json::json!({"id": 77, "rects": [{"x": 9, "y": 10, "width": 3, "height": 4}]}),
+        );
+        let rebased = rebase_child(1920, -200).unwrap();
+        assert_eq!((rebased[0].rect.x, rebased[0].rect.y), (1940, -170));
+        assert_eq!(rebased[0].cells, effect.cells);
+        assert_eq!(visual_rects(), vec![rebased[0].rect.clone()]);
+        apply(&[]);
+    }
+
+    #[test]
+    fn rebase_child_overflow_does_not_partially_mutate_effects() {
+        let _guard = REGION_LOCK.lock().unwrap();
+        let effect = ProcessingVisual {
+            id: 78,
+            control_id: None,
+            rect: SceneRect {
+                x: i32::MAX,
+                y: 4,
+                width: 1,
+                height: 1,
+            },
+            cells: vec![],
+            revision: 0,
+            elapsed_ms: 0,
+            closing: false,
+            finish: false,
+        };
+        apply(std::slice::from_ref(&effect));
+        assert!(rebase_child(1, 3).is_none());
+        assert_eq!(visual_rects(), vec![effect.rect]);
+        apply(&[]);
+    }
 
     #[test]
     fn contour_is_visual_only_and_retires_only_after_its_exit() {

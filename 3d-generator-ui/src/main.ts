@@ -1,10 +1,13 @@
 import "./styles.css";
 import { CapacityVerification } from "./capacity-verification";
-import { monitorReadiness } from "./readiness-monitor";
+import { startHostSession } from "./host-startup";
 import { refreshCapabilities } from "./capabilities-refresh";
 import "./stage.css";
 import "../../ui-shared/creation-shell-layout.css";
+import "./compact-layout.css";
 import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
+import { CoalescedTask } from "../../ui-shared/coalesced-task";
+import { creationErrorMessageKey } from "../../ui-shared/creation-error-code";
 import { setLocale, t } from "./i18n";
 import { generationSettings } from "./generation-mode";
 import { ModelViewer } from "./viewer";
@@ -104,7 +107,6 @@ const state: AppState = {
   rotate: false,
   grid: false,
   wire: false,
-  historyRefreshing: false,
   referencePreviewItemId: "",
   referencePreviewToken: 0,
   generationCapabilities: {
@@ -244,8 +246,8 @@ async function renameHistoryItem(item: QueueItem, newName: string) {
       item.result.downloadPath = entry.metadata?.download?.path;
       item.result.downloadName = entry.metadata?.download?.name;
     }
-  } catch {
-    showToast(t("renameFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "renameFailed")));
   } finally {
     queueView.finishRename();
     updateUi();
@@ -257,8 +259,8 @@ async function deleteHistoryItem(item: QueueItem) {
   try {
     await invoke("delete_history_result", { id: item.historyId });
     removeItem(item.id);
-  } catch {
-    showToast(t("deleteFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "deleteFailed")));
   }
 }
 
@@ -279,14 +281,20 @@ async function deleteAllHistory() {
     updateUi();
     const item = selectedItem();
     if (item) await displayItem(item);
-  } catch {
-    showToast(t("deleteFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "deleteFailed")));
   }
 }
 
-async function refreshHistory() {
-  if (state.historyRefreshing || !window.invoke) return;
-  state.historyRefreshing = true;
+// A refresh requested while one runs (a job finishing during the boot model
+// load) must still run, or the finished result never receives its history id.
+const historyRefresh = new CoalescedTask(refreshHistoryOnce);
+
+function refreshHistory(): Promise<void> {
+  return window.invoke ? historyRefresh.run() : Promise.resolve();
+}
+
+async function refreshHistoryOnce() {
   try {
     const entries = await invoke<HistoryEntry[]>("history_results");
     const validIds = new Set(entries.map((entry) => entry.id));
@@ -393,8 +401,6 @@ async function refreshHistory() {
     }
   } catch {
     // Keep the active queue usable if history storage is unavailable.
-  } finally {
-    state.historyRefreshing = false;
   }
 }
 
@@ -555,15 +561,6 @@ bindControls({
 document.querySelector("#deleteAllHistory")
   ?.addEventListener("click", () => void deleteAllHistory());
 
-async function loadDefaultOutputDir() {
-  try {
-    state.outputDir = await invoke<string>("default_output_dir");
-    updateUi();
-  } catch {
-    // Standalone previews have no selected output directory.
-  }
-}
-
 async function refreshGenerationCapabilities() {
   await refreshCapabilities(state, invoke, updateUi);
 }
@@ -582,17 +579,12 @@ if (devParams?.get("parallel") === "1") {
 } else if (devModelUrl) {
   void devHarness?.loadModelPreview(devModelUrl);
 } else if (window.invoke) {
-  void (async () => {
-    void invoke("prepare_runtime").catch(() => undefined);
-    window.addEventListener("pagehide", monitorReadiness(invoke, (status) => {
-      state.preparationStatus = status; updateUi();
-    }), { once: true });
-    await loadDefaultOutputDir();
-    await jobRunner.restoreCurrentJobs();
-    await refreshHistory();
-    void refreshGenerationCapabilities();
-    window.setTimeout(() => void refreshGenerationCapabilities(), 1_000);
-  })();
+  startHostSession({
+    state, invoke, updateUi,
+    restoreCurrentJobs: () => jobRunner.restoreCurrentJobs(),
+    refreshHistory,
+    refreshCapabilities: refreshGenerationCapabilities,
+  });
 }
 window.addEventListener("focus", () => {
   void refreshHistory();

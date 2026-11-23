@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+use windows::Win32::Foundation::HWND;
 
 use crate::overlay::realtime_webview::app_selection::{
     AudioAppCandidate, enumerate_audio_app_candidates,
@@ -11,24 +10,7 @@ use crate::overlay::window_selector::{
     self, SelectorCallbacks, SelectorEntry, SelectorOwner, SelectorText,
 };
 
-use super::{SR_HWND, WM_APP_RUN_SCRIPT};
-
-fn post_screen_record_script(script: String) {
-    let sr_hwnd_val = unsafe { std::ptr::addr_of!(SR_HWND).read().0.0 as isize };
-    if sr_hwnd_val == 0 {
-        return;
-    }
-
-    let script_ptr = Box::into_raw(Box::new(script));
-    unsafe {
-        let _ = PostMessageW(
-            Some(HWND(sr_hwnd_val as *mut _)),
-            WM_APP_RUN_SCRIPT,
-            WPARAM(0),
-            LPARAM(script_ptr as isize),
-        );
-    }
-}
+use super::post_script;
 
 fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
     std::thread::spawn(move || {
@@ -58,7 +40,7 @@ fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
 pub fn show_audio_app_selector(is_dark: bool, lang: String) {
     let candidates = enumerate_audio_app_candidates();
     if candidates.is_empty() {
-        post_screen_record_script(
+        post_script(
             "window.dispatchEvent(new CustomEvent('external-recording-audio-app-selection-cancelled'))"
                 .to_string(),
         );
@@ -98,14 +80,14 @@ pub fn show_audio_app_selector(is_dark: bool, lang: String) {
                     .get(&selected_id)
                     .cloned()
                     .unwrap_or_else(|| (pid, format!("PID {pid}")));
-                post_screen_record_script(format!(
+                post_script(format!(
                     "window.dispatchEvent(new CustomEvent('external-recording-audio-app-selected',{{detail:{{pid:{capture_pid},appName:{}}}}}))",
                     serde_json::to_string(&app_name).unwrap_or_else(|_| "\"\"".to_string())
                 ));
             }
         },
         || {
-            post_screen_record_script(
+            post_script(
                 "window.dispatchEvent(new CustomEvent('external-recording-audio-app-selection-cancelled'))"
                     .to_string(),
             );

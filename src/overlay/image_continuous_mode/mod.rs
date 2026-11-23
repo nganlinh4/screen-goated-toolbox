@@ -3,16 +3,18 @@
 //! A non-blocking image selection mode that allows users to work normally while
 //! being able to capture screen regions using right-click/drag gestures.
 
+mod gesture;
 mod graphics;
 mod hooks;
+mod lifecycle;
 mod logic;
+mod worker;
 
 pub(crate) use graphics::{FrozenSelectionRender, dim_pixels, render_frozen_with_selection};
 
 use crate::GdiCapture;
-use crate::win_types::SendHbitmap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
+use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -22,6 +24,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 // === STATE ===
 
 static IS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static RUNNING: AtomicBool = AtomicBool::new(false);
+static LIFECYCLE: LazyLock<Mutex<lifecycle::Lifecycle>> =
+    LazyLock::new(|| Mutex::new(lifecycle::Lifecycle::default()));
 static CAPTURE_TARGET: Mutex<crate::overlay::image_capture_target::ImageCaptureTarget> =
     Mutex::new(crate::overlay::image_capture_target::ImageCaptureTarget::Preset(0));
 static TRIGGER_VK: AtomicU32 = AtomicU32::new(0);
@@ -29,7 +34,7 @@ static TRIGGER_ID: AtomicI32 = AtomicI32::new(0);
 static HAS_RELEASED_SINCE_ACTIVATION: AtomicBool = AtomicBool::new(false);
 
 // Gesture state
-static RIGHT_DOWN: AtomicBool = AtomicBool::new(false);
+static GESTURE: gesture::Gesture = gesture::Gesture::new();
 static DRAG_RENDER_PENDING: AtomicBool = AtomicBool::new(false);
 static START_X: AtomicI32 = AtomicI32::new(0);
 static START_Y: AtomicI32 = AtomicI32::new(0);
@@ -42,29 +47,27 @@ const TARGET_DIM_ALPHA: u8 = 100;
 const DIM_FADE_STEP: u8 = 20; // Fast fade (approx 5 frames @ 60fps)
 const DIM_TIMER_ID: usize = 5;
 const DRAG_RENDER_MESSAGE: u32 = WM_APP + 17;
+const DRAG_CANCEL_MESSAGE: u32 = WM_APP + 18;
+const GESTURE_BEGIN_MESSAGE: u32 = WM_APP + 19;
+const GESTURE_END_MESSAGE: u32 = WM_APP + 20;
+const GESTURE_ZOOM_MESSAGE: u32 = WM_APP + 21;
 
 // Zoom state (while right is held + wheel)
 static ZOOM_LEVEL: Mutex<f32> = Mutex::new(1.0);
 
 // Per-gesture capture
-static GESTURE_CAPTURE: Mutex<Option<GdiCapture>> = Mutex::new(None);
+struct CapturedGesture {
+    image: GdiCapture,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
+}
+static GESTURE_CAPTURE: Mutex<Option<CapturedGesture>> = Mutex::new(None);
 
-// Magnification API
-type MagInitializeFn = unsafe extern "system" fn() -> windows_core::BOOL;
-type MagUninitializeFn = unsafe extern "system" fn() -> windows_core::BOOL;
-type MagSetFullscreenTransformFn = unsafe extern "system" fn(f32, i32, i32) -> windows_core::BOOL;
-
-static mut MAG_DLL_LOADED: bool = false;
-static mut MAG_INITIALIZE_FN: Option<MagInitializeFn> = None;
-static mut MAG_UNINITIALIZE_FN: Option<MagUninitializeFn> = None;
-static mut MAG_SET_FULLSCREEN_TRANSFORM_FN: Option<MagSetFullscreenTransformFn> = None;
-static MAG_INITIALIZED: AtomicBool = AtomicBool::new(false);
+// Whether continuous mode holds a shared magnifier lease.
+static MAG_LEASE_HELD: AtomicBool = AtomicBool::new(false);
 
 // Cached overlay DIB section (avoid per-frame allocation — reused across renders)
-static mut OVERLAY_DIB: SendHbitmap = SendHbitmap(HBITMAP(std::ptr::null_mut()));
-static mut OVERLAY_DIB_BITS: *mut u32 = std::ptr::null_mut();
-static mut OVERLAY_DIB_W: i32 = 0;
-static mut OVERLAY_DIB_H: i32 = 0;
+static OVERLAY_DIB: Mutex<crate::overlay::cached_dib::CachedDib> =
+    Mutex::new(crate::overlay::cached_dib::CachedDib::empty());
 static mut LAST_RENDERED_SELECTION: Option<RECT> = None;
 static mut LAST_RENDERED_DIM_ALPHA: u8 = 0;
 
@@ -86,57 +89,26 @@ pub fn enter(
     hotkey_name: String,
     hotkey_id: i32,
 ) {
-    if IS_ACTIVE.load(Ordering::SeqCst) {
-        return;
-    }
-
-    *CAPTURE_TARGET.lock().unwrap() = target;
-    TRIGGER_ID.store(hotkey_id, Ordering::SeqCst);
-    *HOTKEY_NAME.lock().unwrap() = hotkey_name;
-
-    // Reset state
-    RIGHT_DOWN.store(false, Ordering::SeqCst);
-    DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
-    *ZOOM_LEVEL.lock().unwrap() = 1.0;
-    *GESTURE_CAPTURE.lock().unwrap() = None;
-    unsafe {
-        CURRENT_DIM_ALPHA = 0;
-        LAST_RENDERED_SELECTION = None;
-        LAST_RENDERED_DIM_ALPHA = 0;
-    }
-
-    IS_ACTIVE.store(true, Ordering::SeqCst);
-
-    // Track trigger hotkey for safety (prevent flicker when holding)
-    if let Some((_, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
-        TRIGGER_VK.store(vk, Ordering::SeqCst);
-    } else {
-        TRIGGER_VK.store(0, Ordering::SeqCst);
-    }
-    HAS_RELEASED_SINCE_ACTIVATION.store(false, Ordering::SeqCst);
-
-    // Show the badge (handled by text_selection module, reuses Webview)
-    crate::overlay::text_selection::set_image_continuous_badge(true);
-
-    // NEW: Show activation notification manually since we detached from global state
-    let (display_name, h_name) = {
-        let name = HOTKEY_NAME.lock().unwrap().clone();
-        let language = crate::APP
-            .lock()
-            .map(|app| app.config.ui_language.clone())
-            .unwrap_or_else(|_| "en".to_string());
-        (target.localized_name(&language), name)
+    let trigger_vk =
+        crate::overlay::continuous_mode::get_current_hotkey_info().map_or(0, |(_, vk)| vk);
+    let request = lifecycle::Request {
+        target,
+        hotkey_name,
+        hotkey_id,
+        trigger_vk,
     };
-    if !display_name.is_empty() {
-        crate::overlay::continuous_mode::show_image_continuous_notification(&display_name, &h_name);
-    }
-
-    // Spawn the dedicated thread that owns the Window AND the Hooks
-    std::thread::spawn(|| {
-        overlay_thread_entry();
-    });
-
-    crate::log_info!("[ImageContinuous] Mode entered for target {target:?}");
+    let admission = {
+        let mut state = LIFECYCLE.lock().unwrap();
+        let admission = state.enter(request);
+        if matches!(
+            admission,
+            lifecycle::Admission::Start(..) | lifecycle::Admission::Queued
+        ) {
+            IS_ACTIVE.store(true, Ordering::SeqCst);
+        }
+        admission
+    };
+    launch(admission);
 }
 
 pub fn exit() {
@@ -145,152 +117,141 @@ pub fn exit() {
     }
 
     // If currently dragging, cancel the drag instead of exiting the mode.
-    if RIGHT_DOWN.swap(false, Ordering::SeqCst) {
-        DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
-        *GESTURE_CAPTURE.lock().unwrap() = None;
-        crate::log_info!("[ImageContinuous] Drag cancelled via exit()");
+    // A replacement waiting for the old owner is cancelled directly instead.
+    let mut state = LIFECYCLE.lock().unwrap();
+    if !state.running() {
+        let thread_id = state.stop();
+        IS_ACTIVE.store(false, Ordering::SeqCst);
+        RUNNING.store(false, Ordering::SeqCst);
+        wake_stopping(thread_id);
         return;
+    }
+    match GESTURE.cancel() {
+        gesture::Cancel::Cancelled => {
+            DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
+            let hwnd = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
+            if hwnd != 0 {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(HWND(hwnd as *mut _)),
+                        DRAG_CANCEL_MESSAGE,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
+            }
+            crate::log_info!("[ImageContinuous] Drag cancelled via exit()");
+            return;
+        }
+        gesture::Cancel::AlreadyCancelled => return,
+        gesture::Cancel::Idle => {}
     }
 
     crate::log_info!("[ImageContinuous] Mode exit() called");
 
+    let thread_id = state.stop();
     IS_ACTIVE.store(false, Ordering::SeqCst);
-
-    // Hide badge
+    RUNNING.store(false, Ordering::SeqCst);
     crate::overlay::text_selection::set_image_continuous_badge(false);
-
-    // Signal the thread to exit by posting WM_QUIT
-    let thread_id = OVERLAY_THREAD_ID.load(Ordering::SeqCst);
-    if thread_id != 0 {
-        unsafe {
-            let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
-        }
-    }
+    wake_stopping(thread_id);
+    drop(state);
 
     crate::log_info!("[ImageContinuous] Mode exited (Quit signal posted)");
 }
 
+fn wake_stopping(thread_id: Option<u32>) {
+    if let Some(thread_id) = thread_id.filter(|id| *id != 0) {
+        unsafe {
+            if PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0)).is_err() {
+                let hwnd = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
+                if hwnd != 0 {
+                    let _ =
+                        PostMessageW(Some(HWND(hwnd as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+    }
+}
+
+fn launch(admission: lifecycle::Admission) {
+    match admission {
+        lifecycle::Admission::Start(id, request) => {
+            if std::thread::Builder::new()
+                .name("image-continuous".into())
+                .spawn(move || {
+                    let result = std::panic::catch_unwind(|| worker::run(id, request));
+                    let failed = !matches!(result, Ok(Ok(())));
+                    retire(id, failed);
+                })
+                .is_err()
+            {
+                retire(id, true);
+            }
+        }
+        lifecycle::Admission::Exhausted => {
+            IS_ACTIVE.store(false, Ordering::SeqCst);
+            report_failure();
+        }
+        lifecycle::Admission::Queued | lifecycle::Admission::Ignored => {}
+    }
+}
+
+fn retire(id: u64, failed: bool) {
+    let (next, report) = {
+        let mut state = LIFECYCLE.lock().unwrap();
+        if !state.owns(id) {
+            return;
+        }
+        let report = failed && state.live(id);
+        RUNNING.store(false, Ordering::SeqCst);
+        crate::overlay::text_selection::set_image_continuous_badge(false);
+        let next = state.finish(id);
+        if !matches!(next, lifecycle::Admission::Start(..)) {
+            IS_ACTIVE.store(false, Ordering::SeqCst);
+        }
+        (next, report)
+    };
+    if report {
+        report_failure();
+    }
+    launch(next);
+}
+
+fn report_failure() {
+    crate::log_info!("[ImageContinuous] Could not start capture mode");
+    let language = crate::APP
+        .lock()
+        .map(|app| app.config.ui_language.clone())
+        .unwrap_or_else(|_| "en".to_string());
+    let message = match language.as_str() {
+        "vi" => "Không thể bắt đầu chụp ảnh liên tục",
+        "ko" => "이미지 연속 캡처를 시작할 수 없습니다",
+        _ => "Could not start continuous image capture",
+    };
+    crate::overlay::auto_copy_badge::show_error_notification(message);
+}
+
 pub fn get_target() -> crate::overlay::image_capture_target::ImageCaptureTarget {
-    *CAPTURE_TARGET.lock().unwrap()
+    LIFECYCLE
+        .lock()
+        .unwrap()
+        .desired_binding()
+        .map_or_else(|| *CAPTURE_TARGET.lock().unwrap(), |(target, _, _)| target)
 }
 
 pub fn get_trigger_id() -> i32 {
-    TRIGGER_ID.load(Ordering::SeqCst)
+    LIFECYCLE.lock().unwrap().desired_binding().map_or_else(
+        || TRIGGER_ID.load(Ordering::SeqCst),
+        |(_, trigger_id, _)| trigger_id,
+    )
 }
 
 pub fn can_exit_now() -> bool {
     // We can exit if the hotkey was released at least once since we entered the mode.
     // This prevents the initial "hold" that activated the mode from immediately toggling it off.
-    HAS_RELEASED_SINCE_ACTIVATION.load(Ordering::SeqCst)
-}
-
-// === THREAD ENTRY POINT ===
-
-fn overlay_thread_entry() {
-    unsafe {
-        let thread_id = GetCurrentThreadId();
-        OVERLAY_THREAD_ID.store(thread_id, Ordering::SeqCst);
-
-        // 1. Create Overlay Window
-        let instance = GetModuleHandleW(None).unwrap();
-        let class_name = windows::core::w!("SGT_ImageContinuousOverlay");
-
-        let wc = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(graphics::rect_overlay_wnd_proc),
-            hInstance: instance.into(),
-            lpszClassName: class_name,
-            hCursor: LoadCursorW(None, IDC_CROSS).unwrap(),
-            style: CS_HREDRAW | CS_VREDRAW,
-            ..Default::default()
-        };
-        let _ = RegisterClassExW(&wc);
-
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-        // WS_EX_TRANSPARENT makes it click-through (important! we intercept via hooks, not window)
-        // WS_EX_TOOLWINDOW hides from alt-tab
-        let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
-            class_name,
-            windows::core::w!(""),
-            WS_POPUP,
-            x,
-            y,
-            w,
-            h,
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        );
-
-        if let Ok(h) = hwnd {
-            RECT_OVERLAY_HWND.store(h.0 as isize, Ordering::SeqCst);
-            // Initialize transparent
-            graphics::sync_rect_overlay(h);
-            let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
-        } else {
-            return;
-        }
-
-        // 2. Install Hooks on THIS thread
-        // Because we have a message loop below, these hooks will stay alive.
-        let mouse_hook = SetWindowsHookExW(
-            WH_MOUSE_LL,
-            Some(hooks::mouse_hook_proc),
-            Some(instance.into()),
-            0,
-        );
-
-        let kb_hook = SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(hooks::keyboard_hook_proc),
-            Some(instance.into()),
-            0,
-        );
-
-        // 3. Message Loop
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            if msg.message == WM_QUIT {
-                break;
-            }
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-
-        // 4. Cleanup
-        if let Ok(h) = mouse_hook {
-            let _ = UnhookWindowsHookEx(h);
-        }
-        if let Ok(h) = kb_hook {
-            let _ = UnhookWindowsHookEx(h);
-        }
-
-        if let Ok(h) = hwnd {
-            let _ = DestroyWindow(h);
-        }
-
-        // Reset Magnification
-        logic::reset_magnification();
-
-        // Clear capture and cached DIB
-        *GESTURE_CAPTURE.lock().unwrap() = None;
-        if !std::ptr::addr_of!(OVERLAY_DIB).read().0.is_invalid() {
-            let _ = DeleteObject(OVERLAY_DIB.0.into());
-            OVERLAY_DIB = SendHbitmap(HBITMAP(std::ptr::null_mut()));
-            OVERLAY_DIB_BITS = std::ptr::null_mut();
-            OVERLAY_DIB_W = 0;
-            OVERLAY_DIB_H = 0;
-            LAST_RENDERED_SELECTION = None;
-            LAST_RENDERED_DIM_ALPHA = 0;
-        }
-        RECT_OVERLAY_HWND.store(0, Ordering::SeqCst);
-        DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
-        OVERLAY_THREAD_ID.store(0, Ordering::SeqCst);
-    }
+    LIFECYCLE
+        .lock()
+        .unwrap()
+        .desired_binding()
+        .is_some_and(|(_, _, ready)| ready && HAS_RELEASED_SINCE_ACTIVATION.load(Ordering::SeqCst))
 }

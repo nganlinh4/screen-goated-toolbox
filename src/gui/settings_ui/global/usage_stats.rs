@@ -1,13 +1,15 @@
+use super::models_modal::ProviderEnabled;
 use crate::config::types::CustomModelDefinition;
 use crate::gui::locale::LocaleText;
 use crate::gui::theme::{AppTheme, blend};
 use crate::model_config::{ModelConfig, get_all_models_with_custom};
 use crate::usage_stats::{
-    UsageFreshness, UsageKey, UsageSnapshot, UsageStore, endpoint_representatives, freshness_at,
-    now_unix_seconds,
+    UsageFreshness, UsageKey, UsageMetric, UsageSnapshot, UsageStore, endpoint_representatives,
+    freshness_at, now_unix_seconds,
 };
 use eframe::egui;
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 #[path = "usage_stats_table.rs"]
 mod usage_stats_table;
@@ -27,15 +29,8 @@ const ENDPOINT_ROW_HEIGHT: f32 = 22.0;
 const ENDPOINT_NAME_FONT_SIZE: f32 = 11.5;
 const ENDPOINT_ID_FONT_SIZE: f32 = 9.5;
 const ENDPOINT_STATUS_FONT_SIZE: f32 = 10.5;
-
-#[derive(Clone, Copy)]
-struct ProviderToggles {
-    groq: bool,
-    gemini: bool,
-    openrouter: bool,
-    nvidia: bool,
-    ollama: bool,
-}
+const METRIC_HOLD_SECONDS: f64 = 3.0;
+const LOW_QUOTA_RATIO: f64 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UsageDialogLayout {
@@ -46,44 +41,33 @@ pub struct UsageDialogLayout {
 
 type ProviderSectionRows<'a> = (String, Vec<&'a ModelConfig>);
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "usage rendering consumes distinct provider toggles and shared UI state"
-)]
 /// Renders the Usage Statistics tab body inside the shared models hub.
 ///
-/// `body_height` is the hub's fixed content height, so switching tabs never
-/// resizes the modal.
+/// `layout` is the hub's own layout: its fixed body height keeps tab switches
+/// from resizing the modal, and its column count is the single source shared
+/// with the parity fixture.
 pub fn render_usage_body(
     ui: &mut egui::Ui,
     usage_stats: &UsageStore,
     text: &LocaleText,
     lang: &str,
-    use_groq: bool,
-    use_gemini: bool,
-    use_openrouter: bool,
-    use_nvidia: bool,
-    use_ollama: bool,
+    providers: ProviderEnabled,
     custom_models: &[CustomModelDefinition],
-    body_height: f32,
+    layout: UsageDialogLayout,
 ) {
     let theme = AppTheme::from_ui(ui);
-    let toggles = ProviderToggles {
-        groq: use_groq,
-        gemini: use_gemini,
-        openrouter: use_openrouter,
-        nvidia: use_nvidia,
-        ollama: use_ollama,
-    };
-    let column_count = if ui.available_width() >= WIDE_DIALOG_MIN_WIDTH {
-        WIDE_COLUMN_COUNT
-    } else {
-        1
-    };
+    if !usage_stats.is_empty() {
+        ui.ctx().request_repaint_after(Duration::from_secs(30));
+    }
+    let UsageDialogLayout {
+        body_height,
+        column_count,
+        ..
+    } = layout;
 
     let all_models = get_all_models_with_custom(custom_models);
     let rows = endpoint_representatives(&all_models);
-    let sections = group_rows(rows, toggles);
+    let sections = group_rows(rows, providers);
 
     egui::ScrollArea::vertical()
         .id_salt("usage_stats_body")
@@ -145,11 +129,11 @@ pub fn usage_dialog_layout(viewport_size: egui::Vec2) -> UsageDialogLayout {
 
 fn group_rows(
     rows: Vec<&ModelConfig>,
-    toggles: ProviderToggles,
+    providers: ProviderEnabled,
 ) -> BTreeMap<String, Vec<&ModelConfig>> {
     let mut sections: BTreeMap<String, Vec<&ModelConfig>> = BTreeMap::new();
     for model in rows {
-        if !provider_enabled(&model.provider, toggles) {
+        if !provider_enabled(&model.provider, providers) {
             continue;
         }
         sections
@@ -192,13 +176,13 @@ fn section_weight(section_key: &str, endpoint_count: usize) -> usize {
     endpoint_count + 2 + usize::from(section_key == "openrouter")
 }
 
-fn provider_enabled(provider: &str, toggles: ProviderToggles) -> bool {
+fn provider_enabled(provider: &str, providers: ProviderEnabled) -> bool {
     match provider {
-        "groq" => toggles.groq,
-        "google" | "gemini-live" => toggles.gemini,
-        "openrouter" => toggles.openrouter,
-        "nvidia" => toggles.nvidia,
-        "ollama" => toggles.ollama,
+        "groq" => providers.groq,
+        "google" | "gemini-live" => providers.gemini,
+        "openrouter" => providers.openrouter,
+        "nvidia" => providers.nvidia,
+        "ollama" => providers.ollama,
         _ => true,
     }
 }
@@ -238,15 +222,14 @@ fn render_provider_section(
                     .map(|model| model.localized_quota(lang))
                     .filter(|quota| !quota.is_empty())
                     .unwrap_or("—");
-                let mut status = shared_quota.to_string();
-                let mut color = accent;
-                if let Some(snapshot) = usage_stats.get(&UsageKey::provider("openrouter")) {
-                    let summary = snapshot_summary(snapshot, text, theme);
-                    status.push_str(" · ");
-                    status.push_str(&summary.compact);
-                    color = summary.color;
-                }
-                render_status_strip(
+                let summary = usage_stats
+                    .get(&UsageKey::provider("openrouter"))
+                    .map(|snapshot| snapshot_summary(snapshot, text, theme, now_unix_seconds()));
+                let (status, color) = summary
+                    .as_ref()
+                    .and_then(|summary| summary.headlines.first())
+                    .map_or((shared_quota, accent), |line| (&line.label, line.color));
+                let response = render_status_strip(
                     ui,
                     text.desktop_settings.usage_shared_quota,
                     status,
@@ -255,6 +238,9 @@ fn render_provider_section(
                     ENDPOINT_ROW_HEIGHT,
                     ENDPOINT_STATUS_FONT_SIZE,
                 );
+                if let Some(detail) = summary.and_then(|summary| summary.detail) {
+                    response.on_hover_text(format!("{shared_quota} · {detail}"));
+                }
             }
 
             for model in rows {
@@ -361,7 +347,7 @@ fn render_endpoint_row(
                 rects.prefix,
                 egui::Layout::left_to_right(egui::Align::Center),
             );
-            crate::gui::model_performance::render_prefix(&mut prefix_ui, model);
+            crate::gui::model_performance::render_prefix(&mut prefix_ui, model, lang);
 
             let localized_name = model.localized_name(lang);
             let mut name_ui = cell_ui(
@@ -395,7 +381,7 @@ fn render_endpoint_row(
                 .truncate(),
             );
 
-            if !status.compact.is_empty() {
+            if let Some(headline) = rotating_headline(&status.headlines, ui) {
                 // Right-aligned so the quota figures form one column edge and
                 // no slack is stranded between them and the card border.
                 let mut status_ui = cell_ui(
@@ -403,13 +389,11 @@ fn render_endpoint_row(
                     rects.status,
                     egui::Layout::right_to_left(egui::Align::Center),
                 );
-                let (headline, opacity) = rotating_headline(&status, &status_ui);
                 let response = status_ui.add(
                     egui::Label::new(
-                        egui::RichText::new(headline)
-                            .monospace()
+                        egui::RichText::new(&headline.label)
                             .size(ENDPOINT_STATUS_FONT_SIZE)
-                            .color(status.color.gamma_multiply(opacity)),
+                            .color(headline.color),
                     )
                     .truncate()
                     .show_tooltip_when_elided(status.detail.is_none()),
@@ -423,27 +407,24 @@ fn render_endpoint_row(
         });
 }
 
-/// Picks which metric the lane shows right now and how opaque it is.
-///
-/// A row can carry several live limits (TPM, RPD, RPM...) and only one fits
-/// the lane, so they take turns on the shared crossfade clock. Rows with a
-/// single metric or a static quota never animate.
-fn rotating_headline<'a>(status: &'a EndpointStatus, ui: &egui::Ui) -> (&'a str, f32) {
-    if status.rotation.len() < 2 {
-        return (status.compact.as_str(), 1.0);
+fn rotating_headline<'a>(headlines: &'a [StatusLine], ui: &egui::Ui) -> Option<&'a StatusLine> {
+    if headlines.len() < 2 {
+        return headlines.first();
     }
-    let (index, opacity) = crate::gui::widgets::crossfade_phase(ui, status.rotation.len());
-    (status.rotation[index].as_str(), opacity)
+    let slot = ui.input(|input| input.time) / METRIC_HOLD_SECONDS;
+    ui.ctx().request_repaint_after(Duration::from_secs_f64(
+        (1.0 - slot.fract()) * METRIC_HOLD_SECONDS,
+    ));
+    headlines.get(slot as usize % headlines.len())
 }
 
-/// What the quota lane shows: a short line that always fits, plus the full
-/// breakdown for the tooltip when there is more to say.
 struct EndpointStatus {
-    /// What to show when nothing rotates (a static quota, or a lone metric).
-    compact: String,
-    /// One entry per live metric, cycled through in the lane.
-    rotation: Vec<String>,
+    headlines: Vec<StatusLine>,
     detail: Option<String>,
+}
+
+struct StatusLine {
+    label: String,
     color: egui::Color32,
 }
 
@@ -455,117 +436,102 @@ fn endpoint_status(
     lang: &str,
     theme: &AppTheme,
 ) -> EndpointStatus {
-    match snapshot {
-        Some(snapshot) => snapshot_summary(snapshot, text, theme),
-        None if provider_quota_is_shared => EndpointStatus {
-            compact: String::new(),
-            rotation: Vec::new(),
-            detail: None,
+    if let Some(snapshot) = snapshot {
+        return snapshot_summary(snapshot, text, theme, now_unix_seconds());
+    }
+    let quota = model.localized_quota(lang);
+    let headlines = if provider_quota_is_shared || quota.is_empty() {
+        Vec::new()
+    } else {
+        vec![StatusLine {
+            label: quota.to_string(),
             color: theme.on_surface_variant(),
-        },
-        None => EndpointStatus {
-            compact: model.localized_quota(lang).to_string(),
-            rotation: Vec::new(),
-            detail: None,
-            color: theme.on_surface_variant(),
-        },
+        }]
+    };
+    EndpointStatus {
+        headlines,
+        detail: None,
     }
 }
 
-/// Live headers, compacted to the one number that decides anything.
-///
-/// A snapshot can carry several metrics (RPD, RPM, TPM, ...) each with a reset
-/// clock, which runs to ~40 characters — far past the lane, where it elided to
-/// an unreadable `999/1000 ↻1m..`. The lane now shows the *scarcest* metric as
-/// `KIND remaining/limit`: the one closest to running out is the only one that
-/// changes a decision, and the freshness stays encoded in the text colour.
-/// Everything else — every metric, its reset, and how old the reading is —
-/// moves to the tooltip.
 fn snapshot_summary(
     snapshot: &UsageSnapshot,
     text: &LocaleText,
     theme: &AppTheme,
+    now: u64,
 ) -> EndpointStatus {
+    let freshness = freshness_at(snapshot.observed_at_unix_seconds, now);
+    let mut headlines = Vec::with_capacity(snapshot.metrics.len());
     let mut segments = Vec::with_capacity(snapshot.metrics.len() + 1);
     for metric in &snapshot.metrics {
-        let remaining = metric.remaining.as_deref().unwrap_or("—");
-        let limit = metric.limit.as_deref().unwrap_or("—");
-        let mut label = format!("{} {remaining}/{limit}", metric.kind.label());
-        if let Some(reset) = &metric.reset {
-            label.push_str(&format!(" ↻{reset}"));
-        }
-        segments.push(label);
+        let label = metric_headline(metric, text.desktop_settings.usage_quota_left);
+        segments.push(match &metric.reset {
+            Some(reset) => format!("{label} ↻{reset}"),
+            None => label.clone(),
+        });
+        headlines.push(StatusLine {
+            label,
+            color: metric_color(metric, freshness, theme),
+        });
     }
 
-    let now = now_unix_seconds();
     let minutes = now
         .saturating_sub(snapshot.observed_at_unix_seconds)
         .div_ceil(60);
-    let (freshness, color) = match freshness_at(snapshot.observed_at_unix_seconds, now) {
-        UsageFreshness::Fresh => (
-            text.desktop_settings.usage_updated_now.to_string(),
-            theme.success(),
+    segments.push(match freshness {
+        UsageFreshness::Fresh => text.desktop_settings.usage_updated_now.to_string(),
+        UsageFreshness::Aging => format!("{minutes} {}", text.desktop_settings.usage_minutes_ago),
+        UsageFreshness::Stale => format!(
+            "{} · {minutes} {}",
+            text.desktop_settings.usage_stale, text.desktop_settings.usage_minutes_ago
         ),
-        UsageFreshness::Aging => (
-            format!("{minutes} {}", text.desktop_settings.usage_minutes_ago),
-            theme.warning(),
-        ),
-        UsageFreshness::Stale => (
-            format!(
-                "{} · {minutes} {}",
-                text.desktop_settings.usage_stale, text.desktop_settings.usage_minutes_ago
-            ),
-            theme.danger_text(),
-        ),
-    };
-
-    let compact = scarcest_metric(snapshot).unwrap_or_else(|| freshness.clone());
-    let rotation = snapshot.metrics.iter().map(metric_headline).collect();
-    segments.push(freshness);
+    });
     EndpointStatus {
-        compact,
-        rotation,
+        headlines,
         detail: Some(segments.join(" · ")),
-        color,
     }
 }
 
-/// `KIND remaining/limit` — the lane's unit of rotation.
-fn metric_headline(metric: &crate::usage_stats::UsageMetric) -> String {
-    format!(
-        "{} {}/{}",
-        metric.kind.label(),
+fn metric_headline(metric: &UsageMetric, quota_left: &str) -> String {
+    let ratio = format!(
+        "{}/{}",
         metric.remaining.as_deref().unwrap_or("—"),
         metric.limit.as_deref().unwrap_or("—")
+    );
+    format!(
+        "{} {}",
+        metric.kind.label(),
+        quota_left.replace("{quota}", &ratio)
     )
 }
 
-/// `KIND remaining/limit` for the metric with the least headroom left.
-///
-/// Ranking is by remaining/limit where both parse as numbers; metrics that do
-/// not parse rank last but still win over nothing, so the lane never goes
-/// blank just because a provider sent a non-numeric header.
-fn scarcest_metric(snapshot: &UsageSnapshot) -> Option<String> {
-    snapshot
-        .metrics
-        .iter()
-        .min_by(|a, b| {
-            headroom(a)
-                .partial_cmp(&headroom(b))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(metric_headline)
+fn metric_color(
+    metric: &UsageMetric,
+    freshness: UsageFreshness,
+    theme: &AppTheme,
+) -> egui::Color32 {
+    if freshness != UsageFreshness::Fresh {
+        return theme.on_surface_variant();
+    }
+    match remaining_ratio(metric) {
+        Some(ratio) if ratio <= LOW_QUOTA_RATIO => theme.warning(),
+        Some(_) => theme.success(),
+        None => theme.on_surface_variant(),
+    }
 }
 
-fn headroom(metric: &crate::usage_stats::UsageMetric) -> f32 {
+fn remaining_ratio(metric: &UsageMetric) -> Option<f64> {
     let parse = |value: &Option<String>| {
         value
             .as_deref()
-            .and_then(|raw| raw.replace(',', "").parse::<f32>().ok())
+            .and_then(|raw| raw.replace(',', "").parse::<f64>().ok())
+            .filter(|value| value.is_finite())
     };
     match (parse(&metric.remaining), parse(&metric.limit)) {
-        (Some(remaining), Some(limit)) if limit > 0.0 => remaining / limit,
-        _ => f32::INFINITY,
+        (Some(remaining), Some(limit)) if limit > 0.0 && (0.0..=limit).contains(&remaining) => {
+            Some(remaining / limit)
+        }
+        _ => None,
     }
 }
 

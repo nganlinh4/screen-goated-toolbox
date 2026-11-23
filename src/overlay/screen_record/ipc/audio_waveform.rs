@@ -1,19 +1,21 @@
 use std::collections::{HashMap, VecDeque};
-use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::UNIX_EPOCH;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::overlay::screen_record::mf_audio::MfAudioDecoder;
 
+#[path = "audio_waveform/store.rs"]
+mod store;
+
 const WAVEFORM_CACHE_MAGIC: &[u8; 5] = b"SGWF1";
-const WAVEFORM_CACHE_VERSION: u32 = 1;
+// 2: decoded chunks are placed at their timestamps.
+const WAVEFORM_CACHE_VERSION: u32 = 2;
 const SOURCE_BINS_PER_SECOND: u32 = 240;
 const MAX_MEMORY_CACHE_ENTRIES: usize = 12;
 
@@ -143,26 +145,24 @@ fn load_source_envelope(path: &Path) -> Result<Arc<SourceWaveformEnvelope>, Stri
         return Ok(cached);
     }
 
-    if let Some(disk_cached) = load_envelope_from_disk(&cache_key)? {
-        let disk_cached = Arc::new(disk_cached);
-        memory_cache()
-            .lock()
-            .insert(cache_key.clone(), Arc::clone(&disk_cached));
-        return Ok(disk_cached);
-    }
-
-    let analyzed = Arc::new(analyze_source_waveform(path)?);
+    let disk_path = waveform_cache_path(&cache_key);
+    let (envelope, read) =
+        store::load_or_analyze(disk_path.as_deref(), || analyze_source_waveform(path))?;
+    let envelope = Arc::new(envelope);
     memory_cache()
         .lock()
-        .insert(cache_key.clone(), Arc::clone(&analyzed));
-    if let Err(err) = save_envelope_to_disk(&cache_key, &analyzed) {
+        .insert(cache_key, Arc::clone(&envelope));
+    if read != store::CacheRead::Hit
+        && let Some(path) = disk_path
+        && let Err(err) = store::save(&path, &envelope, read == store::CacheRead::Corrupt)
+    {
         eprintln!(
             "[Waveform] Failed to persist cache {}: {}",
             path.display(),
             err
         );
     }
-    Ok(analyzed)
+    Ok(envelope)
 }
 
 fn analyze_source_waveform(path: &Path) -> Result<SourceWaveformEnvelope, String> {
@@ -172,12 +172,10 @@ fn analyze_source_waveform(path: &Path) -> Result<SourceWaveformEnvelope, String
     let mut bins: Vec<QuantizedWaveformBin> = Vec::new();
     let mut frame_cursor = 0u64;
 
-    while let Some((pcm_bytes, _timestamp)) = decoder.read_samples()? {
-        if pcm_bytes.is_empty() {
-            continue;
-        }
-        ingest_pcm_chunk(
+    while let Some((pcm_bytes, timestamp_100ns)) = decoder.read_samples()? {
+        ingest_timed_chunk(
             &pcm_bytes,
+            timestamp_100ns,
             channels,
             sample_rate,
             &mut frame_cursor,
@@ -189,6 +187,28 @@ fn analyze_source_waveform(path: &Path) -> Result<SourceWaveformEnvelope, String
         source_duration_sec: frame_cursor as f64 / sample_rate as f64,
         bins,
     })
+}
+
+/// Places a decoded chunk at its timestamp, as playback and export do. A late
+/// first chunk or a gap in the stream leaves silent bins instead of pulling
+/// the rest of the waveform earlier. Jitter under a millisecond is ignored.
+fn ingest_timed_chunk(
+    pcm_bytes: &[u8],
+    timestamp_100ns: i64,
+    channels: usize,
+    sample_rate: u32,
+    frame_cursor: &mut u64,
+    bins: &mut Vec<QuantizedWaveformBin>,
+) {
+    if pcm_bytes.is_empty() {
+        return;
+    }
+    let timestamp_frame =
+        (timestamp_100ns.max(0) as u128 * u128::from(sample_rate) / 10_000_000) as u64;
+    if timestamp_frame > *frame_cursor + u64::from(sample_rate / 1_000) {
+        *frame_cursor = timestamp_frame;
+    }
+    ingest_pcm_chunk(pcm_bytes, channels, sample_rate, frame_cursor, bins);
 }
 
 fn ingest_pcm_chunk(
@@ -276,108 +296,12 @@ fn resample_envelope(
 }
 
 fn waveform_cache_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| {
-        base.join("screen-goated-toolbox")
-            .join("screen-record-waveforms")
-    })
+    super::super::runtime_paths::optional_local_data_dir()
+        .map(|base| base.join("screen-record-waveforms"))
 }
 
 fn waveform_cache_path(cache_key: &str) -> Option<PathBuf> {
     waveform_cache_dir().map(|dir| dir.join(format!("{cache_key}.bin")))
-}
-
-fn load_envelope_from_disk(cache_key: &str) -> Result<Option<SourceWaveformEnvelope>, String> {
-    let Some(path) = waveform_cache_path(cache_key) else {
-        return Ok(None);
-    };
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let file = File::open(&path)
-        .map_err(|err| format!("Open waveform cache {}: {err}", path.display()))?;
-    let mut reader = BufReader::new(file);
-
-    let mut magic = [0_u8; 5];
-    reader
-        .read_exact(&mut magic)
-        .map_err(|err| format!("Read waveform cache magic {}: {err}", path.display()))?;
-    if &magic != WAVEFORM_CACHE_MAGIC {
-        return Ok(None);
-    }
-
-    let version = reader
-        .read_u32::<LittleEndian>()
-        .map_err(|err| format!("Read waveform cache version {}: {err}", path.display()))?;
-    if version != WAVEFORM_CACHE_VERSION {
-        return Ok(None);
-    }
-
-    let source_duration_sec = reader
-        .read_f64::<LittleEndian>()
-        .map_err(|err| format!("Read waveform duration {}: {err}", path.display()))?;
-    let bin_count = reader
-        .read_u32::<LittleEndian>()
-        .map_err(|err| format!("Read waveform bin count {}: {err}", path.display()))?
-        as usize;
-
-    let mut bins = Vec::with_capacity(bin_count);
-    for _ in 0..bin_count {
-        let min = reader
-            .read_i16::<LittleEndian>()
-            .map_err(|err| format!("Read waveform bin min {}: {err}", path.display()))?;
-        let max = reader
-            .read_i16::<LittleEndian>()
-            .map_err(|err| format!("Read waveform bin max {}: {err}", path.display()))?;
-        bins.push(QuantizedWaveformBin { min, max });
-    }
-
-    Ok(Some(SourceWaveformEnvelope {
-        source_duration_sec,
-        bins,
-    }))
-}
-
-fn save_envelope_to_disk(cache_key: &str, envelope: &SourceWaveformEnvelope) -> Result<(), String> {
-    let Some(path) = waveform_cache_path(cache_key) else {
-        return Ok(());
-    };
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("Create waveform cache dir {}: {err}", parent.display()))?;
-    }
-
-    let file = File::create(&path)
-        .map_err(|err| format!("Create waveform cache {}: {err}", path.display()))?;
-    let mut writer = BufWriter::new(file);
-    writer
-        .write_all(WAVEFORM_CACHE_MAGIC)
-        .map_err(|err| format!("Write waveform cache magic {}: {err}", path.display()))?;
-    writer
-        .write_u32::<LittleEndian>(WAVEFORM_CACHE_VERSION)
-        .map_err(|err| format!("Write waveform cache version {}: {err}", path.display()))?;
-    writer
-        .write_f64::<LittleEndian>(envelope.source_duration_sec)
-        .map_err(|err| format!("Write waveform duration {}: {err}", path.display()))?;
-    writer
-        .write_u32::<LittleEndian>(envelope.bins.len() as u32)
-        .map_err(|err| format!("Write waveform bin count {}: {err}", path.display()))?;
-    for bin in &envelope.bins {
-        writer
-            .write_i16::<LittleEndian>(bin.min)
-            .map_err(|err| format!("Write waveform bin min {}: {err}", path.display()))?;
-        writer
-            .write_i16::<LittleEndian>(bin.max)
-            .map_err(|err| format!("Write waveform bin max {}: {err}", path.display()))?;
-    }
-    writer
-        .flush()
-        .map_err(|err| format!("Flush waveform cache {}: {err}", path.display()))?;
-    drop(writer);
-    if let Some(parent) = path.parent() {
-        super::audio_waveform_cache::maintain(parent, &path);
-    }
-    Ok(())
 }
 
 fn normalize_path(path: &Path) -> String {
@@ -396,7 +320,32 @@ fn quantize_sample(sample: f32) -> i16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{QuantizedWaveformBin, SourceWaveformEnvelope, resample_envelope};
+    use super::{
+        QuantizedWaveformBin, SOURCE_BINS_PER_SECOND, SourceWaveformEnvelope, ingest_timed_chunk,
+        resample_envelope,
+    };
+
+    fn mono_chunk(frames: usize, value: f32) -> Vec<u8> {
+        (0..frames).flat_map(|_| value.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn decoded_audio_lands_at_its_timestamp_like_playback() {
+        // 0.5 s of audio at 0.5 s and 0.5 s at 2.0 s: playback is silent
+        // before, between and after, so the waveform must be too.
+        const RATE: u32 = 1_000;
+        let (mut cursor, mut bins) = (0u64, Vec::new());
+        let chunk = mono_chunk(500, 0.5);
+        for start_100ns in [5_000_000, 20_000_000] {
+            ingest_timed_chunk(&chunk, start_100ns, 1, RATE, &mut cursor, &mut bins);
+        }
+        assert_eq!(cursor, 2_500, "the envelope ends where the audio ends");
+        let bin_at = |sec: f64| bins[(sec * f64::from(SOURCE_BINS_PER_SECOND)) as usize];
+        assert_eq!(bin_at(0.25).max, 0, "nothing plays before the first chunk");
+        assert!(bin_at(0.75).max > 0);
+        assert_eq!(bin_at(1.5).max, 0, "the gap stays silent");
+        assert!(bin_at(2.25).max > 0);
+    }
 
     #[test]
     fn resample_envelope_preserves_peaks() {

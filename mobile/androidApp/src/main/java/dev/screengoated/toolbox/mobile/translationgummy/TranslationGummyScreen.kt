@@ -67,6 +67,9 @@ fun TranslationGummyScreen(
     val repository = remember(context) {
         (context.applicationContext as SgtMobileApplication).appContainer.translationGummyRepository
     }
+    val runtime = remember(context) {
+        (context.applicationContext as SgtMobileApplication).appContainer.translationGummyRuntime
+    }
     val state by repository.state.collectAsState()
     var autoStartAttempted by remember { mutableStateOf(false) }
 
@@ -122,9 +125,9 @@ fun TranslationGummyScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CompactWaveform(
+                        TranslationGummyMeterView(
                             connectionState = state.connectionState,
-                            level = state.visualizerLevel,
+                            levels = repository.visualizerLevels,
                             accent = CoralAccent,
                             modifier = Modifier.width(60.dp).height(32.dp),
                         )
@@ -185,6 +188,7 @@ fun TranslationGummyScreen(
                     ) {
                         FilledTonalButton(
                             onClick = {
+                                runtime.stop()
                                 repository.applyDraft()
                                 ensureStarted(forceRestart = true)
                             },
@@ -203,6 +207,7 @@ fun TranslationGummyScreen(
                     FilledTonalButton(
                         onClick = {
                             if (state.isRunning) {
+                                runtime.stop()
                                 TranslationGummyService.stop(context)
                             } else {
                                 ensureStarted()

@@ -1,3 +1,4 @@
+use crate::component_registry::is_reparse_point;
 use std::io::{Read as _, Seek as _, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -13,10 +14,6 @@ pub(super) struct ReceiptReservation {
 impl ReceiptReservation {
     pub(super) fn identity(&self) -> &str {
         &self.identity
-    }
-
-    pub(super) fn commit(self) -> Result<(), String> {
-        Ok(())
     }
 }
 
@@ -74,31 +71,39 @@ pub(super) fn output_identity(path: &Path) -> Result<String, String> {
         .ok_or_else(|| "Creation delivery destination is invalid.".to_string())?;
     let parent = std::fs::canonicalize(parent)
         .map_err(|_| "Creation delivery destination is unavailable.".to_string())?;
-    let identity = parent.join(name).to_string_lossy().to_string();
-    #[cfg(windows)]
-    {
-        Ok(identity.to_ascii_lowercase())
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(identity)
-    }
+    Ok(parent.join(name).to_string_lossy().to_string())
 }
 
 pub(super) fn validate_paths(record: &DeliveryRecord) -> Result<(), String> {
+    validate_saved_paths(record)?;
+    output_identity(Path::new(&record.output_path))?;
+    crate::overlay::creation_output::validate_staging_path(
+        &record.dispatch_id,
+        &record.output_name,
+        Path::new(&record.staging_path),
+    )?;
+    Ok(())
+}
+
+pub(super) fn validate_saved_paths(record: &DeliveryRecord) -> Result<(), String> {
     let output = Path::new(&record.output_path);
     let name = record.output_name.as_str();
-    let identity = output_identity(output)?;
-    let expected = output_identity(&crate::overlay::creation_output::assigned_path(
-        output
-            .parent()
-            .ok_or_else(|| "Creation delivery destination is invalid.".to_string())?,
-        name,
-    )?)?;
-    if identity != expected {
+    let identity = crate::overlay::creation_path::normalized_absolute(output)?;
+    let expected = crate::overlay::creation_path::normalized_absolute(
+        &crate::overlay::creation_output::assigned_path(
+            output
+                .parent()
+                .ok_or_else(|| "Creation delivery destination is invalid.".to_string())?,
+            name,
+        )?,
+    )?;
+    if !crate::overlay::creation_path::same(
+        &identity.to_string_lossy(),
+        &expected.to_string_lossy(),
+    )? {
         return Err("Creation delivery destination is invalid.".to_string());
     }
-    crate::overlay::creation_output::validate_staging_path(
+    crate::overlay::creation_output::validate_staging_assignment(
         &record.dispatch_id,
         name,
         Path::new(&record.staging_path),
@@ -360,6 +365,8 @@ fn cleanup_initializers(record: &DeliveryRecord) -> Result<(), String> {
 }
 
 pub(super) fn cancel_pre_publication(record: &DeliveryRecord) -> Result<(), String> {
+    // Missing output is meaningful only after its parent and assignment are observable.
+    validate_paths(record)?;
     if !record.stage.is_pre_publication() {
         return Err("Creation publication can no longer be cancelled.".to_string());
     }
@@ -481,13 +488,7 @@ pub(crate) fn delete_owned(file: &std::fs::File, path: &Path) -> Result<(), Stri
     platform::delete(file, path)
 }
 
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
+/// Retire a reusable name and close its attested handle before returning.
+pub(crate) fn unlink_owned(file: std::fs::File, path: &Path) -> Result<(), String> {
+    platform::unlink(file, path)
 }

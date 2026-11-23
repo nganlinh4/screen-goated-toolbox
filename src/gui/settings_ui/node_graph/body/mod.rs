@@ -15,7 +15,6 @@ pub fn show_body(
     ui: &mut egui::Ui,
     snarl: &mut Snarl<ChainNode>,
 ) {
-    #[allow(deprecated)]
     {
         let mut auto_copy_triggered = false;
         let current_node_uuid = snarl

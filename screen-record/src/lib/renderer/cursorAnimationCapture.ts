@@ -11,7 +11,7 @@
 
 import { invoke } from '@/lib/ipc';
 import { pushHeaderStatus } from '@/lib/headerStatus';
-import { CURSOR_PACK_ORDER, CURSOR_TYPES_ORDER, buildCursorSlotId } from '@/lib/exporterCursorTiles';
+import { CURSOR_PACKS, CURSOR_RENDER_KINDS, buildCursorSlotId } from './cursorModel';
 
 // ---------------------------------------------------------------------------
 // Duration parsing
@@ -84,17 +84,17 @@ function hashString(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Atlas slot IDs — generated from the single-source cursor pack/type order in
-// exporterCursorTiles (slotId = packIdx*12 + typeIdx via buildCursorSlotId).
+// Atlas slot IDs — generated from the single-source cursor pack/kind order in
+// cursorModel (slotId = packIdx*12 + kindIdx via buildCursorSlotId).
 // MUST stay aligned with `cursor_type_to_id` in Rust native_export/cursor.rs.
 // Only the animated cursor types (wait / appstarting) are captured here.
 // ---------------------------------------------------------------------------
 
-const WAIT_TYPE_INDEX = CURSOR_TYPES_ORDER.indexOf('wait');
-const APPSTARTING_TYPE_INDEX = CURSOR_TYPES_ORDER.indexOf('appstarting');
+const WAIT_TYPE_INDEX = CURSOR_RENDER_KINDS.indexOf('wait');
+const APPSTARTING_TYPE_INDEX = CURSOR_RENDER_KINDS.indexOf('appstarting');
 
 const CURSOR_TYPE_TO_SLOT: Readonly<Record<string, number>> = Object.fromEntries(
-  CURSOR_PACK_ORDER.flatMap((pack) => [
+  CURSOR_PACKS.flatMap((pack) => [
     [`wait-${pack}`, buildCursorSlotId(pack, WAIT_TYPE_INDEX)],
     [`appstarting-${pack}`, buildCursorSlotId(pack, APPSTARTING_TYPE_INDEX)],
   ]),

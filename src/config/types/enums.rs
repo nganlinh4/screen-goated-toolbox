@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 pub const DEFAULT_HISTORY_LIMIT: usize = 50;
+/// Saved history limits are clamped to this range (history-ui.json `maxItemsRange`).
+pub const MIN_HISTORY_LIMIT: usize = 10;
+pub const MAX_HISTORY_LIMIT: usize = 200;
 pub const DEFAULT_PROJECTS_LIMIT: usize = 50;
 
 // ============================================================================

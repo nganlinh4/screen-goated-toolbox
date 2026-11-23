@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
@@ -47,10 +49,17 @@ internal class PhoneControlEffectOwner(
     private var activeEffects = 0
     private var terminal = CompletableDeferred(Unit)
     private val cancellationHandlers = linkedMapOf<Long, suspend () -> Unit>()
+    private val terminalEvidence = mutableListOf<JsonObject>()
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val isCancellationRequested: Boolean
         get() = synchronized(lock) { cancellationRequested }
+
+    fun terminalEffectEvidence(): JsonArray = synchronized(lock) { JsonArray(terminalEvidence.toList()) }
+
+    private fun recordTerminalEvidence(evidence: JsonObject) {
+        synchronized(lock) { terminalEvidence += evidence }
+    }
 
     fun requestCancellation(): PhoneControlEffectCertainty {
         val handlers: List<suspend () -> Unit>
@@ -211,6 +220,14 @@ internal class PhoneControlEffectOwner(
     ) : AutoCloseable {
         private val lock = Any()
         private var closed = false
+        private var evidenceRecorded = false
+
+        /** Bounded action-owned evidence must settle before cancellation can publish its receipt. */
+        fun recordTerminalEvidence(evidence: JsonObject) = synchronized(lock) {
+            check(!closed && !evidenceRecorded) { "Terminal effect evidence already settled" }
+            owner.recordTerminalEvidence(evidence)
+            evidenceRecorded = true
+        }
 
         fun markAccepted() {
             synchronized(lock) {

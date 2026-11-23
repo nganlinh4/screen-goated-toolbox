@@ -6,7 +6,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -17,6 +19,7 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.downloader.DownloaderHolder
 import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
 import dev.screengoated.toolbox.mobile.downloader.ToolInstallStatus
+import dev.screengoated.toolbox.mobile.downloader.YtDlpUpdateStatus
 import dev.screengoated.toolbox.mobile.downloader.ui.DownloaderScreen
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
@@ -29,6 +32,7 @@ internal fun DownloaderToolsCard(
     val context = LocalContext.current
     val downloaderRepository = remember(context) { DownloaderHolder.get(context) }
     val downloaderState by downloaderRepository.state.collectAsState()
+    LaunchedEffect(downloaderRepository) { downloaderRepository.checkTools() }
 
     ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.primary) {
         Text(
@@ -94,6 +98,22 @@ internal fun DownloaderToolsCard(
                 else -> null
             },
         )
+        if (downloaderState.ytdlp.status == ToolInstallStatus.INSTALLED) {
+            val update = downloaderState.ytDlpUpdate
+            TextButton(
+                onClick = downloaderRepository::checkYtDlpForUpdates,
+                enabled = update != YtDlpUpdateStatus.CHECKING,
+            ) {
+                Text(if (update == YtDlpUpdateStatus.CHECKING) locale.dlDepsChecking else locale.downloader.toolUpdate)
+            }
+            val result = when (update) {
+                YtDlpUpdateStatus.UPDATED -> locale.downloader.toolUpdated
+                YtDlpUpdateStatus.UP_TO_DATE -> locale.downloader.toolUpToDate
+                YtDlpUpdateStatus.FAILED -> locale.downloader.toolUpdateFailed
+                else -> null
+            }
+            if (result != null) Text(result, style = MaterialTheme.typography.bodySmall)
+        }
         DownloadedToolRow(
             name = "FFmpeg",
             icon = R.drawable.ms_display_settings,
@@ -151,8 +171,10 @@ internal fun DownloaderToolsCard(
 @Composable
 internal fun DownloaderScreenWrapper(locale: MobileLocaleText, onBack: () -> Unit) {
     val context = LocalContext.current
+    val downloaderRepository = remember(context) { DownloaderHolder.get(context) }
+    LaunchedEffect(downloaderRepository) { downloaderRepository.checkTools() }
     val vm: DownloaderViewModel = viewModel(
-        factory = DownloaderViewModel.factory(DownloaderHolder.get(context)),
+        factory = DownloaderViewModel.factory(downloaderRepository),
     )
     DownloaderScreen(viewModel = vm, locale = locale, onBack = onBack)
 }

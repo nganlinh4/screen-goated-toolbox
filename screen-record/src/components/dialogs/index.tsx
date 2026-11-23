@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Keyboard } from '@/components/ui/MaterialIcon';
-import { MonitorInfo, Hotkey, WindowInfo } from '@/hooks/useAppHooks';
+import { MonitorInfo, Hotkey } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
-import { formatMonitorDialogSummary } from '@/utils/helpers';
 import {
   Dialog,
   DialogContent,
@@ -13,11 +12,10 @@ import {
 } from '@/components/ui/Dialog';
 
 // Re-export types for backwards compatibility
-export type { MonitorInfo, Hotkey, WindowInfo };
+export type { MonitorInfo, Hotkey };
 
 // Re-export split dialog modules
 export { ExportDialog } from './ExportDialog';
-export { WindowSelectDialog } from './WindowSelectDialog';
 export { MediaResultDialog, RawVideoDialog, ExportSuccessDialog, AudioDownloadSuccessDialog } from './MediaResultDialog';
 export { AudioDownloadDialog } from './AudioDownloadDialog';
 
@@ -59,7 +57,6 @@ export function ExportErrorDialog({ show, message, onClose }: ExportErrorDialogP
 // ============================================================================
 interface ProcessingOverlayProps {
   show: boolean;
-  exportProgress: number;
   onCancel?: () => void;
 }
 
@@ -112,15 +109,16 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         }
       } else if (e.data?.type === 'sr-export-diagnostics') {
         const d = e.data.diagnostics || {};
-        const mode = d.turbo ? 'Turbo' : 'Standard';
+        const mode = d.turbo ? t.exportDiagnosticsTurbo : t.exportDiagnosticsStandard;
         const codec = typeof d.codec === 'string' ? d.codec : '-';
         const backend = typeof d.backend === 'string' ? d.backend : '-';
         const sfe = d.sfe ? ' + SFE' : '';
         const deviation = typeof d.bitrateDeviationPercent === 'number'
           ? `${Math.abs(d.bitrateDeviationPercent).toFixed(1)}%`
           : '-';
-        const fallback = d.fallbackUsed ? ' · fallback' : '';
-        setDiagnosticsLine(`${mode} · ${codec}${sfe} · ${backend} · dev ${deviation}${fallback}`);
+        const fallback = d.fallbackUsed ? ` · ${t.exportDiagnosticsFallback}` : '';
+        const deviationLabel = t.exportDiagnosticsDeviation.replace('{value}', deviation);
+        setDiagnosticsLine(`${mode} · ${codec}${sfe} · ${backend} · ${deviationLabel}${fallback}`);
       }
     };
     window.addEventListener('message', handler);
@@ -179,9 +177,11 @@ interface ConfirmDialogProps {
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Label of the destructive action button. */
+  confirmLabel: string;
 }
 
-export function ConfirmDialog({ show, title, message, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ show, title, message, onConfirm, onCancel, confirmLabel }: ConfirmDialogProps) {
   const { t } = useSettings();
 
   return (
@@ -202,46 +202,8 @@ export function ConfirmDialog({ show, title, message, onConfirm, onCancel }: Con
               data-active="true"
               data-emphasis="strong"
             >
-              {t.clearAll || 'Confirm'}
+              {confirmLabel}
             </Button>
-          </div>
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ============================================================================
-// MonitorSelectDialog
-// ============================================================================
-interface MonitorSelectDialogProps {
-  show: boolean;
-  onClose: () => void;
-  monitors: MonitorInfo[];
-  onSelectMonitor: (monitorId: string) => void;
-}
-
-export function MonitorSelectDialog({ show, onClose, monitors, onSelectMonitor }: MonitorSelectDialogProps) {
-  const { t } = useSettings();
-
-  return (
-    <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent size="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t.selectMonitor}</DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-          <div className="monitor-list space-y-1.5">
-            {monitors.map((monitor) => (
-              <button
-                key={monitor.id}
-                onClick={() => { onClose(); onSelectMonitor(monitor.id); }}
-                className="monitor-item ui-choice-tile w-full rounded-xl p-3 text-left"
-              >
-                <div className="monitor-name text-sm text-[var(--on-surface)]">{monitor.name}</div>
-                <div className="monitor-specs text-xs text-[var(--outline)] mt-0.5">{formatMonitorDialogSummary(monitor)}</div>
-              </button>
-            ))}
           </div>
         </DialogBody>
       </DialogContent>

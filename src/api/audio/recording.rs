@@ -1,8 +1,8 @@
-//! Main audio recording functions and Parakeet streaming.
+//! Main audio recording functions.
 
 use std::io::Cursor;
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicBool, Ordering},
     mpsc,
 };
@@ -12,10 +12,8 @@ use windows::Win32::Foundation::*;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::transcription::execute_audio_processing_logic;
-use super::utils::{calculate_result_rects, create_streaming_overlay};
+use super::utils::calculate_result_rects;
 use crate::config::Preset;
-use crate::overlay::result::update_window_text;
 
 struct AudioComApartment;
 
@@ -40,120 +38,6 @@ impl Drop for AudioComApartment {
     }
 }
 
-/// Record and stream audio using Parakeet (local speech recognition)
-pub fn record_and_stream_parakeet(
-    preset: Preset,
-    stop_signal: Arc<AtomicBool>,
-    pause_signal: Arc<AtomicBool>,
-    abort_signal: Arc<AtomicBool>,
-    overlay_hwnd: HWND,
-    _target_window: Option<HWND>,
-) {
-    let auto_paste = Arc::new(crate::overlay::utils::StreamingAutoPaste::new(
-        preset.auto_paste,
-        abort_signal.clone(),
-    ));
-    let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-    let full_audio_buffer = Arc::new(Mutex::new(super::retention::AudioAttachment::default()));
-    let acc_clone = accumulated_text.clone();
-    let callback_paste = auto_paste.clone();
-
-    // Create streaming overlay if enabled
-    let streaming_hwnd = create_streaming_overlay(&preset);
-    let streaming_hwnd_clone = streaming_hwnd;
-
-    let callback = move |text: String| {
-        if !text.is_empty() {
-            if let Ok(mut txt) = acc_clone.lock() {
-                txt.push_str(&text);
-
-                // Update streaming window if active
-                if let Some(h) = streaming_hwnd_clone {
-                    update_window_text(h, &txt);
-                }
-            }
-            callback_paste.final_text(&text);
-        }
-    };
-
-    println!("[ParakeetStream] Starting Parakeet session...");
-
-    // Run Parakeet session (blocks until stopped)
-    let res = crate::api::realtime_audio::parakeet::run_parakeet_session(
-        crate::api::realtime_audio::parakeet::ParakeetSessionOptions {
-            stop_signal: stop_signal.clone(),
-            pause_signal: pause_signal.clone(),
-            full_audio_buffer: Some(full_audio_buffer.clone()),
-            overlay_hwnd_opt: Some(overlay_hwnd),
-            hide_recording_ui: preset.hide_recording_ui,
-            use_badge: true,
-            audio_source_override: Some(preset.audio_source.clone()),
-            auto_stop_recording: preset.auto_stop_recording,
-        },
-        callback,
-    );
-    auto_paste.begin_drain();
-    auto_paste.finish();
-
-    // Close streaming window immediately after recording stops
-    if let Some(h) = streaming_hwnd {
-        unsafe {
-            let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
-
-    if let Err(e) = res {
-        eprintln!("[ParakeetStream] Error: {:?}", e);
-    }
-    crate::overlay::screen_record::notify_external_audio_capture_released("parakeet-stream");
-
-    // Check for abort
-    if abort_signal.load(Ordering::SeqCst) {
-        unsafe {
-            if IsWindow(Some(overlay_hwnd)).as_bool() {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
-        return;
-    }
-
-    let final_text = accumulated_text.lock().unwrap().clone();
-    println!("[ParakeetStream] Final Result: '{}'", final_text);
-
-    if final_text.is_empty() {
-        unsafe {
-            if IsWindow(Some(overlay_hwnd)).as_bool() {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
-        return;
-    }
-
-    let final_wav = {
-        let samples = full_audio_buffer.lock().unwrap();
-        samples.wav()
-    };
-
-    // Save history
-    {
-        let app = crate::APP.lock().unwrap();
-        app.history
-            .save_audio(final_wav.clone(), final_text.clone());
-    }
-
-    let (rect, retrans) = calculate_result_rects(&preset);
-
-    crate::overlay::process::show_audio_result(
-        preset,
-        final_text,
-        final_wav,
-        rect,
-        retrans,
-        overlay_hwnd,
-        true, // is_streaming_result: disable auto-paste
-    );
-}
-
 /// Record audio and transcribe using configured API provider
 pub fn record_audio_and_transcribe(
     preset: Preset,
@@ -161,7 +45,12 @@ pub fn record_audio_and_transcribe(
     pause_signal: Arc<AtomicBool>,
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
+    recording_token: Arc<crate::overlay::result::ChainCancelToken>,
 ) {
+    if recording_token.is_cancelled() {
+        return;
+    }
     let diagnostics = super::capture_diagnostics::CaptureDiagnostics::new(
         "record-then-process",
         &preset.audio_source,
@@ -171,9 +60,7 @@ pub fn record_audio_and_transcribe(
         Ok(apartment) => apartment,
         Err(error) => {
             diagnostics.event("open_error", &format!("initialize COM: {error}"));
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     };
@@ -196,9 +83,10 @@ pub fn record_audio_and_transcribe(
                 Some(d) => d,
                 None => {
                     diagnostics.event("open_error", "No default output device found for loopback");
-                    unsafe {
-                        let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+                    crate::overlay::recording::close_if_current_recording(
+                        overlay_hwnd,
+                        &recording_token,
+                    );
                     return;
                 }
             }
@@ -206,9 +94,7 @@ pub fn record_audio_and_transcribe(
         #[cfg(not(target_os = "windows"))]
         {
             eprintln!("Error: Device capture not supported on this OS.");
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     } else {
@@ -216,9 +102,10 @@ pub fn record_audio_and_transcribe(
             Some(d) => d,
             None => {
                 diagnostics.event("open_error", "No default input device available");
-                unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
+                crate::overlay::recording::close_if_current_recording(
+                    overlay_hwnd,
+                    &recording_token,
+                );
                 return;
             }
         }
@@ -231,9 +118,10 @@ pub fn record_audio_and_transcribe(
                 Ok(c) => c,
                 Err(e) => {
                     diagnostics.event("open_error", &format!("query config: {e}"));
-                    unsafe {
-                        let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+                    crate::overlay::recording::close_if_current_recording(
+                        overlay_hwnd,
+                        &recording_token,
+                    );
                     return;
                 }
             },
@@ -243,41 +131,46 @@ pub fn record_audio_and_transcribe(
             Ok(c) => c,
             Err(e) => {
                 diagnostics.event("open_error", &format!("query config: {e}"));
-                unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
+                crate::overlay::recording::close_if_current_recording(
+                    overlay_hwnd,
+                    &recording_token,
+                );
                 return;
             }
         }
     };
 
-    let sample_rate = config.sample_rate();
-    let channels = config.channels();
-
-    let spec = hound::WavSpec {
-        channels,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
-    };
+    let spec = transcription_wav_spec();
 
     let (tx, rx) = mpsc::channel::<Vec<i16>>();
+    let budget = super::retention::CaptureBudget::new(spec.sample_rate, spec.channels);
+    let limit_exceeded = Arc::new(AtomicBool::new(false));
+    let callback_limit_exceeded = limit_exceeded.clone();
+    let callback_stop = stop_signal.clone();
     let callback_diagnostics = diagnostics.clone();
+    let callback_token = recording_token.clone();
     let stream_res = super::pcm_capture::build(
         &device,
         &config,
         super::pcm_capture::CaptureOptions {
-            interleaved: true,
+            // Downmix and resample in the callback: speech providers consume
+            // 16 kHz mono, and native-rate stereo would be ~6x larger inline.
+            interleaved: false,
             stop: stop_signal.clone(),
             pause: pause_signal_audio.clone(),
             diagnostics: callback_diagnostics,
         },
         move |pcm| {
-            let rms = crate::api::gemini_transcribe::compute_i16_rms(&pcm);
-            crate::overlay::recording::update_audio_viz(rms);
-            if rms > 0.001 {
-                crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+            if !should_capture(&callback_stop, &callback_token) {
+                return;
             }
+            if !budget.claim(pcm.len()) {
+                callback_limit_exceeded.store(true, Ordering::SeqCst);
+                crate::overlay::recording::stop_if_current_recording(&callback_token);
+                return;
+            }
+            let rms = crate::api::gemini_transcribe::compute_i16_rms(&pcm);
+            crate::overlay::recording::update_viz_if_current_recording(&callback_token, rms);
             let _ = tx.send(pcm);
         },
         |_| {},
@@ -286,9 +179,7 @@ pub fn record_audio_and_transcribe(
     if let Err(e) = stream_res {
         diagnostics.event("open_error", &format!("build stream: {e}"));
         eprintln!("Failed to build stream: {}", e);
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
     let stream = stream_res.unwrap();
@@ -296,14 +187,12 @@ pub fn record_audio_and_transcribe(
     if let Err(e) = stream.play() {
         diagnostics.event("open_error", &format!("play stream: {e}"));
         eprintln!("Failed to play stream: {}", e);
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
     let mut collected_samples: Vec<i16> = Vec::new();
-    diagnostics.event("playing", "interleaved recording");
+    diagnostics.event("playing", "16 kHz mono recording");
 
     // Auto-stop state
     let auto_stop_enabled = preset.auto_stop_recording;
@@ -314,7 +203,7 @@ pub fn record_audio_and_transcribe(
     const SILENCE_LIMIT_MS: u128 = 800;
     const MIN_RECORDING_MS: u128 = 2000;
 
-    while !stop_signal.load(Ordering::SeqCst) {
+    while should_capture(&stop_signal, &recording_token) {
         while let Ok(chunk) = rx.try_recv() {
             collected_samples.extend(chunk);
         }
@@ -340,7 +229,7 @@ pub fn record_audio_and_transcribe(
                 if recording_duration >= MIN_RECORDING_MS {
                     let silence_duration = last_active_time.elapsed().as_millis();
                     if silence_duration > SILENCE_LIMIT_MS {
-                        stop_signal.store(true, Ordering::SeqCst);
+                        crate::overlay::recording::stop_if_current_recording(&recording_token);
                     }
                 }
             }
@@ -358,6 +247,12 @@ pub fn record_audio_and_transcribe(
     }
     std::thread::sleep(std::time::Duration::from_millis(80));
     drop(stream);
+    if recording_token.is_cancelled() {
+        crate::overlay::screen_record::notify_external_audio_capture_released(
+            "record-then-process",
+        );
+        return;
+    }
     diagnostics.event(
         "stopped",
         &format!(
@@ -370,13 +265,17 @@ pub fn record_audio_and_transcribe(
     crate::overlay::screen_record::notify_external_audio_capture_released("record-then-process");
     std::thread::sleep(std::time::Duration::from_millis(40));
 
-    if abort_signal.load(Ordering::SeqCst) {
-        unsafe {
-            if IsWindow(Some(overlay_hwnd)).as_bool() {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
+    if abort_signal.load(Ordering::SeqCst) || recording_token.is_cancelled() {
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
+    }
+
+    if limit_exceeded.load(Ordering::SeqCst) {
+        diagnostics.event("recording_limit", "maximum recording duration exceeded");
+        crate::overlay::recording::notify_if_current_recording(
+            &recording_token,
+            "Recording stopped at the 10-minute limit.",
+        );
     }
 
     while let Ok(chunk) = rx.try_recv() {
@@ -387,9 +286,7 @@ pub fn record_audio_and_transcribe(
 
     if samples.is_empty() {
         println!("Warning: Recorded audio buffer is empty.");
-        unsafe {
-            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
@@ -406,6 +303,10 @@ pub fn record_audio_and_transcribe(
     }
     let wav_data = wav_cursor.into_inner();
 
+    if recording_token.is_cancelled() {
+        return;
+    }
+
     // For MASTER presets, show the wheel BEFORE transcription
     let working_preset = if preset.is_master {
         let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
@@ -417,98 +318,137 @@ pub fn record_audio_and_transcribe(
 
         let audio_mode = Some(preset.audio_source.as_str());
         let selected =
-            crate::overlay::preset_wheel::show_preset_wheel("audio", audio_mode, cursor_pos);
+            crate::overlay::preset_wheel::show_preset_wheel_id("audio", audio_mode, cursor_pos);
 
-        if let Some(idx) = selected {
-            let mut app = crate::APP.lock().unwrap();
+        if let Some(Some(selected_preset)) = recording_token.run_if_active(|| {
+            let selected = selected.as_deref()?;
+            let mut app = crate::APP.lock().ok()?;
+            let idx = app
+                .config
+                .presets
+                .iter()
+                .position(|preset| preset.id == selected)?;
+            let selected_preset = app.config.presets[idx].clone();
             app.config.active_preset_idx = idx;
-            app.config.presets[idx].clone()
+            Some(selected_preset)
+        }) {
+            selected_preset
         } else {
-            unsafe {
-                if IsWindow(Some(overlay_hwnd)).as_bool() {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-            }
+            crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
             return;
         }
     } else {
         preset.clone()
     };
 
-    let wav_data_for_history = wav_data.clone();
-    let transcription_result = execute_audio_processing_logic(&working_preset, wav_data);
-
-    if abort_signal.load(Ordering::SeqCst) {
-        unsafe {
-            if IsWindow(Some(overlay_hwnd)).as_bool() {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
+    if abort_signal.load(Ordering::SeqCst) || recording_token.is_cancelled() {
+        crate::overlay::recording::close_if_current_recording(overlay_hwnd, &recording_token);
         return;
     }
 
-    match transcription_result {
-        Ok(transcription_text) => {
-            let wav_data_for_overlay = wav_data_for_history.clone();
+    process_recorded_audio(
+        working_preset,
+        wav_data,
+        overlay_hwnd,
+        destination,
+        Some(recording_token),
+    );
+}
 
-            // Save history
-            {
-                let app = crate::APP.lock().unwrap();
-                app.history
-                    .save_audio(wav_data_for_history, transcription_text.clone());
-            }
-
-            let (rect, retranslate_rect) = calculate_result_rects(&working_preset);
-
-            crate::overlay::process::show_audio_result(
-                working_preset,
-                transcription_text,
-                wav_data_for_overlay,
-                rect,
-                retranslate_rect,
-                overlay_hwnd,
-                false, // is_streaming_result: standard transcription (allow paste)
-            );
-        }
-        Err(e) => {
-            eprintln!("Transcription error: {}", e);
-            unsafe {
-                if IsWindow(Some(overlay_hwnd)).as_bool() {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-            }
-        }
+/// Record-then-process audio is captured as 16 kHz mono PCM, the format the
+/// shared capture converter produces and every speech provider accepts.
+fn transcription_wav_spec() -> hound::WavSpec {
+    hound::WavSpec {
+        channels: 1,
+        sample_rate: 16_000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
     }
+}
+
+fn should_capture(
+    stop_signal: &AtomicBool,
+    recording_token: &crate::overlay::result::ChainCancelToken,
+) -> bool {
+    !stop_signal.load(Ordering::SeqCst) && !recording_token.is_cancelled()
 }
 
 /// Process an existing audio file (WAV data) using a specific preset.
 /// Used for drag-and-drop audio file processing without recording.
-pub fn process_audio_file_request(preset: Preset, wav_data: Vec<u8>) {
-    let processing_result = execute_audio_processing_logic(&preset, wav_data.clone());
+pub fn process_audio_file_request(
+    preset: Preset,
+    wav_data: Vec<u8>,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
+) {
+    process_recorded_audio(
+        preset,
+        wav_data,
+        HWND(std::ptr::null_mut()),
+        destination,
+        None,
+    );
+}
 
-    match processing_result {
-        Ok(result_text) => {
-            // Save history
-            {
-                let app = crate::APP.lock().unwrap();
-                app.history
-                    .save_audio(wav_data.clone(), result_text.clone());
+fn process_recorded_audio(
+    preset: Preset,
+    wav_data: Vec<u8>,
+    overlay_hwnd: HWND,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
+    recording_token: Option<Arc<crate::overlay::result::ChainCancelToken>>,
+) {
+    if recording_token
+        .as_ref()
+        .is_some_and(|token| token.is_cancelled())
+    {
+        return;
+    }
+    let initial_audio = crate::overlay::process::chain::initial_audio_blocks(
+        &preset.blocks,
+        &preset.block_connections,
+        preset.graph_explicit,
+    );
+    if initial_audio.is_empty() {
+        if preset
+            .blocks
+            .first()
+            .is_some_and(|block| block.block_type == "input_adapter")
+        {
+            let app = crate::APP.lock().unwrap();
+            if let Some(token) = &recording_token {
+                app.history.save_audio_shared_cancellable(
+                    wav_data.clone().into(),
+                    String::new(),
+                    token.clone(),
+                );
+            } else {
+                app.history.save_audio(wav_data.clone(), String::new());
             }
-
-            let (rect, retranslate_rect) = calculate_result_rects(&preset);
-
-            crate::overlay::process::show_audio_result(
-                preset,
-                result_text,
-                wav_data,
-                rect,
-                retranslate_rect,
-                HWND(std::ptr::null_mut()),
-                false, // is_streaming_result: file processing (allow paste)
-            );
-        }
-        Err(e) => {
-            eprintln!("Audio file processing error: {}", e);
+        } else {
+            if let Some(token) = recording_token.as_ref() {
+                crate::overlay::recording::notify_if_current_recording(
+                    token,
+                    "Audio preset has no reachable audio processing block.",
+                );
+                crate::overlay::recording::close_if_current_recording(overlay_hwnd, token);
+            } else {
+                crate::overlay::auto_copy_badge::show_error_notification(
+                    "Audio preset has no reachable audio processing block.",
+                );
+            }
+            return;
         }
     }
+    let (rect, retranslate_rect) = calculate_result_rects(&preset);
+    crate::overlay::process::show_audio_result(
+        preset,
+        String::new(),
+        wav_data,
+        rect,
+        retranslate_rect,
+        overlay_hwnd,
+        crate::overlay::process::AudioResultMode::Recorded(recording_token, destination),
+    );
 }
+
+#[cfg(test)]
+mod session_capture_tests;

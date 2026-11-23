@@ -4,12 +4,19 @@ Root `AGENTS.md` applies. Keep Android platform code thin.
 
 ## Owned downloader dependency
 
-- The sibling `youtubedl-android` composite checkout is an SGT-owned repository:
-  `https://github.com/nganlinh4/youtubedl-android`.
-- Android Video Downloader work is authorized to edit, commit, and push that
-  repository when the shared library itself requires a fix. Preserve unrelated
-  work and follow its upstream remote only for comparison; `origin` is the SGT
-  source of truth.
+- Start Android Video Downloader investigations at the boundary between the
+  Full app and the SGT-owned [youtubedl-android fork](https://github.com/nganlinh4/youtubedl-android).
+  From the SGT repo root, inspect the sibling checkout at `../youtubedl-android`
+  and confirm its `origin`. Gradle includes it from `mobile/settings.gradle.kts`.
+- Fix shared downloader code and native Python or FFmpeg launchers in the
+  sibling repo's `library/`, `common/`, or `ffmpeg/` module. Fix SGT's UI,
+  app-side process and job handling, or runtime delivery in this repo under
+  `mobile/androidApp/`.
+- When the library needs a fix, Android Video Downloader work authorizes
+  editing, committing, and pushing it to the fork's `origin`. Preserve
+  unrelated work in both repos. Use the upstream remote for comparison.
+  Follow the [maintenance workflow](README.md#android-video-downloader-development)
+  to update SGT's CI pin and verify the Full build.
 
 ## Phone Control gate
 

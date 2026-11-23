@@ -1,8 +1,7 @@
 import { useCallback, useRef } from "react";
-import type { MutableRefObject } from "react";
-import type { VideoSegment } from "@/types/video";
 import { updateSubtitleStylesAcrossTracks } from "@/lib/subtitleTrackMutations";
 import { saveStyleDefault } from "@/lib/stylePreferences";
+import { useCompositionSubtitleEditor, type CompositionSubtitleEditorOptions } from './useCompositionSubtitleEditor';
 
 interface OverlayDragMove {
   kind: "text" | "subtitle";
@@ -11,15 +10,9 @@ interface OverlayDragMove {
   y: number;
 }
 
-interface UseAppOverlaySelectionArgs {
-  segmentRef: MutableRefObject<VideoSegment | null>;
-  setSegment: (segment: VideoSegment) => void;
-}
-
-export function useAppOverlaySelection({
-  segmentRef,
-  setSegment,
-}: UseAppOverlaySelectionArgs) {
+export function useAppOverlaySelection(options: CompositionSubtitleEditorOptions) {
+  const subtitleEditor = useCompositionSubtitleEditor(options);
+  const { segmentRef, setSegment } = subtitleEditor;
   const selectedTextIdsRef = useRef<string[]>([]);
   const selectedSubtitleIdsRef = useRef<string[]>([]);
 
@@ -96,6 +89,7 @@ export function useAppOverlaySelection({
   }, [segmentRef, setSegment]);
 
   return {
+    subtitleEditor,
     selectedTextIdsRef,
     selectedSubtitleIdsRef,
     handleSelectedTextIdsChange,

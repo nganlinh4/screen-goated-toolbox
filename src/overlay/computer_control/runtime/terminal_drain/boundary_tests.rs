@@ -399,7 +399,6 @@ fn silent_terminal_response_expires_to_idle() {
     assert!(!state.awaiting);
     assert!(!state.terminal_boundary_seen);
     assert!(!state.terminal_final_response_delivered);
-    assert!(!super::super::scripted::turn_outcome_acceptable(&state));
 }
 
 #[test]

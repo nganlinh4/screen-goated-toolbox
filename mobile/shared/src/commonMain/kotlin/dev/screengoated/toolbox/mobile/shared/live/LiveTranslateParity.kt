@@ -3,11 +3,6 @@ package dev.screengoated.toolbox.mobile.shared.live
 private const val USER_SILENCE_TIMEOUT_MS = 800L
 private const val AI_SILENCE_TIMEOUT_MS = 1000L
 private const val MIN_FORCE_COMMIT_CHARS = 10
-private const val PARAKEET_BASE_TIMEOUT_MS = 800L
-private const val PARAKEET_SHORT_TIMEOUT_MS = 1200L
-private const val PARAKEET_MIN_WORDS = 2
-private const val PARAKEET_MIN_TIMEOUT_MS = 350L
-private const val PARAKEET_TIMEOUT_DECAY_RATE = 2.5
 private const val MAX_TRANSLATION_HISTORY = 3
 
 object LiveTranslateParity {
@@ -42,6 +37,8 @@ object LiveTranslateParity {
             lastCommittedPos = 0,
             lastProcessedLen = 0,
             committedTranslation = "",
+            translationRevision = state.translationRevision + 1,
+            translationRequestRevision = state.translationRequestRevision + 1,
             uncommittedTranslation = "",
             uncommittedSourceStart = 0,
             uncommittedSourceEnd = 0,
@@ -84,7 +81,7 @@ object LiveTranslateParity {
 
         // Detect divergence from previous transcript and roll back translation
         val previousTranscript = state.fullTranscript
-        val sharedPrefix = previousTranscript.commonPrefixWith(fullTranscript).length
+        val sharedPrefix = scalarAlignedSharedPrefix(previousTranscript, fullTranscript)
         val translationBoundary = state.lastCommittedPos.coerceAtMost(previousTranscript.length)
 
         val newState = state.copy(
@@ -92,6 +89,7 @@ object LiveTranslateParity {
             displayTranscript = joinDisplayText(state.frozenPrefix, fullTranscript),
             transcriptCommittedPos = committedPos.coerceAtMost(fullTranscript.length),
             lastTranscriptAppendAtMs = nowMs,
+            lastProcessedLen = processedLengthAfterCorrection(state, sharedPrefix, committedPos),
         )
 
         val reconciled = if (sharedPrefix < translationBoundary) {
@@ -134,19 +132,7 @@ object LiveTranslateParity {
             return state
         }
 
-        var textToAppend = newText
-        if (state.transcriptionMethod == TranscriptionMethod.PARAKEET) {
-            val needsCap = state.fullTranscript.trim().isEmpty() || sourceEndsWithSentence(state)
-            val firstContentIndex = textToAppend.indexOfFirst { !it.isWhitespace() }
-            if (needsCap && firstContentIndex >= 0) {
-                val prefix = textToAppend.substring(0, firstContentIndex)
-                val firstChar = textToAppend[firstContentIndex].uppercaseChar()
-                val suffix = textToAppend.substring(firstContentIndex + 1)
-                textToAppend = "$prefix$firstChar$suffix"
-            }
-        }
-
-        val fullTranscript = state.fullTranscript + textToAppend
+        val fullTranscript = state.fullTranscript + newText
         return state.copy(
             fullTranscript = fullTranscript,
             displayTranscript = joinDisplayText(state.frozenPrefix, fullTranscript),
@@ -204,8 +190,12 @@ object LiveTranslateParity {
                 ""
             },
             history = state.translationHistory,
+            revision = state.translationRequestRevision,
         )
     }
+
+    fun isTranslationRequestCurrent(state: LiveTextState, request: TranslationRequest): Boolean =
+        translationRequestMatches(state, request)
 
     fun applyTranslationResponse(
         state: LiveTextState,
@@ -213,7 +203,7 @@ object LiveTranslateParity {
         response: TranslationResponse,
         nowMs: Long,
     ): LiveTextState {
-        if (request.sourceStart != state.lastCommittedPos || request.sourceEnd > state.fullTranscript.length) {
+        if (!translationRequestMatches(state, request)) {
             return state
         }
 
@@ -337,20 +327,6 @@ object LiveTranslateParity {
         state: LiveTextState,
         nowMs: Long,
     ): Boolean {
-        if (state.transcriptionMethod == TranscriptionMethod.PARAKEET) {
-            if (state.lastCommittedPos >= state.fullTranscript.length) {
-                return false
-            }
-
-            val wordCount = countUncommittedWords(state)
-            if (wordCount < PARAKEET_MIN_WORDS) {
-                return false
-            }
-
-            val userTimeoutMs = calculateParakeetTimeoutMs(state, wordCount)
-            return nowMs - state.lastTranscriptAppendAtMs > userTimeoutMs
-        }
-
         if (state.uncommittedTranslation.isBlank()) {
             return false
         }
@@ -359,7 +335,7 @@ object LiveTranslateParity {
         if (pendingEnd <= state.lastCommittedPos) {
             return false
         }
-        val pendingLen = pendingEnd - state.lastCommittedPos
+        val pendingLen = state.fullTranscript.substring(state.lastCommittedPos, pendingEnd).encodeToByteArray().size
         if (pendingLen < MIN_FORCE_COMMIT_CHARS) {
             return false
         }
@@ -368,44 +344,6 @@ object LiveTranslateParity {
         val aiSilent = nowMs - state.lastTranslationUpdateAtMs > AI_SILENCE_TIMEOUT_MS
         val sourceReady = sourceRangeEndsWithSentence(state, pendingEnd) || pendingEnd > state.lastCommittedPos
         return sourceReady && userSilent && aiSilent
-    }
-
-    private fun countUncommittedWords(state: LiveTextState): Int {
-        if (state.lastCommittedPos >= state.fullTranscript.length) {
-            return 0
-        }
-        return state.fullTranscript
-            .substring(state.lastCommittedPos)
-            .split(Regex("\\s+"))
-            .count { it.isNotBlank() }
-    }
-
-    private fun calculateParakeetTimeoutMs(
-        state: LiveTextState,
-        wordCount: Int,
-    ): Long {
-        if (wordCount < 5) {
-            return PARAKEET_SHORT_TIMEOUT_MS
-        }
-
-        val segmentLen = if (state.lastCommittedPos >= state.fullTranscript.length) {
-            0
-        } else {
-            state.fullTranscript.substring(state.lastCommittedPos).length
-        }
-
-        val threshold = 30
-        if (segmentLen <= threshold) {
-            return PARAKEET_BASE_TIMEOUT_MS
-        }
-
-        val excessChars = segmentLen - threshold
-        val decay = (excessChars * PARAKEET_TIMEOUT_DECAY_RATE).toLong()
-        return (PARAKEET_BASE_TIMEOUT_MS - decay).coerceAtLeast(PARAKEET_MIN_TIMEOUT_MS)
-    }
-
-    private fun sourceEndsWithSentence(state: LiveTextState): Boolean {
-        return sourceRangeEndsWithSentence(state, state.fullTranscript.length)
     }
 
     private fun sourceRangeEndsWithSentence(
@@ -428,17 +366,6 @@ object LiveTranslateParity {
     }
 
     fun forceCommitAll(state: LiveTextState): LiveTextState {
-        if (state.transcriptionMethod == TranscriptionMethod.PARAKEET) {
-            if (state.lastCommittedPos < state.fullTranscript.length && !sourceEndsWithSentence(state)) {
-                val transcript = state.fullTranscript + ". "
-                return state.copy(
-                    fullTranscript = transcript,
-                    displayTranscript = joinDisplayText(state.frozenPrefix, transcript),
-                )
-            }
-            return state
-        }
-
         if (state.uncommittedTranslation.isBlank()) {
             return state
         }
@@ -561,6 +488,8 @@ object LiveTranslateParity {
                 lastCommittedPos = 0,
                 lastProcessedLen = 0,
                 committedTranslation = "",
+                translationRevision = state.translationRevision + 1,
+                translationRequestRevision = state.translationRequestRevision + 1,
                 uncommittedTranslation = "",
                 uncommittedSourceStart = 0,
                 uncommittedSourceEnd = 0,
@@ -582,10 +511,6 @@ object LiveTranslateParity {
                 uncommittedTranslation = "",
             ),
         )
-    }
-
-    private fun sanitizeTranscriptSegment(segment: String): String {
-        return segment.replace('\n', ' ').replace('\t', ' ')
     }
 
     private data class TranslationChunk(

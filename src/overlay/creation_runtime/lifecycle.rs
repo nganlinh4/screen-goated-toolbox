@@ -25,7 +25,7 @@ fn stop_all() {
         .unwrap_or_else(|value| value.into_inner())
         .drain()
         .collect::<Vec<_>>();
-    for pid in processes {
-        crate::overlay::creation_recovery::terminate_process_tree(pid);
+    for (_, target) in processes {
+        target.terminate();
     }
 }

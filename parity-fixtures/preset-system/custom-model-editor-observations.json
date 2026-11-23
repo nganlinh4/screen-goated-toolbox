@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"late_observation_after_edit","editor":"latest"},
+    {"event":"rapid_edits_then_old_observation","editor":"latest"},
+    {"event":"newer_external_edit","editor":"external"},
+    {"event":"failed_write_then_retry","editor":"latest","status":"saving"},
+    {"event":"reopen_with_pending_edit","editor":"latest"},
+    {"event":"edit_based_on_stale_models","result":"rejected","editor":"external"},
+    {"event":"save_status_changes_without_model_change","result":"accepted"}
+  ]
+}

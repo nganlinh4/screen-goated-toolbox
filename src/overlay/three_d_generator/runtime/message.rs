@@ -69,7 +69,6 @@ pub(super) fn request_value(operation: &RuntimeOperation) -> Value {
                 "generationMode": continuation.generation_mode,
                 "polycount": continuation.polycount,
                 "autoSegment": continuation.auto_segment,
-                "segmentationLevel": &continuation.segmentation_level,
                 "instruction": &continuation.instruction,
                 "kind": refinement.kind,
                 "segmentationLevel": &refinement.segmentation_level,

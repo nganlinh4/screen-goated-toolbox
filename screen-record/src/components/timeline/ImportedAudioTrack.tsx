@@ -3,14 +3,12 @@ import type { AudioGainPoint, ImportedAudioSegment } from "@/types/video";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { useTrackRangeSelect } from "./useTrackRangeSelect";
 import { getVolumeEnvelopeAtTime } from "./adjustableLineUtils";
-import {
-  buildContentMaskStyle,
-  getOverlapRange,
-  isSegmentStackedAbove,
-  rangesOverlap,
-} from "./subtitleTrackLayout";
+import { computeSegmentStackOverlaps } from "./segmentStackOverlaps";
 import { TrackVolumeCurve } from "./TrackVolumeCurve";
 import { useAudioSegmentTimelineEdit } from "./useAudioSegmentTimelineEdit";
+import { useAudioTrackTimeView } from "./audioTrackTimeView";
+import type { ClipAudioView } from "@/hooks/useClipAudioView";
+import { useSettings } from "@/hooks/useSettings";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
 import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
 import {
@@ -18,6 +16,7 @@ import {
   type TimelineVisibleRange,
 } from "./SegmentBlocksCanvas";
 import { buildTimelineRenderWindow } from "./timelineSegmentIndex";
+import { applyImportedAudioDrafts, useImportedAudioDrafts } from "@/lib/importedAudioDraftStore";
 
 interface ImportedAudioTrackProps {
   segments: ImportedAudioSegment[];
@@ -40,6 +39,8 @@ interface ImportedAudioTrackProps {
   onCommitSegments?: () => void;
   canvasWidthPx?: number;
   visibleTimeRange?: TimelineVisibleRange | null;
+  /** Multi-clip projects: maps this project-time lane onto the loaded clip's timeline. */
+  timeView?: ClipAudioView | null;
 }
 
 const MIN_VISIBLE_SEC = 0.05;
@@ -54,7 +55,7 @@ interface SelectableSegment {
 }
 
 export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
-  segments,
+  segments: committedSegments,
   duration,
   onSegmentClick,
   onDeleteSegments,
@@ -62,21 +63,37 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
   selectedRange: externalSelectedRange,
   onSelectionChange,
   onRangeChange,
-  onUpdateSegment,
+  onUpdateSegment: onUpdateProjectSegment,
   viewMode = "compact",
   clearSignal,
   onEmptyClick,
-  volumePoints,
-  onUpdateVolumePoints,
+  volumePoints: projectVolumePoints,
+  onUpdateVolumePoints: onUpdateProjectVolumePoints,
   beginBatch,
   commitBatch,
   onCommitSegments,
   canvasWidthPx = 0,
   visibleTimeRange,
+  timeView,
 }) => {
   countFrontendRender("ImportedAudioTrack");
+  const { t } = useSettings();
   const safeDuration = Math.max(duration, 0.001);
   const [frontSegmentId, setFrontSegmentId] = useState<string | null>(null);
+  // Uncommitted panel drafts (rate/trim) preview here declaratively.
+  const drafts = useImportedAudioDrafts();
+  const draftedSegments = useMemo(
+    () => applyImportedAudioDrafts(committedSegments, drafts),
+    [committedSegments, drafts],
+  );
+  const { segments, onUpdateSegment, volumePoints, onUpdateVolumePoints } = useAudioTrackTimeView({
+    view: timeView,
+    segments: draftedSegments,
+    duration,
+    onUpdateSegment: onUpdateProjectSegment,
+    volumePoints: projectVolumePoints,
+    onUpdateVolumePoints: onUpdateProjectVolumePoints,
+  });
 
   const selectable = useMemo<SelectableSegment[]>(
     () =>
@@ -145,6 +162,7 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
     handleAudioSegmentPointerDown,
     handleAudioSegmentPointerMove,
     handleAudioSegmentPointerUp,
+    getAudioSegmentKeys,
   } = useAudioSegmentTimelineEdit<ImportedAudioSegment>({
     duration,
     onUpdateSegment,
@@ -190,6 +208,15 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
     onSegmentClick?.(hit.id);
   };
 
+  // One sweep per render window instead of an O(N^2) scan inside each segment.
+  const stackOverlaps = useMemo(
+    () => computeSegmentStackOverlaps(renderWindow.domSegments, (index) => {
+      const other = renderWindow.domSegments[index];
+      return frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
+    }),
+    [effectiveSelectedIds, frontSegmentId, renderWindow.domSegments],
+  );
+
   return (
     <div
       ref={trackRef}
@@ -226,38 +253,27 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
         const leftPct = Math.min(100, Math.max(0, (seg.startTime / safeDuration) * 100));
         const isSelected = effectiveSelectedIds.has(seg.id);
         const isFront = frontSegmentId === seg.id;
-        const stackRank = isFront ? 3 : isSelected ? 2 : 1;
-        const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
-          if (other.id === renderSegment.id || !rangesOverlap(renderSegment, other)) return false;
-          const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
-          return !isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank);
-        });
-        const overlapRanges = renderWindow.domSegments
-          .map((other, otherIndex) => {
-            if (other.id === renderSegment.id) return null;
-            const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
-            if (!isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank)) return null;
-            return getOverlapRange(renderSegment, other);
-          })
-          .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
-        const contentMaskStyle = buildContentMaskStyle(overlapRanges);
+        const { hasCoveredSegmentUnderneath, contentMaskStyle } = stackOverlaps[renderSegmentIndex];
         const widthPx = (visible / safeDuration) * Math.max(canvasWidthPx, 1);
         const showSpeedBadge = Math.abs(rate - 1) > 0.001;
         const shouldRenderWaveform =
           viewMode === "volume" &&
           widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
           (!denseMode || isSelected || renderWindow.canvasSegments.some((entry) => entry.id === seg.id));
+        const keys = getAudioSegmentKeys(seg, {
+          name: `${t.trackAudio} "${seg.name}"`,
+          startLabel: t.timelineSegmentStart,
+          endLabel: t.timelineSegmentEnd,
+          visibleSec: visible,
+          onActivate: () => { addSegmentSelection(seg.id); setFrontSegmentId(seg.id); onSegmentClick?.(seg.id); },
+          onDelete: onDeleteSegments && (() => onDeleteSegments(isSelected ? [...effectiveSelectedIds] : [seg.id])),
+        });
         return (
           <div
             key={seg.id}
+            {...keys.body}
             className="audio-track-segment timeline-block absolute h-full cursor-move overflow-hidden group"
             data-audio-segment-id={seg.id}
-            data-start-time={seg.startTime}
-            data-in-point={seg.inPoint}
-            data-out-point={seg.outPoint}
-            data-playback-rate={rate}
-            data-duration={seg.duration}
-            data-timeline-duration={safeDuration}
             data-tone="primary"
             data-selected={isSelected ? "true" : undefined}
             style={{
@@ -297,8 +313,8 @@ export const ImportedAudioTrack: React.FC<ImportedAudioTrackProps> = ({
             onPointerUp={handleAudioSegmentPointerUp}
             onPointerCancel={handleAudioSegmentPointerUp}
           >
-            <div className="audio-track-segment-trim-start absolute inset-y-0 left-0 z-[2] w-2 cursor-ew-resize" />
-            <div className="audio-track-segment-trim-end absolute inset-y-0 right-0 z-[2] w-2 cursor-ew-resize" />
+            <div className="audio-track-segment-trim-start absolute inset-y-0 left-0 z-[2] w-2 cursor-ew-resize" {...keys.start} />
+            <div className="audio-track-segment-trim-end absolute inset-y-0 right-0 z-[2] w-2 cursor-ew-resize" {...keys.end} />
             {shouldRenderWaveform ? (
               <AudioWaveformLayer
                 sourcePath={seg.rawAudioPath}

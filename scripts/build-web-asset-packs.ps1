@@ -15,14 +15,11 @@ function Build-Frontend {
     )
 
     $projectRoot = Join-Path $repoRoot $Project
+    if (-not $SkipNpmInstall) {
+        & (Join-Path $PSScriptRoot "build-frontend-dependencies.ps1") -Project $projectRoot
+    }
     Push-Location $projectRoot
     try {
-        if (-not $SkipNpmInstall -and -not (Test-Path "node_modules")) {
-            & npm.cmd install
-            if ($LASTEXITCODE -ne 0) {
-                throw "$Name npm install failed"
-            }
-        }
         & npm.cmd run build
         if ($LASTEXITCODE -ne 0) {
             throw "$Name build failed"

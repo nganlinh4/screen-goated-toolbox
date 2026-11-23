@@ -6,31 +6,39 @@ use anyhow::{Context, Result, bail};
 
 use super::{UpdateCatalog, parse_verified};
 
-const MAX_CACHED_CATALOGS: usize = 64;
+/// Catalogs kept after a successful store; older sequences are pruned.
+const KEPT_CATALOGS: usize = 8;
+/// Upper bound on directory entries examined, whatever their kind.
+const MAX_SCANNED_ENTRIES: usize = 4_096;
 static STORE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub(super) fn load_highest() -> Result<Option<UpdateCatalog>> {
-    let root = root();
-    let Ok(metadata) = std::fs::symlink_metadata(&root) else {
-        return Ok(None);
-    };
-    validate_directory(&root, &metadata)?;
-    let mut candidates = Vec::new();
-    for entry in std::fs::read_dir(&root)?.take(MAX_CACHED_CATALOGS + 1) {
+    load_highest_in(&root())
+}
+
+/// Cached catalog files, newest sequence first. Signatures, temporaries and
+/// foreign files never count toward the catalog window.
+fn cached_catalogs(root: &Path) -> Result<Vec<(u64, PathBuf)>> {
+    let mut catalogs = Vec::new();
+    for entry in std::fs::read_dir(root)?.take(MAX_SCANNED_ENTRIES) {
         let entry = entry?;
         let name = entry.file_name();
-        let Some(name) = name.to_str() else {
+        let Some((sequence, _)) = name.to_str().and_then(super::network::parse_catalog_name) else {
             continue;
         };
-        if name.starts_with("sgt-component-catalog-v") && name.ends_with(".json") {
-            candidates.push(entry.path());
-        }
+        catalogs.push((sequence, entry.path()));
     }
-    if candidates.len() > MAX_CACHED_CATALOGS {
-        bail!("component catalog cache contains too many entries");
-    }
+    catalogs.sort_by(|left, right| right.cmp(left));
+    Ok(catalogs)
+}
+
+fn load_highest_in(root: &Path) -> Result<Option<UpdateCatalog>> {
+    let Ok(metadata) = std::fs::symlink_metadata(root) else {
+        return Ok(None);
+    };
+    validate_directory(root, &metadata)?;
     let mut best = None;
-    for catalog_path in candidates {
+    for (_, catalog_path) in cached_catalogs(root)? {
         let signature_path = catalog_path.with_extension("sig");
         let Ok(catalog) = read_regular(&catalog_path, 2 * 1024 * 1024) else {
             continue;
@@ -52,17 +60,41 @@ pub(super) fn load_highest() -> Result<Option<UpdateCatalog>> {
 }
 
 pub(super) fn store(name: &str, catalog: &[u8], signature: &[u8]) -> Result<()> {
-    if !name.starts_with("sgt-component-catalog-v") || !name.ends_with(".json") {
+    if super::network::parse_catalog_name(name).is_none() {
         bail!("component catalog cache name is invalid");
     }
     let _guard = STORE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let root = ensure_root()?;
+    store_in(&root, name, catalog, signature)
+}
+
+fn store_in(root: &Path, name: &str, catalog: &[u8], signature: &[u8]) -> Result<()> {
     let catalog_path = root.join(name);
     let signature_path = catalog_path.with_extension("sig");
     store_one(&catalog_path, catalog)?;
-    store_one(&signature_path, signature)
+    store_one(&signature_path, signature)?;
+    prune(root)
+}
+
+/// Keeps the newest catalog pairs so the cache stays small and offline
+/// startup always sees the highest stored sequence.
+fn prune(root: &Path) -> Result<()> {
+    for (_, catalog_path) in cached_catalogs(root)?.into_iter().skip(KEPT_CATALOGS) {
+        for path in [catalog_path.with_extension("sig"), catalog_path] {
+            match std::fs::symlink_metadata(&path) {
+                Ok(metadata)
+                    if metadata.is_file()
+                        && !super::super::receipt::is_reparse_point(&metadata) =>
+                {
+                    std::fs::remove_file(&path)?;
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
 
 fn root() -> PathBuf {
@@ -142,4 +174,63 @@ fn validate_directory(path: &Path, metadata: &std::fs::Metadata) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KEPT_CATALOGS, cached_catalogs, store_in};
+
+    fn temp_root(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "sgt-catalog-cache-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn name(sequence: u64) -> String {
+        format!(
+            "sgt-component-catalog-v{sequence:06}-{:016x}.json",
+            sequence
+        )
+    }
+
+    #[test]
+    fn scan_counts_only_catalogs_and_orders_newest_first() {
+        let root = temp_root("scan");
+        for sequence in 1..=40 {
+            std::fs::write(root.join(name(sequence)), b"{}").unwrap();
+            std::fs::write(root.join(name(sequence)).with_extension("sig"), b"s").unwrap();
+            std::fs::write(root.join(format!("{}.1.download", name(sequence))), b"t").unwrap();
+        }
+        let catalogs = cached_catalogs(&root).unwrap();
+        assert_eq!(catalogs.len(), 40);
+        assert_eq!(catalogs[0].0, 40);
+        assert!(catalogs.windows(2).all(|pair| pair[0].0 > pair[1].0));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn store_prunes_older_pairs_and_keeps_the_newest() {
+        let root = temp_root("prune");
+        for sequence in 1..=(KEPT_CATALOGS as u64 + 5) {
+            store_in(&root, &name(sequence), b"{}", b"s").unwrap();
+        }
+        let kept = cached_catalogs(&root).unwrap();
+        assert_eq!(kept.len(), KEPT_CATALOGS);
+        assert_eq!(kept[0].0, KEPT_CATALOGS as u64 + 5);
+        assert!(!root.join(name(1)).exists());
+        assert!(!root.join(name(1)).with_extension("sig").exists());
+        assert!(
+            root.join(name(KEPT_CATALOGS as u64 + 5))
+                .with_extension("sig")
+                .exists()
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }

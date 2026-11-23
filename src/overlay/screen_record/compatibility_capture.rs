@@ -1,3 +1,4 @@
+mod frame_clock;
 mod process;
 mod supervisor;
 
@@ -96,6 +97,7 @@ struct CompatibilitySession {
     fps: u32,
     started: Instant,
     device_audio_enabled: bool,
+    device_sidecar_state: Arc<audio_engine::DeviceSidecarState>,
 }
 
 pub(super) fn is_requested(args: &Value) -> bool {
@@ -168,11 +170,14 @@ fn start_inner(args: &Value) -> Result<Value> {
         request.include_cursor,
         ffmpeg.display()
     );
-    let started = Instant::now();
+    let probe_started = Instant::now();
     let mut supervisor =
-        CaptureSupervisor::start(ffmpeg, process_config, paths.video.clone(), started)?;
+        CaptureSupervisor::start(ffmpeg, process_config, paths.video.clone(), probe_started)?;
+    let started = supervisor.started_at();
+    let device_sidecar_state = Arc::new(audio_engine::DeviceSidecarState::default());
 
     initialize_session_state(&paths, monitor, fps);
+    super::ipc::recording_state::own_compatibility_sidecars();
 
     let device_audio_enabled = !matches!(
         request.device_audio_source,
@@ -187,6 +192,7 @@ fn start_inner(args: &Value) -> Result<Value> {
                     started,
                     engine::SHOULD_STOP_AUDIO.clone(),
                     engine::AUDIO_ENCODING_FINISHED.clone(),
+                    device_sidecar_state.clone(),
                 )
             }
             audio_engine::DeviceAudioCaptureSource::SingleApp(process_id) => {
@@ -200,7 +206,12 @@ fn start_inner(args: &Value) -> Result<Value> {
             }
         };
         if let Err(error) = audio_result {
-            engine::AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            if matches!(
+                request.device_audio_source,
+                audio_engine::DeviceAudioCaptureSource::SystemOutput
+            ) {
+                engine::AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            }
             supervisor.abort();
             let _ = std::fs::remove_file(&paths.video);
             reset_failed_start();
@@ -219,6 +230,7 @@ fn start_inner(args: &Value) -> Result<Value> {
         cursor_stop.clone(),
         engine::compute_cursor_sample_interval(fps),
     ));
+    input_capture::set_timeline_origin(started);
     if let Err(error) = input_capture::start_capture() {
         eprintln!("[CompatibilityCapture] input capture start failed: {error}");
     }
@@ -231,6 +243,7 @@ fn start_inner(args: &Value) -> Result<Value> {
         fps,
         started,
         device_audio_enabled,
+        device_sidecar_state,
     });
 
     println!(
@@ -253,7 +266,7 @@ fn stop_inner() -> Result<Value> {
         "[CompatibilityCapture][Stop] requested elapsed_ms={}",
         session.started.elapsed().as_millis()
     );
-    let recording_duration = session.started.elapsed();
+    let recording_duration = session.device_sidecar_state.stop_now(session.started);
 
     engine::SHOULD_STOP.store(true, Ordering::SeqCst);
     engine::SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
@@ -261,30 +274,29 @@ fn stop_inner() -> Result<Value> {
     if let Some(thread) = session.cursor_thread.take() {
         let _ = thread.join();
     }
-    let input_events = input_capture::stop_capture_and_drain();
+    input_capture::stop_capture();
 
     let capture_result = session.supervisor.stop(recording_duration);
     engine::ENCODING_FINISHED.store(true, Ordering::SeqCst);
     if let Err(error) = wait_for_sidecars() {
-        for path in [
-            &session.paths.video,
-            &session.paths.device_audio,
-            &session.paths.mic_audio,
-            &session.paths.webcam_video,
-        ] {
-            let _ = std::fs::remove_file(path);
-        }
-        reset_after_stop();
+        preserve_failed_stop(&error.to_string());
         return Err(error);
     }
 
-    let segment_count = capture_result.inspect_err(|_| reset_after_stop())?;
+    if let Some(error) = session.device_sidecar_state.error() {
+        preserve_failed_stop(&error);
+        bail!("{error}; recorded files were retained");
+    }
+
+    let segment_count =
+        capture_result.inspect_err(|error| preserve_failed_stop(&error.to_string()))?;
     if !is_nonempty_file(&session.paths.video) {
-        reset_after_stop();
+        preserve_failed_stop("Compatibility capture produced no video");
         bail!("Compatibility capture produced no video");
     }
 
-    let result = build_result(&session, input_events)?;
+    let result = build_result(&session, input_capture::drain_captured_events())
+        .inspect_err(|error| preserve_failed_stop(&error.to_string()))?;
     reset_after_stop();
     eprintln!(
         "[CompatibilityCapture][Stop] complete elapsed_ms={} segments={} video_path={}",
@@ -295,11 +307,17 @@ fn stop_inner() -> Result<Value> {
     Ok(result)
 }
 
+fn preserve_failed_stop(error: &str) {
+    *engine::FINALIZATION_ERROR.lock() = Some(error.to_string());
+    engine::IS_RECORDING.store(true, Ordering::SeqCst);
+}
+
 pub(super) fn abort() {
     let Some(mut session) = ACTIVE_SESSION.lock().take() else {
         return;
     };
     eprintln!("[CompatibilityCapture] aborting active process capture");
+    session.device_sidecar_state.stop_now(session.started);
     engine::SHOULD_STOP.store(true, Ordering::SeqCst);
     engine::SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
     session.cursor_stop.store(true, Ordering::SeqCst);
@@ -312,7 +330,7 @@ pub(super) fn abort() {
 }
 
 fn prepare_paths() -> Result<SessionPaths> {
-    let directory = crate::paths::app_local_data_dir().join("recordings");
+    let directory = crate::paths::app_runtime_local_data_dir().join("recordings");
     std::fs::create_dir_all(&directory)
         .with_context(|| format!("create recordings directory {}", directory.display()))?;
     let timestamp = SystemTime::now()
@@ -320,12 +338,21 @@ fn prepare_paths() -> Result<SessionPaths> {
         .context("system clock precedes Unix epoch")?
         .as_millis();
     let stem = format!("recording_{timestamp}_display");
-    Ok(SessionPaths {
+    let paths = SessionPaths {
         video: directory.join(format!("{stem}.mp4")),
         device_audio: directory.join(format!("{stem}_device.wav")),
         mic_audio: directory.join(format!("{stem}_mic.wav")),
         webcam_video: directory.join(format!("{stem}_webcam.mp4")),
-    })
+    };
+    for path in [
+        &paths.video,
+        &paths.device_audio,
+        &paths.mic_audio,
+        &paths.webcam_video,
+    ] {
+        super::recording_journal::track(path).map_err(anyhow::Error::msg)?;
+    }
+    Ok(paths)
 }
 
 fn initialize_session_state(paths: &SessionPaths, monitor: &engine::MonitorInfo, fps: u32) {
@@ -500,95 +527,7 @@ fn reset_after_stop() {
     engine::IS_RECORDING.store(false, Ordering::SeqCst);
     engine::ENCODER_ACTIVE.store(false, Ordering::SeqCst);
     engine::ENCODING_FINISHED.store(true, Ordering::SeqCst);
-    engine::AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-    engine::MIC_AUDIO_ENCODING_FINISHED.store(true, Ordering::SeqCst);
-    engine::WEBCAM_ENCODING_FINISHED.store(true, Ordering::SeqCst);
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn desktop_duplication_requires_display_and_a_risky_window() {
-        assert!(!route_to_desktop_duplication("monitor", false));
-        assert!(route_to_desktop_duplication("monitor", true));
-        assert!(!route_to_desktop_duplication("window", false));
-        assert!(!route_to_desktop_duplication("window", true));
-    }
-
-    #[test]
-    fn request_rejects_window_and_requires_a_selected_audio_app() {
-        let window = serde_json::json!({
-            "targetType": "window",
-            "targetId": "1"
-        });
-        assert!(CaptureRequest::from_args(&window).is_err());
-
-        let per_app = serde_json::json!({
-            "targetType": "monitor",
-            "targetId": "0",
-            "deviceAudioEnabled": true,
-            "deviceAudioMode": "app"
-        });
-        assert!(CaptureRequest::from_args(&per_app).is_err());
-
-        let selected_app = serde_json::json!({
-            "targetType": "monitor",
-            "targetId": "0",
-            "deviceAudioEnabled": true,
-            "deviceAudioMode": "app",
-            "deviceAudioAppPid": 1234
-        });
-        let request = CaptureRequest::from_args(&selected_app).expect("selected app is valid");
-        assert!(matches!(
-            request.device_audio_source,
-            audio_engine::DeviceAudioCaptureSource::SingleApp(1234)
-        ));
-    }
-
-    #[test]
-    #[ignore = "requires an interactive Windows desktop and FFmpeg"]
-    fn compatibility_process_lifecycle_smoke() {
-        let args = serde_json::json!({
-            "targetType": "monitor",
-            "targetId": "0",
-            "fps": 30,
-            "includeCursor": false,
-            "deviceAudioEnabled": true,
-            "deviceAudioMode": "all",
-            "micEnabled": false,
-            "webcamEnabled": false
-        });
-        start_inner(&args).expect("start compatibility capture");
-        std::thread::sleep(Duration::from_millis(1_200));
-        let result = stop_inner().expect("stop compatibility capture");
-        let video_path = result["videoFilePath"]
-            .as_str()
-            .expect("video path in result");
-        let audio_path = result["deviceAudioPath"]
-            .as_str()
-            .expect("device audio path in result");
-        assert!(is_nonempty_file(Path::new(video_path)));
-        assert!(is_nonempty_file(Path::new(audio_path)));
-        eprintln!("[CompatibilityCapture][Smoke] video={video_path} audio={audio_path}");
-    }
-
-    #[test]
-    #[ignore = "requires an interactive Windows desktop and FFmpeg"]
-    fn compatibility_abort_stops_process() {
-        let args = serde_json::json!({
-            "targetType": "monitor",
-            "targetId": "0",
-            "fps": 30,
-            "includeCursor": false,
-            "deviceAudioEnabled": false,
-            "micEnabled": false,
-            "webcamEnabled": false
-        });
-        start_inner(&args).expect("start compatibility capture");
-        std::thread::sleep(Duration::from_millis(300));
-        abort();
-        assert!(!is_active());
-    }
-}
+mod tests;

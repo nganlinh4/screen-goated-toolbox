@@ -6,6 +6,9 @@ use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
 pub(crate) fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
+    if !super::window_responsiveness::window_answers_messages(hwnd) {
+        return None;
+    }
     unsafe {
         let mut rect = RECT::default();
         if DwmGetWindowAttribute(

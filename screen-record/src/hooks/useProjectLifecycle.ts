@@ -35,6 +35,7 @@ export interface UseProjectLifecycleParams {
   projects: {
     projects: Project[];
     loadProjects: () => Promise<void>;
+    refreshProjectEntry: (projectId: string) => Promise<void>;
     setCurrentProjectId: (id: string | null) => void;
   };
   currentVideo: string | null;
@@ -62,11 +63,12 @@ export interface UseProjectLifecycleParams {
     composition?: ProjectComposition | null,
   ) => Promise<ClipMediaAssets | null>;
   setComposition: (c: ProjectComposition | null) => void;
+  /** History-neutral setter for persistence write-backs; never records undo or clears redo. */
+  setCompositionSilently: (c: ProjectComposition | null) => void;
   setCurrentProjectData: (p: Project | null) => void;
   // useRecordingControls params
   monitors: MonitorInfo[];
   getMonitors: () => Promise<MonitorInfo[]>;
-  getWindows: () => Promise<unknown>;
   isRecording: boolean;
   startNewRecording: (
     targetId: string,
@@ -76,8 +78,6 @@ export interface UseProjectLifecycleParams {
     audioSelection: import("@/types/recordingAudio").RecordingAudioSelection,
   ) => Promise<void>;
   setError: (error: string) => void;
-  showWindowSelect: boolean;
-  setShowWindowSelect: (show: boolean) => void;
   setCurrentRecordingMode: (mode: RecordingMode) => void;
   setCurrentRawVideoPath: (path: string) => void;
   setCurrentRawMicAudioPath: (path: string) => void;
@@ -88,7 +88,7 @@ export interface UseProjectLifecycleParams {
   projectsDialog: {
     showProjectsDialog: boolean;
     setShowProjectsDialog: (show: boolean) => void;
-    handleLoadProject: (id: string) => Promise<void>;
+    handleLoadProject: (id: string) => Promise<import('./useProjects').ProjectLoadResult>;
   };
   isProjectInteractionShieldVisible: boolean;
   projectInteractionShieldReleaseRef: MutableRefObject<(() => void) | null>;
@@ -129,6 +129,8 @@ export interface UseProjectLifecycleParams {
     rawMicAudioPath: string | null;
     rawWebcamVideoPath: string | null;
     capturedFps: number | null;
+    recordingId: string;
+    markSaved: () => Promise<void>;
   } | null>;
   rawAutoCopyEnabled: boolean;
   rawSaveDir: string;
@@ -169,15 +171,13 @@ export function useProjectLifecycle({
   webcamConfig,
   loadClipAssets,
   setComposition,
+  setCompositionSilently,
   setCurrentProjectData,
   monitors,
   getMonitors,
-  getWindows,
   isRecording,
   startNewRecording,
   setError,
-  showWindowSelect,
-  setShowWindowSelect,
   setCurrentRecordingMode,
   setCurrentRawVideoPath,
   setCurrentRawMicAudioPath,
@@ -215,7 +215,7 @@ export function useProjectLifecycle({
     useProjectPersistence({
       currentProjectId,
       currentProjectIdRef,
-      projects: { projects: projects.projects, loadProjects: projects.loadProjects },
+      projects: { refreshProjectEntry: projects.refreshProjectEntry },
       currentVideo,
       currentAudio,
       currentMicAudio,
@@ -238,7 +238,7 @@ export function useProjectLifecycle({
       isProjectTransitionRef,
       isSwitchingCompositionClipRef,
       loadClipAssets,
-      setComposition,
+      commitPersistedComposition: setCompositionSilently,
     });
   persistRef.current = persistCurrentProjectNow;
 
@@ -255,12 +255,9 @@ export function useProjectLifecycle({
   const recordingControls = useRecordingControls({
     monitors,
     getMonitors,
-    getWindows,
     isRecording,
     startNewRecording,
     setError,
-    showWindowSelect,
-    setShowWindowSelect,
     currentProjectId,
     currentVideo,
     segment,
@@ -330,6 +327,7 @@ export function useProjectLifecycle({
 
   const { onStopRecording } = useStopRecording({
     handleStopRecording,
+    setError,
     backgroundConfig,
     generateThumbnail,
     projects: {

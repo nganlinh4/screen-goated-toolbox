@@ -7,6 +7,8 @@ pub(super) fn get() -> WorkspaceLocaleText {
         max_items_label: "Giới hạn lưu:",
         cc_memory_max_label: "Bộ nhớ Điều khiển máy tính:",
         history_empty: "Chưa có lịch sử nào.",
+        history_write_failed: "Không thể lưu lịch sử. Các kết quả trước vẫn được giữ lại. Hãy thử lại thao tác.",
+        history_load_failed: "Không thể tải lịch sử. Dữ liệu hiện có vẫn được giữ lại. Kiểm tra bộ nhớ rồi khởi động lại ứng dụng.",
         clear_all_history_btn: "Dọn tất cả",
         view_image_btn: "Xem ảnh",
         listen_audio_btn: "Nghe audio",
@@ -27,5 +29,7 @@ pub(super) fn get() -> WorkspaceLocaleText {
         search_synthesizing: "ĐANG TỔNG HỢP THÔNG TIN...",
         search_analyzed_sources: "Đã phân tích {} nguồn",
         search_processing: "Đang xử lý và tóm tắt kết quả...",
+        history_show_more: "Xem thêm",
+        history_show_less: "Thu gọn",
     }
 }

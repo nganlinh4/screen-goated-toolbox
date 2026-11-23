@@ -1,16 +1,10 @@
-use serde::Deserialize;
+use crate::overlay::creation_commands::{self, Envelope as IpcEnvelope};
+use crate::overlay::creation_error::CreationError;
+use crate::overlay::generation_history::commands::ResultPathHooks;
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_MINIMIZE, ShowWindow, WM_CLOSE};
-
-#[derive(Deserialize)]
-struct IpcEnvelope {
-    #[serde(default)]
-    id: String,
-    cmd: String,
-    #[serde(default)]
-    args: Value,
-}
 
 pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
     let envelope: IpcEnvelope = match serde_json::from_str(body) {
@@ -20,13 +14,70 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             return;
         }
     };
-    if envelope.cmd == "read_image_preview" {
-        if let Err(error) = request_image_preview(hwnd, &envelope) {
-            send_reply(&envelope.id, Err(error));
+    if envelope.cmd == "start_job" {
+        let id = envelope.id.clone();
+        if let Err(error) = creation_commands::request(hwnd, envelope, body.len()) {
+            send_reply(&id, Err(error));
         }
         return;
     }
-    send_reply(&envelope.id, dispatch(hwnd, &envelope.cmd, &envelope.args));
+    if envelope.cmd == "read_image_preview" {
+        if let Err(error) = request_image_preview(hwnd, &envelope) {
+            send_reply(&envelope.id, Err(error.into()));
+        }
+        return;
+    }
+    let reply = crate::overlay::generation_history::commands::dispatch(
+        "svg",
+        &envelope.cmd,
+        &envelope.args,
+        &HISTORY_HOOKS,
+    )
+    .unwrap_or_else(|| Ok(dispatch(hwnd, &envelope.cmd, &envelope.args)?));
+    if let Err(error) = &reply {
+        crate::log_info!("[image-to-svg] {} failed: {error}", envelope.cmd);
+    }
+    send_reply(&envelope.id, reply);
+}
+
+const HISTORY_HOOKS: ResultPathHooks = ResultPathHooks {
+    remap: super::runtime::remap_result_path,
+    forget: super::runtime::forget_result_path,
+};
+
+pub(super) fn register_commands(hwnd: HWND) {
+    creation_commands::register(
+        hwnd,
+        super::WM_APP_IPC_REPLY,
+        1024 * 1024,
+        dispatch_submission,
+    );
+}
+
+fn dispatch_submission(
+    cmd: &str,
+    args: &Value,
+    active: &AtomicBool,
+) -> Result<Value, CreationError> {
+    if cmd != "start_job" || !active.load(Ordering::Acquire) {
+        return Err("Creation submission is no longer available.".into());
+    }
+
+    let request: super::runtime::StartJobRequest =
+        serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
+    serde_json::to_value(super::runtime::start_job(request)?)
+        .map_err(|error| error.to_string().into())
+}
+
+pub(super) fn flush_replies(hwnd: HWND) {
+    let replies = creation_commands::take_replies(hwnd);
+    super::WEBVIEW.with(|slot| {
+        if let Some(webview) = slot.borrow().as_ref() {
+            for script in replies {
+                let _ = webview.evaluate_script(&script);
+            }
+        }
+    });
 }
 
 fn request_image_preview(hwnd: HWND, envelope: &IpcEnvelope) -> Result<(), String> {
@@ -63,7 +114,7 @@ pub(super) fn flush_preview_replies(hwnd: HWND) {
 fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
     match cmd {
         "pick_images" => {
-            crate::overlay::three_d_generator::file_dialogs::pick_images_dialog().map(|paths| {
+            crate::overlay::creation_file_dialogs::pick_images_dialog(hwnd).map(|paths| {
                 Value::Array(
                     paths
                         .into_iter()
@@ -72,18 +123,16 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 )
             })
         }
-        "pick_output_dir" => {
-            crate::overlay::three_d_generator::file_dialogs::pick_output_dir_dialog().map(|path| {
+        "pick_output_dir" => crate::overlay::creation_file_dialogs::pick_output_dir_dialog(hwnd)
+            .map(|path| {
                 path.map(|value| Value::String(value.to_string_lossy().to_string()))
                     .unwrap_or(Value::Null)
-            })
-        }
+            }),
         "default_output_dir" => Ok(Value::String(
             super::runtime::default_output_dir()?
                 .to_string_lossy()
                 .to_string(),
         )),
-        "image_preview_url" => crate::overlay::creation_preview_protocol::issue_from_args(args),
         "image_asset_url" => {
             crate::overlay::creation_preview_protocol::issue_source_image_from_args(args)
         }
@@ -101,12 +150,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
                 .ok_or_else(|| "path is required".to_string())?;
             Ok(json!({"error": super::input_policy::error(std::path::Path::new(path))}))
         }
-        "start_job" => {
-            let request: super::runtime::StartJobRequest =
-                serde_json::from_value(args.clone()).map_err(|error| error.to_string())?;
-            serde_json::to_value(super::runtime::start_job(request)?)
-                .map_err(|error| error.to_string())
-        }
+
         "prepare_runtime" => Ok(Value::String(super::runtime::prepare_runtime())),
         "runtime_preparation_status" => {
             Ok(Value::String(super::runtime::runtime_preparation_status()))
@@ -119,50 +163,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         "job_statuses" => {
             serde_json::to_value(super::runtime::job_statuses()).map_err(|error| error.to_string())
         }
-        "history_results" => {
-            let entries = crate::overlay::generation_history::list("svg")?;
-            serde_json::to_value(crate::overlay::generation_history::public_entries(&entries))
-                .map_err(|error| error.to_string())
-        }
-        "rename_history_result" => {
-            let id = args
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "id is required".to_string())?;
-            let new_name = args
-                .get("newName")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "newName is required".to_string())?;
-            let previous = crate::overlay::generation_history::list("svg")?
-                .into_iter()
-                .find(|entry| entry.id == id)
-                .ok_or_else(|| "Result is no longer in history.".to_string())?;
-            let updated = crate::overlay::generation_history::rename("svg", id, new_name)?;
-            super::runtime::remap_result_path(&previous.output_path, &updated.output_path);
-            serde_json::to_value(crate::overlay::generation_history::public_entry(&updated))
-                .map_err(|error| error.to_string())
-        }
-        "delete_history_result" => {
-            let id = args
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "id is required".to_string())?;
-            let previous = crate::overlay::generation_history::list("svg")?
-                .into_iter()
-                .find(|entry| entry.id == id)
-                .ok_or_else(|| "Result is no longer in history.".to_string())?;
-            crate::overlay::generation_history::delete("svg", id)?;
-            super::runtime::forget_result_path(&previous.output_path);
-            Ok(Value::Null)
-        }
-        "delete_all_history_results" => {
-            let previous = crate::overlay::generation_history::list("svg")?;
-            let deleted = crate::overlay::generation_history::delete_all("svg")?;
-            for entry in previous {
-                super::runtime::forget_result_path(&entry.output_path);
-            }
-            Ok(Value::from(deleted as u64))
-        }
+        "recovery_pending" => Ok(Value::Bool(super::runtime::recovery_pending())),
         "read_asset" => {
             let path = args
                 .get("path")
@@ -211,16 +212,11 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
     }
 }
 
-fn send_reply(id: &str, result: Result<Value, String>) {
+fn send_reply(id: &str, result: Result<Value, CreationError>) {
     if id.is_empty() {
         return;
     }
-    let payload = match result {
-        Ok(value) => json!({ "id": id, "result": value }),
-        Err(_error) => json!({ "id": id, "error": "operation_failed" }),
-    };
-    let script =
-        format!("window.dispatchEvent(new CustomEvent('ipc-reply', {{ detail: {payload} }}));");
+    let script = creation_commands::reply_script(id, result);
     super::WEBVIEW.with(|slot| {
         if let Some(webview) = slot.borrow().as_ref() {
             let _ = webview.evaluate_script(&script);

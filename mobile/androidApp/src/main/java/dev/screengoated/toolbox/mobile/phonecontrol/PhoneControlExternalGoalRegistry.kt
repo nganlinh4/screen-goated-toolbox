@@ -14,7 +14,9 @@ internal class PhoneControlExternalGoalSlot(
     fun offer(text: String): Boolean {
         expire()
         val normalized = text.trim()
-        if (normalized.isEmpty() || normalized.length > MAXIMUM_CHARS || pending != null) {
+        // The shared limit counts Unicode code points, not UTF-16 units.
+        val characters = normalized.codePointCount(0, normalized.length)
+        if (normalized.isEmpty() || characters > MAXIMUM_CHARS || pending != null) {
             return false
         }
         pending = Pending(normalized, now())
@@ -40,6 +42,18 @@ internal class PhoneControlExternalGoalSlot(
         pending = null
     }
 
+    /**
+     * Offers the held goal only when the runtime can act on it, and consumes it
+     * only once the runtime accepts it. Returns null when nothing was offered.
+     */
+    fun submitWhen(canAct: Boolean, submit: (String) -> Boolean): PhoneControlExternalGoalSubmission? {
+        if (!canAct) return null
+        val goal = peek() ?: return null
+        val accepted = submit(goal)
+        if (accepted) complete(goal)
+        return PhoneControlExternalGoalSubmission(accepted, goal.length)
+    }
+
     private fun expire() {
         val current = pending ?: return
         if (now() - current.createdAtMs > maximumAgeMs) pending = null
@@ -51,6 +65,8 @@ internal class PhoneControlExternalGoalSlot(
     }
 }
 
+internal data class PhoneControlExternalGoalSubmission(val accepted: Boolean, val chars: Int)
+
 internal object PhoneControlExternalGoalRegistry {
     private val slot = PhoneControlExternalGoalSlot()
 
@@ -58,4 +74,5 @@ internal object PhoneControlExternalGoalRegistry {
     fun peek(): String? = slot.peek()
     fun complete(text: String): Boolean = slot.complete(text)
     fun clear() = slot.clear()
+    fun submitWhen(canAct: Boolean, submit: (String) -> Boolean) = slot.submitWhen(canAct, submit)
 }

@@ -15,6 +15,14 @@ internal data class DebugProbeLease(
     val operation: DebugProbeOperation,
 )
 
+internal class DebugProbeTurnSequence {
+    private var latest = 0L
+    @Synchronized fun next(): Long {
+        latest = Math.addExact(latest, 1L)
+        return latest
+    }
+}
+
 internal class DebugProbeOperation(val requestId: String) {
     private val lock = Any()
     private var cancellationRequested = false

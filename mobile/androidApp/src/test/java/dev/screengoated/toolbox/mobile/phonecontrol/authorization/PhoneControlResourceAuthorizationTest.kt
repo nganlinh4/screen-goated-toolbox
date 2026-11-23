@@ -1,15 +1,12 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.authorization
 
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.sha256
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.PreparedFileTarget
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.NioTestFileTransactionIo
 import java.io.File
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -165,7 +162,7 @@ class PhoneControlResourceAuthorizationTest {
     }
 
     private fun textFile(name: String): File =
-        temporaryFolder.newFile(name).apply { writeText("old") }
+        temporaryFolder.newFile(name).apply { writeText("private-old") }
 
     private fun PhoneControlResourceAuthorization.recordRequest(text: String) {
         turnStarted(1, 1)
@@ -186,26 +183,13 @@ class PhoneControlResourceAuthorizationTest {
         },
     )
 
-    private fun editArgs(file: File): JsonObject = buildJsonObject {
-        put("path", file.absolutePath)
-        put("expected_sha256", file.readBytes().sha256())
-        put(
-            "replacements",
-            buildJsonArray {
-                add(buildJsonObject {
-                    put("old_text", "private-old")
-                    put("new_text", "private-new")
-                    put("expected_count", 1)
-                })
-            },
-        )
-    }
+    private fun editArgs(file: File): PreparedResourceMutation =
+        PreparedFileTarget.prepare(file.absolutePath, 32 * 1024 * 1024, NioTestFileTransactionIo(), requireExisting = true)
+            .use { PreparedResourceMutation("edit_text_file", it) }
 
-    private fun saveArgs(file: File): JsonObject = buildJsonObject {
-        put("id", "private-artifact-id")
-        put("path", file.absolutePath)
-        put("overwrite", true)
-    }
+    private fun saveArgs(file: File): PreparedResourceMutation =
+        PreparedFileTarget.prepare(file.absolutePath, 32 * 1024 * 1024, NioTestFileTransactionIo())
+            .use { PreparedResourceMutation("save_artifact", it) }
 
     private fun positive(reason: String) =
         """{"authorized":true,"reason":"$reason"}"""

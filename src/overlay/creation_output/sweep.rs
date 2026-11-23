@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     MAX_SCANNED_STAGING_ENTRIES, STAGING_ORPHAN_GRACE_MS, is_reparse_point, now_ms,
     read_staging_marker, remove_empty_or_marker_only_directory, remove_owned_staging_directory,
-    staging_root, valid_dispatch_id,
+    staging_root, valid_identifier,
 };
 
 const CURSOR_NAME: &str = ".sgt-staging-sweep.json";
@@ -22,6 +22,7 @@ struct SweepCursor {
 }
 
 pub(crate) fn sweep_staging() -> Result<(), String> {
+    let _lifecycle = crate::overlay::creation_lifecycle::acquire()?;
     let protected = crate::overlay::creation_intent_journal::load_all()?
         .into_iter()
         .map(|intent| intent.dispatch_id)
@@ -126,7 +127,7 @@ fn sweep_entry(
         return Ok(());
     }
     if !metadata.file_type().is_dir()
-        || !valid_dispatch_id(dispatch_id)
+        || !valid_identifier(dispatch_id)
         || protected.contains(dispatch_id)
     {
         return Ok(());

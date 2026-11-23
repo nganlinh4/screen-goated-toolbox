@@ -8,18 +8,13 @@ pub(crate) struct PixelRegion {
     pub height: u32,
 }
 
-pub(super) const MIN_READABLE_WIDTH: u32 = 4;
-pub(super) const MIN_READABLE_HEIGHT: u32 = 8;
-
 pub(super) fn processing_cells(
     candidates: &[super::contract::DetectedTextRegion],
-    width: u32,
-    height: u32,
 ) -> Vec<[i32; 4]> {
     candidates
         .iter()
         .map(|candidate| {
-            let r = normalized_region(candidate.bounds, width, height);
+            let r = candidate.bounds.pixels();
             [r.x as i32, r.y as i32, r.width as i32, r.height as i32]
         })
         .collect()
@@ -95,22 +90,6 @@ mod tests {
                 height: 150
             }
         );
-    }
-
-    #[test]
-    fn physical_readability_gate_uses_region_height() {
-        let artifact = normalized_region(
-            NormalizedBounds {
-                left: 100,
-                top: 200,
-                right: 110,
-                bottom: 205,
-            },
-            1200,
-            600,
-        );
-        assert!(artifact.width >= MIN_READABLE_WIDTH);
-        assert!(artifact.height < MIN_READABLE_HEIGHT);
     }
 
     #[test]

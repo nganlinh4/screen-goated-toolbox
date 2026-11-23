@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { declaredRefinements, hasDeclaredRefinements } from "./refinement-policy.ts";
+import {
+  claimContinuation,
+  declaredRefinements,
+  hasDeclaredRefinements,
+} from "./refinement-policy.ts";
 
 test("an artifact with no declared continuation does not show placeholder controls", () => {
   assert.equal(hasDeclaredRefinements([], []), false);
@@ -27,4 +31,22 @@ test("separation choices match the shared control contract", () => {
 test("revision changes choose a supported topology before evaluating its action button", () => {
   const source = readFileSync(new URL("./presentation.ts", import.meta.url), "utf8");
   assert.ok(source.indexOf("nodes.topologySelect.selectedOptions") < source.indexOf("nodes.refinementButtons.forEach"));
+});
+
+test("a refinement request withdraws the parent's continuation until the host answers", () => {
+  const result = {
+    canRefine: true,
+    canSegment: true,
+    supportedActions: ["rig", "separate_parts"],
+    availableActions: ["rig"],
+  };
+  const reject = claimContinuation(result);
+  assert.deepEqual(result, { canRefine: false, canSegment: false, supportedActions: [], availableActions: [] });
+  reject();
+  assert.deepEqual(result, {
+    canRefine: true,
+    canSegment: true,
+    supportedActions: ["rig", "separate_parts"],
+    availableActions: ["rig"],
+  });
 });

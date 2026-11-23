@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 use std::io::BufRead;
 
+pub(crate) mod retry;
+pub(crate) mod saved;
+
 const MAX_EVENT_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,23 +139,46 @@ pub fn read_event(reader: &mut impl BufRead) -> Result<Option<Value>, String> {
 }
 
 pub fn terminate_process_tree(pid: u32) {
+    if let Some(result) = crate::overlay::creation_process::terminate_owned(pid) {
+        if let Err(error) = result {
+            crate::log_info!("[Creation] Owned process termination failed: {error}");
+        }
+        return;
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
-        let _ = std::process::Command::new("taskkill")
+        let Ok(executable) = crate::system_command::system_executable("taskkill.exe") else {
+            return;
+        };
+        let mut command = std::process::Command::new(executable);
+        command
             .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(0x0800_0000)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            .creation_flags(0x0800_0000);
+        run_termination_command(&mut command);
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        let mut command = std::process::Command::new("kill");
+        command.args(["-TERM", &pid.to_string()]);
+        run_termination_command(&mut command);
+    }
+}
+
+fn run_termination_command(command: &mut std::process::Command) {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let Ok(mut child) = command.spawn() else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if !matches!(child.try_wait(), Ok(Some(_))) {
+        let _ = child.kill();
     }
 }
 

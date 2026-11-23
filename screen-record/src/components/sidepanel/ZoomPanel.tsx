@@ -40,6 +40,8 @@ export function ZoomPanel({
             onClick={onDeleteKeyframe}
             variant="ghost"
             size="icon"
+            aria-label={t.zoomDelete}
+            title={t.zoomDelete}
             className="text-[var(--on-surface-variant)] hover:text-[var(--tertiary-color)] hover:bg-[var(--tertiary-color)]/10 transition-colors"
           >
             <Trash2 className="w-4 h-4" />
@@ -49,21 +51,21 @@ export function ZoomPanel({
           <SettingRow label={t.zoomFactor} valueDisplay={`${zoomFactor.toFixed(1)}x`} className="zoom-factor-field">
             <Slider
               min={1} max={3} step={0.01} value={zoomFactor}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => { setZoomFactor(val); onUpdateZoom({ zoomFactor: val }); }}
             />
           </SettingRow>
           <SettingRow label={t.horizontalPosition} valueDisplay={`${Math.round((keyframe?.positionX ?? 0.5) * 100)}%`} className="position-x-field">
             <Slider
               min={0} max={1} step={0.01} value={keyframe?.positionX ?? 0.5}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => onUpdateZoom({ positionX: val })}
             />
           </SettingRow>
           <SettingRow label={t.verticalPosition} valueDisplay={`${Math.round((keyframe?.positionY ?? 0.5) * 100)}%`} className="position-y-field">
             <Slider
               min={0} max={1} step={0.01} value={keyframe?.positionY ?? 0.5}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => onUpdateZoom({ positionY: val })}
             />
           </SettingRow>

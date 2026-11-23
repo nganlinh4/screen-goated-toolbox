@@ -68,14 +68,7 @@ internal class CreationProjectExporter(
         val managed = requireNotNull(files.managedPathIdentity(path)) {
             "This revision is not an app-managed project artifact"
         }
-        require(managed == identity && size != null && sha256 != null) {
-            "This revision has no committed export proof"
-        }
-        return File(managed).also {
-            require(creationFileMatchesProof(it, size, sha256)) {
-                "This revision changed after it was saved"
-            }
-        }
+        return creationProvenManagedExport(managed, size, sha256, identity, files::artifactIdentity)
     }
 
     private fun availableNames(primary: String, companion: String?): Pair<String, String?> {
@@ -128,4 +121,21 @@ internal class CreationProjectExporter(
             "Downloads did not preserve the revision bytes"
         }
     }
+}
+
+internal fun creationProvenManagedExport(
+    managedPath: String,
+    size: Long?,
+    sha256: String?,
+    identity: String?,
+    identityOf: (String) -> String?,
+): File {
+    require(identity != null && size != null && sha256 != null) {
+        "This revision has no committed export proof"
+    }
+    val file = File(managedPath)
+    require(identityOf(managedPath) == identity && creationFileMatchesProof(file, size, sha256) &&
+        identityOf(managedPath) == identity
+    ) { "This revision changed after it was saved" }
+    return file
 }

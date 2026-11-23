@@ -32,7 +32,7 @@ def creation_contract(windows_digest: str = "1" * 64) -> dict[str, object]:
         "schemaVersion": 1,
         "hostVersion": "5.4.3",
         "version": "0.9.0",
-        "features": ["image_to_3d", "image_to_svg", "image_creator"],
+        "features": ["image_to_3d", "image_to_svg"],
         "windows": delivery("windows", windows_digest),
         "android": {
             "full": delivery("android-full-old", "2" * 64),
@@ -59,7 +59,7 @@ def creation_package(
         "schemaVersion": 1,
         "hostVersion": "5.4.3",
         "version": "0.9.0",
-        "features": ["image_to_3d", "image_to_svg", "image_creator"],
+        "features": ["image_to_3d", "image_to_svg"],
         "windows": delivery("stale-windows", "5" * 64),
         "android": {
             "full": full or delivery("android-full-new", "6" * 64),

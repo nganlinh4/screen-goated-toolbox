@@ -5,6 +5,7 @@
 
 mod types;
 
+use super::response_deadlines::{DeadlineOutcome, ResponseDeadlines};
 pub use types::*;
 
 pub struct LiveSessionLifecycle {
@@ -133,14 +134,11 @@ impl LiveSessionLifecycle {
             self.state.last_server_activity_ms = Some(at_ms);
             self.state.input_chunks_since_server_activity = 0;
             if self.policy.kind == LiveSessionKind::FiniteRequest {
-                self.state.first_response_deadline_ms = self
-                    .policy
-                    .first_response_timeout_ms
-                    .map(|timeout| types::cross_platform_add(at_ms, timeout));
-                self.state.hard_response_deadline_ms = self
-                    .policy
-                    .hard_response_timeout_ms
-                    .map(|timeout| types::cross_platform_add(at_ms, timeout));
+                self.set_response_deadlines(ResponseDeadlines::new(
+                    at_ms,
+                    self.policy.first_response_timeout_ms,
+                    self.policy.hard_response_timeout_ms,
+                ));
             }
         }
         if self.state.phase != LiveSessionPhase::Active {
@@ -160,11 +158,9 @@ impl LiveSessionLifecycle {
         }
         if frame.content_count > 0 {
             self.state.has_output = true;
-            self.state.first_response_deadline_ms = None;
-            self.state.content_idle_deadline_ms = self
-                .policy
-                .content_idle_ms
-                .map(|idle| types::cross_platform_add(at_ms, idle));
+            let mut deadlines = self.response_deadlines();
+            deadlines.observe_output(at_ms, self.policy.content_idle_ms);
+            self.set_response_deadlines(deadlines);
             effects.push(LiveLifecycleEffect::DeliverContent {
                 count: frame.content_count,
             });
@@ -212,14 +208,14 @@ impl LiveSessionLifecycle {
 
     fn complete(&mut self, reason: LiveCompletionReason) -> Vec<LiveLifecycleEffect> {
         match self.policy.kind {
-            LiveSessionKind::FiniteRequest | LiveSessionKind::SegmentedStream => {
+            LiveSessionKind::FiniteRequest => {
                 self.state.phase = LiveSessionPhase::Completed;
                 self.clear_deadlines();
                 let mut effects = vec![LiveLifecycleEffect::FinalizeResponse { reason }];
                 self.close_effect(&mut effects);
                 effects
             }
-            LiveSessionKind::ContinuousStream | LiveSessionKind::AgentSession => {
+            LiveSessionKind::ContinuousStream => {
                 vec![match reason {
                     LiveCompletionReason::TurnComplete => LiveLifecycleEffect::FinalizeTurn,
                     LiveCompletionReason::GenerationComplete => {
@@ -275,14 +271,13 @@ impl LiveSessionLifecycle {
         if self.state.phase != LiveSessionPhase::Active {
             return Vec::new();
         }
-        if deadline_reached(at_ms, self.state.hard_response_deadline_ms) {
-            return self.fail("hardResponseTimeout".to_string());
-        }
-        if deadline_reached(at_ms, self.state.first_response_deadline_ms) {
-            return self.fail("firstResponseTimeout".to_string());
-        }
-        if deadline_reached(at_ms, self.state.content_idle_deadline_ms) {
-            return self.complete(LiveCompletionReason::ContentIdle);
+        match self.response_deadlines().outcome(at_ms, false) {
+            DeadlineOutcome::HardTimeout => return self.fail("hardResponseTimeout".to_string()),
+            DeadlineOutcome::FirstOutputTimeout => {
+                return self.fail("firstResponseTimeout".to_string());
+            }
+            DeadlineOutcome::Complete => return self.complete(LiveCompletionReason::ContentIdle),
+            DeadlineOutcome::Pending => {}
         }
         if self.policy.server_idle_timeout_ms.is_some_and(|timeout| {
             self.state.input_chunks_since_server_activity
@@ -401,6 +396,20 @@ impl LiveSessionLifecycle {
                 generation: self.state.generation,
             });
         }
+    }
+
+    fn response_deadlines(&self) -> ResponseDeadlines {
+        ResponseDeadlines {
+            first: self.state.first_response_deadline_ms,
+            idle: self.state.content_idle_deadline_ms,
+            hard: self.state.hard_response_deadline_ms,
+        }
+    }
+
+    fn set_response_deadlines(&mut self, deadlines: ResponseDeadlines) {
+        self.state.first_response_deadline_ms = deadlines.first;
+        self.state.content_idle_deadline_ms = deadlines.idle;
+        self.state.hard_response_deadline_ms = deadlines.hard;
     }
 
     fn clear_session_deadlines(&mut self) {

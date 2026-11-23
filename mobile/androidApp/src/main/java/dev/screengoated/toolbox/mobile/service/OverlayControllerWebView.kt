@@ -12,6 +12,7 @@ import dev.screengoated.toolbox.mobile.model.LanguageCatalog
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
 import dev.screengoated.toolbox.mobile.model.RealtimePaneFontSizes
 import dev.screengoated.toolbox.mobile.model.RealtimeTtsSettings
+import dev.screengoated.toolbox.mobile.service.overlay.RealtimeOverlayModelOptions
 import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
@@ -42,8 +43,6 @@ internal data class OverlayPaneRuntimeSettings(
     val targetLanguageCode: String,
     val translationModel: String,
     val transcriptionModel: String,
-    val transcriptionLanguage: String,
-    val transcriptionLanguageName: String,
     val customVocabulary: List<String>,
     val fontSize: Int,
     val isDark: Boolean,
@@ -232,13 +231,6 @@ internal class OverlayPaneHolder(
                 append(JSONObject.quote(settings.transcriptionModel))
                 append(");")
             }
-            if (previousSettings?.transcriptionLanguage != settings.transcriptionLanguage) {
-                append("if(window.setTranscriptionLanguage) window.setTranscriptionLanguage(")
-                append(JSONObject.quote(settings.transcriptionLanguage))
-                append(", ")
-                append(JSONObject.quote(settings.transcriptionLanguageName))
-                append(");")
-            }
             if (previousSettings?.customVocabulary != settings.customVocabulary) {
                 append("if(window.setCustomVocabulary) window.setCustomVocabulary(")
                 append(org.json.JSONArray(settings.customVocabulary).toString())
@@ -288,9 +280,6 @@ internal fun overlayPaneRuntimeSettings(
         targetLanguageCode = LanguageCatalog.codeForName(state.config.targetLanguage),
         translationModel = state.config.translationProvider.id,
         transcriptionModel = state.config.transcriptionProvider.id,
-        transcriptionLanguage = state.config.transcriptionLanguage.uppercase(),
-        transcriptionLanguageName = dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
-            .fromCode(state.config.transcriptionLanguage)?.displayName ?: state.config.transcriptionLanguage.uppercase(),
         customVocabulary = GeminiTranscribeVocabulary.snapshot().entries,
         fontSize = fontSize,
         isDark = isDark,
@@ -311,20 +300,18 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("micInputTitle", overlay.micInputTitle)
         put("deviceAudioTitle", overlay.deviceAudioTitle)
         put("transcriptionModelLabels", JSONObject().apply {
-            dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
-                .realtimeTranscriptionOptions.forEach { put(it.id, it.label) }
+            RealtimeOverlayModelOptions.transcriptionOptions(overlay.unavailableSuffix)
+                .forEach { put(it.id, it.label) }
         })
         put("s2sModelIds", org.json.JSONArray(
             dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog.realtimeS2sModelIds.toList(),
         ))
-        put("unavailableSuffix", overlay.unavailableSuffix)
         put("llmLabel", overlay.llmLabel)
         put("gtxLabel", overlay.gtxLabel)
         put("transcriptionModelTitle", overlay.transcriptionModelTitle)
         put("customVocabularyTitle", overlay.customVocabularyTitle)
         put("customVocabularyPrompt", overlay.customVocabularyPrompt)
         put("translationModelTitle", overlay.translationModelTitle)
-        put("transcriptionLanguageTitle", overlay.transcriptionLanguageTitle)
         put("targetLanguageTitle", overlay.targetLanguageTitle)
         put("s2sTranslationModelTitle", overlay.s2sTranslationModelTitle)
         put("s2sTargetLanguageTitle", overlay.s2sTargetLanguageTitle)
@@ -336,9 +323,6 @@ private fun overlayLocaleJson(uiLanguage: String): String {
         put("ttsSpeed", overlay.ttsSpeed)
         put("ttsAuto", overlay.ttsAuto)
         put("ttsVolume", overlay.ttsVolume)
-        put("downloadingModelTitle", overlay.downloadingModelTitle)
-        put("pleaseWaitText", overlay.pleaseWaitText)
-        put("cancelText", overlay.cancelText)
     }.toString()
 }
 

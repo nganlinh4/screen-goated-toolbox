@@ -14,6 +14,7 @@ pub(super) fn list_entries(
     stop_signal: &AtomicBool,
 ) -> Result<Vec<String>, String> {
     let mut child = hidden_command()
+        .map_err(|error| format!("Could not resolve Windows archive reader: {error}"))?
         .arg("-tf")
         .arg(archive)
         .stdout(Stdio::piped())
@@ -63,15 +64,16 @@ pub(super) fn extract_entry(
         .create_new(true)
         .open(&temporary)
         .map_err(|error| format!("Could not create cursor staging file: {error}"))?;
-    let mut child = match hidden_command()
-        .arg("-xOf")
-        .arg(archive)
-        .arg("--")
-        .arg(entry)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+    let mut child = match hidden_command().and_then(|mut command| {
+        command
+            .arg("-xOf")
+            .arg(archive)
+            .arg("--")
+            .arg(entry)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+    }) {
         Ok(child) => child,
         Err(error) => {
             let _ = fs::remove_file(&temporary);
@@ -132,11 +134,11 @@ fn prepare_temporary(path: &Path) -> Result<(), String> {
     fs::remove_file(path).map_err(|error| format!("Could not clear cursor staging file: {error}"))
 }
 
-fn hidden_command() -> Command {
+fn hidden_command() -> std::io::Result<Command> {
     use std::os::windows::process::CommandExt as _;
-    let mut command = Command::new("tar.exe");
+    let mut command = Command::new(crate::system_command::system_executable("tar.exe")?);
     command.creation_flags(0x0800_0000);
-    command
+    Ok(command)
 }
 
 fn wait_for_child(child: &mut Child, stop_signal: &AtomicBool) -> Result<(), String> {
@@ -189,6 +191,7 @@ mod tests {
         fs::write(source.join("ignored.txt"), b"ignored").unwrap();
         let archive = root.join("fixture.tar");
         let status = hidden_command()
+            .unwrap()
             .args(["-cf"])
             .arg(&archive)
             .arg("-C")

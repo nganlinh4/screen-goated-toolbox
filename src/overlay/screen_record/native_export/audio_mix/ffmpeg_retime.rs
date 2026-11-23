@@ -5,7 +5,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Instant;
 
 use super::super::config::{SpeedPoint, TrimSegment};
@@ -117,21 +116,24 @@ pub(super) fn render_pitch_preserved_source_with_ffmpeg(
     let out_path = temp_dir.join(format!("{file_stem}_audio_retime_{source_index}.wav"));
 
     let started_at = Instant::now();
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            &source.path,
-            "-vn",
-            "-af",
-            &build_audio_filter(&retime),
-            out_path.to_str().unwrap_or(""),
-        ])
-        .output()
-        .map_err(|err| format!("Failed to launch FFmpeg audio retime: {err}"))?;
+    let mut command = crate::process_job::HelperCommand::new(&ffmpeg);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        &source.path,
+        "-vn",
+        "-af",
+        &build_audio_filter(&retime),
+        out_path.to_str().unwrap_or(""),
+    ]);
+    #[cfg(not(feature = "recorder-worker"))]
+    let resources = ffmpeg_component;
+    #[cfg(feature = "recorder-worker")]
+    let resources = ();
+    let output = super::super::run_ffmpeg(&command, resources)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = fs::remove_file(&out_path);

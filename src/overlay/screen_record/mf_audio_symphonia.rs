@@ -8,8 +8,8 @@ use symphonia::core::codecs::audio::{
 };
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader};
 #[cfg(feature = "recorder-worker")]
 use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
@@ -18,6 +18,8 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
 use symphonia::core::units::TimeBase;
 use symphonia_adapter_libopus::OpusDecoder;
+
+use super::symphonia_convert::{LinearResampler, channel_positions, remap_channels};
 
 pub(super) struct SymphoniaAudioDecoder {
     format: Box<dyn FormatReader>,
@@ -30,6 +32,8 @@ pub(super) struct SymphoniaAudioDecoder {
     target_channels: u32,
     next_pts_100ns: i64,
     pending_sample: Option<(Vec<u8>, i64)>,
+    source_positions: Option<Vec<Position>>,
+    resampler: Option<LinearResampler>,
 }
 
 impl SymphoniaAudioDecoder {
@@ -100,6 +104,8 @@ impl SymphoniaAudioDecoder {
             ),
             next_pts_100ns,
             pending_sample: None,
+            source_positions: None,
+            resampler: None,
         };
 
         let first_sample = decoder
@@ -154,12 +160,47 @@ impl SymphoniaAudioDecoder {
             )
             .map_err(|e| format!("Symphonia seek: {e}"))?;
         self.decoder.reset();
+        if let Some(resampler) = &mut self.resampler {
+            resampler.reset();
+        }
         self.pending_sample = None;
         self.next_pts_100ns = self
             .time_base
             .map(|time_base| timestamp_to_100ns(time_base, seeked_to.actual_ts))
             .unwrap_or(position_100ns);
         Ok(())
+    }
+
+    /// Remap channels by speaker position, resample with state carried across
+    /// packets, and encode as little-endian f32 bytes.
+    fn convert(&mut self, samples: &[f32]) -> Vec<u8> {
+        let source_channels = self.source_channels.max(1) as usize;
+        let target_channels = self.target_channels.max(1) as usize;
+        let (source_rate, target_rate) = (
+            self.source_sample_rate.max(1),
+            self.target_sample_rate.max(1),
+        );
+        let remapped = remap_channels(
+            samples,
+            self.source_positions.as_deref(),
+            source_channels,
+            target_channels,
+        );
+        let resampled = if source_rate == target_rate {
+            remapped
+        } else {
+            if self.resampler.as_ref().is_some_and(|resampler| {
+                !resampler.matches(target_channels, source_rate, target_rate)
+            }) {
+                self.resampler = None;
+            }
+            self.resampler
+                .get_or_insert_with(|| {
+                    LinearResampler::new(target_channels, source_rate, target_rate)
+                })
+                .process(&remapped)
+        };
+        resampled.into_iter().flat_map(f32::to_le_bytes).collect()
     }
 
     fn decode_next_sample(&mut self) -> Result<Option<(Vec<u8>, i64)>, String> {
@@ -216,13 +257,11 @@ impl SymphoniaAudioDecoder {
                 continue;
             }
 
-            let converted = convert_interleaved_f32(
-                &samples,
-                self.source_channels.max(1) as usize,
-                self.target_channels.max(1) as usize,
-                self.source_sample_rate.max(1),
-                self.target_sample_rate.max(1),
-            );
+            if self.source_positions.is_none() {
+                self.source_positions = channel_positions(spec.channels());
+            }
+
+            let converted = self.convert(&samples);
             if converted.is_empty() {
                 continue;
             }
@@ -242,7 +281,11 @@ fn select_audio_track(
     tracks: &[symphonia::core::formats::Track],
 ) -> Option<&symphonia::core::formats::Track> {
     tracks.iter().find(|track| {
-        let Some(params) = track.codec_params.as_ref().and_then(|params| params.audio()) else {
+        let Some(params) = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+        else {
             return false;
         };
         params.codec != CODEC_ID_NULL_AUDIO
@@ -252,10 +295,7 @@ fn select_audio_track(
     })
 }
 
-fn backfill_opus_codec_params(
-    file_path: &str,
-    codec_params: &mut AudioCodecParameters,
-) {
+fn backfill_opus_codec_params(file_path: &str, codec_params: &mut AudioCodecParameters) {
     if codec_params.codec != CODEC_ID_OPUS {
         return;
     }
@@ -301,7 +341,6 @@ fn backfill_opus_codec_params(
         }
     };
     codec_params.with_channels(Channels::Positioned(channels));
-
 }
 
 fn opus_channel_count_from_extra_data(extra_data: Option<&[u8]>) -> Option<u8> {
@@ -313,125 +352,133 @@ fn opus_channel_count_from_extra_data(extra_data: Option<&[u8]>) -> Option<u8> {
     if count == 0 { None } else { Some(count) }
 }
 
+/// Reads the Opus output channel count from an MP4 `dOps` box by walking the
+/// box tree (moov/trak/mdia/minf/stbl/stsd/Opus/dOps) with seeks, so only box
+/// headers are read whatever the size of the media payload.
 fn probe_opus_channel_count_from_mp4(file_path: &str) -> Option<u8> {
-    let bytes = std::fs::read(file_path).ok()?;
-    let pattern = b"dOps";
-    // Need at least the 'dOps' tag + version byte + channel-count byte; the old
-    // saturating_sub bottomed out at 0 and then sliced &bytes[0..4] on tiny files.
-    if bytes.len() < pattern.len() + 6 {
+    let mut file = File::open(file_path).ok()?;
+    let end = file.metadata().ok()?.len();
+    find_dops_channel_count(&mut file, 0, end, 0)
+}
+
+const MAX_BOX_DEPTH: u32 = 8;
+const MAX_BOXES_PER_LEVEL: u32 = 4096;
+/// AudioSampleEntry fields that precede an `Opus` entry's child boxes.
+const AUDIO_SAMPLE_ENTRY_BYTES: u64 = 28;
+/// `stsd` full-box header (version/flags) plus entry count.
+const STSD_HEADER_BYTES: u64 = 8;
+
+fn find_dops_channel_count(
+    reader: &mut (impl std::io::Read + std::io::Seek),
+    start: u64,
+    end: u64,
+    depth: u32,
+) -> Option<u8> {
+    use std::io::SeekFrom;
+    if depth > MAX_BOX_DEPTH {
         return None;
     }
-    let search_end = bytes.len() - pattern.len();
-
-    for index in 0..=search_end {
-        if &bytes[index..index + pattern.len()] != pattern {
-            continue;
+    let mut offset = start;
+    for _ in 0..MAX_BOXES_PER_LEVEL {
+        if offset.checked_add(8)? > end {
+            return None;
         }
-        let version = bytes.get(index + 4).copied().unwrap_or_default();
-        let channel_count = bytes.get(index + 5).copied().unwrap_or_default();
-        if version == 0 && channel_count > 0 {
-            return Some(channel_count);
+        reader.seek(SeekFrom::Start(offset)).ok()?;
+        let mut header = [0u8; 8];
+        reader.read_exact(&mut header).ok()?;
+        let declared = u32::from_be_bytes(header[..4].try_into().ok()?) as u64;
+        let kind = &header[4..8];
+        let (box_size, header_len) = match declared {
+            0 => (end - offset, 8),
+            1 => {
+                let mut large = [0u8; 8];
+                reader.read_exact(&mut large).ok()?;
+                (u64::from_be_bytes(large), 16)
+            }
+            size => (size, 8),
+        };
+        if box_size < header_len {
+            return None;
         }
+        let box_end = offset.checked_add(box_size)?.min(end);
+        let body = offset + header_len;
+        let children_at = match kind {
+            b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl" => Some(body),
+            b"stsd" => Some(body + STSD_HEADER_BYTES),
+            b"Opus" => Some(body + AUDIO_SAMPLE_ENTRY_BYTES),
+            b"dOps" => {
+                let mut fields = [0u8; 2];
+                reader.read_exact(&mut fields).ok()?;
+                let [version, channel_count] = fields;
+                if version == 0 && channel_count > 0 {
+                    return Some(channel_count);
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(children_at) = children_at
+            && let Some(count) = find_dops_channel_count(reader, children_at, box_end, depth + 1)
+        {
+            return Some(count);
+        }
+        offset = box_end;
     }
-
     None
-}
-
-fn convert_interleaved_f32(
-    samples: &[f32],
-    source_channels: usize,
-    target_channels: usize,
-    source_sample_rate: u32,
-    target_sample_rate: u32,
-) -> Vec<u8> {
-    if source_channels == 0 || target_channels == 0 || samples.is_empty() {
-        return Vec::new();
-    }
-
-    let remapped = remap_channels(samples, source_channels, target_channels);
-    let resampled = if source_sample_rate != target_sample_rate {
-        resample_interleaved_f32(
-            &remapped,
-            target_channels,
-            source_sample_rate.max(1),
-            target_sample_rate.max(1),
-        )
-    } else {
-        remapped
-    };
-
-    let mut bytes = Vec::with_capacity(resampled.len() * std::mem::size_of::<f32>());
-    for sample in resampled {
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
-    bytes
-}
-
-fn remap_channels(samples: &[f32], source_channels: usize, target_channels: usize) -> Vec<f32> {
-    if source_channels == target_channels {
-        return samples.to_vec();
-    }
-
-    let frame_count = samples.len() / source_channels;
-    let mut remapped = Vec::with_capacity(frame_count * target_channels);
-    for frame_index in 0..frame_count {
-        let frame = &samples[frame_index * source_channels..(frame_index + 1) * source_channels];
-        match (source_channels, target_channels) {
-            (_, 1) => {
-                let mono = frame.iter().copied().sum::<f32>() / frame.len() as f32;
-                remapped.push(mono);
-            }
-            (1, dst) => {
-                remapped.extend(std::iter::repeat_n(frame[0], dst));
-            }
-            (src, dst) if src >= dst => {
-                remapped.extend_from_slice(&frame[..dst]);
-            }
-            _ => {
-                remapped.extend_from_slice(frame);
-                let fill = *frame.last().unwrap_or(&0.0);
-                remapped.extend(std::iter::repeat_n(fill, target_channels - source_channels));
-            }
-        }
-    }
-    remapped
-}
-
-fn resample_interleaved_f32(
-    samples: &[f32],
-    channels: usize,
-    source_sample_rate: u32,
-    target_sample_rate: u32,
-) -> Vec<f32> {
-    if channels == 0 || samples.is_empty() || source_sample_rate == target_sample_rate {
-        return samples.to_vec();
-    }
-
-    let source_frames = samples.len() / channels;
-    if source_frames <= 1 {
-        return samples.to_vec();
-    }
-
-    let target_frames = ((source_frames as u128) * (target_sample_rate as u128))
-        .div_ceil(source_sample_rate as u128) as usize;
-    let mut output = Vec::with_capacity(target_frames * channels);
-    let ratio = source_sample_rate as f64 / target_sample_rate as f64;
-
-    for target_frame in 0..target_frames {
-        let source_pos = target_frame as f64 * ratio;
-        let source_index = source_pos.floor() as usize;
-        let next_index = (source_index + 1).min(source_frames - 1);
-        let frac = (source_pos - source_index as f64) as f32;
-        for channel in 0..channels {
-            let start = samples[source_index * channels + channel];
-            let end = samples[next_index * channels + channel];
-            output.push(start + (end - start) * frac);
-        }
-    }
-
-    output
 }
 
 fn timestamp_to_100ns(time_base: TimeBase, timestamp: symphonia::core::units::Timestamp) -> i64 {
     (time_base.calc_time_saturating(timestamp).as_nanos() / 100) as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_dops_channel_count;
+
+    fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[test]
+    fn dops_is_found_through_the_box_tree_without_reading_media_payload() {
+        let dops = mp4_box(b"dOps", &[0, 6, 0x01, 0x38, 0, 0, 0xbb, 0x80, 0, 0, 1]);
+        let mut opus_body = vec![0u8; 28];
+        opus_body.extend_from_slice(&dops);
+        let opus = mp4_box(b"Opus", &opus_body);
+        let mut stsd_body = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        stsd_body.extend_from_slice(&opus);
+        let tree = mp4_box(
+            b"moov",
+            &mp4_box(
+                b"trak",
+                &mp4_box(
+                    b"mdia",
+                    &mp4_box(b"minf", &mp4_box(b"stbl", &mp4_box(b"stsd", &stsd_body))),
+                ),
+            ),
+        );
+        // Media payload first, containing a decoy 'dOps' byte pattern that a
+        // byte scan would match with the wrong channel count.
+        let mut file = mp4_box(b"ftyp", b"isom");
+        let mut payload = vec![0u8; 4096];
+        payload[100..106].copy_from_slice(&[b'd', b'O', b'p', b's', 0, 2]);
+        file.extend_from_slice(&mp4_box(b"mdat", &payload));
+        file.extend_from_slice(&tree);
+        let len = file.len() as u64;
+        let mut reader = std::io::Cursor::new(file);
+        assert_eq!(find_dops_channel_count(&mut reader, 0, len, 0), Some(6));
+    }
+
+    #[test]
+    fn truncated_or_box_free_input_yields_none() {
+        let mut reader = std::io::Cursor::new(vec![0u8; 3]);
+        assert_eq!(find_dops_channel_count(&mut reader, 0, 3, 0), None);
+        let bogus = mp4_box(b"moov", &[0, 0, 0, 2, b'x', b'x', b'x', b'x']);
+        let len = bogus.len() as u64;
+        let mut reader = std::io::Cursor::new(bogus);
+        assert_eq!(find_dops_channel_count(&mut reader, 0, len, 0), None);
+    }
 }

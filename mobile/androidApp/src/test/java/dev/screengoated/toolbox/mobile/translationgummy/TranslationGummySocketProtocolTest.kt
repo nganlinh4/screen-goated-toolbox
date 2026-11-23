@@ -1,5 +1,7 @@
 package dev.screengoated.toolbox.mobile.translationgummy
 
+import dev.screengoated.toolbox.mobile.shared.live.MAX_SETUP_BYTES
+import dev.screengoated.toolbox.mobile.shared.live.MAX_SETUP_FRAMES
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,18 +20,20 @@ class TranslationGummySocketProtocolTest {
     private val json = Json { ignoreUnknownKeys = false }
 
     @Test
+    fun `setup bounds follow shared fixture`() {
+        val limits = loadSocketFixture().getValue("setupBuffer").jsonObject
+        assertEquals(limits.getValue("maxFrames").jsonPrimitive.int, MAX_SETUP_FRAMES)
+        assertEquals(limits.getValue("maxBytes").jsonPrimitive.int, MAX_SETUP_BYTES)
+        assertTrue(limits.getValue("includesFirstAck").jsonPrimitive.boolean)
+        assertEquals("fail", limits.getValue("overflow").jsonPrimitive.content)
+    }
+
+    @Test
     fun `prompt fixture matches mobile system instruction builder`() {
         val fixture = loadPromptFixture()
         val config = TranslationGummyConfig(
-            first = TranslationGummyLanguageProfile(
-                language = "Korean",
-                accent = "Busan",
-                tone = "polite",
-            ),
-            second = TranslationGummyLanguageProfile(
-                language = "English",
-                tone = "easy to hear",
-            ),
+            first = fixture.first,
+            second = fixture.second,
         )
 
         assertEquals("gemini-3.1-flash-live-preview", fixture.model)
@@ -177,15 +181,15 @@ class TranslationGummySocketProtocolTest {
     @Test
     fun `runtime gates capture on readiness and checks every socket send`() {
         val source = loadRuntimeSource()
-        val readyIndex = source.indexOf("openGeminiLiveReadySession(httpClient, apiKey, setupPayload).use")
+        val readyIndex = source.indexOf("connected.activate(setupPayload")
         val captureIndex = source.indexOf("audioCaptureController.open(")
 
         assertTrue(readyIndex >= 0)
         assertTrue(captureIndex > readyIndex)
-        assertTrue(source.contains("is GeminiLiveReceiveResult.Frame -> handleSocketFrame("))
-        assertTrue(source.contains("if (!session.trySend(buildTranslationGummyAudioStreamEndPayload()))"))
-        assertTrue(source.contains("if (!session.trySend(buildTranslationGummyAudioPayload(chunk)))"))
-        assertTrue(source.contains("val streamEndSent = session.trySend(buildTranslationGummyAudioStreamEndPayload())"))
+        assertTrue(source.contains("handleSocketFrame(ownerId, debugSessionId, result.frame)"))
+        assertTrue(source.contains("if (!sendOwned(ownerId, session, buildTranslationGummyAudioStreamEndPayload()))"))
+        assertTrue(source.contains("if (!sendOwned(ownerId, session, buildTranslationGummyAudioPayload(chunk)))"))
+        assertTrue(source.contains("session.trySend(buildTranslationGummyAudioStreamEndPayload())"))
         assertFalse(source.contains("BlockingWebSocketSession"))
         assertFalse(source.contains("waitForSetup("))
     }
@@ -249,6 +253,8 @@ class TranslationGummySocketProtocolTest {
 @Serializable
 private data class PromptFixture(
     val model: String,
+    val first: TranslationGummyLanguageProfile,
+    val second: TranslationGummyLanguageProfile,
     val systemInstructionExample: String,
     val requiredBehavior: List<String>,
 )

@@ -1,8 +1,11 @@
 package dev.screengoated.toolbox.mobile.history
 
 import android.content.Context
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.AndroidFileTransactionIo
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.FileTransactionIo
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.Path
 
 internal data class HistoryPaths(
     val rootDir: File,
@@ -15,94 +18,61 @@ internal data class HistoryPaths(
 internal class HistoryPersistence internal constructor(
     private val paths: HistoryPaths,
     private val json: Json,
-) {
-    constructor(
-        context: Context,
-        json: Json,
-    ) : this(buildPaths(context.applicationContext), json)
+    private val fileIdentity: (Path) -> String = ::androidHistoryFileIdentity,
+    mediaWriter: HistoryMediaWriter = HistoryDescriptorMediaWriter(),
+    private val fileIo: FileTransactionIo = AndroidFileTransactionIo,
+    readOnlySnapshots: Boolean = false,
+) : HistoryStorage, AutoCloseable {
+    private val atomicFiles = HistoryAtomicFiles(fileIo, readOnlySnapshots = readOnlySnapshots)
+    private val media = HistoryMediaStore(paths.mediaDir, fileIdentity, mediaWriter, fileIo)
 
-    fun paths(): HistoryPaths = paths
+    constructor(context: Context, json: Json, readOnlySnapshots: Boolean = false) :
+        this(buildPaths(context.applicationContext), json, readOnlySnapshots = readOnlySnapshots)
 
-    fun loadDatabase(): StoredHistoryDatabase {
-        return try {
-            if (paths.databaseFile.exists()) {
-                json.decodeFromString<StoredHistoryDatabase>(paths.databaseFile.readText())
-            } else {
-                StoredHistoryDatabase()
-            }
-        } catch (_: Exception) {
-            StoredHistoryDatabase()
-        }
+    override fun paths(): HistoryPaths = paths
+
+    override fun loadDatabase(): StoredHistoryDatabase {
+        val database = atomicFiles.read(paths.databaseFile)?.let {
+            json.decodeFromString<StoredHistoryDatabase>(it)
+        } ?: StoredHistoryDatabase()
+        require(database.version == 1) { "Unsupported history database version" }
+        return database
     }
 
-    fun saveDatabase(database: StoredHistoryDatabase) {
-        try {
-            ensureDirs()
-            paths.databaseFile.writeText(
-                json.encodeToString(StoredHistoryDatabase.serializer(), database),
-            )
-        } catch (_: Exception) {
-            // Ignore write failures so the main UI never crashes on storage issues.
-        }
+    override fun loadSettings(): HistorySettings {
+        val settings = atomicFiles.read(paths.settingsFile)?.let {
+            json.decodeFromString<HistorySettings>(it)
+        } ?: HistorySettings()
+        require(settings.schemaVersion == 1) { "Unsupported history settings version" }
+        return normalizeHistorySettings(settings)
     }
 
-    fun loadSettings(): HistorySettings {
-        return try {
-            if (paths.settingsFile.exists()) {
-                val decoded = json.decodeFromString<HistorySettings>(paths.settingsFile.readText())
-                val normalized = normalizeHistorySettings(decoded)
-                if (normalized != decoded) {
-                    saveSettings(normalized)
-                }
-                normalized
-            } else {
-                HistorySettings()
-            }
-        } catch (_: Exception) {
-            HistorySettings()
-        }
-    }
+    override fun saveDatabase(database: StoredHistoryDatabase): HistoryWriteResult =
+        atomicFiles.write(paths.databaseFile, json.encodeToString(StoredHistoryDatabase.serializer(), database))
 
-    fun saveSettings(settings: HistorySettings) {
-        try {
-            ensureDirs()
-            paths.settingsFile.writeText(
-                json.encodeToString(HistorySettings.serializer(), settings),
-            )
-        } catch (_: Exception) {
-            // Ignore write failures so the main UI never crashes on storage issues.
-        }
-    }
+    override fun saveSettings(settings: HistorySettings): HistoryWriteResult =
+        atomicFiles.write(paths.settingsFile, json.encodeToString(HistorySettings.serializer(), settings))
 
-    fun mediaFile(fileName: String): File = File(paths.mediaDir, fileName)
+    override fun createMedia(type: HistoryType, bytes: ByteArray): HistoryPreparedMedia =
+        media.create(type, bytes)
 
-    fun deleteAllMediaFiles() {
-        runCatching {
-            paths.mediaDir.listFiles()?.forEach { file ->
-                file.deleteRecursively()
-            }
-        }
-    }
+    override fun removeMedia(item: HistoryItem) = media.remove(item)
 
-    private fun ensureDirs() {
-        paths.rootDir.mkdirs()
-        paths.mediaDir.mkdirs()
-    }
+    override fun mediaFile(item: HistoryItem): File? = historyMediaFile(paths.mediaDir, item, fileIdentity)
+
+    override fun mediaProofForOpen(item: HistoryItem): HistoryMediaProof? =
+        observeHistoryMedia(fileIo, paths.mediaDir.toPath(), item)
+
+    override fun close() = atomicFiles.close()
 
     private companion object {
         fun buildPaths(context: Context): HistoryPaths {
             val externalRoot = context.getExternalFilesDir(null)?.resolve("history")
             val rootDir = externalRoot ?: File(context.filesDir, "history")
             val mediaDir = rootDir.resolve("history_media")
-            rootDir.mkdirs()
-            mediaDir.mkdirs()
             return HistoryPaths(
-                rootDir = rootDir,
-                databaseFile = rootDir.resolve("history.json"),
-                settingsFile = rootDir.resolve("history_settings.json"),
-                mediaDir = mediaDir,
-                supportsFolderOpen = externalRoot != null &&
-                    mediaDir.absolutePath.startsWith("/storage/emulated/0/"),
+                rootDir, rootDir.resolve("history.json"), rootDir.resolve("history_settings.json"), mediaDir,
+                externalRoot != null && mediaDir.absolutePath.startsWith("/storage/emulated/0/"),
             )
         }
     }

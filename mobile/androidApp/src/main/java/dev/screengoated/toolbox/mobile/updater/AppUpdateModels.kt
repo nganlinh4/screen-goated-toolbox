@@ -13,6 +13,7 @@ enum class AppUpdateStatus {
     // Play In-App Update (play flavor) flexible-download states.
     DOWNLOADING,
     DOWNLOADED,
+    INSTALLING,
     ERROR,
 }
 
@@ -21,6 +22,7 @@ interface AppUpdateController {
     val state: StateFlow<AppUpdateUiState>
     fun autoCheckForUpdates()
     fun checkForUpdates()
+    fun consumeNotification(notice: AppUpdateNotice?): String? = null
     fun startUpdate(launcher: ActivityResultLauncher<IntentSenderRequest>): Boolean = false
     fun completeUpdate(): Boolean = false
 }
@@ -32,8 +34,10 @@ data class AppUpdateUiState(
     val releaseNotes: String = "",
     val actionUrl: String? = null,
     val errorMessage: String? = null,
-    val notificationSerial: Int = 0,
+    val notification: AppUpdateNotice? = null,
 )
+
+class AppUpdateNotice internal constructor(val version: String)
 
 internal fun canonicalAppVersion(versionName: String): String = versionName.substringBefore('-').trim()
 

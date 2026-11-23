@@ -11,7 +11,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_live_toggle: "라이브",
         model_priority_live_toggle_hint: "정상 동작하는 라이브 모델을 이 우선순위 체인에 포함",
         model_priority_chosen_model: "선택된 모델",
-        model_priority_fixed_hint: "항상 첫 시도",
+        model_priority_chosen_hint: "이 행 위의 모델은 각 프리셋에서 선택한 모델보다 먼저 시도합니다.",
         model_priority_add_model: "+ 모델 추가",
         model_priority_auto: "자동",
         model_priority_auto_hint: "스마트 폴백 순서로 계속",
@@ -30,5 +30,11 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         custom_models_vision_type: "비전",
         custom_models_search: "검색",
         custom_models_enabled: "활성",
+        custom_models_ollama_scanning: "Ollama 검색 중...",
+        custom_models_ollama_disabled: "먼저 API 키 섹션에서 Ollama를 켜세요.",
+        custom_models_ollama_done_fmt: "Ollama 검색 완료: 캐시된 모델 {count}개.",
+        custom_models_openrouter_count_fmt: "OpenRouter · 모델 {count}개",
+        custom_models_select_model: "모델 선택...",
+        performance_not_measured: "성능 측정되지 않음",
     }
 }

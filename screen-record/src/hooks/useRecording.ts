@@ -4,6 +4,8 @@ import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { getDefaultAudioVolume } from "@/lib/recordingDefaults";
+import { recordingHandoff, waitForRecordingAck } from "@/lib/recordingHandoff";
+import { recorderShutdownPreparing } from "@/lib/audioImportWriteFence";
 import { autoZoomGenerator } from "@/lib/autoZoom";
 import {
   BackgroundConfig,
@@ -37,6 +39,26 @@ import {
   type RecordingAudioSelection,
 } from "@/types/recordingAudio";
 import { stabilizeMousePositionsForTimeline } from "./videoStateHelpers";
+import { buildStartRecordingRequest } from "@/lib/startRecordingRequest";
+import { usePendingRecordingRecovery } from "./usePendingRecordingRecovery";
+
+export interface NativeRecordingResult {
+  recordingId: string;
+  recordingMode: RecordingMode;
+  videoUrl: string;
+  deviceAudioUrl: string;
+  micAudioUrl: string;
+  webcamVideoUrl: string;
+  micAudioOffsetSec: number;
+  webcamVideoOffsetSec: number;
+  mouseData: any[];
+  deviceAudioPath: string;
+  micAudioPath: string;
+  webcamVideoPath: string;
+  videoFilePath: string;
+  inputEvents: RawInputEvent[];
+  capturedFps: number | null;
+}
 import {
   getSavedKeystrokeDelaySec,
   getSavedKeystrokeLanguage,
@@ -88,8 +110,6 @@ export interface UseRecordingProps {
 
 export function useRecording(props: UseRecordingProps) {
   const [isRecording, setIsRecording] = useState(false);
-  const [activeRecordingMode, setActiveRecordingMode] =
-    useState<RecordingMode>("withoutCursor");
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -101,6 +121,9 @@ export function useRecording(props: UseRecordingProps) {
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const recordingStartInFlightRef = useRef(false);
+  const recordingActiveRef = useRef(false);
+  const recordingModeRef = useRef<RecordingMode>("withoutCursor");
+  const pendingRecordingRef = useRef<NativeRecordingResult | null>(null);
   const activeRecordingAudioSelectionRef = useRef<RecordingAudioSelection>(
     sanitizeRecordingAudioSelection({
       deviceEnabled: true,
@@ -110,6 +133,19 @@ export function useRecording(props: UseRecordingProps) {
     }),
   );
 
+  useEffect(() => {
+    const abandon = () => {
+      recordingActiveRef.current = false;
+      pendingRecordingRef.current = null;
+      setIsRecording(false);
+      setIsLoadingVideo(false);
+    };
+    window.addEventListener("sr-abandon-recording", abandon);
+    return () => window.removeEventListener("sr-abandon-recording", abandon);
+  }, []);
+
+  usePendingRecordingRecovery(props, recordingActiveRef, recordingModeRef, pendingRecordingRef, activeRecordingAudioSelectionRef);
+
   const startNewRecording = async (
     targetId: string,
     recordingMode: RecordingMode,
@@ -117,8 +153,10 @@ export function useRecording(props: UseRecordingProps) {
     targetFps?: number,
     recordingAudioSelection?: RecordingAudioSelection,
   ) => {
-    if (isRecording || recordingStartInFlightRef.current) return;
+    if (recorderShutdownPreparing()) { setError('The recorder is closing; wait before starting a recording.'); return; }
+    if (isRecording || recordingStartInFlightRef.current || !recordingHandoff.beginStart()) return;
     recordingStartInFlightRef.current = true;
+    let started = false;
     try {
       if (props.currentVideo) {
         // User is editing a video — don't touch the preview at all. The canvas,
@@ -161,24 +199,26 @@ export function useRecording(props: UseRecordingProps) {
       );
       activeRecordingAudioSelectionRef.current = audioSelection;
 
-      await invoke("start_recording", {
-        targetId,
-        targetType,
-        includeCursor: recordingMode === "withCursor",
-        fps: targetFps ?? null,
-        deviceAudioEnabled: audioSelection.deviceEnabled,
-        deviceAudioMode: audioSelection.deviceMode,
-        deviceAudioAppPid: audioSelection.selectedDeviceApp?.pid ?? null,
-        micEnabled: audioSelection.micEnabled,
-        webcamEnabled: true,
-      });
-      setActiveRecordingMode(recordingMode);
+      await invoke(
+        "start_recording",
+        buildStartRecordingRequest({
+          targetId,
+          targetType,
+          recordingMode,
+          fps: targetFps,
+          audioSelection,
+        }),
+      );
+      recordingModeRef.current = recordingMode;
+      recordingActiveRef.current = true;
+      started = true;
       setIsRecording(true);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       recordingStartInFlightRef.current = false;
+      recordingHandoff.finishStart(started);
     }
   };
 
@@ -192,8 +232,10 @@ export function useRecording(props: UseRecordingProps) {
     rawMicAudioPath: string;
     rawWebcamVideoPath: string;
     capturedFps: number | null;
+    recordingId: string;
+    markSaved: () => Promise<void>;
   } | null> => {
-    if (!isRecording) return null;
+    if (!recordingActiveRef.current) return null;
 
     let objectUrl: string | undefined;
     let audioObjectUrl: string | undefined;
@@ -202,6 +244,7 @@ export function useRecording(props: UseRecordingProps) {
 
     try {
       setIsRecording(false);
+      setError(null);
       setIsLoadingVideo(true);
       props.setIsVideoReady(false);
       props.invalidateThumbnails();
@@ -210,21 +253,8 @@ export function useRecording(props: UseRecordingProps) {
       props.setDuration(0);
       setLoadingProgress(0);
 
-      const result = await invoke<{
-        videoUrl: string;
-        deviceAudioUrl: string;
-        micAudioUrl: string;
-        webcamVideoUrl: string;
-        micAudioOffsetSec: number;
-        webcamVideoOffsetSec: number;
-        mouseData: any[];
-        deviceAudioPath: string;
-        micAudioPath: string;
-        webcamVideoPath: string;
-        videoFilePath: string;
-        inputEvents: RawInputEvent[];
-        capturedFps: number | null;
-      }>("stop_recording");
+      const result = pendingRecordingRef.current ?? await invoke<NativeRecordingResult>("stop_recording");
+      pendingRecordingRef.current = result;
       const capturedFps =
         typeof result.capturedFps === "number" && result.capturedFps > 0
           ? result.capturedFps
@@ -397,7 +427,7 @@ export function useRecording(props: UseRecordingProps) {
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
           keystrokeOverlay: getSavedKeystrokeOverlayPref(),
-          useCustomCursor: activeRecordingMode !== "withCursor" && getSavedCustomCursorPref(),
+          useCustomCursor: recordingModeRef.current !== "withCursor" && getSavedCustomCursorPref(),
         };
         if (
           props.videoRef.current &&
@@ -473,11 +503,17 @@ export function useRecording(props: UseRecordingProps) {
           initialSegment,
           videoUrl: objectUrl,
           webcamVideoUrl: webcamVideoObjectUrl || "",
-          recordingMode: activeRecordingMode,
+          recordingMode: recordingModeRef.current,
           rawVideoPath: result.videoFilePath || "",
           rawMicAudioPath: result.micAudioPath || "",
           rawWebcamVideoPath: result.webcamVideoPath || "",
           capturedFps,
+          recordingId: result.recordingId,
+          markSaved: async () => {
+            await waitForRecordingAck(invoke("recording_saved", { recordingId: result.recordingId }));
+            pendingRecordingRef.current = null;
+            recordingActiveRef.current = false;
+          },
         };
       }
       return null;
@@ -486,7 +522,9 @@ export function useRecording(props: UseRecordingProps) {
       if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
       if (micAudioObjectUrl) URL.revokeObjectURL(micAudioObjectUrl);
       if (webcamVideoObjectUrl) URL.revokeObjectURL(webcamVideoObjectUrl);
-      setError(err instanceof Error ? err.message : String(err));
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
       return null;
     } finally {
       setIsLoadingVideo(false);

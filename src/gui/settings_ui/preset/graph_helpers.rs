@@ -4,7 +4,7 @@ use crate::model_config::{
 };
 use egui_snarl::Snarl;
 
-use super::super::node_graph::{ChainNode, blocks_to_snarl, snarl_to_graph};
+use super::super::node_graph::{ChainNode, blocks_to_snarl, save_graph_to_preset};
 
 /// Creates a default processing block based on preset type.
 pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBlock {
@@ -37,27 +37,33 @@ pub(super) fn create_default_block_for_type(preset_type: &str) -> ProcessingBloc
     }
 }
 
-pub(super) fn sync_graph_type(snarl: &mut Snarl<ChainNode>, preset_type: &str) {
-    let (mut blocks, mut connections) = snarl_to_graph(snarl);
-    let default_block = create_default_block_for_type(preset_type);
+pub(super) fn sync_graph_type(snarl: &mut Snarl<ChainNode>, preset: &mut crate::config::Preset) {
+    if !save_graph_to_preset(preset, snarl) {
+        return;
+    }
+    let default_block = create_default_block_for_type(&preset.preset_type);
 
-    if let Some(first_process) = blocks
-        .iter_mut()
-        .find(|block| block.block_type != "input_adapter")
-    {
+    if let Some(index) = preset.first_reachable_processing_index() {
+        let first_process = &mut preset.blocks[index];
         first_process.block_type = default_block.block_type;
         first_process.model = default_block.model;
     } else {
-        let new_idx = blocks.len();
-        let input_idx = blocks
+        let new_idx = preset.blocks.len();
+        let input_idx = preset
+            .blocks
             .iter()
             .position(|block| block.block_type == "input_adapter");
-        blocks.push(default_block);
+        preset.blocks.push(default_block);
 
         if let Some(input_idx) = input_idx {
-            connections.push((input_idx, new_idx));
+            preset.block_connections.push((input_idx, new_idx));
         }
     }
 
-    *snarl = blocks_to_snarl(&blocks, &connections, preset_type);
+    *snarl = blocks_to_snarl(
+        &preset.blocks,
+        &preset.block_connections,
+        true,
+        &preset.preset_type,
+    );
 }

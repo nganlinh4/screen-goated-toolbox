@@ -3,20 +3,27 @@ import { useEffect, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { useSettings } from '@/hooks/useSettings';
 import type { ImportedAudioSegment, NarrationSegment, SubtitleSegment } from '@/types/video';
+import { materializeNarrationGroupTakes } from '@/lib/narrationGroupTakes';
+import { mergeLiveNarrationSegments, useLiveNarrationState } from '@/lib/liveNarrationStreamStore';
 import {
   RATE_MAX,
   RATE_MIN,
   clampRate,
   formatSec,
   getTimelineDuration,
-  readFiniteNumber,
   type AudioPanelDraft,
   type AudioPanelSegment,
 } from './audioPanelUtils';
+import {
+  clearImportedAudioDrafts,
+  retainImportedAudioDrafts,
+  setImportedAudioDraft,
+} from '@/lib/importedAudioDraftStore';
 
 interface AudioPanelProps {
   importedSegments: ImportedAudioSegment[];
   narrationSegments: NarrationSegment[];
+  projectId?: string | null;
   subtitleSegments: SubtitleSegment[];
   selectedImportedIds: ReadonlySet<string>;
   selectedNarrationIds: ReadonlySet<string>;
@@ -32,6 +39,7 @@ interface AudioPanelProps {
 export function AudioPanel({
   importedSegments,
   narrationSegments,
+  projectId,
   subtitleSegments,
   selectedImportedIds,
   selectedNarrationIds,
@@ -44,11 +52,12 @@ export function AudioPanel({
   onCommitNarrationSegments,
 }: AudioPanelProps) {
   const { t } = useSettings();
+  const liveNarration = useLiveNarrationState(projectId);
   const selected: AudioPanelSegment[] = [
     ...importedSegments
       .filter((segment) => selectedImportedIds.has(segment.id))
       .map((segment) => ({ ...segment, kind: 'imported' as const })),
-    ...narrationSegments
+    ...materializeNarrationGroupTakes(mergeLiveNarrationSegments(narrationSegments, liveNarration))
       .filter((segment) => selectedNarrationIds.has(segment.id))
       .map((segment) => ({ ...segment, kind: 'narration' as const })),
   ];
@@ -66,8 +75,7 @@ export function AudioPanel({
   };
   const [bulkRate, setBulkRate] = useState(getSelectedAverageRate);
   const [drafts, setDrafts] = useState<Record<string, AudioPanelDraft>>({});
-  const previewFrameRef = useRef<number | null>(null);
-  const pendingPreviewRef = useRef<Record<string, { segment: AudioPanelSegment; patch: AudioPanelDraft }>>({});
+  const previewedImportedIdsRef = useRef<string[]>([]);
   const selectedNarrationWithSubtitleCount = selected.filter(
     (segment) => segment.kind === 'narration' && !!segment.sourceSubtitleId,
   ).length;
@@ -78,6 +86,9 @@ export function AudioPanel({
 
   useEffect(() => {
     const liveKeys = new Set(selected.map((segment) => `${segment.kind}:${segment.id}`));
+    const liveImportedIds = selected.filter((segment) => segment.kind === 'imported').map((segment) => segment.id);
+    previewedImportedIdsRef.current = liveImportedIds;
+    retainImportedAudioDrafts(new Set(liveImportedIds));
     setDrafts((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([key]) => liveKeys.has(key)));
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
@@ -110,107 +121,15 @@ export function AudioPanel({
     onUpdateImportedSegment(segment.id, patch as Partial<ImportedAudioSegment>);
   };
 
-  const escapeSelectorValue = (value: string) => {
-    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value);
-    return value.replace(/["\\]/g, '\\$&');
-  };
-
-  const resetTimelineVisualDraft = (segment: AudioPanelSegment) => {
-    const selector = segment.kind === 'narration'
-      ? `.narration-track-segment[data-narration-segment-id="${escapeSelectorValue(segment.id)}"]`
-      : `.audio-track-segment[data-audio-segment-id="${escapeSelectorValue(segment.id)}"]`;
-    const element = document.querySelector<HTMLElement>(selector);
-    if (!element) return;
-    element.querySelectorAll<HTMLElement>('[data-sgt-preview-created="true"]').forEach((child) => {
-      child.remove();
-    });
-    delete element.dataset.sgtPreviewBaseWidthPct;
-    delete element.dataset.sgtPreviewBaseLeftPct;
-  };
-
-  const applyTimelineVisualDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
-    const selector = segment.kind === 'narration'
-      ? `.narration-track-segment[data-narration-segment-id="${escapeSelectorValue(segment.id)}"]`
-      : `.audio-track-segment[data-audio-segment-id="${escapeSelectorValue(segment.id)}"]`;
-    const element = document.querySelector<HTMLElement>(selector);
-    if (!element) return;
-
-    const timelineDuration = readFiniteNumber(element.dataset.timelineDuration, 0);
-    if (!Number.isFinite(timelineDuration) || timelineDuration <= 0) return;
-
-    const previewSegment: AudioPanelSegment = {
-      ...segment,
-      duration: readFiniteNumber(element.dataset.duration, segment.duration),
-      startTime: readFiniteNumber(element.dataset.startTime, segment.startTime),
-      inPoint: readFiniteNumber(element.dataset.inPoint, segment.inPoint),
-      outPoint: readFiniteNumber(element.dataset.outPoint, segment.outPoint),
-      playbackRate: readFiniteNumber(element.dataset.playbackRate, segment.playbackRate ?? 1),
-      ...patch,
-    };
-    const leftPct = Math.min(100, Math.max(0, (previewSegment.startTime / timelineDuration) * 100));
-    const nextWidthPct = Math.min(100, Math.max(0.001, (getTimelineDuration(previewSegment) / timelineDuration) * 100));
-    element.dataset.sgtPreviewBaseLeftPct ||= element.style.left || `${leftPct}%`;
-    element.dataset.sgtPreviewBaseWidthPct ||= element.style.width || `${nextWidthPct}%`;
-    element.style.left = `${leftPct}%`;
-    element.style.width = `${nextWidthPct}%`;
-
-    const rate = clampRate(previewSegment.playbackRate ?? 1);
-    let speedBadge = element.querySelector<HTMLElement>(
-      segment.kind === 'narration' ? '.narration-track-segment-speed' : '.audio-track-segment-speed',
-    );
-    if (!speedBadge) {
-      const content = element.querySelector<HTMLElement>(
-        segment.kind === 'narration' ? '.narration-track-segment-content' : '.audio-track-segment-content',
-      );
-      if (content) {
-        speedBadge = document.createElement('span');
-        speedBadge.className = segment.kind === 'narration'
-          ? 'narration-track-segment-speed ml-auto rounded-sm bg-[var(--secondary-color)]/30 px-1 text-[9px] font-semibold leading-3'
-          : 'audio-track-segment-speed ml-auto rounded-sm bg-[var(--primary-color)]/30 px-1 text-[9px] font-semibold leading-3';
-        speedBadge.dataset.sgtPreviewCreated = 'true';
-        content.appendChild(speedBadge);
-      }
-    }
-    if (speedBadge) {
-      speedBadge.textContent = `${rate.toFixed(2)}×`;
-      speedBadge.style.display = Math.abs(rate - 1) > 0.001 ? '' : 'none';
-    }
-  };
-
-  const flushPreviewDrafts = () => {
-    previewFrameRef.current = null;
-    const pending = pendingPreviewRef.current;
-    pendingPreviewRef.current = {};
-    Object.values(pending).forEach(({ segment, patch }) => applyTimelineVisualDraft(segment, patch));
-  };
-
-  const schedulePreviewDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
-    const key = getDraftKey(segment);
-    const pending = pendingPreviewRef.current[key];
-    pendingPreviewRef.current[key] = {
-      segment,
-      patch: {
-        ...(pending?.patch ?? {}),
-        ...patch,
-      },
-    };
-    if (previewFrameRef.current !== null) return;
-    previewFrameRef.current = window.requestAnimationFrame(flushPreviewDrafts);
+  const previewImportedDraft = (segment: AudioPanelSegment, patch: AudioPanelDraft) => {
+    if (segment.kind === 'imported') setImportedAudioDraft(segment.id, patch);
   };
 
   useEffect(() => () => {
-    if (previewFrameRef.current !== null) {
-      window.cancelAnimationFrame(previewFrameRef.current);
-      previewFrameRef.current = null;
-    }
-    pendingPreviewRef.current = {};
+    clearImportedAudioDrafts(previewedImportedIdsRef.current);
   }, []);
 
   const commitSegmentDraft = (segment: AudioPanelSegment) => {
-    if (previewFrameRef.current !== null) {
-      window.cancelAnimationFrame(previewFrameRef.current);
-      flushPreviewDrafts();
-    }
     const key = getDraftKey(segment);
     const draft = drafts[key];
     if (draft && Object.keys(draft).length > 0) {
@@ -219,7 +138,7 @@ export function AudioPanel({
         const { [key]: _removed, ...rest } = prev;
         return rest;
       });
-      resetTimelineVisualDraft(segment);
+      clearImportedAudioDrafts([segment.id]);
       commitSegment(segment);
     }
   };
@@ -241,7 +160,7 @@ export function AudioPanel({
       updateSegment(segment, patch);
       return;
     }
-    schedulePreviewDraft(segment, patch);
+    previewImportedDraft(segment, patch);
   };
 
   const handleTrimChange = (
@@ -258,7 +177,7 @@ export function AudioPanel({
       updateSegment(seg, patch);
       return;
     }
-    schedulePreviewDraft(seg, patch);
+    previewImportedDraft(seg, patch);
   };
 
   const handleApplyRateToAll = (rate: number) => {
@@ -270,7 +189,7 @@ export function AudioPanel({
       if (segment.kind === 'narration') {
         updateSegment(segment, patch);
       } else {
-        schedulePreviewDraft(segment, patch);
+        previewImportedDraft(segment, patch);
       }
     });
   };
@@ -278,6 +197,12 @@ export function AudioPanel({
   const commitApplyRateToAll = () => {
     const nextRate = clampRate(bulkRate);
     selected.forEach((segment) => updateSegment(segment, { playbackRate: nextRate }));
+    const committedKeys = new Set(selected.map(getDraftKey));
+    setDrafts((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([key]) => !committedKeys.has(key)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    clearImportedAudioDrafts(selected.filter((segment) => segment.kind === 'imported').map((segment) => segment.id));
     commitSelected(selected);
   };
 

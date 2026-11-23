@@ -17,6 +17,26 @@
 - Android setup-gated transport: [GeminiLiveReadySession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/shared/live/GeminiLiveReadySession.kt)
 
 ## Behavior Contract
+- Continuous transcription treats a failed audio write as uncertain delivery:
+  do not replay the attempted frame, retain later unattempted PCM in order, and
+  present a possible audio-gap notice without modifying transcript state.
+  The replay queue retains at most the newest 60 seconds; overflow drops the
+  oldest samples and reports the gap. Windows capture may independently hold up
+  to 60 seconds while a connection attempt is blocked; merging applies the same
+  replay limit. Recoverable disconnects retry with the shared backoff policy
+  for at most six attempts; cancellation, source/model replacement, and fatal
+  setup errors stop retries. Exhaustion is visible rather than a normal finish.
+  Both platforms validate the retry schedule from
+  [transcription-send-recovery.json](../../parity-fixtures/gemini-live-session/transcription-send-recovery.json);
+  its queue cases also cover Android's chunked-send adapter.
+- A failed resumed setup abandons that handle before fallback, so later
+  reconnects do not repeatedly submit a rejected handle. A frame containing
+  transcription and `goAway` delivers its transcription before reconnecting.
+- Setup acknowledgement is released only after the remaining observations from
+  its frame have been queued. Every connection replacement waits for any admitted
+  frame callback to finish and delivers its queued transcript and resumption
+  observations before reconnecting; callbacks admitted after retirement are
+  rejected. Capture ending during setup or retry delay stops further retries.
 - Dedicated live transcription uses `SMART` in every preset and Live Translate setup, including reconnects. Interim hypotheses remain revisable; this mode does not imply committed-prefix stability. Batch transcription is a separate contract.
 - Local transcription speech boundaries use the shared noise-relative activity contract in `parity-fixtures/preset-system/microphone-activity.json`; PCM amplitude is unchanged.
 
@@ -47,13 +67,23 @@
 
 ## Failure And Recovery
 
+- Android bounds unread active WebSocket payloads to 128 frames and 8 MiB of UTF-8 payload. An over-limit frame terminates the connection with an explicit non-retryable receive-buffer error and discards undelivered buffered frames, so a queued completion cannot hide the overflow. Frames already delivered remain ordered. Draining a frame releases its capacity. A timeout or cancellation while waiting leaves payloads queued for the next receive. A ready session admits only one receive at a time and rejects overlapping receives. Close and failure remain observable even when the buffer is full. The Android-specific adapter limit is covered by [android-event-buffer.json](../../parity-fixtures/gemini-live-session/android-event-buffer.json); Windows pulls frames synchronously and does not hold this callback queue.
+- A non-retryable failure of the selected segmented S2S attempt terminates the session rather than replaying audio it may already have emitted. A failed hedge cannot abort a different successful winner; if no hedge wins, a non-retryable failure is reported instead of treating the segment as empty.
 - Setup timeout begins when `sendSetup` is emitted. `setupComplete` must arrive on the current generation before input or catch-up replay is allowed.
+- A socket close or a rejected setup write before acknowledgement immediately
+  fails that setup and enters the normal retry policy; it does not wait for the
+  setup timeout. A close after acknowledgement remains an active-session event.
 - Setup gating consumes only the acknowledgement signal. Other structural observations carried before or in the same frame as `setupComplete` are buffered and delivered in wire order after activation.
 - Finite response policy owns separate first-response, content-idle, and hard-response deadlines. First content clears the first-response deadline. A completion signal wins over deadlines in the same reducer call.
+- Finite caller teardown retires its queued request and accepted socket without
+  changing another request's cancellation flag. Cancellation is rechecked after
+  blocking receives and reads,before publishing decoded output. Transport cleanup
+  also runs when a callback fails or the response consumer is abandoned.
 - Continuous server-idle recovery requires both the configured elapsed silence and the configured number of outbound chunks since the last server activity. A quiet user must not churn sockets.
 - Native-audio transcription no-result recovery waits for a completed input-flush boundary after sufficient successfully sent active audio, then grants a full response grace period. An unfinished speech interval is not a failed response. Meaningful server content/completion/interruption clears this evidence; usage/setup acknowledgements do not. Every new connection starts with fresh evidence. The pure adapter guard is covered by [transcription-recovery.json](../../parity-fixtures/gemini-live-session/transcription-recovery.json).
 - Reconnect catch-up preserves unsent input in wire order, returns to normal sending once drained on every transcription protocol, and continues dedicated speech-end observation while replaying.
 - Retryable failures close/abandon the current generation and schedule exactly one reconnect. Server retryability is classified only from structural protocol `code`/`status` fields; transient statuses such as `UNAVAILABLE` and `RESOURCE_EXHAUSTED` use reconnect, while auth/configuration errors enter `failed` without retry.
+- Socket opening tries resolved IPv4 and IPv6 addresses after a TCP failure rather than relying on the first DNS result. Windows bounds resolution and TCP attempts under one connection budget and interleaves address families; Android delegates address routing to its HTTP transport. The Windows adapter cases are in [transport-address-fallback.json](../../parity-fixtures/gemini-live-session/transport-address-fallback.json).
 - Reconnect delay is fixture-owned and deterministic: `min(maxMs, baseMs * 2^min(attempt, exponentCap) + jitterMinMs + ((jitterSeed + attempt * jitterStep) % jitterSpan))`. The current attempt computes the delay, then the stored attempt increments.
 - `setupComplete` alone does not reset backoff. The first meaningful active frame (content, completion, interruption, or tool event) resets it; error, `goAway`, usage-only, malformed, and unknown frames do not.
 - Proactive rotation requires socket age, quiet input, quiet server, no pending work, no buffered input, and no active speech. Rotation uses the normal reconnect path and never creates two live generations.
@@ -65,6 +95,7 @@
 - Shared lifecycle fixture: [parity-fixtures/gemini-live-session/lifecycle.json](../../parity-fixtures/gemini-live-session/lifecycle.json)
 - Rust and Android JVM tests must replay the same arrangements and cases. Fixture policy values are test inputs to the reducer, not constants to duplicate in adapters.
 - Raw JSON-to-frame decoding remains covered separately by feature protocol fixtures; this fixture begins after structural decoding.
+- Still frames for image presets follow [still-frame.json](../../parity-fixtures/gemini-live-session/still-frame.json): a frame whose long edge exceeds the budget is scaled down proportionally, and a smaller frame is sent at its own size, never enlarged or shrunk. Windows replays it in `src/api/gemini_live/websocket.rs`; Android uses `GeminiLiveStillFrameSize.kt` from its production bitmap encoder. Both send four frames with three 500 ms intervals, without delaying after the final frame.
 
 ## Windows Continuous S2S Adapter
 
@@ -78,4 +109,4 @@
 
 - Default: none.
 - An adapter is not conformant until it passes the shared fixture. Temporary migration gaps are implementation debt, not platform-specific behavior.
-- Windows DNS/TCP/TLS/WebSocket opening remains synchronous and observes cancellation after its bounded connect attempt returns. Setup and active polling already have short cancellation bounds; cancellable connection establishment remains transport debt rather than a lifecycle-policy deviation.
+- Windows DNS/TCP/TLS/WebSocket opening remains synchronous to callers and observes cancellation after connection setup returns. DNS resolver workers are bounded, but the underlying operating-system lookup cannot be interrupted; setup and active polling already have short cancellation bounds.

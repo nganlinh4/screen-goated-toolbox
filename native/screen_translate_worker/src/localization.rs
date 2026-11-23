@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use image::{ImageReader, Limits, RgbImage};
 use ort::{session::Session, session::builder::GraphOptimizationLevel, value::Tensor};
-use sgt_screen_text_detector_protocol::stream::Region;
+use sgt_screen_text_detector_protocol::stream::{MAX_CAPTURE_PIXELS, MAX_CAPTURE_SIDE, Region};
 use std::io::Cursor;
 use std::path::Path;
 
@@ -71,14 +71,14 @@ impl Locator {
 pub(crate) fn decode(bytes: &[u8]) -> Result<RgbImage> {
     let mut decoder = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = Limits::default();
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
+    limits.max_image_width = Some(MAX_CAPTURE_SIDE);
+    limits.max_image_height = Some(MAX_CAPTURE_SIDE);
     limits.max_alloc = Some(160_000_000);
     decoder.limits(limits);
     let image = decoder.decode()?.to_rgb8();
     if image.width() == 0
         || image.height() == 0
-        || u64::from(image.width()) * u64::from(image.height()) > 40_000_000
+        || u64::from(image.width()) * u64::from(image.height()) > MAX_CAPTURE_PIXELS
     {
         bail!("capture exceeds the image safety limit");
     }

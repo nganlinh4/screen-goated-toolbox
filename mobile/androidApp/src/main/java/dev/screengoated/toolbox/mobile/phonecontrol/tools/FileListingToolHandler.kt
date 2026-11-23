@@ -272,17 +272,8 @@ internal class FileListingToolHandler(
         return PrivilegedCommandProviderRegistry.find(selected)
     }
 
-    private fun isAppOwnedPath(path: File): Boolean {
-        val roots = buildList {
-            add(context.filesDir)
-            add(context.cacheDir)
-            add(context.noBackupFilesDir)
-            add(context.codeCacheDir)
-            context.externalCacheDirs.filterNotNull().forEach(::add)
-            context.getExternalFilesDirs(null).filterNotNull().forEach(::add)
-        }
-        return roots.any { root -> path.isWithin(root) }
-    }
+    private fun isAppOwnedPath(path: File): Boolean =
+        path.isWithinAnyRoot(appPrivateStorageRoots(context))
 }
 
 internal sealed interface AndroidFileListPathResolution {
@@ -525,12 +516,6 @@ private fun JsonObject.booleanValue(name: String): Boolean? =
 
 private fun JsonObject.intValue(name: String): Int? =
     (get(name) as? JsonPrimitive)?.intOrNull
-
-private fun File.isWithin(root: File): Boolean = runCatching {
-    val candidatePath = canonicalFile.toPath()
-    val rootPath = root.canonicalFile.toPath()
-    candidatePath == rootPath || candidatePath.startsWith(rootPath)
-}.getOrDefault(false)
 
 private fun isContentUri(path: String): Boolean = runCatching {
     URI(path.trim()).scheme.equals("content", ignoreCase = true)

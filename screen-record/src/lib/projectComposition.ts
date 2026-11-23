@@ -486,26 +486,3 @@ export function getCompositionClip(
   if (!composition || !clipId) return null;
   return composition.clips.find((clip) => clip.id === clipId) ?? null;
 }
-
-export function getSequenceDuration(
-  composition: ProjectComposition | null | undefined,
-): number {
-  if (!composition) return 0;
-  return composition.clips.reduce(
-    (sum, clip) => sum + Math.max(0, clip.duration),
-    0,
-  );
-}
-
-export function getClipOffsets(
-  composition: ProjectComposition | null | undefined,
-): Record<string, number> {
-  const offsets: Record<string, number> = {};
-  if (!composition) return offsets;
-  let cursor = 0;
-  for (const clip of composition.clips) {
-    offsets[clip.id] = cursor;
-    cursor += Math.max(0, clip.duration);
-  }
-  return offsets;
-}

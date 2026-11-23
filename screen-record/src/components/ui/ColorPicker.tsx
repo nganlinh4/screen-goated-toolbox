@@ -58,6 +58,7 @@ export function ColorPicker({ value, onChange, onOpen, onClose, label }: ColorPi
   const { t } = useSettings();
   const inheritedLabelId = useFieldLabelId();
   const [isOpen, setIsOpen] = useState(false);
+  const isOpenRef = useRef(false);
   const [hexInput, setHexInput] = useState(value);
   const [hsv, setHsv] = useState<[number, number, number]>(() => (
     safeHexToHsv(value) ?? [0, 0, 1]
@@ -93,14 +94,18 @@ export function ColorPicker({ value, onChange, onOpen, onClose, label }: ColorPi
     update(clientX, clientY);
   }, [emitColor]);
 
+  const handleOpenChange = useCallback((open: boolean) => {
+    if (isOpenRef.current === open) return;
+    isOpenRef.current = open;
+    setIsOpen(open);
+    if (open) onOpen?.();
+    else onClose?.();
+  }, [onOpen, onClose]);
+
   return (
     <Popover.Root
       open={isOpen}
-      onOpenChange={(open) => {
-        setIsOpen(open);
-        if (open) onOpen?.();
-        else onClose?.();
-      }}
+      onOpenChange={handleOpenChange}
     >
       <Popover.Trigger asChild>
         <button
@@ -238,7 +243,12 @@ export function ColorPicker({ value, onChange, onOpen, onClose, label }: ColorPi
                       if (nextHsv) setHsv(nextHsv);
                     }
                   }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') setIsOpen(false); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleOpenChange(false);
+                    }
+                  }}
                   className="hex-input ui-input w-full rounded-lg px-2.5 py-1.5 text-xs text-[var(--on-surface)] font-mono"
                   placeholder="#000000"
                 />

@@ -1,17 +1,17 @@
-use std::collections::HashSet;
-use std::io::{Read as _, Write as _};
+use crate::component_registry::verified_archive::{self, FileSpec, Policy};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 
 use super::{
-    MAX_COMPONENT_FILES, RecorderDelivery, WEB_ID, WORKER_ID, owned_file, receipt, recovery,
-    staging, validate_install, validate_status, version_root,
+    MAX_COMPONENT_FILES, RecorderDelivery, owned_file, receipt, recovery, staging,
+    validate_install, validate_status, version_root,
 };
-use crate::component_registry::RemovalOutcome;
+use crate::component_registry::persisted_download;
 use crate::component_registry::receipt::{file_matches, is_reparse_point};
 
 static INSTALL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -41,25 +41,6 @@ pub(super) fn repair_group(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let failures = deliveries
-        .iter()
-        .filter_map(|delivery| {
-            validate_install(delivery)
-                .err()
-                .map(|error| (*delivery, format!("{error:#}")))
-        })
-        .collect::<Vec<_>>();
-    let web_failed = failures.iter().any(|(entry, _)| entry.id == WEB_ID);
-    let worker_failed = failures.iter().any(|(entry, _)| entry.id == WORKER_ID);
-    if web_failed && !worker_failed {
-        clear_component(WORKER_ID)?;
-    }
-    for (delivery, reason) in failures.iter().rev() {
-        if version_root(delivery).is_ok_and(|root| root.exists()) {
-            recovery::quarantine_invalid(delivery, reason)?;
-        }
-    }
-
     let total = deliveries.iter().fold(0_u64, |sum, delivery| {
         sum.saturating_add(delivery.size_bytes)
     });
@@ -70,44 +51,27 @@ pub(super) fn repair_group(
             on_progress(completed, total);
             continue;
         }
-        let _install_lease = crate::component_registry::acquire(delivery.id)?;
-        install_delivery(delivery, cancelled, |done, _| {
-            on_progress(completed.saturating_add(done), total)
-        })?;
+        let mut install_lease = crate::component_registry::acquire(delivery.id)?;
+        install_delivery(
+            delivery,
+            cancelled,
+            |done, _| on_progress(completed.saturating_add(done), total),
+            &mut install_lease,
+        )?;
         completed = completed.saturating_add(delivery.size_bytes);
         on_progress(completed, total);
     }
     Ok(())
 }
 
-fn clear_component(id: &str) -> Result<()> {
-    match crate::component_registry::request_remove(id)? {
-        RemovalOutcome::Missing | RemovalOutcome::Removed => Ok(()),
-        RemovalOutcome::Pending => bail!("{id} is currently in use"),
-        RemovalOutcome::PreservedModified(paths) => bail!(
-            "{id} cannot be repaired because {} modified managed file(s) were preserved",
-            paths.len()
-        ),
-        RemovalOutcome::RequiredBy(dependents) => {
-            bail!("{id} repair is blocked by {}", dependents.join(", "))
-        }
-    }
-}
-
 fn install_delivery(
     delivery: &RecorderDelivery,
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
+    install_lease: &mut crate::component_registry::ComponentLease,
 ) -> Result<()> {
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let scratch = crate::paths::app_local_data_dir().join("component-downloads");
-    staging::ensure_directory_tree(&scratch, &scratch)?;
-    let archive = scratch.join(format!(
-        "{}-{}-{sequence}.download",
-        delivery.id,
-        std::process::id()
-    ));
-    let staging_parent = crate::paths::app_local_data_dir().join("component-staging");
+    let staging_parent = crate::paths::app_runtime_local_data_dir().join("component-staging");
     staging::ensure_directory_tree(&staging_parent, &staging_parent)?;
     let stage = staging_parent.join(format!(
         "{}-{}-{}-{sequence}",
@@ -118,81 +82,100 @@ fn install_delivery(
     std::fs::create_dir(&stage)?;
 
     let result = (|| {
-        download(delivery, &archive, cancelled, on_progress)?;
+        let archive =
+            persisted_download::fetch(delivery.id, &pinned_body(delivery), cancelled, &on_progress)
+                .with_context(|| format!("{} download failed", delivery.id))?;
         validate_archive(delivery, &archive)?;
-        extract(delivery, &archive, &stage)?;
+        extract(delivery, &archive, &stage, cancelled)?;
         validate_staging(delivery, &stage)?;
         crate::component_registry::write_receipt(&stage, &receipt(delivery))?;
+        if cancelled.load(Ordering::Acquire) {
+            bail!("recorder installation was cancelled");
+        }
         let parent = crate::component_registry::ensure_component_parent(delivery.id)?;
         let target = version_root(delivery)?;
-        if target.parent() != Some(parent.as_path()) || target.exists() {
+        if target.parent() != Some(parent.as_path()) {
             bail!("recorder component install target is invalid");
         }
-        std::fs::rename(&stage, &target)?;
-        validate_install(delivery)
+        match std::fs::symlink_metadata(&target) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                crate::component_registry::recovery::no_replace_move(&stage, &target)?;
+            }
+            Err(error) => return Err(error.into()),
+            Ok(_) => {
+                let exclusive =
+                    crate::component_registry::lease::upgrade_to_exclusive(install_lease)?;
+                recovery::quarantine_invalid_reserved(
+                    delivery,
+                    "component integrity validation failed",
+                    &exclusive,
+                )?;
+                crate::component_registry::recovery::no_replace_move(&stage, &target)?;
+            }
+        }
+        validate_install(delivery)?;
+        // A failed install keeps the received archive for the next attempt.
+        persisted_download::discard_leftovers(delivery.id);
+        Ok(())
     })();
-    let _ = std::fs::remove_file(&archive);
     if stage.exists() {
-        let owned = delivery
+        let mut owned = delivery
             .files
             .iter()
             .map(|file| PathBuf::from(file.path))
             .collect::<Vec<_>>();
+        owned.push(PathBuf::from(
+            crate::component_registry::receipt::RECEIPT_NAME,
+        ));
         let _ = staging::cleanup_owned(&stage, &owned);
     }
     result
 }
 
-fn download(
-    delivery: &RecorderDelivery,
-    target: &Path,
+/// Whether a fresh install of any group member needs a network transfer.
+pub(super) fn needs_transfer(deliveries: &[&'static RecorderDelivery]) -> bool {
+    deliveries
+        .iter()
+        .any(|delivery| validate_status(delivery).is_err())
+}
+
+/// Transfers the archives of group members that are not installed while
+/// holding only each component's transfer guard, so the caller runs it before
+/// the registry mutation guard. Repairs of installed members download under
+/// the guard, as before.
+pub(super) fn prefetch_group(
+    deliveries: &[&'static RecorderDelivery],
     cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
+    on_progress: &dyn Fn(u64, u64),
 ) -> Result<()> {
-    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
-        .get(delivery.download_url)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
+    let missing = deliveries
+        .iter()
+        .copied()
+        .filter(|delivery| validate_status(delivery).is_err())
+        .collect::<Vec<_>>();
+    let total = missing.iter().fold(0_u64, |sum, delivery| {
+        sum.saturating_add(delivery.size_bytes)
+    });
+    let mut completed = 0_u64;
+    for delivery in missing {
+        persisted_download::prefetch(
+            delivery.id,
+            &[pinned_body(delivery)],
+            cancelled,
+            &|done, _| on_progress(completed.saturating_add(done), total),
+        )
         .with_context(|| format!("{} download failed", delivery.id))?;
-    if response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|size| size != delivery.size_bytes)
-    {
-        bail!("recorder component download size does not match this build");
+        completed = completed.saturating_add(delivery.size_bytes);
     }
-    let mut reader = response.into_body().into_reader();
-    let mut output = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(target)?;
-    let mut buffer = [0_u8; 128 * 1024];
-    let mut downloaded = 0_u64;
-    loop {
-        if cancelled.load(Ordering::Relaxed) {
-            bail!("recorder component download was cancelled");
-        }
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        downloaded = downloaded
-            .checked_add(read as u64)
-            .ok_or_else(|| anyhow!("recorder component download is too large"))?;
-        if downloaded > delivery.size_bytes {
-            bail!("recorder component download exceeds its exact size");
-        }
-        output.write_all(&buffer[..read])?;
-        on_progress(downloaded, delivery.size_bytes);
-    }
-    if downloaded != delivery.size_bytes {
-        bail!("recorder component download is incomplete");
-    }
-    output.flush()?;
-    output.sync_all()?;
     Ok(())
+}
+
+fn pinned_body(delivery: &RecorderDelivery) -> persisted_download::PinnedBody<'_> {
+    persisted_download::PinnedBody {
+        url: delivery.download_url,
+        size: delivery.size_bytes,
+        sha256: delivery.sha256,
+    }
 }
 
 fn validate_archive(delivery: &RecorderDelivery, path: &Path) -> Result<()> {
@@ -207,52 +190,39 @@ fn validate_archive(delivery: &RecorderDelivery, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn extract(delivery: &RecorderDelivery, archive_path: &Path, stage: &Path) -> Result<()> {
-    let file = std::fs::File::open(archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    if archive.len() != delivery.files.len() || archive.len() > MAX_COMPONENT_FILES {
-        bail!("recorder component archive has an unexpected entry count");
-    }
-    let mut extracted = HashSet::new();
-    let mut extracted_bytes = 0_u64;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
-        if entry.is_dir() {
-            bail!("recorder component archive contains a directory entry");
-        }
-        let relative = entry
-            .enclosed_name()
-            .ok_or_else(|| anyhow!("recorder component archive path is unsafe"))?
-            .to_path_buf();
-        let expected = delivery
-            .files
-            .iter()
-            .find(|file| Path::new(file.path) == relative)
-            .ok_or_else(|| anyhow!("recorder archive contains an unowned file"))?;
-        if !extracted.insert(relative.clone()) || entry.size() != expected.size_bytes {
-            bail!("recorder component archive entry does not match its manifest");
-        }
-        extracted_bytes = extracted_bytes
-            .checked_add(entry.size())
-            .ok_or_else(|| anyhow!("recorder component expands beyond its limit"))?;
-        if extracted_bytes > delivery.unpacked_size_bytes {
-            bail!("recorder component expands beyond its declared size");
-        }
-        let target = staging::prepare_target(stage, &relative)?;
-        let mut output = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&target)?;
-        std::io::copy(&mut entry, &mut output)?;
-        output.flush()?;
-        if !file_matches(&target, &owned_file(expected))? {
-            bail!("recorder component extracted checksum mismatch");
-        }
-    }
-    if extracted.len() != delivery.files.len() || extracted_bytes != delivery.unpacked_size_bytes {
-        bail!("recorder component archive is incomplete");
-    }
-    Ok(())
+fn extract(
+    delivery: &RecorderDelivery,
+    archive_path: &Path,
+    stage: &Path,
+    cancelled: &AtomicBool,
+) -> Result<()> {
+    let files = delivery
+        .files
+        .iter()
+        .map(|file| FileSpec::same(Path::new(file.path), file.size_bytes, file.sha256))
+        .collect::<Vec<_>>();
+    verified_archive::extract(
+        std::fs::File::open(archive_path)?,
+        &files,
+        Policy::files(MAX_COMPONENT_FILES, delivery.unpacked_size_bytes),
+        cancelled,
+        |index, member| {
+            let expected = &delivery.files[index];
+            let (target, _directories) = staging::prepare_target(stage, Path::new(expected.path))?;
+            let mut output = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&target)?;
+            member.copy_to(&mut output, &|_| {})?;
+            output.flush()?;
+            drop(output);
+            if !file_matches(&target, &owned_file(expected))? {
+                bail!("extracted component file failed integrity verification");
+            }
+
+            Ok(())
+        },
+    )
 }
 
 fn validate_staging(delivery: &RecorderDelivery, stage: &Path) -> Result<()> {
@@ -261,8 +231,11 @@ fn validate_staging(delivery: &RecorderDelivery, stage: &Path) -> Result<()> {
             bail!("staged recorder component failed integrity verification");
         }
     }
-    let mut actual = Vec::new();
-    staging::collect_regular_files(stage, stage, &mut actual, MAX_COMPONENT_FILES + 1)?;
+    let actual = crate::component_registry::owned_tree::regular_files(
+        stage,
+        "recorder component",
+        MAX_COMPONENT_FILES + 1,
+    )?;
     if actual.len() != delivery.files.len()
         || actual.iter().any(|path| {
             !delivery

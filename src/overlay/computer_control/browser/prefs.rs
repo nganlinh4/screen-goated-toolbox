@@ -16,24 +16,14 @@ struct ConnectionPrefs {
 /// once it lapses, a genuine removal self-heals back to offering setup again.
 const CONN_GRACE_SECS: u64 = 180;
 
-fn persisted_prefs_path() -> std::path::PathBuf {
-    crate::paths::app_config_dir().join("cc_browser_prefs.json")
-}
-
 fn writable_prefs_path() -> std::path::PathBuf {
     crate::paths::app_runtime_config_dir().join("cc_browser_prefs.json")
 }
 
 fn load_prefs() -> ConnectionPrefs {
-    let writable = writable_prefs_path();
-    let persisted = persisted_prefs_path();
-    [writable, persisted]
-        .into_iter()
-        .find_map(|path| {
-            std::fs::File::open(path)
-                .ok()
-                .and_then(|file| serde_json::from_reader(file).ok())
-        })
+    std::fs::File::open(writable_prefs_path())
+        .ok()
+        .and_then(|file| serde_json::from_reader(file).ok())
         .unwrap_or_default()
 }
 

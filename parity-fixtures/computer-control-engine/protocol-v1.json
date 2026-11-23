@@ -2,6 +2,43 @@
   "schemaVersion": 1,
   "providerFrames": [
     {
+      "id": "bounded-unicode-content",
+      "frame": {
+        "serverContent": {
+          "inputTranscription": {"text": "input\u0000text"},
+          "modelTurn": {"parts": [
+            {"text": "visible\u0000text"},
+            {"text": "private\u0000thought", "thought": true}
+          ]},
+          "outputTranscription": {"text": "output\u0000text"}
+        },
+        "error": {"message": "detail\u0000text"}
+      },
+      "expected": [
+        {"type": "input-transcript", "text": "input\u0000text"},
+        {"type": "model-text", "text": "visible\u0000text"},
+        {"type": "thought", "text": "private\u0000thought"},
+        {"type": "output-transcript", "text": "output\u0000text"},
+        {"type": "other", "summary": "detail\u0000text"}
+      ]
+    },
+    {
+      "id": "optional-connection-metadata-absent",
+      "frame": {"goAway": {}, "sessionResumptionUpdate": {"resumable": false}},
+      "expected": [
+        {"type": "go-away", "timeLeft": ""},
+        {"type": "session-resumption", "handle": null, "resumable": false}
+      ]
+    },
+    {
+      "id": "optional-connection-metadata-empty",
+      "frame": {"goAway": {"timeLeft": ""}, "sessionResumptionUpdate": {"newHandle": "", "resumable": false}},
+      "expected": [
+        {"type": "go-away", "timeLeft": ""},
+        {"type": "session-resumption", "handle": "", "resumable": false}
+      ]
+    },
+    {
       "id": "combined-lifecycle-frame",
       "frame": {
         "setupComplete": {},

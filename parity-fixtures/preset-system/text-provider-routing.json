@@ -111,10 +111,10 @@
       "reasoning_effort": "low"
     },
     {
-      "name": "openrouter_gemma_disables_reasoning_with_nested_policy",
-      "model_id": "openrouter-gemma-4-26b-a4b-text",
+      "name": "openrouter_ling_disables_reasoning_with_nested_policy",
+      "model_id": "openrouter-ling-3-2-flash-text",
       "provider": "OPENROUTER",
-      "api_model": "google/gemma-4-26b-a4b-it:free",
+      "api_model": "inclusionai/ling-3.2-flash:free",
       "supports_search": false,
       "reasoning": {
         "effort": "none"

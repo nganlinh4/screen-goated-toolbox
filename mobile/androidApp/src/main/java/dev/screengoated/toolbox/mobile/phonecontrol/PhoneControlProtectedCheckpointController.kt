@@ -7,7 +7,9 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.Phone
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.grounding.VisualGroundingFrameStore
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntime
 
-internal class PhoneControlProtectedCheckpointController {
+internal class PhoneControlProtectedCheckpointController(
+    private val onExit: () -> Unit = {},
+) {
     private var token: PhoneControlProtectedCheckpointToken? = null
     private var providerId: String? = null
     private var capturePolicy: PhoneControlProtectedCapturePolicy? = null
@@ -72,6 +74,29 @@ internal class PhoneControlProtectedCheckpointController {
         return restoreRetained(expectedToken, runtime)
     }
 
+    /**
+     * Ends a checkpoint whose handoff was cancelled or timed out before a local
+     * adapter took ownership, so tools and visual evidence are never left sealed.
+     */
+    fun abandon(
+        expectedToken: PhoneControlProtectedCheckpointToken,
+        runtime: PhoneControlRuntime?,
+        reason: String,
+    ): Boolean {
+        if (token != expectedToken) return false
+        PhoneControlProtectedCheckpointRegistry.end(expectedToken)
+        val abandonedProvider = providerId.orEmpty()
+        clear()
+        runtime?.resumeVisualEvidence()
+        PhoneControlLog.w(
+            TAG,
+            "protected_checkpoint_exit accepted=true provider=$abandonedProvider " +
+                "source=abandoned reason=$reason visual_evidence=${runtime != null}",
+        )
+        onExit()
+        return true
+    }
+
     fun close() {
         token?.let(PhoneControlProtectedCheckpointRegistry::end)
         clear()
@@ -95,6 +120,7 @@ internal class PhoneControlProtectedCheckpointController {
             "protected_checkpoint_exit accepted=true provider=$restoredProvider " +
                 "source=$source visual_evidence=true",
         )
+        onExit()
         return true
     }
 

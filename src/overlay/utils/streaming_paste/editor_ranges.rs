@@ -1,4 +1,4 @@
-//! Exact caret-relative ranges and reversible selection capability checks.
+//! Exact caret-relative ranges and read-only range capability checks.
 use super::*;
 
 #[derive(Debug)]
@@ -10,9 +10,8 @@ impl std::fmt::Display for UnsafeCapture {
 }
 impl std::error::Error for UnsafeCapture {}
 
-pub(super) fn probe(editor: &Editor) -> Result<()> {
+pub(super) fn probe(editor: &Editor, allowed: &dyn Fn() -> bool) -> Result<()> {
     let (_, _, _, original) = snapshot(&editor.text)?;
-
     let candidate = unsafe { original.Clone()? };
     let moved = unsafe { candidate.Move(TextUnit_Character, -1)? };
     let moved = if moved == 0 {
@@ -20,34 +19,21 @@ pub(super) fn probe(editor: &Editor) -> Result<()> {
     } else {
         moved
     };
-    // A genuinely empty editable document has no alternate caret position.
     if moved == 0 {
         ensure!(
             editor.before.is_empty() && editor.after.is_empty(),
             "nonempty text provider cannot expose a neighboring caret"
         );
-        return Ok(());
     }
-    editor.check()?;
-    let observed = (|| -> Result<bool> {
-        unsafe {
-            candidate.Select()?;
-        }
-        editor.target.check()?;
-        let (_, selected, _, actual) = snapshot(&editor.text)?;
-        Ok(selected.is_empty() && unsafe { actual.Compare(&candidate)?.as_bool() })
-    })();
-    // Restore only while the same destination retains focus.
-    let restore = (|| -> Result<()> {
-        editor.target.check()?;
-        unsafe {
-            original.Select()?;
-        }
-        editor.check()?;
-        Ok(())
-    })();
-    restore.map_err(|error| error.context(UnsafeCapture))?;
-    ensure!(observed?, "text provider cannot move the editable caret");
+    // Detached range movement is read-only. Never move and restore the user's
+    // actual caret merely to discover whether a provider supports selection.
+    check_probe(allowed, || editor.check())
+}
+
+fn check_probe(allowed: &dyn Fn() -> bool, check: impl FnOnce() -> Result<()>) -> Result<()> {
+    ensure!(allowed(), UnsafeCapture);
+    check().context(UnsafeCapture)?;
+    ensure!(allowed(), UnsafeCapture);
     Ok(())
 }
 
@@ -92,4 +78,41 @@ pub(super) fn suffix(
         }
     }
     anyhow::bail!("caret-relative range does not exactly match owned suffix")
+}
+
+#[cfg(test)]
+mod selection_guard_tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+
+    #[test]
+    fn user_selection_change_during_blocked_probe_is_unsafe_for_fallback() {
+        let changed = AtomicBool::new(false);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let changed = &changed;
+            let worker = scope.spawn(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                check_probe(&|| true, || {
+                    anyhow::ensure!(!changed.load(Ordering::SeqCst), "selection changed");
+                    Ok(())
+                })
+            });
+            entered_rx.recv().unwrap();
+            changed.store(true, Ordering::SeqCst);
+            release_tx.send(()).unwrap();
+            assert!(worker.join().unwrap().unwrap_err().is::<UnsafeCapture>());
+        });
+    }
+
+    #[test]
+    fn expired_probe_is_unsafe_for_fallback() {
+        let error = check_probe(&|| false, || Ok(())).unwrap_err();
+        assert!(error.is::<UnsafeCapture>());
+    }
 }

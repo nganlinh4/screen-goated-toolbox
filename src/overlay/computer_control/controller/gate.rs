@@ -47,6 +47,13 @@ the user (never invent personal data from what's on screen).",
                 empty.join(", ")
             ));
         }
+        let unknown = ws.unobserved_required_in_form(el);
+        if !unknown.is_empty() {
+            return Gate::Block(format!(
+                "Did not submit - required field values are unobserved: {}. Inspect or fill them and re-observe before submitting.",
+                unknown.join(", ")
+            ));
+        }
     }
 
     Gate::Allow
@@ -59,13 +66,37 @@ mod tests {
         ElHandle, SurfaceIdentity, WorldState,
     };
 
+    #[test]
+    fn unknown_required_value_blocks_submit_without_claiming_it_is_empty() {
+        let mut field = element(1, "field", None, true);
+        field.value_preview = Some("partial text".into());
+        let submit = element(2, "submit", None, false);
+        let world = WorldState {
+            elements: vec![field, submit.clone()],
+            url: None,
+            title: None,
+            identity: SurfaceIdentity::Native {
+                hwnd: 1,
+                pid: 2,
+                generation: 1,
+            },
+        };
+        let Gate::Block(reason) = gate_action(&world, &submit, Verb::Submit, false) else {
+            panic!("unknown required field was accepted")
+        };
+        assert!(reason.contains("unobserved"));
+        assert!(!reason.contains("still empty"));
+    }
+
     fn element(id: u32, name: &str, value: Option<&str>, required: bool) -> IndexedElement {
         IndexedElement {
             id,
             role: if required { "textbox" } else { "button" }.to_string(),
             name: name.to_string(),
             value: value.map(str::to_string),
+            value_preview: None,
             editable: required,
+            protected: false,
             state: None,
             enabled: true,
             required,

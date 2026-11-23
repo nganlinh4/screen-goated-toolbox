@@ -1,5 +1,33 @@
 use super::*;
 
+#[cfg(windows)]
+mod lifecycle_race;
+
+#[test]
+fn uncertain_publication_retains_svg_inputs_without_queueing() {
+    let name = format!(
+        "{}::uncertain_publication_retains_svg_inputs_without_queueing",
+        module_path!().split_once("::").unwrap().1
+    );
+    crate::overlay::creation_submission_test::run_isolated(&name, |root| {
+        let source = crate::overlay::creation_submission_test::input_image(root);
+        let request = StartJobRequest {
+            image_path: source.to_string_lossy().to_string(),
+            source_descriptors: Vec::new(),
+            output_dir: Some(root.join("output").to_string_lossy().to_string()),
+            final_output_dir: None,
+            model: "simple".to_string(),
+            background_mode: "opaque".to_string(),
+            output_name: String::new(),
+            dispatch_id: String::new(),
+        };
+        let error = start_job(request).unwrap_err();
+        assert!(error.contains("uncertain"), "{error}");
+        assert!(STATE.lock().unwrap().jobs.is_empty());
+        crate::overlay::creation_submission_test::assert_retained("svg", &source);
+    });
+}
+
 const _: () = assert!(MAX_RETAINED_TERMINAL_JOBS >= MAX_QUEUED_JOBS);
 
 #[test]

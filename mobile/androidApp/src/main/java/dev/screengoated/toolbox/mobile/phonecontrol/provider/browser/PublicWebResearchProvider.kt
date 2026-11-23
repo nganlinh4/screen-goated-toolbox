@@ -5,7 +5,6 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.PhoneControlArtifac
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.time.Instant
-import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -27,12 +26,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.Dns
 import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 
 internal data class PublicResearchOutcome(
     val code: String,
@@ -87,21 +84,14 @@ internal class PublicWebResearchProvider(
         val direct = request.sourceUrls.map { ResearchCandidate(it, it.host, direct = true) }
         if (direct.size >= request.maxSources) return direct
         for (provider in SEARCH_PROVIDERS) {
-            val searchUrl = provider.searchUrl(request.discoveryQuery()) ?: continue
-            val response = fetch(searchUrl, MAX_SEARCH_BYTES)
-            if (response == null) {
+            val response = fetch(provider.searchUrl(request.discoveryQuery()), MAX_SEARCH_BYTES)
+            if (response == null || !provider.isResultPage(response.finalUrl)) {
                 diagnostics.discoveryFailures += 1
                 continue
             }
             val document = Jsoup.parse(response.body, response.finalUrl.toString())
-            val links = document.select("a[href]").mapNotNull { link ->
-                provider.candidate(link.absUrl("href"))?.let { url ->
-                    ResearchCandidate(
-                        url = url,
-                        label = link.text().take(MAX_LINK_LABEL_CHARS),
-                        direct = false,
-                    )
-                }
+            val links = provider.resultLinks(document).map { link ->
+                ResearchCandidate(url = link.url, label = link.label, direct = false)
             }
             if (links.isNotEmpty()) return direct + links
             diagnostics.discoveryFailures += 1
@@ -118,7 +108,7 @@ internal class PublicWebResearchProvider(
             diagnostics.rejectedDomains += 1
             return null
         }
-        val response = fetch(candidate.url, MAX_SOURCE_BYTES)
+        val response = fetch(candidate.url, MAX_SOURCE_BYTES, request::accepts)
         if (response == null || !request.accepts(response.finalUrl)) {
             diagnostics.sourceFailures += 1
             return null
@@ -135,7 +125,11 @@ internal class PublicWebResearchProvider(
         return parsed.copy(artifact = artifact.info())
     }
 
-    private suspend fun fetch(url: HttpUrl, maxBytes: Int): FetchedResponse? =
+    private suspend fun fetch(
+        url: HttpUrl,
+        maxBytes: Int,
+        accepts: (HttpUrl) -> Boolean = { true },
+    ): FetchedResponse? =
         withContext(Dispatchers.IO) {
             if (!safePublicResearchUrl(url)) return@withContext null
             val request = Request.Builder()
@@ -144,7 +138,8 @@ internal class PublicWebResearchProvider(
                 .header("User-Agent", USER_AGENT)
                 .build()
             try {
-                client.newCall(request).execute().use { response ->
+                val response = executePublicResearchGet(client, request, accepts) ?: return@withContext null
+                response.use {
                     if (
                         !response.isSuccessful ||
                         !supportedContent(response) ||
@@ -388,7 +383,8 @@ internal class PublicWebResearchProvider(
         if (request.policy == SourcePolicy.BROAD) return distinct
         return distinct
             .sortedByDescending { candidate ->
-                terms.count { term -> candidate.label.lowercase().contains(term) } +
+                val labelTerms = queryTerms(candidate.label)
+                terms.count { it in labelTerms } +
                     if (candidate.direct) DIRECT_SOURCE_WEIGHT else 0
             }
     }
@@ -420,7 +416,6 @@ internal class PublicWebResearchProvider(
         const val MAX_RESULT_PAYLOAD_BYTES = MAX_MODEL_VISIBLE_BYTES - RESULT_ENVELOPE_RESERVE_BYTES
         const val MIN_EXCERPT_CHARS = 256
         const val MAX_TITLE_CHARS = 256
-        const val MAX_LINK_LABEL_CHARS = 512
         const val MIN_SOURCE_CHARS = 80
         const val MIN_BLOCK_CHARS = 20
         const val DIRECT_SOURCE_WEIGHT = 100
@@ -441,8 +436,8 @@ private fun researchHttpClient(): OkHttpClient = OkHttpClient.Builder()
     .readTimeout(12, TimeUnit.SECONDS)
     .writeTimeout(8, TimeUnit.SECONDS)
     .callTimeout(15, TimeUnit.SECONDS)
-    .followRedirects(true)
-    .followSslRedirects(true)
+    .followRedirects(false)
+    .followSslRedirects(false)
     .build()
 
 private object PublicOnlyDns : Dns {
@@ -478,74 +473,3 @@ private fun safeOutputUrl(url: HttpUrl): Pair<String, Boolean> {
 
 private fun canonicalUrl(url: HttpUrl): String =
     url.newBuilder().fragment(null).build().toString()
-
-private fun String.normalizeWhitespace(): String = replace(Regex("\\s+"), " ").trim()
-
-private fun queryTerms(query: String): Set<String> =
-    query.lowercase().split(Regex("[^\\p{L}\\p{N}]+"))
-        .filter { it.length >= 2 }
-        .toSet()
-
-private fun relevantExcerpt(text: String, query: String, maxChars: Int): String {
-    if (maxChars <= 0 || text.length <= maxChars) return text.take(maxChars)
-    val terms = queryTerms(query)
-    val blocks = text.split('\n').filter(String::isNotBlank)
-    val best = blocks.maxByOrNull { block ->
-        val lower = block.lowercase()
-        terms.count { term -> lower.contains(term) }
-    }.orEmpty()
-    if (best.length >= maxChars) return best.take(maxChars)
-    val start = text.indexOf(best).coerceAtLeast(0)
-    val before = ((maxChars - best.length) / 2).coerceAtMost(start)
-    return text.substring(start - before, minOf(text.length, start - before + maxChars))
-}
-
-private data class SearchProvider(
-    val endpoint: String,
-    val transportHost: String,
-    val redirectPath: String,
-    val redirectParameters: Set<String>,
-    val encodedRedirectParameter: String? = null,
-) {
-    fun searchUrl(query: String): HttpUrl? = endpoint.toHttpUrlOrNull()
-        ?.newBuilder()
-        ?.addQueryParameter("q", query)
-        ?.build()
-
-    fun candidate(raw: String): HttpUrl? {
-        val parsed = raw.toHttpUrlOrNull() ?: return null
-        if (!parsed.host.equals(transportHost, ignoreCase = true)) return parsed
-        if (parsed.encodedPath != redirectPath) return null
-        redirectParameters.forEach { parameter ->
-            parsed.queryParameter(parameter)?.toHttpUrlOrNull()?.let { return it }
-        }
-        val encoded = encodedRedirectParameter?.let(parsed::queryParameter) ?: return null
-        val payload = encoded.removePrefix("a1")
-        val decoded = runCatching {
-            String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)
-        }.getOrNull()
-        return decoded?.toHttpUrlOrNull()
-    }
-}
-
-private val SEARCH_PROVIDERS = listOf(
-    SearchProvider(
-        endpoint = "https://www.google.com/search",
-        transportHost = "www.google.com",
-        redirectPath = "/url",
-        redirectParameters = setOf("q", "url"),
-    ),
-    SearchProvider(
-        endpoint = "https://www.bing.com/search",
-        transportHost = "www.bing.com",
-        redirectPath = "/ck/a",
-        redirectParameters = emptySet(),
-        encodedRedirectParameter = "u",
-    ),
-    SearchProvider(
-        endpoint = "https://html.duckduckgo.com/html/",
-        transportHost = "duckduckgo.com",
-        redirectPath = "/l/",
-        redirectParameters = setOf("uddg"),
-    ),
-)

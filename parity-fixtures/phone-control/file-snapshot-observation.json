@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"unchanged","result":"accepted"},
+    {"event":"modified_nanoseconds_change","result":"rejected"},
+    {"event":"changed_nanoseconds_change","result":"rejected"},
+    {"event":"short_read","result":"rejected"},
+    {"event":"different_reads","result":"rejected"},
+    {"event":"size_exceeds_limit","result":"rejected"}
+  ]
+}

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createVideoController } from "@/lib/videoController";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { projectManager } from "@/lib/projectManager";
+import { sortProjectsByDisplayOrder } from "@/lib/projectStorage";
 import {
   BackgroundConfig,
   VideoSegment,
@@ -31,10 +32,13 @@ import {
   loadProjectAudioMedia,
 } from "./loadProjectMedia";
 import { normalizeLoadedSegment } from "./normalizeLoadedSegment";
+import { recoverLegacyProjectSubtitleCopies } from "@/lib/legacySubtitleRecovery";
 
 // ============================================================================
 // useProjects
 // ============================================================================
+export type ProjectLoadResult = boolean | null | (() => boolean);
+
 interface UseProjectsProps {
   videoControllerRef: React.MutableRefObject<
     ReturnType<typeof createVideoController> | undefined
@@ -51,7 +55,8 @@ interface UseProjectsProps {
   setThumbnails: (thumbnails: string[]) => void;
   setCurrentRecordingMode?: (mode: RecordingMode) => void;
   setCurrentRawVideoPath?: (path: string) => void;
-  onProjectLoaded?: (project: Project) => void;
+  onProjectLoaded?: (project: Project) => void | false | (() => boolean);
+  onProjectLoadStart?: (projectId: string) => (applied: boolean) => void;
   currentVideo: string | null;
   currentAudio: string | null;
   currentMicAudio: string | null;
@@ -67,10 +72,15 @@ function revokePreviousBlobUrl(
   }
 }
 
+type ProjectListEntry = Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">;
+
 export function useProjects(props: UseProjectsProps) {
-  const [projects, setProjects] = useState<
-    Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob">[]
-  >([]);
+  const [projects, setProjects] = useState<ProjectListEntry[]>([]);
+  const projectsRef = useRef<ProjectListEntry[]>([]);
+  const publishProjects = useCallback((next: ProjectListEntry[]) => {
+    projectsRef.current = next;
+    setProjects(next);
+  }, []);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectIdState] = useState<string | null>(null);
   const setCurrentProjectId = useCallback((projectId: string | null) => {
@@ -78,6 +88,14 @@ export function useProjects(props: UseProjectsProps) {
     setCurrentProjectIdState(projectId);
   }, []);
   const loadRequestSeqRef = useRef(0);
+  const finishLoadRef = useRef<((applied: boolean) => void) | null>(null);
+  const [, setLoadRevision] = useState(0);
+  const cancelPendingProjectLoad = useCallback(() => {
+    ++loadRequestSeqRef.current;
+    finishLoadRef.current?.(false);
+    finishLoadRef.current = null;
+    setLoadRevision((revision) => revision + 1);
+  }, []);
   const logProjectLoad = (event: string, data?: Record<string, unknown>) => {
     if (!PROJECT_LOAD_DEBUG) return;
     const ts = new Date().toISOString();
@@ -89,20 +107,44 @@ export function useProjects(props: UseProjectsProps) {
   };
 
   const loadProjects = useCallback(async () => {
-    const projects = await projectManager.getProjects();
-    setProjects(projects);
+    publishProjects(await projectManager.getProjects());
     reportStartupMilestone("projects-hydrated");
-  }, []);
+  }, [publishProjects]);
+
+  // After one project is saved, re-read only that record. The full list read
+  // (every record with its segment and mouse data) is needed only when the
+  // stored set changed underneath the list, e.g. retention pruned a project.
+  const refreshProjectEntry = useCallback(async (projectId: string) => {
+    const { project, count } = await projectManager.getProjectListEntry(projectId);
+    const current = projectsRef.current;
+    const listed = current.some((entry) => entry.id === projectId);
+    if (!project || current.length + (listed ? 0 : 1) !== count) {
+      await loadProjects();
+      return;
+    }
+    // Replace in place so cards with equal sort keys keep their positions.
+    const next = listed
+      ? current.map((entry) => (entry.id === projectId ? project : entry))
+      : [...current, project];
+    publishProjects(sortProjectsByDisplayOrder(next));
+  }, [loadProjects, publishProjects]);
 
   const handleLoadProject = useCallback(
     async (projectId: string) => {
       const loadRequestSeq = ++loadRequestSeqRef.current;
+      const finishLoad = props.onProjectLoadStart?.(projectId);
+      finishLoadRef.current = finishLoad ?? null;
+      setLoadRevision((revision) => revision + 1);
+      let applied = false;
+      try {
       logProjectLoad("load:start", { projectId });
-      const project = await projectManager.loadProject(projectId);
-      if (!project || loadRequestSeq !== loadRequestSeqRef.current) {
+      const storedProject = await projectManager.loadProject(projectId);
+      if (loadRequestSeq !== loadRequestSeqRef.current) return null;
+      if (!storedProject) {
         logProjectLoad("load:missing", { projectId });
-        return;
+        return false;
       }
+      let project = storedProject;
       logProjectLoad("load:fetched", {
         projectId,
         canvasMode: project.backgroundConfig?.canvasMode,
@@ -271,15 +313,16 @@ export function useProjects(props: UseProjectsProps) {
           }),
         );
       }
-      if (loadRequestSeq !== loadRequestSeqRef.current) return;
+      if (loadRequestSeq !== loadRequestSeqRef.current) return null;
 
       const videoObjectUrl = await loadProjectVideo({
         controller: props.videoControllerRef.current,
         project,
         isTimelineOnlyProject,
         rawVideoPath,
+        isLatestRequest: () => loadRequestSeq === loadRequestSeqRef.current,
       });
-      if (loadRequestSeq !== loadRequestSeqRef.current) return;
+      if (loadRequestSeq !== loadRequestSeqRef.current) return null;
 
       const { audioObjectUrl, micAudioObjectUrl, webcamVideoObjectUrl } =
         await loadProjectAudioMedia({
@@ -290,11 +333,14 @@ export function useProjects(props: UseProjectsProps) {
           rawWebcamVideoPath,
           videoObjectUrl,
         });
-      if (loadRequestSeq !== loadRequestSeqRef.current) return;
+      if (loadRequestSeq !== loadRequestSeqRef.current) return null;
 
       const videoDuration = isTimelineOnlyProject
         ? Math.max(project.duration ?? 0, project.segment.trimEnd, 1)
         : props.videoControllerRef.current?.duration || 0;
+      // Resolve legacy clip-local caption copies after every load migration, so
+      // the editor segment and the composition share one recovered state.
+      project = recoverLegacyProjectSubtitleCopies(project);
       const correctedSegment = normalizeLoadedSegment({
         project,
         isTimelineOnlyProject,
@@ -362,13 +408,14 @@ export function useProjects(props: UseProjectsProps) {
         appliedBackground: summarizeLoadedBackground(project.backgroundConfig),
         appliedTrimEnd: correctedSegment.trimEnd,
       });
-      props.onProjectLoaded?.({
+      const owner = props.onProjectLoaded?.({
         ...project,
         rawVideoPath,
         rawMicAudioPath,
         rawWebcamVideoPath,
         segment: correctedSegment,
       });
+      applied = true;
       logProjectLoad("load:applied", {
         projectId,
         canvasMode: project.backgroundConfig?.canvasMode,
@@ -378,6 +425,17 @@ export function useProjects(props: UseProjectsProps) {
       // Ensure keyboard focus returns to the document after the Projects overlay
       // animates out (clone removal can leave focus in limbo → spacebar ignored).
       requestAnimationFrame(() => document.body.focus());
+      return typeof owner === 'function' ? owner : owner !== false;
+      } catch (error) {
+        if (loadRequestSeq !== loadRequestSeqRef.current) return null;
+        throw error;
+      } finally {
+        finishLoad?.(applied);
+        if (loadRequestSeq === loadRequestSeqRef.current) {
+          finishLoadRef.current = null;
+          setLoadRevision((revision) => revision + 1);
+        }
+      }
     },
     [props],
   );
@@ -386,7 +444,12 @@ export function useProjects(props: UseProjectsProps) {
     loadProjects();
   }, [loadProjects]);
 
-  useEffect(() => () => projectManager.setActiveProjectId(null), []);
+  useEffect(() => () => {
+    ++loadRequestSeqRef.current;
+    finishLoadRef.current?.(false);
+    finishLoadRef.current = null;
+    projectManager.setActiveProjectId(null);
+  }, []);
 
   return {
     projects,
@@ -395,6 +458,8 @@ export function useProjects(props: UseProjectsProps) {
     currentProjectId,
     setCurrentProjectId,
     loadProjects,
+    refreshProjectEntry,
     handleLoadProject,
+    cancelPendingProjectLoad,
   };
 }

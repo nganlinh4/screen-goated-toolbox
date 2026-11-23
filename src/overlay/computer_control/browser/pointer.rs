@@ -437,19 +437,45 @@ fn pause_cancelled(cancel: &AtomicBool, duration: Duration) -> bool {
     }
 }
 
+/// Pointer effects use the extension's atomic active-tab guard whenever it is
+/// advertised, so a tab switch after document validation cannot receive the
+/// press. Cleanup releases stay unguarded so a held button is always let go.
 fn dispatch(tab_id: i64, command: PointerCommand, mode: DispatchMode) -> Result<()> {
     let params = command.params();
     match mode {
-        DispatchMode::Normal => {
-            super::bridge::cdp_on_tab("Input.dispatchMouseEvent", params, tab_id)?;
-        }
+        DispatchMode::Normal => match normal_route() {
+            NormalRoute::ActiveTab => {
+                super::bridge::cdp_in_active_tab("Input.dispatchMouseEvent", params, None, tab_id)?;
+            }
+            NormalRoute::ExplicitTab => {
+                super::bridge::cdp_on_tab("Input.dispatchMouseEvent", params, tab_id)?;
+            }
+        },
         DispatchMode::Cleanup => cleanup_dispatch(tab_id, params)?,
     }
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum NormalRoute {
+    /// The extension refuses the event unless the tab is still active.
+    ActiveTab,
+    /// Older extensions only bind the explicit tab id.
+    ExplicitTab,
+}
+
+fn normal_route() -> NormalRoute {
+    if super::capabilities::supports(super::capabilities::CDP_REQUIRE_ACTIVE) {
+        NormalRoute::ActiveTab
+    } else {
+        NormalRoute::ExplicitTab
+    }
+}
+
 fn cleanup_dispatch(tab_id: i64, params: Value) -> Result<()> {
     super::capabilities::require(super::capabilities::CDP)?;
+    super::capabilities::require(super::capabilities::CDP_DISPATCH_ADMISSION)?;
+    super::capabilities::require(super::capabilities::EFFECT_ADMISSION)?;
     super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)?;
     let response = super::bridge::request_cleanup(json!({
         "id": super::bridge::next_request_id(),

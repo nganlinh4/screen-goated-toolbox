@@ -21,6 +21,19 @@ data class MobileToolsHelpCopy(
     val dismiss: String,
 )
 
+data class MobileToolsToolbarCopy(
+    val create: String,
+    val help: String,
+    val duplicate: String,
+    val favorite: String,
+    val delete: String,
+)
+
+data class MobileDonateActionsCopy(
+    val copyAccount: String,
+    val openQr: String,
+)
+
 data class PreviewSelection(
     val index: Int,
     val text: String,

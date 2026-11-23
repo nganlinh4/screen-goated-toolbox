@@ -14,7 +14,6 @@ use super::{
     MIN_INTERACTIVE_RESPONSE_START_MS, RetryChainKind, UNBENCHMARKED_FEED_QUALITY_TIER,
     interactive_request_timeouts, preflight_skip_reason, record_model_success, release_model_probe,
     request_timeouts_from_latency, resolve_next_configured_model, resolve_next_retry_model,
-    resolve_unavailable_pinned_model,
 };
 use crate::config::Config;
 use std::collections::HashSet;
@@ -170,10 +169,15 @@ fn live_corpus_passes_enter_as_capable_fallbacks_pending_offline_benchmark() {
 fn every_interactive_request_receives_a_bounded_initial_budget() {
     let config = Config::default();
     let model = "groq-qwen-3-8-27b-vision";
+    let latency_ms = crate::model_config::get_model_by_id_with_custom(model, &[])
+        .and_then(|model| model.typical_latency_ms)
+        .expect("built-in vision model has measured latency");
     let timeouts =
         interactive_request_timeouts(model, &config, InteractiveRequestWorkload::default());
-    // Four times the catalog's 1,471 ms representative OCR latency.
-    assert_eq!(timeouts.total, Duration::from_millis(5_884));
+    assert_eq!(
+        timeouts.total,
+        request_timeouts_from_latency(u64::from(latency_ms), 0).total
+    );
 }
 
 #[test]
@@ -371,12 +375,16 @@ fn distinguishes_rate_limits_from_transient_server_errors() {
 }
 
 #[test]
-fn search_capable_retry_skips_incompatible_priority_candidates() {
-    let config = Config {
+fn ordinary_vision_retry_does_not_require_search() {
+    let mut config = Config {
         api_key: "test-groq-key".to_string(),
         gemini_api_key: "test-gemini-key".to_string(),
         ..Default::default()
     };
+    config.model_priority_chains.image_to_text = vec![
+        "google-gemini-3-5-flash-lite-vision".to_string(),
+        "groq-qwen-3-8-27b-vision".to_string(),
+    ];
     let failed = vec!["google-gemini-3-5-flash-lite-vision".to_string()];
 
     let next = resolve_next_retry_model(
@@ -384,13 +392,93 @@ fn search_capable_retry_skips_incompatible_priority_candidates() {
         &failed,
         &HashSet::new(),
         RetryChainKind::ImageToText,
+        false,
         &config,
     )
     .expect("image chain should produce a next model");
 
-    assert_eq!(next.id, "google-gemini-3-flash-vision");
-    assert!(crate::model_config::model_supports_search_by_id_with_custom(&next.id, &[]));
-    assert_ne!(next.id, "google-gemma-4-31b-vision");
+    assert_eq!(next.id, "groq-qwen-3-8-27b-vision");
+}
+
+#[test]
+fn configured_retry_respects_request_search_intent() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/preset-system/retry-runtime.json"
+    )))
+    .unwrap();
+    let search = &fixture["search_retry"];
+    let mut config = Config {
+        api_key: "test-groq-key".to_string(),
+        ..Default::default()
+    };
+    config.adaptive_model_priority.text_to_text = false;
+    config.model_priority_chains.text_to_text = search["candidate_order"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    for case in search["cases"].as_array().unwrap() {
+        let current = case["current_model_id"].as_str().unwrap();
+        let failed = case["failed_model_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let requires_search = case["search_enabled"].as_bool().unwrap();
+        let result = resolve_next_configured_model(
+            current,
+            &failed,
+            &HashSet::new(),
+            RetryChainKind::TextToText,
+            requires_search,
+            &config,
+        );
+        assert_eq!(
+            result.as_ref().map(|model| model.id.as_str()),
+            case["expected_configured_model_id"].as_str(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn retry_compatibility_honors_default_search_tool_and_custom_capability() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/preset-system/retry-runtime.json"
+    )))
+    .unwrap();
+    let config = Config {
+        api_key: "test-groq-key".to_string(),
+        ..Default::default()
+    };
+    for case in fixture["search_retry"]["compatibility_cases"]
+        .as_array()
+        .unwrap()
+    {
+        let mut model =
+            crate::model_config::get_model_by_id_with_custom("groq-gpt-oss-20b-text", &[]).unwrap();
+        model.supports_search_override = Some(case["candidate_supports_search"].as_bool().unwrap());
+        model.search_tool_enabled_by_default = case["candidate_search_tool_enabled_by_default"]
+            .as_bool()
+            .unwrap();
+        assert_eq!(
+            super::is_retry_candidate_compatible(
+                &model,
+                &crate::model_config::ModelType::Text,
+                case["search_enabled"].as_bool().unwrap(),
+                &HashSet::new(),
+                &config
+            ),
+            case["expected_eligible"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
 }
 
 #[test]
@@ -406,29 +494,11 @@ fn configured_retry_does_not_escape_the_priority_chain() {
         &[],
         &HashSet::new(),
         RetryChainKind::TextToText,
+        false,
         &config,
     );
 
     assert!(next.is_none());
-}
-
-#[test]
-fn an_unavailable_pin_silently_enters_the_configured_priority_chain() {
-    let mut config = Config {
-        api_key: "test-groq-key".to_string(),
-        gemini_api_key: "test-gemini-key".to_string(),
-        ..Default::default()
-    };
-    config.model_priority_chains.text_to_text = vec![
-        "missing-model".to_string(),
-        "groq-qwen-3-8-27b-text".to_string(),
-    ];
-
-    let fallback = resolve_unavailable_pinned_model("text", "missing-model", &config)
-        .expect("the next usable priority model should be selected");
-
-    assert_eq!(fallback.id, "groq-qwen-3-8-27b-text");
-    assert!(resolve_unavailable_pinned_model("audio", "missing-model", &config).is_none());
 }
 
 #[test]
@@ -453,6 +523,7 @@ fn ordinary_text_auto_retry_excludes_search_tool_endpoints() {
         &failed,
         &HashSet::new(),
         RetryChainKind::TextToText,
+        false,
         &config,
     );
 
@@ -482,8 +553,8 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
         Some(Duration::from_secs_f64(32.814072061))
     );
 
-    // A real per-day exhaustion captured from the app on 2026-08-19. The old
-    // flat 300s would have re-probed a model that could not work for 19 minutes.
+    // A per-day exhaustion reports a wait of minutes; a flat retry constant
+    // would re-probe a model long before it can work again.
     assert_eq!(
         reported_cooldown(
             "Groq vision API HTTP 429: Rate limit reached for model `qwen/qwen3.8-27b`              in organization `org_x` service tier `on_demand` on tokens per day (TPD):              Limit 200000, Used 199568, Requested 3048. Please try again in 18m50.112s.              Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
@@ -516,60 +587,12 @@ fn a_reported_rate_limit_window_replaces_the_fixed_cooldown() {
         reported_cooldown("429 try again in 99h"),
         Some(Duration::from_secs(6 * 60 * 60))
     );
-}
-
-#[test]
-fn real_groq_rate_headers_populate_the_token_budget() {
-    use crate::retry_model_chain::{budget, budget_key, record_token_budget};
-
-    // Nonzero reported quota must not be rejected based on guessed request costs.
-    let mut headers = ureq::http::HeaderMap::new();
-    headers.insert("x-ratelimit-limit-tokens", "8000".parse().unwrap());
-    headers.insert("x-ratelimit-remaining-tokens", "1000".parse().unwrap());
-    headers.insert("x-ratelimit-reset-tokens", "22.012s".parse().unwrap());
-    record_token_budget("groq", "qwen/qwen3.8-27b", &headers);
-
-    let key = budget_key("groq", "qwen/qwen3.8-27b");
-    assert_eq!(budget::shortfall(&key, 1), None);
-    let config = Config {
-        api_key: "test-key".into(),
-        ..Default::default()
-    };
-    for model in crate::model_config::get_all_models()
-        .iter()
-        .filter(|model| model.provider == "groq" && model.full_name == "qwen/qwen3.8-27b")
-    {
-        let reason = preflight_skip_reason(&model.id, &model.provider, &config, &HashSet::new());
-        assert_eq!(reason, None);
+    for hint in ["99999999999999999999".to_string(), "9".repeat(400)] {
+        assert_eq!(
+            reported_cooldown(&format!("429 retry in {hint}s")),
+            Some(Duration::from_secs(6 * 60 * 60))
+        );
     }
-
-    // A response without the headers must leave admission untouched.
-    record_token_budget("groq", "unmetered-model", &ureq::http::HeaderMap::new());
-    assert_eq!(
-        budget::shortfall(&budget_key("groq", "unmetered-model"), 9_000),
-        None
-    );
 }
 
-#[test]
-fn disabling_adaptive_models_returns_the_authored_chain_exactly() {
-    let mut config = Config::default();
-    config.adaptive_model_priority.text_to_text = false;
-    assert_eq!(
-        RetryChainKind::TextToText.effective_chain(&config),
-        config.model_priority_chains.text_to_text
-    );
-}
-
-#[test]
-fn user_authored_chain_is_not_runtime_truncated() {
-    let mut config = Config::default();
-    config.adaptive_model_priority.text_to_text = false;
-    config.model_priority_chains.text_to_text =
-        (0..30).map(|index| format!("user-model-{index}")).collect();
-
-    assert_eq!(
-        RetryChainKind::TextToText.effective_chain(&config),
-        config.model_priority_chains.text_to_text
-    );
-}
+mod priority;

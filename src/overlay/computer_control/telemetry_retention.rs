@@ -20,6 +20,35 @@ pub fn maintain(root: &Path) {
     maintain_with_limits(root, MAX_SESSIONS, MAX_BYTES, MINIMUM_AGE);
 }
 
+/// Remove every trace session folder under `root`, leaving other entries.
+/// A reparse point is never followed or removed.
+pub fn clear(root: &Path) -> std::io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let mut first_error = None;
+    for entry in entries {
+        let path = entry?.path();
+        if !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("cc-"))
+        {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.is_dir()
+            && !metadata_is_reparse(&metadata)
+            && let Err(error) = fs::remove_dir_all(&path)
+        {
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
 fn maintain_with_limits(root: &Path, max_sessions: usize, max_bytes: u64, minimum_age: Duration) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -135,5 +164,31 @@ mod tests {
         );
         assert!(root.join("user-note.txt").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clear_removes_every_trace_session_and_keeps_unknown_entries() {
+        let root = std::env::temp_dir().join(format!("sgt-cc-traces-clear-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("user-note.txt"), b"keep").unwrap();
+        fs::create_dir_all(root.join("other")).unwrap();
+        for index in 0..3 {
+            // Fresh sessions too: clearing ignores the retention minimum age.
+            let session = root.join(format!("cc-{index}"));
+            fs::create_dir_all(session.join("nested")).unwrap();
+            fs::write(session.join("live-frame-000001.jpg"), [0xFF, 0xD8]).unwrap();
+            fs::write(session.join("nested").join("events.jsonl"), b"{}").unwrap();
+        }
+
+        clear(&root).unwrap();
+
+        let mut left = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<Vec<_>>();
+        left.sort();
+        assert_eq!(left, ["other", "user-note.txt"]);
+        fs::remove_dir_all(&root).unwrap();
+        assert!(clear(&root).is_ok(), "a missing root is already clear");
     }
 }

@@ -13,11 +13,10 @@ pub fn request_node_graph_view_reset(ctx: &egui::Context) {
 
 pub fn show_language_vars(
     ui: &mut egui::Ui,
-    _ui_language: &str,
+    search_hint: &str,
     prompt: &str,
     language_vars: &mut HashMap<String, String>,
     changed: &mut bool,
-    _search_query: &mut String,
 ) {
     // Find {languageN} tags in prompt
     let mut detected_vars = Vec::new();
@@ -31,13 +30,14 @@ pub fn show_language_vars(
     for num in detected_vars {
         let key = format!("language{}", num);
         let label = format!("{{language{}}}:", num);
-        show_language_selector(ui, label, num, &key, language_vars, changed);
+        show_language_selector(ui, label, search_hint, num, &key, language_vars, changed);
     }
 }
 
 pub fn show_language_selector(
     ui: &mut egui::Ui,
     label: impl Into<String>,
+    search_hint: &str,
     id_num: usize,
     key: &str,
     language_vars: &mut HashMap<String, String>,
@@ -46,7 +46,7 @@ pub fn show_language_selector(
     let value = language_vars
         .entry(key.to_string())
         .or_insert_with(|| "Vietnamese".to_string());
-    if show_language_value_selector(ui, label, id_num, value) {
+    if show_language_value_selector(ui, label, search_hint, id_num, value) {
         *changed = true;
     }
 }
@@ -54,6 +54,7 @@ pub fn show_language_selector(
 pub fn show_language_value_selector(
     ui: &mut egui::Ui,
     label: impl Into<String>,
+    search_hint: &str,
     id: impl std::hash::Hash + std::fmt::Debug,
     value: &mut String,
 ) -> bool {
@@ -61,12 +62,13 @@ pub fn show_language_value_selector(
         .iter()
         .map(|language| (language.as_str(), language.as_str()))
         .collect();
-    show_language_options_selector(ui, label, id, value, &options)
+    show_language_options_selector(ui, label, search_hint, id, value, &options)
 }
 
 pub fn show_language_options_selector(
     ui: &mut egui::Ui,
     label: impl Into<String>,
+    search_hint: &str,
     id: impl std::hash::Hash + std::fmt::Debug,
     value: &mut String,
     options: &[(&str, &str)],
@@ -113,7 +115,7 @@ pub fn show_language_options_selector(
                 // Search box
                 let _search_response = ui.add(
                     egui::TextEdit::singleline(&mut search_text)
-                        .hint_text("Search...")
+                        .hint_text(search_hint)
                         .desired_width(110.0),
                 );
 
@@ -151,32 +153,21 @@ pub fn show_language_options_selector(
     changed
 }
 
+/// A prompt editor; `placeholder` shows while the prompt is empty.
 pub fn show_prompt_editor(
     ui: &mut egui::Ui,
-    label: &str,
-    hint: &str,
+    placeholder: &str,
     prompt: &mut String,
     desired_width: f32,
     desired_rows: usize,
 ) -> bool {
-    if !label.is_empty() {
-        ui.label(egui::RichText::new(label).strong());
-    }
-    let changed = ui
-        .add(
-            egui::TextEdit::multiline(prompt)
-                .desired_width(desired_width)
-                .desired_rows(desired_rows),
-        )
-        .changed();
-    if !hint.is_empty() {
-        ui.label(
-            egui::RichText::new(hint)
-                .small()
-                .color(AppTheme::from_ui(ui).on_surface_variant()),
-        );
-    }
-    changed
+    ui.add(
+        egui::TextEdit::multiline(prompt)
+            .hint_text(placeholder)
+            .desired_width(desired_width)
+            .desired_rows(desired_rows),
+    )
+    .changed()
 }
 
 pub fn insert_next_language_tag(prompt: &mut String, language_vars: &mut HashMap<String, String>) {

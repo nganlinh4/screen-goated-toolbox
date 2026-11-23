@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn native_geometry_retains_absolute_screen_coordinates_and_insets() {
+    let bounds = RECT {
+        left: -1600,
+        top: -280,
+        right: -800,
+        bottom: 320,
+    };
+    let standard = geometry_from_screen(7, bounds, true, ResultPresentation::Standard);
+    assert_eq!((standard.rect.x, standard.rect.y), (-1596, -278));
+    assert_eq!(
+        (standard.control_rect.x, standard.control_rect.y),
+        (-1600, -280)
+    );
+    assert_eq!((standard.rect.width, standard.rect.height), (792, 596));
+    let text = geometry_from_screen(7, bounds, false, ResultPresentation::TextOnly);
+    assert_eq!((text.rect.x, text.rect.y), (-1600, -280));
+    assert!(!text.visible);
+}
+
+#[test]
 fn onboarding_control_pulse_is_reserved_exactly_ten_times() {
     let mut count = 0;
     for expected in 1..=RESULT_CONTROLS_ONBOARDING_LIMIT {
@@ -87,57 +107,5 @@ fn streaming_to_completed_transition_is_always_finalize() {
     ));
 }
 
-#[test]
-fn isolated_document_bridge_reports_ready_and_refits_after_resize() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("window.addEventListener('resize'"));
-    assert!(bridged.contains("queueFit(window.__SGT_STREAMING__)"));
-    assert!(bridged.contains("type: 'fit_request'"));
-    assert!(bridged.contains("window.__SGT_FIT_CONTEXT__ = {"));
-    assert!(bridged.contains("fontReady: true"));
-    assert!(bridged.contains("scheduleFrame: scheduleBridgeFrame"));
-    assert!(bridged.contains("cancelFrame: cancelBridgeFrame"));
-    assert!(bridged.contains("type: 'frame_request'"));
-    assert!(bridged.contains("commandType === 'frame_tick'"));
-    assert!(bridged.contains("postToParent({ type: 'fit_complete' })"));
-    assert!(bridged.contains("reportCardState('bridge_ready', null, 0"));
-    assert!(bridged.contains("new MessageChannel()"));
-    assert!(bridged.contains("channel.port1.addEventListener('message', handleHostMessage)"));
-    assert!(bridged.contains("channel ? [channel.port2] : []"));
-    assert!(bridged.contains("reportCardState('script_error'"));
-    assert!(bridged.contains("querySelectorAll('script,style,template,noscript')"));
-}
-
-#[test]
-fn card_content_stays_hidden_until_document_font_activation() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("if (!fontReady)"));
-    assert!(bridged.contains("commandType === 'activate_font'"));
-    assert!(!bridged.contains("document.fonts"));
-    assert!(bridged.contains("classList.add('sgt-font-ready')"));
-}
-
-#[test]
-fn card_document_waits_for_activation_before_its_first_fit() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("if (!fontReady)"));
-    assert!(bridged.contains("commandType === 'activate_font'"));
-    assert!(
-        !bridged.contains("queueFit(window.__SGT_STREAMING__);\n  reportCardState('bridge_ready'")
-    );
-}
-
-#[test]
-fn isolated_document_is_authoritative_and_cannot_be_replaced_by_inner_html() {
-    let bridged = with_card_bridge("<html><body>result</body></html>".to_string());
-
-    assert!(bridged.contains("event.data.card_id"));
-    assert!(!bridged.contains("'stream_update'"));
-    assert!(!bridged.contains("'finalize'"));
-    assert!(!bridged.contains("document.body.innerHTML"));
-    assert!(!bridged.contains("window.__SGT_APPLY_STREAM_UPDATE__"));
-    assert!(!bridged.contains("fit_font_to_window_runtime"));
-}
+// The isolated-document bridge (handshake, font gating, fit and frame relay,
+// identity checks, diagnostics) runs in card_bridge_runtime.test.cjs.

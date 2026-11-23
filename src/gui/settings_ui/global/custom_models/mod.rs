@@ -1,3 +1,7 @@
+#[cfg(test)]
+mod catalog_build_tests;
+#[cfg(test)]
+mod layout_parity_tests;
 mod openrouter_import;
 mod style;
 
@@ -31,6 +35,9 @@ pub fn render_custom_models_body(
     body_height: f32,
 ) -> bool {
     let mut changed = false;
+    // One merged, display-sorted catalog per frame, shared by every card.
+    let mut all_models = get_all_models_with_custom(&config.custom_models);
+    crate::model_config::sort_models_for_display(&mut all_models);
 
     egui::ScrollArea::vertical()
         .id_salt("custom_models_body")
@@ -38,12 +45,13 @@ pub fn render_custom_models_body(
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.columns(2, |columns| {
-                if render_provider_section(&mut columns[0], config, "google", text) {
+                if render_provider_section(&mut columns[0], config, &all_models, "google", text) {
                     changed = true;
                 }
                 columns[0].add_space(8.0);
                 for provider in ["groq", "openrouter", "ollama"] {
-                    if render_provider_section(&mut columns[1], config, provider, text) {
+                    if render_provider_section(&mut columns[1], config, &all_models, provider, text)
+                    {
                         changed = true;
                     }
                     columns[1].add_space(8.0);
@@ -57,6 +65,7 @@ pub fn render_custom_models_body(
 fn render_provider_section(
     ui: &mut egui::Ui,
     config: &mut Config,
+    all_models: &[ModelConfig],
     provider: &str,
     text: &LocaleText,
 ) -> bool {
@@ -64,10 +73,8 @@ fn render_provider_section(
     let dark = ui.visuals().dark_mode;
     let theme = AppTheme::from_ui(ui);
     let accent = provider_accent(provider, dark);
-    let mut all_models = get_all_models_with_custom(&config.custom_models);
-    crate::model_config::sort_models_for_display(&mut all_models);
-    let provider_models: Vec<ModelConfig> = all_models
-        .into_iter()
+    let provider_models: Vec<&ModelConfig> = all_models
+        .iter()
         .filter(|model| model.provider == provider)
         .collect();
 
@@ -119,7 +126,7 @@ fn render_provider_section(
             });
 
             if provider == "ollama" {
-                ui.horizontal(|ui| render_ollama_scan_status(ui, config));
+                ui.horizontal(|ui| render_ollama_scan_status(ui, config, text));
             }
             if provider == "openrouter" {
                 render_openrouter_import_results(ui, config, text, &mut changed);
@@ -128,10 +135,12 @@ fn render_provider_section(
 
             let builtins: Vec<&ModelConfig> = provider_models
                 .iter()
+                .copied()
                 .filter(|model| model.source == ModelSource::BuiltIn)
                 .collect();
             let discovered: Vec<&ModelConfig> = provider_models
                 .iter()
+                .copied()
                 .filter(|model| model.source == ModelSource::Discovered)
                 .collect();
 
@@ -216,7 +225,7 @@ fn render_locked_model_row(
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
-                crate::gui::model_performance::render_prefix(ui, model);
+                crate::gui::model_performance::render_prefix(ui, model, ui_language);
                 ui.label(
                     egui::RichText::new(model.localized_name(ui_language))
                         .color(theme.on_surface()),
@@ -297,10 +306,10 @@ fn render_scan_action(
     }
 }
 
-fn render_ollama_scan_status(ui: &mut egui::Ui, config: &Config) {
+fn render_ollama_scan_status(ui: &mut egui::Ui, config: &Config, text: &LocaleText) {
     if is_ollama_scan_in_progress() {
         ui.spinner();
-        ui.label(ollama_status_text(&config.ui_language, "scanning", 0));
+        ui.label(text.model_catalog.custom_models_ollama_scanning);
         return;
     }
 
@@ -315,13 +324,17 @@ fn render_ollama_scan_status(ui: &mut egui::Ui, config: &Config) {
     if !config.use_ollama {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            ollama_status_text(&config.ui_language, "disabled", 0),
+            text.model_catalog.custom_models_ollama_disabled,
         );
         return;
     }
 
     let count = ollama_cached_model_count();
-    ui.label(ollama_status_text(&config.ui_language, "done", count));
+    ui.label(
+        text.model_catalog
+            .custom_models_ollama_done_fmt
+            .replace("{count}", &count.to_string()),
+    );
 }
 
 fn render_user_model_row(
@@ -524,22 +537,8 @@ fn add_label(provider: &str, text: &LocaleText) -> String {
     }
 }
 
-fn ollama_status_text(ui_language: &str, state: &str, count: usize) -> String {
-    match (ui_language, state) {
-        ("vi", "scanning") => "Đang quét Ollama...".to_string(),
-        ("ko", "scanning") => "Ollama 검색 중...".to_string(),
-        (_, "scanning") => "Scanning Ollama...".to_string(),
-        ("vi", "disabled") => "Hãy bật Ollama ở phần Mã API trước.".to_string(),
-        ("ko", "disabled") => "먼저 API 키 섹션에서 Ollama를 켜세요.".to_string(),
-        (_, "disabled") => "Enable Ollama in API Keys first.".to_string(),
-        ("vi", "done") => format!("Đã quét Ollama: {count} mô hình trong cache."),
-        ("ko", "done") => format!("Ollama 검색 완료: 캐시된 모델 {count}개."),
-        _ => format!("Ollama scan finished: {count} cached models."),
-    }
-}
-
 fn provider_label(provider: &str) -> &str {
-    crate::model_config::provider_display_name(provider)
+    crate::model_config::provider_full_name(provider)
 }
 
 fn model_type_label(model_type: ModelType, text: &LocaleText) -> &'static str {

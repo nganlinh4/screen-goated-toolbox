@@ -2,6 +2,8 @@
 // HTML generation for image and audio display in chain processing.
 
 use crate::gui::locale::LocaleText;
+use crate::overlay::html_components::icons::OverlayIcon;
+use crate::overlay::utils::js_string_literal;
 
 /// Generate HTML for displaying an image in the input adapter.
 pub fn generate_image_display_html(img_data: &[u8]) -> String {
@@ -65,10 +67,22 @@ body {{
 
 /// Generate HTML for the audio player in the input adapter.
 pub fn generate_audio_player_html(wav_data: &[u8], locale: &LocaleText) -> String {
+    const MAX_INLINE_AUDIO_BYTES: usize = 8 * 1024 * 1024;
+    if wav_data.len() > MAX_INLINE_AUDIO_BYTES {
+        return format!(
+            "<div style=\"padding:20px;color:white\">{}</div>",
+            crate::overlay::utils::escape_html(locale.overlay.audio_preview_unavailable)
+        );
+    }
     use base64::Engine;
     let base64_audio = base64::engine::general_purpose::STANDARD.encode(wav_data);
     // Get locally cached font CSS for proper Unicode support
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let play_icon = OverlayIcon::PlayArrow.svg();
+    let download_icon = OverlayIcon::Download.svg();
+    let play_icon_js = js_string_literal(&play_icon);
+    let pause_icon_js = js_string_literal(&OverlayIcon::Pause.svg());
+    let done_icon_js = js_string_literal(&OverlayIcon::Check.svg());
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -88,7 +102,7 @@ body {{
 .audio-player {{
     background: #1e1e1e;
     border-radius: 12px;
-    padding: 20px 24px;
+    padding: 20px clamp(8px, 6vw, 24px);
     width: 100%;
     max-width: 400px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -113,7 +127,7 @@ body {{
 .controls {{
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: clamp(6px, 3.5vw, 14px);
 }}
 .play-btn {{
     width: 44px;
@@ -134,7 +148,7 @@ body {{
     background: #aecbfa;
 }}
 .play-btn svg {{
-    fill: #1e1e1e;
+    color: #1e1e1e;
     width: 18px;
     height: 18px;
     margin-left: 2px;
@@ -143,6 +157,7 @@ body {{
     margin-left: 0;
 }}
 .download-btn {{
+    position: relative;
     width: 36px;
     height: 36px;
     background: transparent;
@@ -155,21 +170,46 @@ body {{
     transition: all 0.2s;
     flex-shrink: 0;
     margin-left: 4px;
+    font-family: inherit;
 }}
 .download-btn:hover {{
     background: rgba(255, 255, 255, 0.1);
 }}
+.download-btn::after {{
+    content: attr(aria-label);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 5px);
+    z-index: 1;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(16rem, calc(100vw - 36px));
+    overflow-wrap: anywhere;
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    background: #29292e;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.3;
+    pointer-events: none;
+    visibility: hidden;
+}}
+.download-btn:not(.success):is(:hover, :focus-visible)::after {{
+    visibility: visible;
+    transition: visibility 0s 0.4s;
+}}
 .download-btn svg {{
-    fill: #9aa0a6;
+    color: #9aa0a6;
     width: 20px;
     height: 20px;
-    transition: fill 0.2s;
+    transition: color 0.2s;
 }}
 .download-btn:hover svg {{
-    fill: #fff;
+    color: #fff;
 }}
 .download-btn.success svg {{
-    fill: #4CAF50;
+    color: #4CAF50;
 }}
 .download-btn.success:hover {{
     background: rgba(76, 175, 80, 0.15);
@@ -232,7 +272,7 @@ audio {{ display: none; }}
     <div class="waveform" id="waveform"></div>
     <div class="controls">
         <button class="play-btn" id="playBtn">
-            <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            {play_icon}
         </button>
         <div class="progress-container">
             <div class="progress-bar" id="progressBar">
@@ -243,8 +283,8 @@ audio {{ display: none; }}
                 <span id="duration">0:00</span>
             </div>
         </div>
-        <button class="download-btn" id="downloadBtn" title="{}">
-            <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+        <button class="download-btn" id="downloadBtn" aria-label="{}">
+            {download_icon}
         </button>
     </div>
 </div>
@@ -254,7 +294,9 @@ audio {{ display: none; }}
 <script>
 const audio = document.getElementById('audio');
 const progress = document.getElementById('progress');
-const playIcon = document.getElementById('playIcon');
+const PLAY_ICON = {play_icon_js};
+const PAUSE_ICON = {pause_icon_js};
+const DONE_ICON = {done_icon_js};
 const playBtn = document.getElementById('playBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const toast = document.getElementById('toast');
@@ -319,7 +361,7 @@ audio.ontimeupdate = () => {{
 }};
 
 audio.onended = () => {{
-    playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    playBtn.innerHTML = PLAY_ICON;
     playBtn.classList.remove('playing');
     bars.forEach(b => b.style.height = '4px');
 }};
@@ -328,12 +370,12 @@ playBtn.onclick = () => {{
     setupAudio();
     if (audio.paused) {{
         audio.play();
-        playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        playBtn.innerHTML = PAUSE_ICON;
         playBtn.classList.add('playing');
         visualize();
     }} else {{
         audio.pause();
-        playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+        playBtn.innerHTML = PLAY_ICON;
         playBtn.classList.remove('playing');
     }}
 }};
@@ -350,8 +392,7 @@ downloadBtn.onclick = () => {{
 
     // Visual Feedback
     const originalIcon = downloadBtn.innerHTML;
-    // Checkmark
-    downloadBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+    downloadBtn.innerHTML = DONE_ICON;
     downloadBtn.classList.add('success');
     toast.classList.add('show');
 
@@ -372,7 +413,51 @@ progressBar.onclick = (e) => {{
 </html>"#,
         font_css,
         locale.shell.downloaded_successfully,
-        locale.shell.download_recording_tooltip,
+        crate::overlay::utils::escape_html(locale.shell.download_recording_tooltip),
         base64_audio
     )
+}
+
+#[cfg(test)]
+mod audio_preview_tests {
+    use super::*;
+
+    #[test]
+    fn large_audio_is_not_embedded_in_preview() {
+        let audio = vec![0; 8 * 1024 * 1024 + 1];
+        for language in ["en", "ko", "vi"] {
+            let locale = LocaleText::get(language);
+            let html = generate_audio_player_html(&audio, &locale);
+            assert!(html.contains(locale.overlay.audio_preview_unavailable));
+            assert!(!html.contains("data:audio"));
+        }
+    }
+
+    #[test]
+    fn player_icons_are_catalog_symbols_swapped_whole() {
+        let html = generate_audio_player_html(&[0; 64], &LocaleText::get("en"));
+        crate::overlay::html_components::icons::assert_only_catalog_icons(&html);
+        for (constant, icon) in [
+            ("PLAY_ICON", OverlayIcon::PlayArrow),
+            ("PAUSE_ICON", OverlayIcon::Pause),
+            ("DONE_ICON", OverlayIcon::Check),
+        ] {
+            let declaration = format!("const {constant} = {};", js_string_literal(&icon.svg()));
+            assert!(html.contains(&declaration), "{constant}");
+        }
+    }
+
+    #[test]
+    fn download_tooltip_uses_the_localized_button_label_without_a_native_title() {
+        for language in ["en", "ko", "vi"] {
+            let locale = LocaleText::get(language);
+            let html = generate_audio_player_html(&[0; 64], &locale);
+            let button = format!(
+                r#"<button class="download-btn" id="downloadBtn" aria-label="{}">"#,
+                crate::overlay::utils::escape_html(locale.shell.download_recording_tooltip),
+            );
+            assert!(html.contains(&button), "{language}");
+            assert!(html.contains("content: attr(aria-label);"));
+        }
+    }
 }

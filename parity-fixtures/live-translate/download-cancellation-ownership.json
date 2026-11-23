@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"session_changes_after_dispatch","effect":"none"},
+    {"event":"renderer_changes_after_dispatch","effect":"none"},
+    {"event":"session_stopping","effect":"none"},
+    {"event":"current_renderer_and_session","effect":"cancel_and_restore"}
+  ]
+}

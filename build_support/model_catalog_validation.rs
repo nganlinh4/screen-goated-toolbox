@@ -535,7 +535,6 @@ fn provider_prefix(provider: &str) -> &str {
         "openrouter" => "O",
         "nvidia" => "N",
         "taalas" => "T",
-        "parakeet" | "qwen3" => "L",
         "qrserver" => "QR",
         _ => panic!("provider {provider:?} has no localized-name prefix"),
     }
@@ -548,7 +547,6 @@ fn provider_id_prefix(provider: &str) -> &str {
         "openrouter" => "openrouter-",
         "nvidia" => "nvidia-",
         "taalas" => "taalas-",
-        "parakeet" | "qwen3" => "local-",
         "qrserver" => "qrserver-",
         _ => panic!("provider {provider:?} has no internal-ID prefix"),
     }

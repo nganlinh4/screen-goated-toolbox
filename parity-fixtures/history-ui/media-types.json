@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"type":"IMAGE","name":"capture.png","valid":true},
+    {"type":"IMAGE","name":"capture.PNG","valid":true},
+    {"type":"AUDIO","name":"recording.wav","valid":true},
+    {"type":"TEXT","name":"source.txt","valid":true},
+    {"type":"TEXT","name":"source.txt.exe","valid":false},
+    {"type":"TEXT","name":"source.url","valid":false},
+    {"type":"AUDIO","name":"recording.png","valid":false},
+    {"type":"IMAGE","name":"capture","valid":false},
+    {"type":"TEXT","name":".txt","valid":false},
+    {"type":"TEXT","name":"../source.txt","valid":false},
+    {"type":"TEXT","name":"source.txt:stream","valid":false}
+  ]
+}

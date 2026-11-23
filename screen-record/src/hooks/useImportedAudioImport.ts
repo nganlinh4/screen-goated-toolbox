@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState } from "react";
+import { importProjectLoadCurrent, importStartOwnerCurrent, type ImportProjectLoadResult, type ImportStartOwner } from './importProjectOwnership';
+import { AudioSavedNotPublishedError, AudioSavedPreviewError } from './timelineWriteOwner';
 import { projectManager } from "@/lib/projectManager";
+import { beginAudioImport, finishAudioImport } from "@/lib/audioImportWriteFence";
 import {
   createAudioPlaceholderVideo,
   importAudioPathToManagedMediaFile,
@@ -24,10 +27,10 @@ const AUDIO_PLACEHOLDER_BACKGROUND_CONFIG: BackgroundConfig = {
 
 export interface UseImportedAudioImportResult {
   isImporting: boolean;
-  importAudio: (file: File, expectedProjectId?: string | null) => Promise<void>;
-  importAudios: (files: File[], expectedProjectId?: string | null) => Promise<void>;
-  importAudioPath: (filePath: string, expectedProjectId?: string | null) => Promise<void>;
-  importAudioPaths: (filePaths: string[], expectedProjectId?: string | null) => Promise<void>;
+  importAudio: (file: File, expectedProjectId?: string | null, owner?: ImportStartOwner) => Promise<void>;
+  importAudios: (files: File[], expectedProjectId?: string | null, owner?: ImportStartOwner) => Promise<void>;
+  importAudioPath: (filePath: string, expectedProjectId?: string | null, owner?: ImportStartOwner) => Promise<void>;
+  importAudioPaths: (filePaths: string[], expectedProjectId?: string | null, owner?: ImportStartOwner) => Promise<void>;
 }
 
 interface UseImportedAudioImportOpts {
@@ -36,6 +39,7 @@ interface UseImportedAudioImportOpts {
    * is open. The hook reads this fresh on every call.
    */
   getCurrentProjectId: () => string | null;
+  captureStartOwner?: () => ImportStartOwner;
   /**
    * Called when the user dropped audio while a project was open.
    * The parent must merge the new segment into composition.audioSegments
@@ -44,12 +48,13 @@ interface UseImportedAudioImportOpts {
   onAttachToCurrentProject: (
     segments: ImportedAudioSegment[],
     expectedProjectId: string,
+    owner?: () => boolean,
   ) => void | Promise<void>;
   /**
    * Called when the user dropped audio with no project open. The new
    * placeholder-video project has been created and saved; the parent must load it.
    */
-  onCreateAudioProject: (project: Project) => void | Promise<void>;
+  onCreateAudioProject: (project: Project, owner?: ImportStartOwner) => ImportProjectLoadResult | Promise<ImportProjectLoadResult>;
   onError?: (message: string) => void;
 }
 
@@ -190,9 +195,10 @@ export function useImportedAudioImport(
       imported: Array<{ rawAudioPath: string; duration: number; fileName: string }>,
       traceId: string,
       expectedProjectId: string | null,
+      owner: ImportStartOwner | undefined,
     ) => {
       if (imported.length === 0) return;
-      if (opts.getCurrentProjectId() !== expectedProjectId) {
+      if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
         throw new Error("The open project changed while audio was importing");
       }
       if (expectedProjectId) {
@@ -201,6 +207,7 @@ export function useImportedAudioImport(
             makeImportedAudioSegment(item.rawAudioPath, item.duration, item.fileName, 0),
           ),
           expectedProjectId,
+          owner ?? undefined,
         );
         return;
       }
@@ -211,14 +218,13 @@ export function useImportedAudioImport(
         return segment;
       });
       const project = await createAudioProjectFromSegment(segments, traceId);
-      if (opts.getCurrentProjectId() !== expectedProjectId) {
-        await projectManager.deleteProject(project.id);
+      if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
         throw new Error("The open project changed while audio was importing");
       }
       logToHost(
         `[AudioImport:${traceId}][Frontend] project callback start id="${project.id}"`,
       );
-      await opts.onCreateAudioProject(project);
+      if (!importProjectLoadCurrent(await opts.onCreateAudioProject(project, owner))) return;
       logToHost(
         `[AudioImport:${traceId}][Frontend] project callback complete id="${project.id}"`,
       );
@@ -230,10 +236,16 @@ export function useImportedAudioImport(
     async (
       files: File[],
       expectedProjectId = opts.getCurrentProjectId(),
+      expectedOwner?: ImportStartOwner,
     ) => {
+      const owner = expectedOwner === undefined ? opts.captureStartOwner?.() : expectedOwner;
+      if (!importStartOwnerCurrent(owner)) return;
       const audioFiles = files.filter(Boolean);
       if (audioFiles.length === 0) return;
       if (isImportingRef.current) return;
+      let importToken: object;
+      try { importToken = beginAudioImport(); }
+      catch (error) { opts.onError?.(String(error)); return; }
       isImportingRef.current = true;
       setIsImporting(true);
       const traceId = buildAudioImportTraceId();
@@ -250,17 +262,19 @@ export function useImportedAudioImport(
             traceId,
           );
           imported.push({ rawAudioPath: path, duration, fileName: file.name });
-          if (opts.getCurrentProjectId() !== expectedProjectId) {
+          if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
             await deleteAbandonedImports(imported);
             imported.length = 0;
             throw new Error("The open project changed while audio was importing");
           }
         }
-        await handleImported(imported, traceId, expectedProjectId);
+        await handleImported(imported, traceId, expectedProjectId, owner);
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         console.error(`[AudioImport:${traceId}] failed`, err);
-        opts.onError?.(`Audio import failed: ${String(err)}`);
+        opts.onError?.(err instanceof AudioSavedNotPublishedError || err instanceof AudioSavedPreviewError ? err.message : `Audio import failed: ${String(err)}`);
       } finally {
+        finishAudioImport(importToken);
         isImportingRef.current = false;
         setIsImporting(false);
       }
@@ -269,8 +283,8 @@ export function useImportedAudioImport(
   );
 
   const importAudio = useCallback(
-    async (file: File, expectedProjectId = opts.getCurrentProjectId()) =>
-      importAudios([file], expectedProjectId),
+    async (file: File, expectedProjectId = opts.getCurrentProjectId(), owner?: ImportStartOwner) =>
+      importAudios([file], expectedProjectId, owner),
     [importAudios, opts],
   );
 
@@ -278,10 +292,16 @@ export function useImportedAudioImport(
     async (
       filePaths: string[],
       expectedProjectId = opts.getCurrentProjectId(),
+      expectedOwner?: ImportStartOwner,
     ) => {
+      const owner = expectedOwner === undefined ? opts.captureStartOwner?.() : expectedOwner;
+      if (!importStartOwnerCurrent(owner)) return;
       const paths = filePaths.map((filePath) => filePath.trim()).filter(Boolean);
       if (paths.length === 0) return;
       if (isImportingRef.current) return;
+      let importToken: object;
+      try { importToken = beginAudioImport(); }
+      catch (error) { opts.onError?.(String(error)); return; }
       isImportingRef.current = true;
       setIsImporting(true);
       const traceId = buildAudioImportTraceId();
@@ -297,17 +317,19 @@ export function useImportedAudioImport(
             traceId,
           );
           imported.push({ rawAudioPath: path, duration, fileName: filePath });
-          if (opts.getCurrentProjectId() !== expectedProjectId) {
+          if (opts.getCurrentProjectId() !== expectedProjectId || !importStartOwnerCurrent(owner)) {
             await deleteAbandonedImports(imported);
             imported.length = 0;
             throw new Error("The open project changed while audio was importing");
           }
         }
-        await handleImported(imported, traceId, expectedProjectId);
+        await handleImported(imported, traceId, expectedProjectId, owner);
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         console.error(`[AudioImport:${traceId}] failed`, err);
-        opts.onError?.(`Audio import failed: ${String(err)}`);
+        opts.onError?.(err instanceof AudioSavedNotPublishedError || err instanceof AudioSavedPreviewError ? err.message : `Audio import failed: ${String(err)}`);
       } finally {
+        finishAudioImport(importToken);
         isImportingRef.current = false;
         setIsImporting(false);
       }
@@ -316,8 +338,8 @@ export function useImportedAudioImport(
   );
 
   const importAudioPath = useCallback(
-    async (filePath: string, expectedProjectId = opts.getCurrentProjectId()) =>
-      importAudioPaths([filePath], expectedProjectId),
+    async (filePath: string, expectedProjectId = opts.getCurrentProjectId(), owner?: ImportStartOwner) =>
+      importAudioPaths([filePath], expectedProjectId, owner),
     [importAudioPaths, opts],
   );
 

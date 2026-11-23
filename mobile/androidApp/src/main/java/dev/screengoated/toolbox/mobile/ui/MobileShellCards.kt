@@ -32,11 +32,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
@@ -232,10 +234,12 @@ internal fun CredentialsCard(
                                 } else {
                                     VisualTransformation.None
                                 },
+                                keyboardOptions = if (entry.isPassword) CredentialKeyboardOptions else KeyboardOptions.Default,
                                 trailingIcon = if (entry.isPassword) {
                                     {
                                         MorphingVisibilityToggleButton(
                                             visible = visibleState[entry.index],
+                                            contentDescription = if (visibleState[entry.index]) locale.apiKeyHide else locale.apiKeyShow,
                                             accent = accent,
                                             onClick = { visibleState[entry.index] = !visibleState[entry.index] },
                                             modifier = Modifier.size(36.dp),
@@ -341,3 +345,9 @@ internal fun VoiceSettingsCard(
         }
     }
 }
+
+/** Credential fields must not learn or suggest secrets: password keyboard, no autocorrect. */
+internal val CredentialKeyboardOptions = KeyboardOptions(
+    keyboardType = KeyboardType.Password,
+    autoCorrectEnabled = false,
+)

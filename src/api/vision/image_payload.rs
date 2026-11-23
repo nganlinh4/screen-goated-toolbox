@@ -5,6 +5,9 @@ use image::{ExtendedColorType, ImageBuffer, Rgba, codecs::jpeg::JpegEncoder};
 use std::io::Cursor;
 
 const MAX_DIMENSION: u32 = 2048;
+/// Inline request bodies are base64 encoded, so the raw original must leave
+/// generous room below the provider's inline request ceiling.
+const ZERO_COPY_MAX_BYTES: usize = 8_000_000;
 pub(super) const GROQ_SAFE_REQUEST_BYTES: usize = 3_800_000;
 const GROQ_JSON_RESERVE_BYTES: usize = 16_384;
 const GROQ_MAX_IMAGE_BYTES: usize = 2_500_000;
@@ -33,14 +36,12 @@ pub(super) fn prepare_image_payload(
         && request_profile
             .minimum_dimension
             .is_none_or(|minimum| image.width().min(image.height()) >= minimum)
-        && let Some(bytes) = original_bytes
+        && let Some(bytes) = original_bytes.as_deref()
+        && let Some(mime_type) = zero_copy_mime_type(bytes, image.width(), image.height())
     {
-        println!("DEBUG: Zero-Copy optimization active for Google provider");
-        let mime_type = sniff_mime_type(&bytes);
-        println!("DEBUG: Detected MIME type: {mime_type}");
         return Ok(prepared(
-            bytes,
-            mime_type,
+            original_bytes.unwrap_or_default(),
+            mime_type.to_string(),
             None,
             image.width(),
             image.height(),
@@ -188,18 +189,28 @@ fn encode_jpeg(image: &ImageBuffer<Rgba<u8>, Vec<u8>>, quality: u8) -> Result<Ve
     Ok(bytes)
 }
 
-fn sniff_mime_type(bytes: &[u8]) -> String {
+/// The original encoded bytes are forwarded unchanged only when they are a
+/// format the endpoint accepts and stay inside the same dimension and size
+/// envelope the re-encoding path guarantees. Anything else is re-encoded.
+fn zero_copy_mime_type(bytes: &[u8], width: u32, height: u32) -> Option<&'static str> {
+    if bytes.len() > ZERO_COPY_MAX_BYTES || width.max(height) > MAX_DIMENSION {
+        return None;
+    }
+    sniff_mime_type(bytes)
+}
+
+fn sniff_mime_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        "image/jpeg".to_string()
+        Some("image/jpeg")
     } else if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
-        "image/png".to_string()
+        Some("image/png")
     } else if bytes.len() >= 12
         && bytes.starts_with(&[0x52, 0x49, 0x46, 0x46])
         && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
     {
-        "image/webp".to_string()
+        Some("image/webp")
     } else {
-        "image/png".to_string()
+        None
     }
 }
 
@@ -252,6 +263,40 @@ mod tests {
                 .unwrap();
         assert_eq!(result.mime_type, "image/jpeg");
         assert!(result.image_data.len() <= groq_image_byte_budget(prompt_bytes).unwrap());
+    }
+
+    fn google_payload(original: Vec<u8>, width: u32, height: u32) -> PreparedImage {
+        let image = ImageBuffer::from_pixel(width, height, Rgba([20, 40, 60, 255]));
+        prepare_image_payload("google", "future-vision-model", image, Some(original), 100).unwrap()
+    }
+
+    #[test]
+    fn google_zero_copy_forwards_supported_small_originals() {
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe0];
+        jpeg.extend_from_slice(&[0; 32]);
+        let result = google_payload(jpeg.clone(), 64, 64);
+        assert_eq!(result.mime_type, "image/jpeg");
+        assert_eq!(result.image_data, jpeg);
+        assert!(result.original_bytes.is_none());
+    }
+
+    #[test]
+    fn google_reencodes_unsupported_or_oversized_originals() {
+        let bmp = vec![b'B', b'M', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let result = google_payload(bmp.clone(), 64, 64);
+        assert_eq!(result.mime_type, "image/png");
+        assert_ne!(result.image_data, bmp);
+        assert!(result.image_data.starts_with(&[0x89, 0x50, 0x4e, 0x47]));
+
+        let mut huge_png = vec![0x89, 0x50, 0x4e, 0x47];
+        huge_png.resize(ZERO_COPY_MAX_BYTES + 1, 0);
+        let result = google_payload(huge_png, 64, 64);
+        assert!(result.image_data.len() < ZERO_COPY_MAX_BYTES);
+
+        let small_png = vec![0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0];
+        let result = google_payload(small_png.clone(), MAX_DIMENSION + 1, 8);
+        assert_ne!(result.image_data, small_png);
+        assert!(result.width <= MAX_DIMENSION);
     }
 
     #[test]

@@ -2,146 +2,204 @@
   {
     "id": "warm-abstract",
     "preview": "/bg-warm-abstract.jpg",
-    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
+    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3",
+    "sha256": "a0af7925cd212964b1a279c3bae458b5ec50c991e445fbd3afbc5260677fd090",
+    "bytes": 194065
   },
   {
     "id": "cool-abstract",
     "preview": "/bg-cool-abstract.jpg",
-    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
+    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3",
+    "sha256": "1c776b5345bc6dcc81bff9a39dd31d67de25fb12ee258564967f831a85c253a5",
+    "bytes": 188110
   },
   {
     "id": "deep-abstract",
     "preview": "/bg-deep-abstract.jpg",
-    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3"
+    "downloadUrl": "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3",
+    "sha256": "50a7703458f04479e9e7b8c4e2f5d4cc917aa315fade2253e1fbe3e8fccfb550",
+    "bytes": 6204817
   },
   {
     "id": "vivid-abstract",
     "preview": "/bg-vivid-abstract.jpg",
-    "downloadUrl": "https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing"
+    "downloadUrl": "https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing",
+    "sha256": "d5f30b0847d5ddd42feb00b713d96d13be725d853274f6c999f97d8219256da0",
+    "bytes": 4967451
   },
   {
     "id": "macos-tahoe",
     "preview": "/bg-macos-tahoe.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-tahoe-26-5120x2880-22674.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-tahoe-26-5120x2880-22674.jpg",
+    "sha256": "2581301bfed89ffe02547fa56f1435a24a8627a3b55472456a17b19b35eff54b",
+    "bytes": 4576644
   },
   {
     "id": "gdrive-2",
     "preview": "/bg-gdrive-2.jpg",
-    "downloadUrl": "https://drive.google.com/file/d/1f7JGvpb62QiD2JxYQAzrxD-Su5jNuPLj/view"
+    "downloadUrl": "https://drive.google.com/file/d/1f7JGvpb62QiD2JxYQAzrxD-Su5jNuPLj/view",
+    "sha256": "831949443025d56e0403ad3644fe859ad1a4ebb49b1bb755818029f7ac754438",
+    "bytes": 12639192
   },
   {
     "id": "gdrive-3",
     "preview": "/bg-gdrive-3.jpg",
-    "downloadUrl": "https://drive.google.com/file/d/1_1AgiMznYuCsFHE5zx-j2si9TMpGuPNb/view"
+    "downloadUrl": "https://drive.google.com/file/d/1_1AgiMznYuCsFHE5zx-j2si9TMpGuPNb/view",
+    "sha256": "15aa9e84f546c5b9353dcf76511c94fb43d9b285598ee867738fa148ac616b69",
+    "bytes": 5617703
   },
   {
     "id": "mojave-dunes",
     "preview": "/bg-mojave-dunes.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-mojave-sand-dunes-mojave-desert-california-evening-5k-5120x2880-4029.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-mojave-sand-dunes-mojave-desert-california-evening-5k-5120x2880-4029.jpg",
+    "sha256": "57d563800a161873daf61bf95c13deff18c819bba40be70ef729027f0e9583a5",
+    "bytes": 5056494
   },
   {
     "id": "catalina",
     "preview": "/bg-catalina.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-catalina-mountains-island-daytime-stock-5k-6016x6016-188.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-catalina-mountains-island-daytime-stock-5k-6016x6016-188.jpg",
+    "sha256": "d4df76c6aa6a061e54c68733d1060dd01b9921f882f182ce790724934e5ca5c7",
+    "bytes": 10264693
   },
   {
     "id": "big-sur",
     "preview": "/bg-big-sur.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/coastline-horizon-cold-seascape-rocks-macos-big-sur-stock-5k-6016x6016-3989.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/coastline-horizon-cold-seascape-rocks-macos-big-sur-stock-5k-6016x6016-3989.jpg",
+    "sha256": "c57c5ae8e13678aab883bbc77036e18f08bd11364e145dce8be48b77f0195421",
+    "bytes": 7865695
   },
   {
     "id": "el-capitan",
     "preview": "/bg-el-capitan.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/el-capitan-yosemite-national-park-mountains-os-x-el-capitan-5120x3200-4010.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/el-capitan-yosemite-national-park-mountains-os-x-el-capitan-5120x3200-4010.jpg",
+    "sha256": "8df7b0aa0b26d85c29ff045d9f06e0aefe99e49b8f126a4abfa23a52e55c2ddd",
+    "bytes": 14301745
   },
   {
     "id": "beach-aerial",
     "preview": "/bg-beach-aerial.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/beach-aerial-view-waves-ocean-macbook-pro-ios-11-mac-os-5120x2880-6422.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/beach-aerial-view-waves-ocean-macbook-pro-ios-11-mac-os-5120x2880-6422.jpg",
+    "sha256": "f928cef9e442e4c1ce8954b42cb50f304ad7ed808c714e3122ebac83b4b95ce5",
+    "bytes": 8076234
   },
   {
     "id": "sierra-sunset",
     "preview": "/bg-sierra-sunset.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-sierra-mountain-peak-sunset-evening-stock-5k-5120x3684-3987.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-sierra-mountain-peak-sunset-evening-stock-5k-5120x3684-3987.jpg",
+    "sha256": "ee8d063a5860b9b266da2f29c970c4a60d47d9835144669089db81197bb47a18",
+    "bytes": 4617006
   },
   {
     "id": "windows-11-3d",
     "preview": "/bg-windows-11-3d.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-11-stock-3d-5689x2400-10781.png"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-11-stock-3d-5689x2400-10781.png",
+    "sha256": "2c18d6e9d4c04320acfc5fcfb338740f8898b90889e88e0139d7bd9dd35770b4",
+    "bytes": 2702073
   },
   {
     "id": "cerro-torre",
     "preview": "/bg-cerro-torre.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/cerro-torre-7680x4320-25387.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/cerro-torre-7680x4320-25387.jpg",
+    "sha256": "881245e0b255b00e8b84c68216bbe48e670ceb6231f4ab5aef5d8bd714881c2c",
+    "bytes": 10496616
   },
   {
     "id": "ipados-orange",
     "preview": "/bg-ipados-orange.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/ipados-stock-orange-white-background-ipad-ios-13-hd-3208x3208-1551.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/ipados-stock-orange-white-background-ipad-ios-13-hd-3208x3208-1551.jpg",
+    "sha256": "852ab5ac6f21dbaca9d5a7810c82f8b9a070e5416c2a38e43e339164a5ea15d1",
+    "bytes": 6292978
   },
   {
     "id": "ipados-blue",
     "preview": "/bg-ipados-blue.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/ipados-stock-blue-white-background-ipad-ios-13-hd-3208x3208-1550.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/ipados-stock-blue-white-background-ipad-ios-13-hd-3208x3208-1550.jpg",
+    "sha256": "86b20a21dc5e7765c6c4e8fe880de2a1d1710ab4ddf32bef50964f8991810382",
+    "bytes": 6376915
   },
   {
     "id": "blue-waves",
     "preview": "/bg-blue-waves.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/blue-waves-5k-5120x2880-24614.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/blue-waves-5k-5120x2880-24614.jpg",
+    "sha256": "e092d0995a581181194304e9cfb7148b5a2ff0ade4947e7b154e05b576577ac7",
+    "bytes": 8556388
   },
   {
     "id": "windows-xp",
     "preview": "/bg-windows-xp.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-xp-3840x3840-17062.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-xp-3840x3840-17062.jpg",
+    "sha256": "772770d904d12b958e0b7441c2a45f3cda7297ec0f72454a301567de85e5df81",
+    "bytes": 6277110
   },
   {
     "id": "antelope-canyon",
     "preview": "/bg-antelope-canyon.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/antelope-canyon-3840x2160-13871.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/antelope-canyon-3840x2160-13871.jpg",
+    "sha256": "5a06a97c34819982683d7362401037f56f0c0b096188ac1a3a878eedf1a2ec23",
+    "bytes": 3970655
   },
   {
     "id": "windows-7",
     "preview": "/bg-windows-7.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-7-official-3840x2160-13944.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-7-official-3840x2160-13944.jpg",
+    "sha256": "0affe5aa978740822ddaa0a908e95c3eca31ca390375ab8fc8d87bbc65cb8514",
+    "bytes": 7035202
   },
   {
     "id": "windows-11-colorful",
     "preview": "/bg-windows-11-colorful.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-11-stock-official-colorful-3840x2160-5666.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/windows-11-stock-official-colorful-3840x2160-5666.jpg",
+    "sha256": "570b05680b02d9d552e2de105c96d64131774536133ef7d6020a7ec3f0a88fd0",
+    "bytes": 4141425
   },
   {
     "id": "big-sur-iridescence",
     "preview": "/bg-big-sur-iridescence.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/iridescence-macos-big-sur-macbook-pro-multicolor-dark-6016x6016-4036.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/iridescence-macos-big-sur-macbook-pro-multicolor-dark-6016x6016-4036.jpg",
+    "sha256": "41e93626a59ea7978d289843c37c606afad4b6d8c184993b686038ac2261470f",
+    "bytes": 11597923
   },
   {
     "id": "landscape-rocks",
     "preview": "/bg-landscape-rocks.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/landscape-rocks-6016x6016-11016.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/landscape-rocks-6016x6016-11016.jpg",
+    "sha256": "bcfe535a2a4a24a61e3324b87a2ff9de68923e37d57ba72f90b90ce5951e0440",
+    "bytes": 8411031
   },
   {
     "id": "lake-mountains",
     "preview": "/bg-lake-mountains.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/lake-mountains-rocks-sunrise-daylight-scenery-illustration-6016x6016-3773.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/lake-mountains-rocks-sunrise-daylight-scenery-illustration-6016x6016-3773.jpg",
+    "sha256": "d9159b57652e8c63165930b8c4fc913815608dbdbc067eee1e253a60c1ade9a8",
+    "bytes": 5800457
   },
   {
     "id": "big-sur-rocks",
     "preview": "/bg-big-sur-rocks.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-big-sur-stock-daytime-sedimentary-rocks-daylight-6016x6016-3785.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-big-sur-stock-daytime-sedimentary-rocks-daylight-6016x6016-3785.jpg",
+    "sha256": "495d00ee83a03e1ab62736fbb7f0b80c638b54ade0fbc4132223fc6fc9d05e2c",
+    "bytes": 7800342
   },
   {
     "id": "big-sur-waves",
     "preview": "/bg-big-sur-waves.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/waves-macos-big-sur-colorful-dark-5k-6016x6016-4990.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/waves-macos-big-sur-colorful-dark-5k-6016x6016-4990.jpg",
+    "sha256": "1a8e42ab67483980c79674e6b614990630ec4d176691e94e25ae5e6ff2c45d88",
+    "bytes": 17621865
   },
   {
     "id": "sierra-glacier",
     "preview": "/bg-sierra-glacier.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-sierra-glacier-mountains-snow-covered-alpenglow-5120x2880-6420.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-sierra-glacier-mountains-snow-covered-alpenglow-5120x2880-6420.jpg",
+    "sha256": "f024ea5b1c7735b569f254ae41270a8ff74a827a4e6125f61f3f3dfb514ab535",
+    "bytes": 11614215
   },
   {
     "id": "monterey-dark",
     "preview": "/bg-monterey-dark.jpg",
-    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-monterey-stock-black-dark-mode-layers-5k-6016x6016-5889.jpg"
+    "downloadUrl": "https://4kwallpapers.com/images/wallpapers/macos-monterey-stock-black-dark-mode-layers-5k-6016x6016-5889.jpg",
+    "sha256": "3d61ea966882346cd86c5e3052aeb2323bb06d45400fd69a1a04eca1c43f847b",
+    "bytes": 3704336
   }
 ]

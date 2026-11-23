@@ -10,7 +10,8 @@ import re
 import sys
 import zipfile
 
-from dev_cache_paths import manifest_path, require_repo_or_managed_cache
+from datetime import datetime, timezone
+from dev_cache_paths import managed_cache_root, manifest_path, require_repo_or_managed_cache
 from pathlib import Path
 
 
@@ -133,12 +134,22 @@ def require_matching_delivery(output: Path, descriptor: dict) -> None:
         )
 
 
+def resolve_output_dir(repo: Path, requested: str | None) -> Path:
+    """An explicit output wins; otherwise each run gets its own managed-cache job folder."""
+    if requested:
+        return require_repo_or_managed_cache(repo, repo / requested, "web-pack output")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    return require_repo_or_managed_cache(
+        repo,
+        managed_cache_root() / "packages" / "jobs" / "web-assets" / stamp,
+        "web-pack output",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--version")
-    parser.add_argument(
-        "--output-dir", default="local-runtime-bundles/sgt_web_assets"
-    )
+    parser.add_argument("--output-dir")
     parser.add_argument("--require-delivery", action="store_true")
     args = parser.parse_args()
 
@@ -146,7 +157,7 @@ def main() -> int:
     version = args.version or cargo_version(repo)
     if not re.fullmatch(r"[a-z0-9._-]{1,80}", version):
         raise RuntimeError("package version is not a valid component version")
-    output = require_repo_or_managed_cache(repo, repo / args.output_dir, "web-pack output")
+    output = resolve_output_dir(repo, args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
 
     entries = [

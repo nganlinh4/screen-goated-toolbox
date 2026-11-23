@@ -36,20 +36,6 @@ internal fun CreationFileStore.commitPublishIntent(
     intent, pendingHandle, pendingIdentity, expectedSize, expectedSha256,
 )
 
-internal fun CreationFileStore.recoveredPublication(
-    intent: CreationPublishIntent,
-    pendingHandle: String,
-    pendingIdentity: String,
-    expectedSize: Long,
-    expectedSha256: String,
-): String? = outputs.recoveredPublication(
-    intent,
-    pendingHandle,
-    pendingIdentity,
-    expectedSize,
-    expectedSha256,
-)
-
 internal fun CreationFileStore.abortPublishIntent(
     intent: CreationPublishIntent,
     pendingHandle: String,

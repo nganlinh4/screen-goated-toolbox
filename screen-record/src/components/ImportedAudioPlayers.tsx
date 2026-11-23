@@ -15,7 +15,10 @@ interface ImportedAudioPlayersProps {
   audioTrackVolumePoints?: AudioGainPoint[];
   narrationTrackVolumePoints?: AudioGainPoint[];
   speedPoints?: SpeedPoint[];
+  /** Project audio clock: sequence time in multi-clip projects, source time otherwise. */
   currentTime: number;
+  /** Clock of the loaded clip's speed curve (its source time); defaults to `currentTime`. */
+  speedCurveTime?: number;
   isPlaying: boolean;
   resetKey?: number;
   liveNarrationProjectId?: string | null;
@@ -71,6 +74,7 @@ export function ImportedAudioPlayers({
   narrationTrackVolumePoints,
   speedPoints,
   currentTime,
+  speedCurveTime,
   isPlaying,
   resetKey = 0,
   liveNarrationProjectId,
@@ -116,6 +120,7 @@ export function ImportedAudioPlayers({
           }
           speedPoints={speedPoints}
           currentTime={currentTime}
+          speedCurveTime={speedCurveTime ?? currentTime}
           isPlaying={isPlaying}
           resetKey={resetKey}
         />
@@ -129,6 +134,7 @@ interface MusicSegmentAudioProps {
   trackVolumePoints?: AudioGainPoint[];
   speedPoints?: SpeedPoint[];
   currentTime: number;
+  speedCurveTime: number;
   isPlaying: boolean;
   resetKey: number;
 }
@@ -138,6 +144,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
   trackVolumePoints,
   speedPoints,
   currentTime,
+  speedCurveTime,
   isPlaying,
   resetKey,
 }: MusicSegmentAudioProps) {
@@ -212,7 +219,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
       : 1;
     const timelineSpeed = Math.max(
       0.1,
-      Math.min(16, sampleTimelineSpeed(currentTime)),
+      Math.min(16, sampleTimelineSpeed(speedCurveTime)),
     );
     const effectiveRate = Math.max(0.05, Math.min(64, rate * timelineSpeed));
     el.preservesPitch = true;
@@ -340,6 +347,7 @@ const MusicSegmentAudio = memo(function MusicSegmentAudio({
   }, [
     url,
     currentTime,
+    speedCurveTime,
     isPlaying,
     segmentKey,
     segment.startTime,

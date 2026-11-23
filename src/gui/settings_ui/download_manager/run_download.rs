@@ -3,9 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::DownloadManager;
-use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
-use super::utils::{append_cookie_args, append_isolation_args, fetch_video_formats, log};
-use super::ytdlp_process::run_ytdlp_download_attempt;
+use super::download_args::{DownloadRequest, build_download_args};
+use super::types::{CookieBrowser, DownloadState, InstallStatus};
+use super::utils::{fetch_video_formats, log};
+use super::ytdlp_process::{CompletedDownload, run_ytdlp_download_attempt};
 use crate::component_registry::capabilities;
 use crate::component_registry::external_tools::{
     self, ExternalTool, ExternalToolInstallEvent, ExternalToolUse,
@@ -15,11 +16,9 @@ fn set_download_stage(state: &Arc<Mutex<DownloadState>>, message: impl Into<Stri
     *state.lock().unwrap() = DownloadState::Downloading(0.0, message.into());
 }
 
-fn set_download_finished(state: &Arc<Mutex<DownloadState>>, final_path: Option<PathBuf>) {
-    *state.lock().unwrap() = DownloadState::Finished(
-        final_path.unwrap_or_default(),
-        "Download Completed!".to_string(),
-    );
+fn set_download_finished(state: &Arc<Mutex<DownloadState>>, result: CompletedDownload) {
+    *state.lock().unwrap() =
+        DownloadState::Finished(result.path.unwrap_or_default(), result.quality);
 }
 
 fn finish_if_cancelled(
@@ -148,44 +147,40 @@ fn localized_tool_name(tool: ExternalTool) -> String {
 }
 
 impl DownloadManager {
-    pub fn start_analysis(&mut self) {
+    pub fn start_analysis(&mut self, repaint: eframe::egui::Context) {
         let idx = self.active_idx();
         let url = self.sessions[idx].input_url.trim().to_string();
-        if url.is_empty() {
+        if url.is_empty()
+            || matches!(
+                *self.sessions[idx].download_state.lock().unwrap(),
+                DownloadState::Downloading(..)
+            )
+            || self.sessions[idx].analysis.lock().unwrap().analyzing
+        {
             return;
         }
 
+        let Some(permit) = super::analysis::ScanPermit::acquire() else {
+            return;
+        };
         let cookie_browser = self.cookie_browser.clone();
-        let formats = self.sessions[idx].available_formats.clone();
-        let manual_subtitles = self.sessions[idx].available_subs_manual.clone();
-        let use_subtitles = self.use_subtitles.clone();
-        let is_analyzing = self.sessions[idx].is_analyzing.clone();
-        let error = self.sessions[idx].analysis_error.clone();
-
-        self.sessions[idx].last_url_analyzed = url.clone();
-        *is_analyzing.lock().unwrap() = true;
-        *error.lock().unwrap() = None;
-        formats.lock().unwrap().clear();
-        manual_subtitles.lock().unwrap().clear();
-        self.sessions[idx].selected_format = None;
-        self.sessions[idx].selected_subtitle = None;
-
-        std::thread::spawn(move || {
-            match fetch_video_formats(&url, cookie_browser) {
-                Ok((resolved_formats, manual, _automatic)) => {
-                    *formats.lock().unwrap() = resolved_formats;
-                    *manual_subtitles.lock().unwrap() = manual.clone();
-                    if manual.is_empty() {
-                        *use_subtitles.lock().unwrap() = false;
-                    }
-                }
-                Err(message) => {
-                    crate::log_info!("[VideoDownloader] analysis_failed error={message}");
-                    *error.lock().unwrap() = Some(message);
-                }
-            }
-            *is_analyzing.lock().unwrap() = false;
-        });
+        let analysis = self.sessions[idx].analysis.clone();
+        let (generation, cancel) = analysis.lock().unwrap().begin(&url);
+        let failure = analysis.clone();
+        if let Err(error) = std::thread::Builder::new()
+            .name("video-analysis".into())
+            .spawn(move || {
+                let _permit = permit;
+                let result = fetch_video_formats(&url, cookie_browser, &cancel);
+                analysis.lock().unwrap().finish(generation, result);
+                repaint.request_repaint();
+            })
+        {
+            failure
+                .lock()
+                .unwrap()
+                .finish(generation, Err(error.to_string()));
+        }
     }
 
     pub fn start_media_download(&self, progress_format: String) {
@@ -225,6 +220,7 @@ impl DownloadManager {
             cancel.store(false, Ordering::Relaxed);
             *current = DownloadState::Downloading(0.0, "Starting...".to_string());
         }
+        session.analysis.lock().unwrap().stop_for_download(&url);
 
         let Ok(activity) = crate::install_activity::register(cancel.clone()) else {
             *state.lock().unwrap() = DownloadState::Idle;
@@ -232,7 +228,7 @@ impl DownloadManager {
         };
         std::thread::spawn(move || {
             let _activity = activity;
-            let attempt = |attempt_label: &str| -> Result<Option<PathBuf>, String> {
+            let attempt = |attempt_label: &str| -> Result<CompletedDownload, String> {
                 log(&logs, format!("Processing URL: {url}"));
                 let ytdlp = prepare_tool(ExternalTool::YtDlp, &ytdlp_status, &state, &cancel)?;
                 let ffmpeg = prepare_tool(ExternalTool::Ffmpeg, &ffmpeg_status, &state, &cancel)?;
@@ -248,73 +244,21 @@ impl DownloadManager {
                 };
                 set_download_stage(&state, "Starting yt-dlp...");
 
-                let mut args = Vec::new();
-                append_isolation_args(&mut args);
-                args.extend([
-                    "--encoding".to_string(),
-                    "utf-8".to_string(),
-                    "--ffmpeg-location".to_string(),
-                    ffmpeg.bin_dir().to_string_lossy().to_string(),
-                    "--newline".to_string(),
-                    "--force-overwrites".to_string(),
-                ]);
-                if let Some(deno) = deno.as_ref() {
-                    args.push("--js-runtimes".to_string());
-                    args.push(format!("deno:{}", deno.executable().to_string_lossy()));
-                }
-                args.push(if use_playlist {
-                    "--yes-playlist".to_string()
-                } else {
-                    "--no-playlist".to_string()
+                let deno_executable = deno.as_ref().map(|deno| deno.executable());
+                let args = build_download_args(&DownloadRequest {
+                    url: &url,
+                    download_type: &download_type,
+                    download_path: &download_path,
+                    ffmpeg_dir: &ffmpeg.bin_dir(),
+                    deno_executable: deno_executable.as_deref(),
+                    cookie_browser: cookie_browser.clone(),
+                    selected_format: selected_format.as_deref(),
+                    selected_subtitle: selected_subtitle.as_deref(),
+                    use_playlist,
+                    use_metadata,
+                    use_sponsorblock,
+                    use_subtitles,
                 });
-                if use_metadata {
-                    args.extend(
-                        ["--embed-metadata", "--embed-chapters", "--embed-thumbnail"]
-                            .map(str::to_string),
-                    );
-                }
-                if use_sponsorblock {
-                    args.extend(["--sponsorblock-remove", "all"].map(str::to_string));
-                }
-                if use_subtitles {
-                    args.extend(["--write-subs", "--sub-langs"].map(str::to_string));
-                    args.push(
-                        selected_subtitle
-                            .clone()
-                            .unwrap_or_else(|| "en.*,vi.*,ko.*".to_string()),
-                    );
-                    args.push("--embed-subs".to_string());
-                }
-                append_cookie_args(&mut args, cookie_browser.clone());
-                match &download_type {
-                    DownloadType::Video => {
-                        args.push("-f".to_string());
-                        args.push(selected_format.clone().map_or_else(
-                            || "bestvideo+bestaudio/best".to_string(),
-                            |format| {
-                                let height = format.trim_end_matches('p');
-                                format!(
-                                    "bestvideo[height<={height}]+bestaudio/best[height<={height}]"
-                                )
-                            },
-                        ));
-                        args.extend(["--merge-output-format", "mp4"].map(str::to_string));
-                    }
-                    DownloadType::Audio => {
-                        args.extend(
-                            ["-x", "--audio-format", "mp3", "--audio-quality", "0"]
-                                .map(str::to_string),
-                        );
-                    }
-                }
-                args.push("-o".to_string());
-                args.push(
-                    download_path
-                        .join("%(title)s.%(ext)s")
-                        .to_string_lossy()
-                        .to_string(),
-                );
-                args.push(url.clone());
 
                 // Every selected tool guard remains alive until yt-dlp and its children exit.
                 run_ytdlp_download_attempt(

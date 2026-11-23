@@ -37,7 +37,7 @@ mod tests {
         let mut a_slow = base.clone();
         a_slow.id = "a-slow".to_string();
         a_slow.provider = "a-provider".to_string();
-        a_slow.typical_latency_ms = Some(900);
+        a_slow.typical_latency_ms = Some(500);
         let mut z_fast = base;
         z_fast.id = "z-fast".to_string();
         z_fast.provider = "z-provider".to_string();
@@ -50,7 +50,7 @@ mod tests {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            ["z-fast", "z-slow", "a-slow"]
+            ["z-fast", "a-slow", "z-slow"]
         );
     }
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FolderOpen, Copy, CheckCircle2 } from '@/components/ui/MaterialIcon';
@@ -51,9 +52,21 @@ export function MediaResultDialog({
   const [streamUrl, setStreamUrl] = useState('');
   const [previewReady, setPreviewReady] = useState(false);
   const [isVideoFullscreen, setIsVideoFullscreen] = useState(false);
-  const streamSessionRef = useRef(false);
+  // The file path whose stream URL is loaded; a rename re-keys the session.
+  const streamPathRef = useRef<string | null>(null);
   const isVideoFullscreenRef = useRef(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  // One video player for both layouts: it renders into a stable host node that
+  // is moved between the dialog preview box and the fullscreen view, so entering
+  // or leaving fullscreen keeps the same <video> element and its playback time.
+  const [videoPlayerHost] = useState(() => {
+    const host = document.createElement('div');
+    host.className = 'media-result-player-host absolute inset-0';
+    return host;
+  });
+  const attachVideoPlayerHost = useCallback((slot: HTMLDivElement | null) => {
+    if (slot && videoPlayerHost.parentNode !== slot) slot.appendChild(videoPlayerHost);
+  }, [videoPlayerHost]);
 
   const enterVideoFullscreen = useCallback(() => {
     (window as any).ipc?.postMessage('enter_fullscreen');
@@ -89,7 +102,7 @@ export function MediaResultDialog({
         setIsVideoFullscreen(false);
         (window as any).ipc?.postMessage('exit_fullscreen');
       }
-      streamSessionRef.current = false;
+      streamPathRef.current = null;
       setStreamUrl('');
       setPreviewReady(false);
       return;
@@ -97,11 +110,11 @@ export function MediaResultDialog({
     if (!filePath) return;
     const parts = filePath.split(/[/\\]/);
     setRenameValue(parts[parts.length - 1] || '');
-    if (streamSessionRef.current) return;
-    streamSessionRef.current = true;
+    if (streamPathRef.current === filePath) return;
+    streamPathRef.current = filePath;
     setPreviewReady(false);
     getMediaServerUrl(filePath).then((url) => {
-      setStreamUrl(url);
+      if (streamPathRef.current === filePath) setStreamUrl(url);
     }).catch((error) => notifyUserError('mediaPreviewFailed', error));
   }, [show, filePath]);
 
@@ -141,6 +154,12 @@ export function MediaResultDialog({
     }
   };
 
+  const cancelRename = () => {
+    const parts = filePath.split(/[/\\]/);
+    setRenameValue(parts[parts.length - 1] || '');
+    setIsRenaming(false);
+  };
+
   const submitRename = async () => {
     if (!renameValue.trim() || !filePath) { setIsRenaming(false); return; }
     try {
@@ -153,145 +172,160 @@ export function MediaResultDialog({
     }
   };
 
+  const showVideoPlayer = Boolean(filePath && streamUrl && !isGif && !isAudio);
+  const videoPlayer = showVideoPlayer && createPortal(
+    <CustomVideoPlayer
+      src={streamUrl}
+      isFullscreen={isVideoFullscreen}
+      onEnterFullscreen={enterVideoFullscreen}
+      onExitFullscreen={exitVideoFullscreen}
+      onReady={() => setPreviewReady(true)}
+    />,
+    videoPlayerHost,
+  );
+
   // Fullscreen mode bypasses Radix Dialog for full-window takeover
   if (isVideoFullscreen) {
     return (
-      <div className="media-result-dialog-backdrop fixed inset-0 z-[200] bg-black flex items-center justify-center">
-        <div className="media-result-dialog fixed inset-0 bg-black flex flex-col">
-          {filePath && streamUrl && !isGif && !isAudio && (
-            <div className="flex-1 relative min-h-0">
-              <div className="absolute inset-0 overflow-hidden bg-[var(--ui-surface-2)]">
-                <CustomVideoPlayer
-                  src={streamUrl}
-                  isFullscreen
-                  onEnterFullscreen={enterVideoFullscreen}
-                  onExitFullscreen={exitVideoFullscreen}
-                  onReady={() => setPreviewReady(true)}
+      <>
+        <div className="media-result-dialog-backdrop fixed inset-0 z-[200] bg-black flex items-center justify-center">
+          <div className="media-result-dialog media-result-fullscreen fixed inset-0 bg-black flex flex-col">
+            {showVideoPlayer && (
+              <div className="flex-1 relative min-h-0">
+                <div
+                  ref={attachVideoPlayerHost}
+                  className="absolute inset-0 overflow-hidden bg-[var(--ui-surface-2)]"
                 />
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+        {videoPlayer}
+      </>
     );
   }
 
   return (
-    <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent size="max-w-[640px]">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={show} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <DialogContent
+          size="max-w-[640px]"
+          onEscapeKeyDown={(event) => {
+            // Escape inside the rename field cancels the rename, not the dialog.
+            if (!isRenaming) return;
+            event.preventDefault();
+            cancelRename();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
 
-        <DialogBody className="flex flex-col gap-4">
-          {isBusy && !filePath ? (
-            <div className="media-result-header-row ui-inline-note flex items-center gap-2 rounded-xl px-3 py-2.5">
-              <div className="h-4 w-4 shrink-0 rounded-full border-2 border-[var(--primary-color)] border-t-transparent animate-spin" />
-              <span className="text-sm text-[var(--on-surface-variant)]">{t.saving}</span>
-            </div>
-          ) : (
-            <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-2.5">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
-              <div className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-200 whitespace-nowrap">
-                <span className="font-semibold">{t.savedTo}</span>
-                <span className="mx-1 opacity-70">·</span>
-                <span className="inline-block max-w-full truncate align-middle" title={`${title}: ${filePath}`}>{filePath}</span>
+          <DialogBody className="flex flex-col gap-4">
+            {isBusy && !filePath ? (
+              <div className="media-result-header-row ui-inline-note flex items-center gap-2 rounded-xl px-3 py-2.5">
+                <div className="h-4 w-4 shrink-0 rounded-full border-2 border-[var(--primary-color)] border-t-transparent animate-spin" />
+                <span className="text-sm text-[var(--on-surface-variant)]">{t.saving}</span>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-2.5">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
+                <div className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-200 whitespace-nowrap">
+                  <span className="font-semibold">{t.savedTo}</span>
+                  <span className="mx-1 opacity-70">·</span>
+                  <span className="inline-block max-w-full truncate align-middle" title={`${title}: ${filePath}`}>{filePath}</span>
+                </div>
+              </div>
+            )}
 
-          {filePath ? (
-            <div className="media-result-content flex flex-col gap-4">
-              <div className={`media-preview-box relative ${isAudio ? 'min-h-[220px]' : 'aspect-video min-h-[220px]'} overflow-hidden bg-[var(--ui-surface-2)]`}>
-                {streamUrl ? (
-                  isAudio ? (
-                    <CustomAudioPlayer
-                      src={streamUrl}
-                      onReady={() => setPreviewReady(true)}
-                    />
-                  ) : isGif ? (
-                    <img
-                      src={streamUrl}
-                      alt="GIF preview"
-                      className="gif-preview absolute inset-0 w-full h-full object-contain"
-                      onLoad={() => setPreviewReady(true)}
-                    />
+            {filePath ? (
+              <div className="media-result-content flex flex-col gap-4">
+                <div className={`media-preview-box relative ${isAudio ? 'min-h-[220px]' : 'aspect-video min-h-[220px]'} overflow-hidden bg-[var(--ui-surface-2)]`}>
+                  {streamUrl ? (
+                    isAudio ? (
+                      <CustomAudioPlayer
+                        src={streamUrl}
+                        onReady={() => setPreviewReady(true)}
+                      />
+                    ) : isGif ? (
+                      <img
+                        src={streamUrl}
+                        alt="GIF preview"
+                        className="gif-preview absolute inset-0 w-full h-full object-contain"
+                        onLoad={() => setPreviewReady(true)}
+                      />
+                    ) : (
+                      <div ref={attachVideoPlayerHost} className="media-result-player-slot absolute inset-0" />
+                    )
                   ) : (
-                    <CustomVideoPlayer
-                      src={streamUrl}
-                      isFullscreen={isVideoFullscreen}
-                      onEnterFullscreen={enterVideoFullscreen}
-                      onExitFullscreen={exitVideoFullscreen}
-                      onReady={() => setPreviewReady(true)}
-                    />
-                  )
-                ) : (
-                  <div className="media-preview-placeholder absolute inset-0 flex items-center justify-center text-xs text-white/70">{title}</div>
-                )}
-                {!previewReady && (
-                  <div className="media-preview-loading absolute inset-0 flex items-center justify-center text-xs text-white/50">{title}</div>
-                )}
-              </div>
+                    <div className="media-preview-placeholder absolute inset-0 flex items-center justify-center text-xs text-white/70">{title}</div>
+                  )}
+                  {!previewReady && (
+                    <div className="media-preview-loading absolute inset-0 flex items-center justify-center text-xs text-white/50">{title}</div>
+                  )}
+                </div>
 
-              <div className="media-path-editor ui-surface rounded-xl p-3">
-                {isRenaming ? (
+                <div className="media-path-editor ui-surface rounded-xl p-3">
+                  {isRenaming ? (
+                    <div className="flex gap-2">
+                      <input
+                        ref={renameInputRef}
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') submitRename();
+                          if (e.key === 'Escape') cancelRename();
+                        }}
+                        className="media-rename-input ui-input flex-1 rounded-lg border border-[var(--primary-color)] bg-[var(--ui-surface-3)] px-3 py-1.5 text-sm outline-hidden"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={submitRename}
+                        disabled={isBusy}
+                        className="media-rename-save-btn ui-action-button h-8 text-xs"
+                        data-tone="primary"
+                        data-active="true"
+                        data-emphasis="strong"
+                      >
+                        {t.save}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm text-[var(--on-surface)] truncate font-medium flex-1" title={filePath}>{renameValue}</div>
+                      <Button size="sm" variant="outline" onClick={() => setIsRenaming(true)} disabled={isBusy} className="h-8 text-xs shrink-0">{t.rename}</Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="media-actions flex items-center justify-between mt-2 gap-3">
                   <div className="flex gap-2">
-                    <input
-                      ref={renameInputRef}
-                      autoFocus
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitRename();
-                        if (e.key === 'Escape') setIsRenaming(false);
-                      }}
-                      className="media-rename-input ui-input flex-1 rounded-lg border border-[var(--primary-color)] bg-[var(--ui-surface-3)] px-3 py-1.5 text-sm outline-hidden"
-                    />
+                    <Button variant="outline" onClick={handleShowInFolder} disabled={isBusy} className="h-9 rounded-lg text-xs transition-all">
+                      <FolderOpen className="w-3.5 h-3.5 mr-1.5" /> {t.showInFolder}
+                    </Button>
                     <Button
-                      size="sm"
-                      onClick={submitRename}
+                      onClick={handleCopyVideo}
                       disabled={isBusy}
-                      className="media-rename-save-btn ui-action-button h-8 text-xs"
+                      className="media-copy-btn ui-action-button h-9 text-xs transition-all"
                       data-tone="primary"
                       data-active="true"
                       data-emphasis="strong"
                     >
-                      {t.save}
+                      <Copy className="w-3.5 h-3.5 mr-1.5" /> {isAudio ? t.copyAudio : isGif ? t.copyGif : t.copyVideo}
                     </Button>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm text-[var(--on-surface)] truncate font-medium flex-1" title={filePath}>{renameValue}</div>
-                    <Button size="sm" variant="outline" onClick={() => setIsRenaming(true)} disabled={isBusy} className="h-8 text-xs shrink-0">{t.rename}</Button>
-                  </div>
-                )}
-              </div>
-
-              <div className="media-actions flex items-center justify-between mt-2 gap-3">
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleShowInFolder} disabled={isBusy} className="h-9 rounded-lg text-xs transition-all">
-                    <FolderOpen className="w-3.5 h-3.5 mr-1.5" /> {t.showInFolder}
-                  </Button>
-                  <Button
-                    onClick={handleCopyVideo}
-                    disabled={isBusy}
-                    className="media-copy-btn ui-action-button h-9 text-xs transition-all"
-                    data-tone="primary"
-                    data-active="true"
-                    data-emphasis="strong"
-                  >
-                    <Copy className="w-3.5 h-3.5 mr-1.5" /> {isAudio ? t.copyAudio : isGif ? t.copyGif : t.copyVideo}
-                  </Button>
+                  {extraControls}
                 </div>
-                {extraControls}
               </div>
-            </div>
-          ) : (
-            <div className="text-sm text-[var(--on-surface-variant)] py-4 text-center">{t.rawVideoPathUnavailable}</div>
-          )}
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
+            ) : (
+              <div className="text-sm text-[var(--on-surface-variant)] py-4 text-center">{t.rawVideoPathUnavailable}</div>
+            )}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+      {videoPlayer}
+    </>
   );
 }
 

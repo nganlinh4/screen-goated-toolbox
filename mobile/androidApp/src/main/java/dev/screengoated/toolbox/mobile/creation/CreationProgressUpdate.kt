@@ -15,29 +15,12 @@ internal fun applyCreationProgressUpdate(
     if (!creationStageIsBusy(current.stage)) return null
     val requestTool = memory.requests[jobId]?.tool
     val tool = CreationTool.fromWireName(requestTool) ?: return null
-    val isImageCreator = tool == CreationTool.IMAGE_CREATOR
-    val hasImageReferences = memory.requests[jobId]?.let { request ->
-        request.imagePaths.any(String::isNotBlank) || request.imagePath.isNotBlank()
-    } == true
     val observedStage = event.stage ?: current.stage
-    val nextStage = publicCreationStage(
-        tool,
-        observedStage,
-        current.stage,
-        hasImageReferences,
-    )
-    val diagnosticStage = if (nextStage != current.stage) {
-        if (isImageCreator) "image.$nextStage" else nextStage
-    } else {
-        null
-    }
+    val nextStage = publicCreationStage(tool, observedStage, current.stage)
+    val diagnosticStage = nextStage.takeIf { it != current.stage }
     memory.jobs[jobId] = current.copy(
         stage = nextStage,
-        progressText = if (isImageCreator) {
-            publicImageCreationText(nextStage, hasImageReferences)
-        } else {
-            publicCreationProgressText(nextStage)
-        },
+        progressText = publicCreationProgressText(nextStage),
         phase = nextStage,
         progressRatio = event.progressRatio
             ?.takeIf { it.isFinite() && it in 0.0..1.0 }

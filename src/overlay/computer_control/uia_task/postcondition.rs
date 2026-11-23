@@ -14,6 +14,10 @@ const MAX_DEPTH: usize = 4;
 const MAX_HISTORY: usize = 8;
 const MAX_ADVICE_LATCHES: usize = 8;
 
+#[cfg(test)]
+#[path = "observation_progress_tests.rs"]
+mod observation_progress_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum NoEffectReason {
     RepeatedUnchangedState,
@@ -172,19 +176,33 @@ pub(super) fn record_action(recent: &mut Vec<String>, tool: &str, args: &Value) 
     signature
 }
 
-pub(super) fn is_repeated_unchanged(
-    recent: &[String],
-    signature: &str,
-    state_changed: bool,
+pub(super) fn record_observed_action(
+    recent: &mut Vec<String>,
+    tool: &str,
+    args: &Value,
+    accessibility_unchanged: bool,
+    visual_unchanged: Option<bool>,
     exempt: bool,
-) -> bool {
-    !exempt
-        && !state_changed
-        && recent
-            .iter()
-            .filter(|item| item.as_str() == signature)
-            .count()
-            >= 3
+) -> (String, bool) {
+    let signature = record_action(recent, tool, args);
+    if exempt || !accessibility_unchanged || visual_unchanged != Some(true) {
+        recent.clear();
+        return (signature, false);
+    }
+    let repeated = recent.iter().filter(|item| *item == &signature).count() >= 3;
+    (signature, repeated)
+}
+
+pub(super) fn visual_unchanged(
+    before: Option<&[u8]>,
+    after: &[u8],
+    threshold: u32,
+) -> Option<bool> {
+    let before = before?;
+    if before.is_empty() || before.len() != after.len() {
+        return None;
+    }
+    Some(super::session::fingerprint_change(before, after) < threshold)
 }
 
 pub(super) fn latch_advice(

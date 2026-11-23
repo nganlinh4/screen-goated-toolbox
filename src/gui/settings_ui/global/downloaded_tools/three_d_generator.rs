@@ -1,126 +1,96 @@
 //! Downloaded Tools card for the complete Creation product.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use crate::gui::locale::LocaleText;
-use crate::gui::theme::AppTheme;
 use eframe::egui;
 
+use super::component_row::{ComponentState, RowAction, RowOperations, render_component_row};
 use super::utils::{
     cached_probe, cached_u64, format_size, get_dir_size, invalidate_probe_cache,
-    invalidate_u64_cache, removal_in_progress, start_removal, tool_card,
+    invalidate_u64_cache, start_install, start_removal, tool_card,
 };
 
 const PROBE_CREATION: &str = "downloaded-tools:creation";
 const PROBE_CREATION_ANY: &str = "downloaded-tools:creation-any";
 const VALUE_CREATION_SIZE: &str = "downloaded-tools:creation-size";
-static DOWNLOADING: AtomicBool = AtomicBool::new(false);
+const INSTALL_CREATION: &str = "downloaded-tools:creation-install";
 
 pub(super) fn render_three_d_generator_card(ui: &mut egui::Ui, text: &LocaleText) {
+    use crate::overlay::three_d_generator as creation;
+
     let managed = &text.auxiliary.managed_tools;
     tool_card(ui, |ui| {
-        let theme = AppTheme::from_ui(ui);
         ui.heading(managed.tool_creation_card);
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(managed.tool_creation_payload).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if removal_in_progress(PROBE_CREATION) {
-                    ui.label(managed.tool_status_removing);
-                    ui.spinner();
-                } else if DOWNLOADING.load(Ordering::Acquire) {
-                    ui.label(managed.tool_status_installing);
-                    ui.spinner();
-                } else if cached_probe(
-                    PROBE_CREATION,
-                    crate::overlay::three_d_generator::is_product_installed,
-                ) {
-                    if ui
-                        .button(
-                            egui::RichText::new(managed.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        start_product_removal(managed.tool_creation_card);
-                    }
-                    ui.label(
-                        egui::RichText::new(format_size(cached_u64(
-                            VALUE_CREATION_SIZE,
-                            product_installed_size,
-                        )))
-                        .color(theme.success()),
-                    );
-                } else if !crate::overlay::three_d_generator::is_product_available() {
-                    if cached_probe(
-                        PROBE_CREATION_ANY,
-                        crate::overlay::three_d_generator::is_product_partially_installed,
-                    ) && ui
-                        .button(
-                            egui::RichText::new(managed.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        start_product_removal(managed.tool_creation_card);
-                    }
-                    ui.label(
-                        egui::RichText::new(managed.tool_status_unavailable)
-                            .color(theme.danger_text()),
-                    );
-                } else {
-                    if cached_probe(
-                        PROBE_CREATION_ANY,
-                        crate::overlay::three_d_generator::is_product_partially_installed,
-                    ) && ui
-                        .button(
-                            egui::RichText::new(managed.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        start_product_removal(managed.tool_creation_card);
-                    }
-                    if ui.button(managed.tool_action_download).clicked()
-                        && DOWNLOADING
-                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                            .is_ok()
-                    {
-                        std::thread::spawn(|| {
-                            let _ = crate::overlay::three_d_generator::download_product(
-                                Arc::new(AtomicBool::new(false)),
-                                true,
-                            );
-                            invalidate_probe_cache(PROBE_CREATION);
-                            invalidate_probe_cache(PROBE_CREATION_ANY);
-                            invalidate_u64_cache(VALUE_CREATION_SIZE);
-                            DOWNLOADING.store(false, Ordering::Release);
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(managed.tool_status_missing).color(egui::Color32::GRAY),
-                    );
-                }
-            });
-        });
+        let state = if cached_probe(PROBE_CREATION, creation::is_product_installed) {
+            ComponentState::Installed {
+                summary: format_size(cached_u64(VALUE_CREATION_SIZE, product_installed_size)),
+            }
+        } else {
+            product_state(
+                creation::is_product_available(),
+                cached_probe(PROBE_CREATION_ANY, creation::is_product_partially_installed),
+            )
+        };
+        let operations = RowOperations {
+            install: Some(INSTALL_CREATION),
+            removal: PROBE_CREATION,
+        };
+        match render_component_row(ui, text, managed.tool_creation_payload, operations, state) {
+            Some(RowAction::Install) => start_install(INSTALL_CREATION, || {
+                let _ = creation::download_product(Arc::new(AtomicBool::new(false)), true);
+                invalidate_caches();
+            }),
+            Some(RowAction::Remove) => start_removal(
+                PROBE_CREATION,
+                managed.tool_creation_card.to_string(),
+                creation::remove_product,
+                invalidate_caches,
+            ),
+            None => {}
+        }
         ui.label(managed.tool_desc_creation_product);
     });
 }
 
-fn start_product_removal(title: &'static str) {
-    start_removal(
-        PROBE_CREATION,
-        title.to_string(),
-        crate::overlay::three_d_generator::remove_product,
-        || {
-            invalidate_probe_cache(PROBE_CREATION);
-            invalidate_probe_cache(PROBE_CREATION_ANY);
-            invalidate_u64_cache(VALUE_CREATION_SIZE);
+/// A product that is not fully installed: leftover files from an earlier or
+/// interrupted install can always be removed.
+fn product_state(available: bool, partially_installed: bool) -> ComponentState<'static> {
+    match (available, partially_installed) {
+        (available, true) => ComponentState::Partial {
+            installable: available,
         },
-    );
+        (true, false) => ComponentState::Missing,
+        (false, false) => ComponentState::Unavailable,
+    }
+}
+
+fn invalidate_caches() {
+    invalidate_probe_cache(PROBE_CREATION);
+    invalidate_probe_cache(PROBE_CREATION_ANY);
+    invalidate_u64_cache(VALUE_CREATION_SIZE);
 }
 
 fn product_installed_size() -> u64 {
     get_dir_size(&crate::overlay::three_d_generator::product_dir())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::component_row::RowAction;
+    use super::product_state;
+
+    #[test]
+    fn leftover_files_stay_removable_whether_or_not_delivery_is_available() {
+        use RowAction::{Install, Remove};
+        assert_eq!(
+            product_state(true, true).offered_actions(),
+            [Install, Remove]
+        );
+        assert_eq!(product_state(false, true).offered_actions(), [Remove]);
+        assert_eq!(product_state(true, false).offered_actions(), [Install]);
+        assert!(product_state(false, false).offered_actions().is_empty());
+    }
 }

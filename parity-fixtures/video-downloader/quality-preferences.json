@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "freshPreference": "1080p",
+  "legacyOrExplicitBest": null,
+  "preferences": ["1080p", "720p"],
+  "preview": {
+    "remembered": "720p",
+    "available": ["2160p", "480p"],
+    "withOrWithoutScan": "res:720",
+    "automaticScan": true
+  },
+  "completed": [
+    { "reports": [{"width": 1920, "height": 1080}], "resolution": 1080 },
+    { "reports": [{"width": 720, "height": 1280}], "resolution": 720 },
+    { "reports": [{"width": 854, "height": 480}, {"width": 720, "height": 1280}], "resolution": null },
+    { "reports": [{"width": 1920, "height": 1080}, {}], "resolution": null }
+  ]
+}

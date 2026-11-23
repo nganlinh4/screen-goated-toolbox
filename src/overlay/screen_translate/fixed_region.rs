@@ -151,7 +151,11 @@ pub(crate) fn translate() {
             let image = crate::overlay::selection::extract_crop_from_hbitmap_public(&capture, crop);
             // Freeze the source before first-use progress can appear on screen.
             super::prepare_detector();
-            super::capture_target().process(image, rect);
+            super::capture_target().process(
+                image,
+                rect,
+                crate::overlay::process::chain::AutoPasteDestination::External(None),
+            );
             Ok(())
         })();
         crate::overlay::set_is_busy(false);
@@ -179,15 +183,10 @@ pub(crate) fn edit(
                 }
                 let (monitor, rect) = resolve(saved.as_ref(), true)?;
                 let capture = crate::screen_capture::capture_screen_fast()?;
-                crate::APP
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("settings unavailable"))?
-                    .screenshot_handle = Some(capture);
-                let selected = crate::overlay::selection::edit_region(rect, monitor.bounds);
-                if let Ok(mut app) = crate::APP.lock() {
-                    app.screenshot_handle = None;
-                }
-                Ok(selected?.map(|rect| encode(rect, &monitor)))
+                let selected = crate::screen_capture::with_published_capture(capture, || {
+                    crate::overlay::selection::edit_region(rect, monitor.bounds)
+                })??;
+                Ok(selected.map(|rect| encode(rect, &monitor)))
             })();
             crate::overlay::set_is_busy(false);
             result

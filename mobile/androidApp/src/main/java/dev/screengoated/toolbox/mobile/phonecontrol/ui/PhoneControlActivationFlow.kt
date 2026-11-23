@@ -121,13 +121,30 @@ internal fun probePhoneControlAccessibilityState(
 internal fun isAccessibilityReady(context: Context): Boolean =
     probePhoneControlAccessibilityState(context) == PhoneControlAccessibilityState.READY
 
-internal fun isAccessibilityConfigured(context: Context): Boolean {
-    val expected = "${context.packageName}/${SgtAccessibilityService::class.java.name}"
-    val enabled = Settings.Secure.getString(
+/** The single owner of the "SGT accessibility service is enabled in settings" check. */
+internal fun isAccessibilityConfigured(context: Context): Boolean = accessibilityServiceListed(
+    enabledServices = Settings.Secure.getString(
         context.contentResolver,
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-    ).orEmpty()
-    return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+    ),
+    packageName = context.packageName,
+    className = SgtAccessibilityService::class.java.name,
+)
+
+/** Matches flattened component entries, including the package-relative short form. */
+internal fun accessibilityServiceListed(
+    enabledServices: String?,
+    packageName: String,
+    className: String,
+): Boolean {
+    val expected = "$packageName/$className"
+    return enabledServices.orEmpty().split(':').any { entry ->
+        val component = entry.trim()
+        val entryPackage = component.substringBefore('/', missingDelimiterValue = "")
+        val entryClass = component.substringAfter('/', missingDelimiterValue = "")
+        val fullClass = if (entryClass.startsWith('.')) entryPackage + entryClass else entryClass
+        "$entryPackage/$fullClass".equals(expected, ignoreCase = true)
+    }
 }
 
 internal fun overlaySettingsIntent(context: Context): Intent = Intent(

@@ -60,8 +60,13 @@ export function audioBufferToWav(buffer: AudioBuffer): Blob {
     return new Blob([view], { type: 'audio/wav' });
 }
 
-// Trim silence from start and end
-export function trimSilence(buffer: AudioBuffer, threshold = 0.02): AudioBuffer | null {
+// Trim silence from start and end. The copy is allocated from the caller's
+// context: every new AudioContext holds an output device until it is closed.
+export function trimSilence(
+    buffer: AudioBuffer,
+    context: Pick<BaseAudioContext, 'createBuffer'>,
+    threshold = 0.02,
+): AudioBuffer | null {
     const numChannels = buffer.numberOfChannels;
     let start = 0;
     let end = buffer.length;
@@ -106,7 +111,7 @@ export function trimSilence(buffer: AudioBuffer, threshold = 0.02): AudioBuffer 
         return null;
     }
 
-    const newBuffer = new AudioContext().createBuffer(
+    const newBuffer = context.createBuffer(
         numChannels,
         length,
         buffer.sampleRate
@@ -127,7 +132,7 @@ export function trimSilence(buffer: AudioBuffer, threshold = 0.02): AudioBuffer 
 export async function processAudioBlob(blob: Blob, context: AudioContext): Promise<Blob> {
     const arrayBuffer = await blob.arrayBuffer();
     const audioBuffer = await context.decodeAudioData(arrayBuffer);
-    const trimmed = trimSilence(audioBuffer);
+    const trimmed = trimSilence(audioBuffer, context);
     if (!trimmed) {
         throw new Error('No audio recorded (silence).');
     }

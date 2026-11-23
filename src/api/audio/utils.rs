@@ -114,16 +114,14 @@ pub fn resample_linear_i16(samples: &[i16], ratio: f64) -> Vec<i16> {
 /// Returns the HWND of the created window, or None if streaming is disabled.
 pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
     // Find the relevant audio block for streaming settings
-    let audio_block = preset
-        .blocks
-        .iter()
-        .find(|b| b.block_type == "audio")
-        .or_else(|| {
-            preset
-                .blocks
-                .iter()
-                .find(|b| b.block_type != "input_adapter")
-        });
+    let audio_index = crate::overlay::process::chain::initial_audio_blocks(
+        &preset.blocks,
+        &preset.block_connections,
+        preset.graph_explicit,
+    )
+    .first()
+    .copied();
+    let audio_block = audio_index.and_then(|index| preset.blocks.get(index));
 
     let streaming_enabled = audio_block
         .map(|block| block.show_overlay && block.streaming_enabled)
@@ -144,16 +142,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
     std::thread::spawn(move || {
         let (rect, _) = calculate_result_rects(&preset_for_thread);
 
-        let active_block = preset_for_thread
-            .blocks
-            .iter()
-            .find(|b| b.block_type == "audio")
-            .or_else(|| {
-                preset_for_thread
-                    .blocks
-                    .iter()
-                    .find(|b| b.block_type != "input_adapter")
-            });
+        let active_block = audio_index.and_then(|index| preset_for_thread.blocks.get(index));
 
         let model_id = active_block.map(|b| b.model.clone()).unwrap_or_default();
         // Get provider
@@ -165,7 +154,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
         let hwnd = create_result_window(ResultWindowParams {
             target_rect: rect,
             win_type: WindowType::Primary,
-            context: RefineContext::Audio(Vec::new()),
+            context: RefineContext::Audio(Vec::new().into()),
             model_id,
             provider,
             streaming_enabled: true,

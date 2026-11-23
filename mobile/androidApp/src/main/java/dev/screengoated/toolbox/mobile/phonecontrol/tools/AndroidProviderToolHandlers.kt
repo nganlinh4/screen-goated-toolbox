@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorization
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PreparedResourceMutation
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlResourceAuthorizer
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PhoneControlStructuralEditAuthorization
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
@@ -29,7 +30,9 @@ internal class AndroidProviderToolHandlers(
     private val resourceAuthorization: PhoneControlResourceAuthorizer =
         PhoneControlResourceAuthorization(context),
 ) {
-    private val artifacts = PhoneControlArtifactStore(context)
+    fun close() = artifacts.close()
+
+    private val artifacts = PhoneControlArtifactStore()
     private val app = AndroidAppProvider(context)
     private val files = AndroidFileProvider(artifacts)
     private val structuralEdits = StructuralEditToolCoordinator(
@@ -215,17 +218,14 @@ internal class AndroidProviderToolHandlers(
             is ExactEditArguments.Invalid -> return parsed.response
             is ExactEditArguments.Valid -> parsed.request
         }
-        val result = executeResourceScopedMutation(
-            tool = "edit_text_file",
-            arguments = args,
-            authorizer = resourceAuthorization,
-        ) { targetLease ->
-            files.exactReplace(
-                request.path,
-                request.expectedSha256,
-                request.replacements,
-                targetLease,
-            )
+        val result = files.withTarget(request.path) { target ->
+            executeResourceScopedMutation(
+                tool = "edit_text_file",
+                prepared = PreparedResourceMutation("edit_text_file", target),
+                authorizer = resourceAuthorization,
+            ) { stillAuthorized ->
+                files.exactReplace(target, request.expectedSha256, request.replacements, job.effectOwner, stillAuthorized)
+            }
         }
         return providerResult(
             job,
@@ -253,7 +253,7 @@ internal class AndroidProviderToolHandlers(
             "file_resource_access",
             "android_app_api",
             mutating = true,
-            result = structuralEdits.execute(args, request),
+            result = structuralEdits.execute(job, args, request),
         )
     }
 
@@ -384,25 +384,22 @@ internal fun providerResult(
     is AndroidProviderResult.Failure -> {
         val unavailable = result.code == "capability_unavailable"
         val effectMayHaveOccurred = mutating && result.code in UNCERTAIN_MUTATION_FAILURES
+        val effect = result.effect ?: if (effectMayHaveOccurred) EffectCertainty.MAY_HAVE_OCCURRED else EffectCertainty.PROVEN_NO_EFFECT
         PhoneControlToolExecution(
             response = toolResponse(
                 job = job,
                 requestedTool = requestedTool,
                 capability = capability,
                 provider = provider,
-                providerState = when {
+                providerState = result.providerState ?: when {
                     !unavailable -> CapabilityState.READY
                     result.requiredUserStep != null -> CapabilityState.NEEDS_USER_STEP
                     else -> CapabilityState.UNAVAILABLE
                 },
                 code = result.code,
                 observationGeneration = 0,
-                effect = if (effectMayHaveOccurred) {
-                    EffectCertainty.MAY_HAVE_OCCURRED
-                } else {
-                    EffectCertainty.PROVEN_NO_EFFECT
-                },
-                snapshotInvalidated = effectMayHaveOccurred,
+                effect = effect,
+                snapshotInvalidated = effect.effectMayHaveOccurred == true,
                 retryable = result.retryable,
                 requiredUserStep = result.requiredUserStep,
                 data = buildJsonObject {
@@ -410,8 +407,8 @@ internal fun providerResult(
                     put("message", result.message)
                 },
             ),
-            mutating = effectMayHaveOccurred,
-            refreshScreenFrame = effectMayHaveOccurred,
+            mutating = effect.effectMayHaveOccurred == true,
+            refreshScreenFrame = effect.effectMayHaveOccurred == true,
         )
     }
 }

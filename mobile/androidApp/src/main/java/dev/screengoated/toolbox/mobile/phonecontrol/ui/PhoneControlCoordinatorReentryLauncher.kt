@@ -47,6 +47,9 @@ internal object PhoneControlCoordinatorReentryLauncher {
     private val nextToken = AtomicLong(0L)
     private val expectedToken = AtomicLong(NO_TOKEN)
 
+    fun isCoordinatorIntent(intent: Intent): Boolean = intent.hasExtra(EXTRA_REENTRY_TOKEN)
+    fun clearCoordinatorTag(intent: Intent) { intent.removeExtra(EXTRA_REENTRY_TOKEN) }
+
     fun dispatch(context: Context, intent: Intent): PhoneControlCoordinatorReentryDispatch {
         require(intent.component?.packageName == context.packageName) {
             "coordinator reentry must target this application explicitly"

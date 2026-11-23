@@ -8,6 +8,32 @@ import org.junit.Test
 
 class PhoneControlSessionPayloadQueueTest {
     @Test
+    fun discardBetweenNextAndMarkSent_doesNotThrow() {
+        val queue = PhoneControlSessionPayloadQueue(maximumCount = 3, maximumUtf8Bytes = 64, maximumPayloadUtf8Bytes = 32)
+        assertTrue(queue.offer("evidence", PhoneControlOutboundKind.TOOL_SCREEN_EVIDENCE))
+        assertTrue(queue.offer("response", PhoneControlOutboundKind.TOOL_RESPONSE))
+        val inFlight = requireNotNull(queue.next())
+
+        // The checkpoint thread suspends visual evidence while the head is on the wire.
+        assertEquals(1, queue.discard(PhoneControlOutboundKind.TOOL_SCREEN_EVIDENCE))
+
+        assertFalse(queue.markSent(inFlight))
+        assertEquals("response", queue.next()?.payload)
+        assertEquals(1, queue.snapshot().count)
+        assertEquals("response".length, queue.snapshot().utf8Bytes)
+    }
+
+    @Test
+    fun abandonBetweenNextAndMarkSent_doesNotThrow() {
+        val queue = PhoneControlSessionPayloadQueue()
+        assertTrue(queue.offer("response", PhoneControlOutboundKind.TOOL_RESPONSE))
+        val inFlight = requireNotNull(queue.next())
+        queue.abandonSession()
+        assertFalse(queue.markSent(inFlight))
+        assertNull(queue.next())
+    }
+
+    @Test
     fun `rejected send retains one FIFO head for resumable retry`() {
         val queue = PhoneControlSessionPayloadQueue(
             maximumCount = 3,

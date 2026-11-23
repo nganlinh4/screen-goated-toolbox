@@ -1,5 +1,3 @@
-use isolang;
-use serde::Deserialize;
 use std::collections::HashSet;
 use urlencoding;
 
@@ -8,6 +6,11 @@ use crate::api::client::{
 };
 use crate::api::realtime_audio::state::TranslationRequest;
 use crate::config::Config;
+
+mod failure;
+mod patch_response;
+use failure::{ProviderFailure, ProviderResult, checked_response, settle_attempt, unusable};
+use patch_response::parse_translation_response;
 
 pub(super) struct TranslationKeys {
     pub(super) gemini: String,
@@ -19,21 +22,6 @@ pub(super) struct TranslationKeys {
 pub(super) struct ValidatedTranslationResponse {
     pub(super) finalized_translation: String,
     pub(super) draft_translation: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TranslationModelResponse {
-    patches: Vec<TranslationModelPatch>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TranslationModelPatch {
-    source_start: usize,
-    source_end: usize,
-    state: String,
-    translation: String,
 }
 
 pub(super) fn translate_with_provider(
@@ -149,11 +137,9 @@ fn translate_with_llm_chain(
             _ => continue,
         };
 
-        if result.is_some() {
-            crate::retry_model_chain::record_model_success(&model.id);
-            return result;
+        if let Some(response) = settle_attempt(&model.id, result) {
+            return Some(response);
         }
-        crate::retry_model_chain::release_model_probe(&model.id);
     }
     None
 }
@@ -165,9 +151,9 @@ fn translate_with_google_model(
     target_language: &str,
     history_entries: &[(String, String)],
     request_timeout: Option<crate::api::client::RequestTimeouts>,
-) -> Option<ValidatedTranslationResponse> {
+) -> ProviderResult {
     if api_key.trim().is_empty() {
-        return None;
+        return Err(ProviderFailure::Unusable);
     }
 
     let url = format!(
@@ -193,17 +179,15 @@ fn translate_with_google_model(
         .post(&url)
         .header("x-goog-api-key", api_key);
     let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
-    let resp = http_request.send_json(payload).ok()?;
+    let resp = checked_response("Gemini", http_request.send_json(payload))?;
     crate::api::client::record_usage_headers("google", model_name, resp.headers());
 
-    let root: serde_json::Value = resp.into_body().read_json().ok()?;
-    let parts = root
-        .get("candidates")?
-        .as_array()?
-        .first()?
-        .get("content")?
-        .get("parts")?
-        .as_array()?;
+    let root: serde_json::Value = unusable(resp.into_body().read_json().ok())?;
+    let parts = unusable(
+        root.get("candidates")
+            .and_then(|candidates| candidates.as_array()?.first()?.get("content")?.get("parts"))
+            .and_then(serde_json::Value::as_array),
+    )?;
 
     let mut json_text = String::new();
     for part in parts {
@@ -212,7 +196,7 @@ fn translate_with_google_model(
         }
     }
 
-    parse_translation_response(&json_text, request)
+    unusable(parse_translation_response(&json_text, request))
 }
 
 fn translate_with_gemini_live(
@@ -222,7 +206,7 @@ fn translate_with_gemini_live(
     target_language: &str,
     history_entries: &[(String, String)],
     request_timeout: Option<crate::api::client::RequestTimeouts>,
-) -> Option<ValidatedTranslationResponse> {
+) -> ProviderResult {
     let prompt = build_structured_prompt(request, target_language, history_entries);
     let text = crate::api::gemini_live::gemini_live_generate(
         crate::api::gemini_live::GeminiLiveGenerateRequest {
@@ -239,8 +223,8 @@ fn translate_with_gemini_live(
         },
         |_| {},
     )
-    .ok()?;
-    parse_translation_response(&text, request)
+    .map_err(|error| ProviderFailure::Request(error.to_string()))?;
+    unusable(parse_translation_response(&text, request))
 }
 
 fn translate_with_groq(
@@ -250,9 +234,9 @@ fn translate_with_groq(
     target_language: &str,
     history_entries: &[(String, String)],
     request_timeout: Option<crate::api::client::RequestTimeouts>,
-) -> Option<ValidatedTranslationResponse> {
+) -> ProviderResult {
     if api_key.trim().is_empty() {
-        return None;
+        return Err(ProviderFailure::Unusable);
     }
 
     let schema = live_translate_response_format()["json_schema"]["schema"].clone();
@@ -274,23 +258,25 @@ fn translate_with_groq(
         .header("Authorization", &format!("Bearer {}", api_key))
         .header("Content-Type", "application/json");
     let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
-    let resp = http_request.send_json(payload).ok()?;
-
-    record_usage_simple(resp.headers(), model_name);
-    if !resp.status().is_success() {
-        return None;
+    let sent = http_request.send_json(payload);
+    if let Ok(resp) = &sent {
+        record_usage_simple(resp.headers(), model_name);
     }
-    let root: serde_json::Value = resp.into_body().read_json().ok()?;
+    let resp = checked_response("Groq", sent)?;
+    let root: serde_json::Value = unusable(resp.into_body().read_json().ok())?;
     record_groq_json_usage(model_name, &root);
-    let content = root
-        .get("choices")?
+    let content = unusable(chat_message_content(&root))?;
+
+    unusable(parse_translation_response(content, request))
+}
+
+fn chat_message_content(root: &serde_json::Value) -> Option<&str> {
+    root.get("choices")?
         .as_array()?
         .first()?
         .get("message")?
         .get("content")?
-        .as_str()?;
-
-    parse_translation_response(content, request)
+        .as_str()
 }
 
 fn translate_with_nvidia(
@@ -300,9 +286,9 @@ fn translate_with_nvidia(
     target_language: &str,
     history_entries: &[(String, String)],
     request_timeout: Option<crate::api::client::RequestTimeouts>,
-) -> Option<ValidatedTranslationResponse> {
+) -> ProviderResult {
     if api_key.trim().is_empty() {
-        return None;
+        return Err(ProviderFailure::Unusable);
     }
 
     let mut payload = serde_json::json!({
@@ -320,17 +306,11 @@ fn translate_with_nvidia(
         .header("Authorization", &format!("Bearer {api_key}"))
         .header("Content-Type", "application/json");
     let http_request = crate::api::client::with_request_timeouts(http_request, request_timeout);
-    let resp = http_request.send_json(payload).ok()?;
+    let resp = checked_response("NVIDIA", http_request.send_json(payload))?;
     crate::api::client::record_usage_headers("nvidia", model_name, resp.headers());
-    let root: serde_json::Value = resp.into_body().read_json().ok()?;
-    let content = root
-        .get("choices")?
-        .as_array()?
-        .first()?
-        .get("message")?
-        .get("content")?
-        .as_str()?;
-    parse_translation_response(content, request)
+    let root: serde_json::Value = unusable(resp.into_body().read_json().ok())?;
+    let content = unusable(chat_message_content(&root))?;
+    unusable(parse_translation_response(content, request))
 }
 
 fn translate_with_google_gtx_request(
@@ -347,70 +327,6 @@ fn translate_with_google_gtx_request(
         String::new()
     } else {
         translate_with_google_gtx(&request.draft_source, target_language)?
-    };
-
-    Some(ValidatedTranslationResponse {
-        finalized_translation,
-        draft_translation,
-    })
-}
-
-fn parse_translation_response(
-    payload: &str,
-    request: &TranslationRequest,
-) -> Option<ValidatedTranslationResponse> {
-    let trimmed = payload.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let without_prefix = trimmed
-        .strip_prefix("```json")
-        .or_else(|| trimmed.strip_prefix("```"))
-        .unwrap_or(trimmed);
-    let cleaned = without_prefix
-        .strip_suffix("```")
-        .unwrap_or(without_prefix)
-        .trim();
-
-    let response: TranslationModelResponse = serde_json::from_str(cleaned).ok()?;
-    validate_translation_response(response, request)
-}
-
-fn validate_translation_response(
-    response: TranslationModelResponse,
-    request: &TranslationRequest,
-) -> Option<ValidatedTranslationResponse> {
-    let finalized_translation = if request.finalized_source.is_empty() {
-        String::new()
-    } else {
-        response
-            .patches
-            .iter()
-            .find(|patch| {
-                patch.state == "final"
-                    && patch.source_start == request.source_start
-                    && patch.source_end == request.finalized_source_end
-                    && !patch.translation.trim().is_empty()
-            })?
-            .translation
-            .trim()
-            .to_string()
-    };
-
-    let draft_translation = if request.draft_source.is_empty() {
-        String::new()
-    } else {
-        match response.patches.iter().find(|patch| {
-            patch.state == "draft"
-                && patch.source_start == request.draft_source_start()
-                && patch.source_end == request.source_end
-                && !patch.translation.trim().is_empty()
-        }) {
-            Some(patch) => patch.translation.trim().to_string(),
-            None if !request.requires_draft_translation() => request.fallback_draft_translation(),
-            None => return None,
-        }
     };
 
     Some(ValidatedTranslationResponse {
@@ -535,18 +451,26 @@ fn live_translate_response_format() -> serde_json::Value {
 }
 
 /// Unofficial Google Translate (GTX) fallback.
-pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String> {
+/// Google's `tl` code for a picker name or a typed code. Names resolve first:
+/// "Lao", "Ewe" and "Twi" are also three-letter shapes, and Google expects
+/// their two-letter codes.
+fn gtx_target_code(target_lang: &str) -> String {
     let trimmed_target = target_lang.trim();
-    let target_code = if (2..=3).contains(&trimmed_target.len())
+    if let Some(code) =
+        crate::config::language_from_name(trimmed_target).and_then(|lang| lang.to_639_1())
+    {
+        return code.to_string();
+    }
+    if (2..=3).contains(&trimmed_target.len())
         && trimmed_target.chars().all(|ch| ch.is_ascii_alphabetic())
     {
-        trimmed_target.to_ascii_lowercase()
-    } else {
-        isolang::Language::from_name(trimmed_target)
-            .and_then(|lang| lang.to_639_1())
-            .map(|code| code.to_string())
-            .unwrap_or_else(|| "en".to_string())
-    };
+        return trimmed_target.to_ascii_lowercase();
+    }
+    "en".to_string()
+}
+
+pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String> {
+    let target_code = gtx_target_code(target_lang);
 
     let encoded_text = urlencoding::encode(text);
     let url = format!(
@@ -572,4 +496,33 @@ pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String
         }
     }
     None
+}
+
+#[cfg(test)]
+mod gtx_tests {
+    use super::gtx_target_code;
+
+    #[test]
+    fn short_language_names_use_their_two_letter_google_code() {
+        for (name, code) in [
+            ("Lao", "lo"),
+            ("Ewe", "ee"),
+            ("Twi", "tw"),
+            ("Korean", "ko"),
+        ] {
+            assert_eq!(gtx_target_code(name), code, "{name}");
+        }
+        assert_eq!(gtx_target_code(" ko "), "ko");
+        assert_eq!(gtx_target_code("Klingonish"), "en");
+    }
+
+    #[test]
+    fn every_picker_name_uses_the_two_letter_code_of_the_listed_language() {
+        for name in crate::config::get_all_languages() {
+            let listed = crate::config::language_from_name(name)
+                .and_then(|language| language.to_639_1())
+                .expect("picker languages have a two-letter code");
+            assert_eq!(gtx_target_code(name), listed, "{name}");
+        }
+    }
 }

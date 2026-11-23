@@ -3,6 +3,9 @@ use serde_json::{Value, json};
 // The unpacked extension, shipped in the binary and written to disk on setup.
 const EXT_MANIFEST: &[u8] = include_bytes!("../browser_ext/manifest.json");
 const EXT_SW: &[u8] = include_bytes!("../browser_ext/sw.js");
+const EXT_FRAME_REGISTRY: &[u8] = include_bytes!("../browser_ext/frame_registry.js");
+const EXT_CDP_ADMISSION: &[u8] = include_bytes!("../browser_ext/cdp_admission.js");
+const EXT_DEBUGGER_REVOCATION: &[u8] = include_bytes!("../browser_ext/debugger_revocation.js");
 const EXT_POPUP_HTML: &[u8] = include_bytes!("../browser_ext/popup.html");
 const EXT_POPUP_JS: &[u8] = include_bytes!("../browser_ext/popup.js");
 const EXT_ICON16: &[u8] = include_bytes!("../browser_ext/icon16.png");
@@ -15,6 +18,7 @@ fn ext_dir() -> std::path::PathBuf {
 
 /// Extract the bundled extension to disk and return its folder (for "Load unpacked").
 fn write_extension() -> anyhow::Result<std::path::PathBuf> {
+    let secret = super::bridge::bootstrap_secret()?;
     let dir = ext_dir();
     std::fs::create_dir_all(&dir)?;
     // Centralize the version on Cargo.toml: stamp it into the manifest at extract
@@ -23,16 +27,18 @@ fn write_extension() -> anyhow::Result<std::path::PathBuf> {
     let ver = ver.split(['-', '+']).next().unwrap_or(ver);
     let manifest = rendered_manifest(EXT_MANIFEST, ver)?;
     std::fs::write(dir.join("manifest.json"), manifest)?;
+    std::fs::write(dir.join("frame_registry.js"), EXT_FRAME_REGISTRY)?;
+    std::fs::write(dir.join("cdp_admission.js"), EXT_CDP_ADMISSION)?;
+    std::fs::write(dir.join("debugger_revocation.js"), EXT_DEBUGGER_REVOCATION)?;
     std::fs::write(dir.join("sw.js"), EXT_SW)?;
     // Stamp the per-install bootstrap key into a script the service worker loads via
-    // importScripts() on startup. The extension proves knowledge of it on first
-    // connect to receive the durable secret - so the secret is never handed to an
-    // unauthenticated local socket. (Re)written every setup so a fresh extract pairs.
-    let boot =
-        serde_json::to_string(&super::bridge::bootstrap_secret()).unwrap_or_else(|_| "\"\"".into());
+    // importScripts() on startup. Both peers authenticate with it on first
+    // connect and derive the durable key locally. (Re)written every setup so a
+    // fresh extract pairs.
+    let boot = serde_json::to_string(&secret)?;
     std::fs::write(
         dir.join("bootstrap.js"),
-        format!("self.SGT_BOOTSTRAP = {boot};\n").as_bytes(),
+        format!("self.SGT_BOOTSTRAP_V8 = {boot};\n").as_bytes(),
     )?;
     std::fs::write(dir.join("popup.html"), EXT_POPUP_HTML)?;
     std::fs::write(dir.join("popup.js"), EXT_POPUP_JS)?;
@@ -47,8 +53,6 @@ fn rendered_manifest(source: &[u8], version: &str) -> anyhow::Result<Vec<u8>> {
     manifest["version"] = json!(version);
     Ok(serde_json::to_vec_pretty(&manifest)?)
 }
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The user's browser, as far as the extension flow needs to know.
 struct BrowserInfo {
@@ -95,22 +99,13 @@ fn detect_browser() -> BrowserInfo {
 }
 
 fn default_https_progid() -> Option<String> {
-    use std::os::windows::process::CommandExt;
-    let out = std::process::Command::new("reg")
-        .args([
-            "query",
-            r"HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
-            "/v",
-            "ProgId",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.lines()
-        .find(|l| l.contains("ProgId") && l.contains("REG_SZ"))
-        .and_then(|l| l.split_whitespace().last())
-        .map(str::to_string)
+    winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+        .open_subkey(
+            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+        )
+        .ok()?
+        .get_value("ProgId")
+        .ok()
 }
 
 /// Bring the bridge up and lay down the extension files. Existing installations
@@ -140,7 +135,7 @@ pub(in crate::overlay::computer_control) fn setup() -> Value {
             connected,
             usable,
             super::ever_connected(),
-            update_staged && !self_reload_available,
+            super::bridge::legacy_update_required() || (update_staged && !self_reload_available),
         )
     };
     if opens_pairing_before_response(route) {
@@ -167,7 +162,13 @@ pub(in crate::overlay::computer_control) fn setup() -> Value {
         "ok": true,
         "connected": connected,
         "state": super::connection_state(),
-        "code": if connected && update_staged {
+        "legacy_update_hint_unverified": super::bridge::legacy_update_required(),
+        "pairing_retry_required": super::bridge::pairing_retry_required(),
+        "pairing_key_error": super::bridge::pairing_key_error(),
+        "pairing_retry_hint": if super::bridge::pairing_retry_required() { Some("Pairing did not complete; run browser_setup to open a new pairing window.") } else { None },
+        "code": if super::bridge::legacy_update_required() {
+            json!("BROWSER_EXTENSION_RELOAD_SUGGESTED_UNVERIFIED")
+        } else if connected && update_staged {
             json!("BROWSER_EXTENSION_RELOAD_REQUIRED")
         } else if connected {
             json!("BROWSER_EXTENSION_INCOMPATIBLE")
@@ -208,7 +209,7 @@ fn setup_route(
 ) -> SetupRoute {
     if connected && usable && !manual_update_required {
         SetupRoute::Connected
-    } else if !connected && ever_connected {
+    } else if !connected && ever_connected && !manual_update_required {
         SetupRoute::Reconnecting
     } else {
         SetupRoute::Manual
@@ -306,6 +307,9 @@ pub(in crate::overlay::computer_control) fn status() -> Value {
         "ok": true,
         "connected": connected,
         "state": super::connection_state(),
+        "legacy_update_hint_unverified": super::bridge::legacy_update_required(),
+        "pairing_retry_required": super::bridge::pairing_retry_required(),
+        "pairing_retry_hint": if super::bridge::pairing_retry_required() { Some("Pairing did not complete; run browser_setup to open a new pairing window.") } else { None },
         "pairing_window_open": super::bridge::pairing_window_open(),
         "protocol_version": super::capabilities::protocol_version(),
         "capabilities": super::capabilities::list(),
@@ -362,6 +366,7 @@ mod tests {
     #[test]
     fn setup_surfaces_a_staged_worker_that_cannot_reload_itself() {
         assert_eq!(setup_route(true, true, true, true), SetupRoute::Manual);
+        assert_eq!(setup_route(false, false, true, true), SetupRoute::Manual);
     }
 
     #[test]

@@ -9,11 +9,9 @@ import android.os.IBinder
 import dev.screengoated.toolbox.mobile.BuildConfig
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.effect.PhoneControlEffectOwner
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
@@ -38,12 +36,11 @@ internal enum class ShizukuBridgeCondition(val wireName: String) {
 }
 
 internal object ShizukuCommandBridge {
-    private val lock = Any()
     private val json = Json { ignoreUnknownKeys = true }
-
-    @Volatile
-    private var service: IPhoneControlShellService? = null
-    private var pendingService: CompletableDeferred<IPhoneControlShellService>? = null
+    private val slot = BoundServiceSlot<IPhoneControlShellService>(
+        isAlive = { it.asBinder().pingBinder() },
+        invalidBinderMessage = "Shizuku returned an invalid user-service binder.",
+    )
 
     private val serviceArgs = Shizuku.UserServiceArgs(
         ComponentName(BuildConfig.APPLICATION_ID, PhoneControlShellUserService::class.java.name),
@@ -55,25 +52,15 @@ internal object ShizukuCommandBridge {
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder?) {
-            val connected = binder
-                ?.takeIf(IBinder::pingBinder)
-                ?.let(IPhoneControlShellService.Stub::asInterface)
-            synchronized(lock) {
-                service = connected
-                val pending = pendingService
-                pendingService = null
-                if (connected != null) {
-                    pending?.complete(connected)
-                } else {
-                    pending?.completeExceptionally(
-                        IllegalStateException("Shizuku returned an invalid user-service binder."),
-                    )
-                }
-            }
+            slot.connected(
+                binder
+                    ?.takeIf(IBinder::pingBinder)
+                    ?.let(IPhoneControlShellService.Stub::asInterface),
+            )
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            synchronized(lock) { service = null }
+            slot.invalidate()
         }
     }
 
@@ -137,6 +124,7 @@ internal object ShizukuCommandBridge {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean = true,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult = execute(
         context,
         effectOwner,
@@ -145,6 +133,7 @@ internal object ShizukuCommandBridge {
         cwd,
         timeoutMs,
         effectMayChangeUserState,
+        beforeDispatch,
     )
 
     suspend fun verifyAuthority(context: Context, timeoutMs: Long): PrivilegedCommandResult =
@@ -176,7 +165,7 @@ internal object ShizukuCommandBridge {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                synchronized(lock) { service = null }
+                slot.invalidate()
                 BrowserTunnelResult.Failure(
                     state = CapabilityState.DEGRADED,
                     code = "browser_tunnel_unavailable",
@@ -208,6 +197,7 @@ internal object ShizukuCommandBridge {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult {
         val probe = probe(context)
         if (probe.state != CapabilityState.READY) {
@@ -235,6 +225,7 @@ internal object ShizukuCommandBridge {
             }
             try {
                 withContext(Dispatchers.IO) {
+                    beforeDispatch()?.let { return@withContext it }
                     if (
                         effectLease != null &&
                         !effectLease.tryReserveDispatch(effectMayChangeUserState)
@@ -258,7 +249,7 @@ internal object ShizukuCommandBridge {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            synchronized(lock) { service = null }
+            slot.invalidate()
             PrivilegedCommandResult.Failure(
                 code = "shizuku_command_failed",
                 message = error.message ?: error.javaClass.simpleName,
@@ -271,29 +262,16 @@ internal object ShizukuCommandBridge {
 
     fun close() {
         runCatching { Shizuku.unbindUserService(serviceArgs, connection, true) }
-        synchronized(lock) {
-            service = null
-            pendingService?.cancel()
-            pendingService = null
-        }
+        slot.close()
     }
 
-    private suspend fun awaitService(): IPhoneControlShellService {
-        service?.takeIf { it.asBinder().pingBinder() }?.let { return it }
-        val pending = synchronized(lock) {
-            service?.takeIf { it.asBinder().pingBinder() }?.let { return it }
-            pendingService ?: CompletableDeferred<IPhoneControlShellService>().also {
-                pendingService = it
-                try {
-                    Shizuku.bindUserService(serviceArgs, connection)
-                } catch (error: Throwable) {
-                    pendingService = null
-                    it.completeExceptionally(error)
-                }
-            }
-        }
-        return withTimeout(BIND_TIMEOUT_MS) { pending.await() }
-    }
+    // A bind that never connects surfaces as a retryable failure (not a cancellation)
+    // and is unbound, so the next command binds again.
+    private suspend fun awaitService(): IPhoneControlShellService = slot.await(
+        timeoutMs = BIND_TIMEOUT_MS,
+        bind = { Shizuku.bindUserService(serviceArgs, connection) },
+        onTimeout = { runCatching { Shizuku.unbindUserService(serviceArgs, connection, true) } },
+    )
 
     private fun nextInternalOperationId(kind: String): String =
         "shizuku-$kind-${internalOperations.incrementAndGet()}"

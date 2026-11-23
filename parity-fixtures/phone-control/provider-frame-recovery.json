@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "wireSequences": [
+    {"id":"incomplete-json","rejected":"{","next":"{\"serverContent\":{\"inputTranscription\":{\"text\":\"next\"}}}","expectedInput":"next"},
+    {"id":"invalid-json","rejected":"not-json","next":"{\"serverContent\":{\"inputTranscription\":{\"text\":\"following\"}}}","expectedInput":"following"}
+  ],
+  "windowsDecoderCases": [
+    {"outcome":"request-rejected","expected":"drop"},
+    {"outcome":"application-rejected","expected":"drop"},
+    {"outcome":"provider-data-rejected","expected":"drop"},
+    {"outcome":"transport-failed","expected":"fatal"},
+    {"outcome":"framing-failed","expected":"fatal"},
+    {"outcome":"authentication-failed","expected":"fatal"},
+    {"outcome":"abi-failed","expected":"fatal"},
+    {"outcome":"unknown-failed","expected":"fatal"}
+  ]
+}

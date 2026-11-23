@@ -2,8 +2,12 @@
 
 The first subtitle hotkey opens the shared draw-box selector. Releasing the drawn
 region starts the session; Escape cancels without starting OCR. Later hotkey presses
-toggle the compact editing controls. Only Quit
-ends the session. The adjustable region stays on its selected monitor. This mode
+toggle the compact editing controls. Quit ends the session; a display change
+also stops it and displays a notice to select the region again.
+Native capture closes before Quit returns. Display invalidation uses the same
+localized notice even if capture detects it before the window message arrives.
+The notice also applies while editing controls are hidden. The adjustable
+region stays on its selected monitor. This mode
 does not use the Screen Translate glow setting and never prepares OCR at normal
 application startup.
 
@@ -43,7 +47,10 @@ and is bounded by age, count and bytes.
 
 Changed edge signatures within OCR boxes trigger recognition, including new
 strokes in formerly blank pixels. Other image motion is rechecked within 600 ms;
-unchanged pixels need no repeated OCR. Strong visual clearing can dismiss while
+unchanged settled pixels need no repeated OCR. Pending text or disappearance
+confirmation requests another captured frame even when its pixels match; a
+cached OCR result is never counted twice. An initially empty result receives one
+bounded confirmation on a newly captured frame. Strong visual clearing can dismiss while
 OCR is busy. Ambiguous backgrounds and recognition failures receive a bounded
 hold, not an immediate empty-text verdict. Edge comparison is a scheduling and
 visibility hint, not semantic text recognition.

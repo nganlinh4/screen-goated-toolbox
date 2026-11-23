@@ -43,6 +43,45 @@
       ]
     },
     {
+      "name": "search_terms_keep_hangul_letters",
+      "question": "버블 설정은 어디에 있나요?",
+      "chunks": [
+        {
+          "id": "no-term-match",
+          "path": "docs/other.txt",
+          "text": "unrelated"
+        },
+        {
+          "id": "hangul-match",
+          "path": "docs/bubble.txt",
+          "text": "버블 설정 화면에서 크기를 바꿉니다"
+        }
+      ],
+      "expected_top_ids": [
+        "hangul-match"
+      ]
+    },
+    {
+      "name": "search_terms_keep_accented_letters",
+      "question": "Làm sao đổi giọng đọc?",
+      "chunks": [
+        {
+          "id": "split-fragment-match",
+          "path": "docs/b.txt",
+          "text": "sao sao sao gi ng"
+        },
+        {
+          "id": "accented-match",
+          "path": "docs/a.txt",
+          "text": "Đổi giọng đọc trong cài đặt TTS"
+        }
+      ],
+      "expected_top_ids": [
+        "accented-match",
+        "split-fragment-match"
+      ]
+    },
+    {
       "name": "android_settings_entry_surface",
       "section": "SETTINGS",
       "entry_surface": "material3_dialog_or_sheet",

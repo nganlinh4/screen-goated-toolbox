@@ -1,16 +1,23 @@
-//! Local large-content artifacts for Computer Control. These keep bulk text out of
-//! model context: tools pass small ids/paths/stats while the bytes stay on disk.
+//! Large-content artifacts keep bulk text outside model context. Tools pass ids
+//! and stats; automatic storage follows the session's retention policy.
 
+use crate::crypto::sha256_hex;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod cache_file;
+mod cache_sweep;
+mod export;
+pub(super) use export::PreparedSave;
 #[path = "artifacts/extract.rs"]
 mod extract;
+mod session_storage;
 
 const PREVIEW_CHARS: usize = 900;
 
@@ -21,6 +28,9 @@ pub(super) struct TextArtifact {
     title: String,
     source_url: String,
     path: PathBuf,
+    owner: super::session_retention::SessionRetention,
+    ephemeral: Option<std::sync::Arc<str>>,
+    cache_file: Option<std::sync::Arc<cache_file::CacheFile>>,
     bytes: usize,
     chars: usize,
     words: usize,
@@ -35,6 +45,7 @@ fn store() -> &'static parking_lot::Mutex<HashMap<String, TextArtifact>> {
     STORE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
 }
 
+#[cfg(test)]
 fn counter() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::SeqCst)
@@ -46,20 +57,33 @@ pub(super) fn create_text(
     source_url: Option<&str>,
     text: &str,
 ) -> anyhow::Result<TextArtifact> {
+    session_storage::check_size(kind, title.unwrap_or(""), source_url.unwrap_or(""), text)?;
+    let owner = super::session_retention::current();
+    let source_url = source_label(source_url);
+    session_storage::check_size(kind, title.unwrap_or(""), &source_url, text)?;
     let created_secs = now_secs();
     let sha256 = sha256_hex(text.as_bytes());
-    let id = format!("art_{created_secs}_{}_{}", counter(), &sha256[..8]);
+    let mut nonce = [0_u8; 16];
+    getrandom::fill(&mut nonce)
+        .map_err(|error| anyhow::anyhow!("create artifact identity: {error}"))?;
+    let id = format!("art_{created_secs}_{:032x}", u128::from_le_bytes(nonce));
     let safe = safe_name(title.unwrap_or(kind));
-    let dir = crate::paths::app_temp_dir().join("cc-artifacts");
-    std::fs::create_dir_all(&dir)?;
+    let dir = cache_sweep::cache_dir();
     let path = dir.join(format!("{id}_{safe}.txt"));
-    std::fs::write(&path, text)?;
+    let (ephemeral, cache_file) =
+        match super::session_retention::persist(|| cache_file::CacheFile::create(&path, text)) {
+            Some(result) => (None, Some(std::sync::Arc::new(result?))),
+            None => (Some(std::sync::Arc::from(text)), None),
+        };
     let artifact = TextArtifact {
         id: id.clone(),
         kind: kind.to_string(),
         title: title.unwrap_or("").to_string(),
-        source_url: source_url.unwrap_or("").to_string(),
+        source_url,
         path,
+        owner: owner.clone(),
+        ephemeral,
+        cache_file,
         bytes: text.len(),
         chars: text.chars().count(),
         words: text.split_whitespace().count(),
@@ -67,7 +91,9 @@ pub(super) fn create_text(
         sha256,
         created_secs,
     };
-    store().lock().insert(id, artifact.clone());
+    owner
+        .while_open(|| session_storage::insert(&artifact))
+        .ok_or_else(|| anyhow::anyhow!("artifact session has retired"))??;
     Ok(artifact)
 }
 
@@ -81,7 +107,7 @@ pub(super) fn info_tool(id: &str) -> Value {
 pub(super) fn dispatch_tool(
     name: &str,
     args: &Value,
-    profile: &super::human_input::HumanProfile,
+    _profile: &super::human_input::HumanProfile,
     cancel: &AtomicBool,
     dry: bool,
 ) -> Option<Value> {
@@ -90,163 +116,79 @@ pub(super) fn dispatch_tool(
             args.get("id").and_then(Value::as_str).unwrap_or(""),
         )),
         "extract_artifact" => Some(extract::tool(args, cancel, dry)),
-        "save_artifact" => Some(save_tool(
+        "save_artifact" if dry => Some(json!({"ok": true, "note": "dry"})),
+        "save_artifact" => Some(save_tool_with_cancel(
             args.get("id").and_then(Value::as_str).unwrap_or(""),
             args.get("path").and_then(Value::as_str),
             args.get("overwrite")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-        )),
-        "paste_artifact" => Some(paste_tool(
-            args.get("id").and_then(Value::as_str).unwrap_or(""),
-            profile,
             cancel,
-            dry,
         )),
         _ => None,
     }
 }
 
-pub(super) fn save_tool(id: &str, path: Option<&str>, overwrite: bool) -> Value {
-    let Ok((artifact, text)) = load_text(id) else {
-        return json!({
-            "ok": false,
-            "error": format!("artifact '{id}' not found"),
-            "effect_may_have_occurred": false,
-            "executed": false,
-        });
-    };
-    let Some(path) = path.filter(|p| !p.trim().is_empty()) else {
-        return json!({
-            "ok": true,
-            "saved": false,
-            "artifact": artifact.response(&text),
-            "path": artifact.path_string(),
-            "effect_may_have_occurred": false,
-            "executed": false,
-        });
-    };
-    let target = PathBuf::from(path);
-    if !target.is_absolute() {
-        return json!({
-            "ok": false,
-            "code": "ERR_ARTIFACT_PATH_NOT_ABSOLUTE",
-            "error": "path must be an absolute output path; no file or directory was created",
-            "path": path,
-            "effect_may_have_occurred": false,
-            "executed": false,
-            "retryable": true,
-        });
+#[cfg(test)]
+fn save_tool(id: &str, path: Option<&str>, overwrite: bool) -> Value {
+    save_tool_with_cancel(id, path, overwrite, &AtomicBool::new(false))
+}
+
+fn save_tool_with_cancel(
+    id: &str,
+    path: Option<&str>,
+    overwrite: bool,
+    cancel: &AtomicBool,
+) -> Value {
+    if let Some(path) = path.filter(|p| !p.trim().is_empty()) {
+        return match PreparedSave::prepare(id, path, overwrite) {
+            Ok(prepared) => prepared.commit(cancel),
+            Err(error) => error,
+        };
     }
-    if target.file_name().is_none() {
-        return json!({
-            "ok": false,
-            "code": "ERR_ARTIFACT_PATH_NOT_FILE",
-            "error": "path must name an output file; no file or directory was created",
-            "path": path,
-            "effect_may_have_occurred": false,
-            "executed": false,
-            "retryable": true,
-        });
-    }
-    if target.is_dir() {
-        return json!({
-            "ok": false,
-            "code": "ERR_ARTIFACT_PATH_NOT_FILE",
-            "error": "path names a directory, not an output file",
-            "path": path,
-            "effect_may_have_occurred": false,
-            "executed": false,
-            "retryable": true,
-        });
-    }
-    if target.exists() && !overwrite {
-        return json!({
-            "ok": false,
-            "code": "ERR_ARTIFACT_TARGET_EXISTS",
-            "error": "target file already exists",
-            "path": path,
-            "effect_may_have_occurred": false,
-            "executed": false,
-            "retryable": true,
-        });
-    }
-    if let Some(parent) = target.parent()
-        && !parent.as_os_str().is_empty()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        return json!({
-            "ok": false,
-            "error": format!("create parent failed: {e}"),
-            "path": path,
-            "effect_may_have_occurred": true,
-        });
-    }
-    match std::fs::write(&target, text) {
-        Ok(()) => verified_save_result(&target, &artifact),
-        Err(e) => json!({
-            "ok": false,
-            "error": format!("write failed: {e}"),
-            "path": path,
-            "effect_may_have_occurred": true,
+    match load_text(id) {
+        Ok((artifact, text)) => json!({
+            "ok": true, "saved": false, "artifact": artifact.response(&text),
+            "path": artifact.path_string(), "effect_may_have_occurred": false, "executed": false,
+        }),
+        Err(error) => json!({
+            "ok": false, "error": error.to_string(),
+            "effect_may_have_occurred": false, "executed": false,
         }),
     }
 }
 
-fn verified_save_result(target: &Path, artifact: &TextArtifact) -> Value {
-    let bytes = match std::fs::read(target) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            return json!({
-                "ok": false,
-                "code": "ERR_ARTIFACT_SAVE_READBACK",
-                "error": format!("saved target could not be read back: {error}"),
-                "path": target.to_string_lossy(),
-                "effect_may_have_occurred": true,
-            });
-        }
-    };
-    let actual_sha256 = sha256_hex(&bytes);
-    if bytes.len() != artifact.bytes || actual_sha256 != artifact.sha256 {
-        return json!({
-            "ok": false,
-            "code": "ERR_ARTIFACT_SAVE_MISMATCH",
-            "error": "saved target bytes differ from the source artifact",
-            "path": target.to_string_lossy(),
-            "source_sha256": artifact.sha256,
-            "actual_sha256": actual_sha256,
-            "effect_may_have_occurred": true,
-        });
-    }
-    let path = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    json!({
-        "ok": true,
-        "saved": true,
-        "path": path.to_string_lossy(),
-        "byte_count": bytes.len(),
-        "sha256": actual_sha256,
-        "source_artifact_id": artifact.id,
-        "source_sha256": artifact.sha256,
-        "effect_verified": true,
-        "effect_may_have_occurred": true,
-        "executed": true,
-        "atomic": false,
-        "completion_proof": {
-            "exact": [
-                "/path",
-                "/byte_count",
-                "/sha256",
-                "/source_artifact_id",
-                "/source_sha256"
-            ],
-            "partial": [],
-        },
-    })
-}
-
 pub(super) fn load_text(id_or_path: &str) -> anyhow::Result<(TextArtifact, String)> {
-    if let Some(artifact) = store().lock().get(id_or_path).cloned() {
-        let text = std::fs::read_to_string(&artifact.path)?;
+    let artifact = {
+        let cache = store().lock();
+        cache
+            .get(id_or_path)
+            .or_else(|| {
+                cache
+                    .values()
+                    .find(|entry| entry.cache_file.is_some() && entry.path == Path::new(id_or_path))
+            })
+            .cloned()
+    };
+    if let Some(artifact) = artifact {
+        if !artifact
+            .owner
+            .same_session(&super::session_retention::current())
+        {
+            anyhow::bail!("artifact is no longer available in this session");
+        }
+        let text = if let Some(text) = &artifact.ephemeral {
+            text.to_string()
+        } else {
+            artifact
+                .cache_file
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("artifact content is unavailable"))?
+                .read(session_storage::MAX_BYTES as u64)?
+        };
+        if text.len() != artifact.bytes || sha256_hex(text.as_bytes()) != artifact.sha256 {
+            anyhow::bail!("artifact content no longer matches its observation");
+        }
         return Ok((artifact, text));
     }
     let path = Path::new(id_or_path);
@@ -256,7 +198,7 @@ pub(super) fn load_text(id_or_path: &str) -> anyhow::Result<(TextArtifact, Strin
         );
     }
     if path.exists() {
-        let text = std::fs::read_to_string(path)?;
+        let text = cache_file::read_path(path, session_storage::MAX_BYTES as u64)?;
         let artifact = create_text(
             "file",
             path.file_name().and_then(|n| n.to_str()),
@@ -268,37 +210,94 @@ pub(super) fn load_text(id_or_path: &str) -> anyhow::Result<(TextArtifact, Strin
     anyhow::bail!("artifact '{id_or_path}' not found")
 }
 
-fn paste_tool(
-    id: &str,
+pub(super) fn paste_tool(
+    args: &Value,
     profile: &super::human_input::HumanProfile,
     cancel: &AtomicBool,
     dry: bool,
 ) -> Value {
+    let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+    if !dry && args.get("expected_input_target").is_none() {
+        return json!({"ok": false, "error": "model-visible input target is unavailable", "executed": false});
+    }
     let Ok((artifact, text)) = load_text(id) else {
         return json!({"ok": false, "error": format!("artifact '{id}' not found")});
     };
     if dry {
         return json!({"ok": true, "dry": true, "artifact": artifact.response(&text)});
     }
-    let clobbered_nontext = super::clipboard::has_nontext();
-    super::clipboard::set_text(&text);
+    if cancel.load(Ordering::SeqCst) {
+        return json!({"ok": false, "error": "cancelled", "executed": false});
+    }
+    if let Err(error) = super::executor::verify_expected_keyboard_target(args) {
+        return json!({"ok": false, "error": error.to_string(), "executed": false});
+    }
+    let require_document = args
+        .pointer("/expected_input_target/kind")
+        .and_then(Value::as_str)
+        == Some("browser");
+    let focused = match super::uia::focused_editable_guard(require_document) {
+        Ok(focused) => focused,
+        Err(error) => return json!({"ok": false, "error": error.to_string(), "executed": false}),
+    };
+    let mut paste_args = args.clone();
+    paste_args["expected_paste_element"] = focused;
+    if let Err(error) = super::executor::verify_expected_keyboard_target(&paste_args) {
+        return json!({"ok": false, "error": error.to_string(), "executed": false});
+    }
+    if cancel.load(Ordering::SeqCst) {
+        return json!({"ok": false, "error": "cancelled", "executed": false});
+    }
+    if let Some(refusal) = irreplaceable_clipboard_refusal() {
+        return refusal;
+    }
+    let Some(staged_sequence) = super::clipboard::stage_text(&text) else {
+        return json!({"ok": false, "error": "could not set clipboard", "executed": false});
+    };
     sleep(std::time::Duration::from_millis(60));
-    let paste = super::executor::execute_ex(
-        "key_combination",
-        &json!({"keys": "control+v"}),
-        profile,
-        cancel,
-    );
+    paste_args["keys"] = json!("control+v");
+    paste_args["expected_clipboard_sequence"] = json!(staged_sequence);
+    let paste = super::executor::execute_ex("key_combination", &paste_args, profile, cancel);
+    paste_receipt(
+        &artifact,
+        paste,
+        super::clipboard::sequence() == staged_sequence,
+    )
+}
+
+/// Restoring after the paste is unsafe (the target may consume Ctrl+V late),
+/// so refuse before staging rather than silently destroy a copied image or
+/// file list.
+fn irreplaceable_clipboard_refusal() -> Option<Value> {
+    super::clipboard::holds_irreplaceable_content().then(|| {
+        json!({
+            "ok": false,
+            "code": "ERR_CLIPBOARD_HOLDS_NONTEXT",
+            "error": "the clipboard holds an image or copied files that pasting would destroy; ask the user to paste or clear them first, or use save_artifact",
+            "executed": false,
+        })
+    })
+}
+
+/// The target may process Ctrl+V after dispatch returns, so a clipboard
+/// replacement observed afterwards leaves the pasted content unproven.
+fn paste_receipt(artifact: &TextArtifact, paste: Value, clipboard_still_staged: bool) -> Value {
+    let dispatched = paste.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    let content_uncertain = dispatched && !clipboard_still_staged;
     json!({
-        "ok": paste.get("ok").and_then(Value::as_bool).unwrap_or(false),
+        "ok": dispatched,
         "method": "clipboard_paste",
         "artifact_id": artifact.id(),
         "pasted_chars": artifact.chars(),
         "source_sha256": artifact.sha256,
-        "clipboard_left_as_artifact": true,
-        "clobbered_nontext_clipboard": clobbered_nontext,
+        "clipboard_left_as_artifact": clipboard_still_staged,
+        "pasted_content_uncertain": content_uncertain,
         "paste": paste,
-        "verification": "Set clipboard from artifact and issued Ctrl+V to the focused app. Verify destination word/char count if the app exposes one.",
+        "verification": if content_uncertain {
+            "Another app replaced the clipboard after Ctrl+V was sent; a target that processed the paste late may have inserted that content instead. Inspect the destination before continuing."
+        } else {
+            "Set clipboard from artifact and issued Ctrl+V to the focused app. Verify destination word/char count if the app exposes one."
+        },
     })
 }
 
@@ -329,9 +328,36 @@ impl TextArtifact {
         self.chars
     }
 
-    fn path_string(&self) -> String {
-        self.path.to_string_lossy().to_string()
+    fn path_string(&self) -> Option<String> {
+        self.ephemeral
+            .is_none()
+            .then(|| self.path.to_string_lossy().to_string())
     }
+}
+
+/// Remove orphaned cache files left by older builds or crashes, once per process.
+pub(super) fn sweep_orphaned_cache() {
+    cache_sweep::sweep_once_in_background();
+}
+
+pub(super) fn retire_session(owner: &super::session_retention::SessionRetention) {
+    store()
+        .lock()
+        .retain(|_, artifact| !artifact.owner.same_session(owner));
+}
+
+fn source_label(raw: Option<&str>) -> String {
+    let Some(mut url) = raw.and_then(|value| url::Url::parse(value).ok()) else {
+        return String::new();
+    };
+    if url.cannot_be_a_base() {
+        return format!("{}:", url.scheme());
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.to_string()
 }
 
 fn now_secs() -> u64 {
@@ -339,11 +365,6 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn safe_name(raw: &str) -> String {
@@ -377,8 +398,60 @@ fn preview(text: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "artifacts/retention_tests.rs"]
+mod retention_tests;
+
+#[cfg(test)]
+#[path = "artifacts/cache_tests.rs"]
+mod cache_tests;
+
+#[cfg(test)]
+#[path = "artifacts/live_clipboard_tests.rs"]
+mod live_clipboard_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paste_rejects_missing_observed_target_before_loading_artifact() {
+        let result = paste_tool(
+            &json!({"id": "missing"}),
+            &super::super::human_input::HumanProfile::instant(),
+            &AtomicBool::new(false),
+            false,
+        );
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["executed"], false);
+        assert_eq!(result["error"], "model-visible input target is unavailable");
+    }
+
+    #[test]
+    fn paste_receipt_marks_content_uncertain_when_clipboard_is_replaced_after_dispatch() {
+        let artifact = create_text("test", Some("paste"), None, "staged words").unwrap();
+        let dispatched = json!({"ok": true, "keys": "control+v"});
+
+        let settled = paste_receipt(&artifact, dispatched.clone(), true);
+        assert_eq!(settled["ok"], true);
+        assert_eq!(settled["clipboard_left_as_artifact"], true);
+        assert_eq!(settled["pasted_content_uncertain"], false);
+
+        let replaced = paste_receipt(&artifact, dispatched, false);
+        assert_eq!(replaced["ok"], true);
+        assert_eq!(replaced["clipboard_left_as_artifact"], false);
+        assert_eq!(replaced["pasted_content_uncertain"], true);
+        assert!(
+            replaced["verification"]
+                .as_str()
+                .unwrap()
+                .contains("Inspect the destination")
+        );
+
+        let rejected = json!({"ok": false, "error": "clipboard changed"});
+        let not_sent = paste_receipt(&artifact, rejected, false);
+        assert_eq!(not_sent["ok"], false);
+        assert_eq!(not_sent["pasted_content_uncertain"], false);
+    }
 
     #[test]
     fn creates_reloadable_text_artifact() {

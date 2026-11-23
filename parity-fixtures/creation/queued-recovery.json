@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "availabilityCases": [
+    {"available": [false, true], "expectedQueued": [1], "expectedRetained": [0, 1]},
+    {"available": [true, false], "expectedQueued": [0], "expectedRetained": [0, 1]}
+  ],
+  "transitions": [
+    {"destinationAvailable": false, "deadlineExpired": false, "expected": "deferred", "retainRequest": true},
+    {"destinationAvailable": true, "deadlineExpired": false, "expected": "queued", "retainRequest": true},
+    {"destinationAvailable": false, "deadlineExpired": true, "expected": "failed", "retainRequest": false}
+  ],
+  "capacityCases": [
+    {"registered": [0], "accepted": [0, 1], "expectedCount": 2},
+    {"registered": [0], "accepted": [1], "expectedCount": 2},
+    {"registered": [], "accepted": [0, 1], "expectedCount": 2}
+  ],
+  "pollingCases": [
+    {"busyJobs": 0, "recoveryPending": true, "expectedPolling": true},
+    {"busyJobs": 0, "recoveryPending": false, "expectedPolling": false},
+    {"busyJobs": 1, "recoveryPending": false, "expectedPolling": true}
+  ]
+}

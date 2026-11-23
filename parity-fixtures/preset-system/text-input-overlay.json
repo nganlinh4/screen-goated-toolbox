@@ -2,29 +2,54 @@
   "canonical_windows_files": [
     "src/overlay/text_input/styles.rs",
     "src/overlay/text_input/messages.rs",
-    "src/overlay/text_input/window.rs"
+    "src/overlay/text_input/window.rs",
+    "src/overlay/text_input/activation.rs",
+    "src/overlay/text_input/editor_text.rs"
   ],
   "android_contract": {
-    "surface": "shared-webview-builder",
+    "surface": "generated-canonical-windows-webview",
     "required_messages": [
-      "submit:<text>",
-      "cancel",
-      "close_window",
-      "history_up:<draft>",
-      "history_down:<draft>",
-      "mic",
-      "request_focus"
+      "<owner>:submit:<revision>:<text>",
+      "<owner>:cancel",
+      "<owner>:close_window",
+      "<owner>:history_up:<draft>",
+      "<owner>:history_down:<draft>",
+      "<owner>:mic"
     ],
     "required_js_hooks": [
-      "window.setEditorText",
       "window.updateTheme",
       "window.playEntry",
-      "window.playExit",
-      "window.clearInput"
+      "window.playExit"
+    ],
+    "edit_operations": ["replace", "insert", "clear", "focus"],
+    "platform_js_hooks": [
+      "window.setEditorText", "window.insertTextAtCursor", "window.clearInput",
+      "window.focusEditor", "window.updateInputChrome", "window.closeWithAnimation"
     ],
     "accepted_mobile_shims": [
       "touch_drag_delta_messages",
-      "outside_tap_focus_release"
+      "outside_tap_focus_release",
+      "request_focus",
+      "input_exit_done"
     ]
-  }
+  },
+  "edit_cases": [
+    {"name":"clear_submitted_revision","initial":"submitted","revision":"11","action":"clear","submittedRevision":"11","expected":"","status":"applied"},
+    {"name":"preserve_newer_draft","initial":"newer draft","revision":"12","action":"clear","submittedRevision":"11","expected":"newer draft","status":"skipped"},
+    {"name":"preserve_same_text_with_new_revision","initial":"submitted","revision":"12","action":"clear","submittedRevision":"11","expected":"submitted","status":"skipped"},
+    {"name":"replace_history_text","initial":"draft","revision":"3","action":"replace","text":"history:line","expected":"history:line","status":"applied"},
+    {"name":"insert_selection","initial":"before OLD after","revision":"3","action":"insert","text":"new:文字","selectionStart":7,"selectionEnd":10,"expected":"before new:文字 after","status":"applied"},
+    {"name":"reject_old_document_edit","initial":"current draft","revision":"3","action":"replace","text":"stale","owner":"old","expected":"current draft","status":"rejected"}
+  ],
+  "message_cases": [
+    {"name":"trim_submit_and_keep_colons","key":"Enter","text":"  hello:world  ","revision":"4","expected":"submit:4:hello:world","preventDefault":true},
+    {"name":"blank_submit_is_suppressed","key":"Enter","text":"  ","expected":null,"preventDefault":true},
+    {"name":"shift_enter_keeps_newline_editing","key":"Enter","shift":true,"text":"draft","expected":null,"preventDefault":false},
+    {"name":"escape_cancels_owner","key":"Escape","text":"draft","expected":"cancel","preventDefault":true},
+    {"name":"single_line_history_up","key":"ArrowUp","text":"draft:line","caret":5,"expected":"history_up:draft:line","preventDefault":true},
+    {"name":"multiline_middle_does_not_navigate","key":"ArrowUp","text":"first\nlast","caret":4,"expected":null,"preventDefault":false},
+    {"name":"multiline_start_navigates_up","key":"ArrowUp","text":"first\nlast","caret":0,"expected":"history_up:first\nlast","preventDefault":true},
+    {"name":"multiline_end_navigates_down","key":"ArrowDown","text":"first\nlast","caret":10,"expected":"history_down:first\nlast","preventDefault":true},
+    {"name":"shift_history_keeps_selection","key":"ArrowDown","shift":true,"text":"draft","expected":null,"preventDefault":false}
+  ]
 }

@@ -23,6 +23,7 @@
 //! key, and a feed that fails verification is ignored rather than partly applied.
 
 use anyhow::{Result, bail};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde::Deserialize;
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -49,6 +50,13 @@ const SUPPORTED_SCHEMAS: &[u32] = &[1, 3];
 /// rejected outright rather than filtered, because it means the publisher and
 /// this client disagree about what is being published.
 const ALLOWED_PROVIDERS: &[&str] = &["nvidia"];
+
+/// How long after publication a signed feed may still steer routing.
+///
+/// The publisher runs every two hours. A feed this old means publication has
+/// stopped, so its verdicts no longer describe the live provider; the client
+/// then behaves exactly as when no feed exists and keeps the configured chain.
+const MAX_FEED_AGE_HOURS: i64 = 24;
 
 const CONTROL_CONTRACT_VERSION: u32 = 1;
 const AVAILABILITY_GATE_VERSION: u32 = 1;
@@ -108,12 +116,28 @@ pub struct AvailabilityFeed {
     #[serde(rename = "availabilityGateVersion", default)]
     pub availability_gate_version: u32,
     pub provider: String,
-    /// Publication time, surfaced when reporting which feed is in use.
+    /// RFC 3339 publication time. It bounds how long the feed may be acted on
+    /// and orders feeds so an older signed publication cannot replace a newer one.
     #[serde(rename = "generatedAt")]
-    #[allow(dead_code)]
     pub generated_at: String,
     #[serde(default)]
     pub models: Vec<FeedModel>,
+}
+
+impl AvailabilityFeed {
+    /// The publication instant, when `generatedAt` is a valid RFC 3339 time.
+    pub fn published_at(&self) -> Option<DateTime<Utc>> {
+        DateTime::parse_from_rfc3339(&self.generated_at)
+            .ok()
+            .map(|published| published.with_timezone(&Utc))
+    }
+
+    /// Whether the feed was published recently enough to act on at `now`.
+    pub fn is_current_at(&self, now: DateTime<Utc>) -> bool {
+        self.published_at().is_some_and(|published| {
+            now.signed_duration_since(published) <= TimeDelta::hours(MAX_FEED_AGE_HOURS)
+        })
+    }
 }
 
 /// Parses a feed only after its signature verifies.
@@ -147,6 +171,12 @@ fn validate(feed: &AvailabilityFeed) -> Result<()> {
         bail!(
             "{LABEL} availability gate {} is not supported by this build",
             feed.availability_gate_version
+        );
+    }
+    if feed.published_at().is_none() {
+        bail!(
+            "{LABEL} publication time is not RFC 3339: {}",
+            feed.generated_at
         );
     }
     if !ALLOWED_PROVIDERS.contains(&feed.provider.as_str()) {
@@ -200,12 +230,18 @@ impl CandidateRank {
         u32::try_from(numerator / denominator).unwrap_or(u32::MAX)
     }
 
+    /// The one total order every candidate ranking uses, lowest first:
+    /// quality-adjusted cost, then the higher tier, then the lower latency.
+    pub fn preference_key(self) -> (u32, std::cmp::Reverse<u8>, u32) {
+        (
+            self.priority_cost(),
+            std::cmp::Reverse(self.quality_tier),
+            self.latency_ms,
+        )
+    }
+
     fn outranks_or_ties(self, other: Self) -> bool {
-        self.priority_cost() < other.priority_cost()
-            || (self.priority_cost() == other.priority_cost()
-                && (self.quality_tier > other.quality_tier
-                    || (self.quality_tier == other.quality_tier
-                        && self.latency_ms <= other.latency_ms)))
+        self.preference_key() <= other.preference_key()
     }
 }
 
@@ -244,6 +280,17 @@ pub fn merge_into_chain_with_overrides(
     if chain.is_empty() {
         return chain.to_vec();
     }
+    // Resolving a rank can mean a catalog or feed lookup, so each id is ranked
+    // once per merge instead of on every comparison.
+    let mut ranks = std::collections::HashMap::<String, CandidateRank>::new();
+    let mut rank_of = |id: &str| -> CandidateRank {
+        if let Some(rank) = ranks.get(id) {
+            return *rank;
+        }
+        let rank = rank_for(id);
+        ranks.insert(id.to_owned(), rank);
+        rank
+    };
     const MAX_ADAPTIVE_OFFERS: usize = 5;
     let protected_head = &chain[0];
     let is_pinned = |id: &String| {
@@ -255,14 +302,7 @@ pub fn merge_into_chain_with_overrides(
         .iter()
         .filter(|id| *id != protected_head && !is_pinned(id) && !is_excluded(id))
         .collect();
-    adaptive.sort_by(|left, right| {
-        let left = rank_for(left);
-        let right = rank_for(right);
-        left.priority_cost()
-            .cmp(&right.priority_cost())
-            .then_with(|| right.quality_tier.cmp(&left.quality_tier))
-            .then_with(|| left.latency_ms.cmp(&right.latency_ms))
-    });
+    adaptive.sort_by_cached_key(|id| rank_of(id).preference_key());
     adaptive.truncate(MAX_ADAPTIVE_OFFERS);
 
     let mut merged: Vec<String> = chain
@@ -280,12 +320,12 @@ pub fn merge_into_chain_with_overrides(
             if merged.iter().any(|existing| existing == id) {
                 continue;
             }
-            let candidate_rank = rank_for(id);
+            let candidate_rank = rank_of(id);
             let insert_at = merged
                 .iter()
                 .enumerate()
                 .skip(protected_local_leaders.max(1))
-                .find(|(_, existing)| !rank_for(existing).outranks_or_ties(candidate_rank))
+                .find(|(_, existing)| !rank_of(existing).outranks_or_ties(candidate_rank))
                 .map(|(index, _)| index)
                 .unwrap_or(merged.len());
             merged.insert(insert_at, id.clone());
@@ -353,3 +393,7 @@ pub mod store;
 #[cfg(all(test, not(feature = "recorder-worker")))]
 #[path = "model_feed/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "model_feed/adaptive_merge_parity_tests.rs"]
+mod adaptive_merge_parity_tests;

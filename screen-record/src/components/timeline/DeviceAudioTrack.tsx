@@ -7,6 +7,7 @@ import {
 } from "@/lib/deviceAudio";
 import { type VolumeTrackGeometry } from "./audioVolumeTrackGeometry";
 import { AudioVolumeTrack } from "./AudioVolumeTrack";
+import { useSettings } from "@/hooks/useSettings";
 
 const DEVICE_AUDIO_TRACK_TOP_PX = 5;
 const DEVICE_AUDIO_TRACK_BOTTOM_PX = 35;
@@ -30,6 +31,7 @@ interface DeviceAudioTrackProps {
   onUpdateDeviceAudioPoints: (points: DeviceAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  getPlayheadTime?: () => number;
 }
 
 export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
@@ -41,7 +43,9 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
   onUpdateDeviceAudioPoints,
   beginBatch,
   commitBatch,
+  getPlayheadTime,
 }) => {
+  const { t } = useSettings();
   const points = segment.deviceAudioPoints?.length
     ? segment.deviceAudioPoints
     : buildFlatDeviceAudioPoints(duration);
@@ -57,6 +61,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       geometry={DEVICE_AUDIO_TRACK_GEOMETRY}
       rangePx={DEVICE_AUDIO_TRACK_RANGE_PX}
       classNamePrefix="device-audio"
+      laneName={t.trackDeviceAudio}
       tone="danger"
       colorVariable="--timeline-device-audio-color"
       hoveredRingClass="ring-2 ring-[var(--timeline-device-audio-color)]/40"
@@ -64,6 +69,7 @@ export const DeviceAudioTrack: React.FC<DeviceAudioTrackProps> = ({
       offsetSec={segment.deviceAudioOffsetSec ?? 0}
       beginBatch={beginBatch}
       commitBatch={commitBatch}
+      getPlayheadTime={getPlayheadTime}
     />
   );
 };

@@ -2,97 +2,64 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::gui::locale::LocaleText;
-use crate::gui::theme::AppTheme;
-use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 
+use super::component_row::{ComponentState, RowAction, RowOperations, render_component_row};
 use super::utils::{
     cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache,
-    removal_in_progress, start_removal, tool_card,
+    start_install, start_removal, tool_card,
 };
 
 const PROBE_COMPUTER_CONTROL: &str = "downloaded-tools:computer-control";
 const VALUE_COMPUTER_CONTROL_SIZE: &str = "downloaded-tools:computer-control-size";
 
 pub(super) fn render_computer_control_card(ui: &mut egui::Ui, text: &LocaleText) {
+    use crate::component_registry::computer_control;
+
     let managed = &text.auxiliary.managed_tools;
-    let download_title = crate::component_registry::computer_control::download_title();
     tool_card(ui, |ui| {
-        let theme = AppTheme::from_ui(ui);
         ui.heading(managed.tool_computer_control_card);
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(managed.tool_computer_control_payload).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let downloading = REALTIME_STATE
-                    .lock()
-                    .map(|state| state.is_downloading && state.download_title == download_title)
-                    .unwrap_or(false);
-                if removal_in_progress(PROBE_COMPUTER_CONTROL) {
-                    ui.label(managed.tool_status_removing);
-                    ui.spinner();
-                } else if downloading {
-                    let progress = REALTIME_STATE
-                        .lock()
-                        .map(|state| state.download_progress)
-                        .unwrap_or(0.0);
-                    ui.label(format!("{progress:.0}%"));
-                    ui.spinner();
-                } else if cached_probe(
-                    PROBE_COMPUTER_CONTROL,
-                    crate::component_registry::computer_control::is_installed,
-                ) {
-                    if ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                    {
-                        start_removal(
-                            PROBE_COMPUTER_CONTROL,
-                            managed.tool_computer_control_card.to_string(),
-                            crate::overlay::computer_control::remove_downloaded_engine,
-                            || {
-                                invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
-                                invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
-                            },
-                        );
-                    }
-                    ui.label(
-                        egui::RichText::new(format_size(cached_u64(
-                            VALUE_COMPUTER_CONTROL_SIZE,
-                            crate::component_registry::computer_control::installed_size,
-                        )))
-                        .color(theme.success()),
-                    );
-                } else if !crate::component_registry::computer_control::delivery_available() {
-                    ui.label(
-                        egui::RichText::new(managed.tool_status_unavailable)
-                            .color(theme.danger_text()),
-                    );
-                } else {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        std::thread::spawn(|| {
-                            let _ =
-                                crate::component_registry::computer_control::download_from_manager(
-                                    Arc::new(AtomicBool::new(false)),
-                                    true,
-                                );
-                            invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
-                            invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-            });
-        });
+        let state = if cached_probe(PROBE_COMPUTER_CONTROL, computer_control::is_installed) {
+            ComponentState::Installed {
+                summary: format_size(cached_u64(
+                    VALUE_COMPUTER_CONTROL_SIZE,
+                    computer_control::installed_size,
+                )),
+            }
+        } else if !computer_control::delivery_available() {
+            ComponentState::Unavailable
+        } else {
+            ComponentState::Missing
+        };
+        let operations = RowOperations {
+            install: Some(computer_control::ID),
+            removal: PROBE_COMPUTER_CONTROL,
+        };
+        match render_component_row(
+            ui,
+            text,
+            managed.tool_computer_control_payload,
+            operations,
+            state,
+        ) {
+            Some(RowAction::Install) => start_install(computer_control::ID, || {
+                let _ =
+                    computer_control::download_from_manager(Arc::new(AtomicBool::new(false)), true);
+                invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
+                invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
+            }),
+            Some(RowAction::Remove) => start_removal(
+                PROBE_COMPUTER_CONTROL,
+                managed.tool_computer_control_card.to_string(),
+                crate::overlay::computer_control::remove_downloaded_engine,
+                || {
+                    invalidate_probe_cache(PROBE_COMPUTER_CONTROL);
+                    invalidate_u64_cache(VALUE_COMPUTER_CONTROL_SIZE);
+                },
+            ),
+            None => {}
+        }
         ui.label(managed.tool_desc_computer_control);
     });
 }

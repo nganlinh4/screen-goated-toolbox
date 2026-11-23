@@ -2,9 +2,7 @@ use std::path::PathBuf;
 
 use super::arguments::CreationUiTestApp;
 use crate::config::ThemeMode;
-use crate::gui::locale::LocaleText;
 use crate::{APP, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, gui};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 
 fn native_options_for_wgpu(viewport: eframe::egui::ViewportBuilder) -> eframe::NativeOptions {
     let mut options = eframe::NativeOptions {
@@ -43,29 +41,6 @@ pub(super) fn run(
 ) -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
 
-    let tray_locale = LocaleText::get(&initial_config.ui_language);
-    let tray_menu = Menu::new();
-
-    let has_favorites = initial_config.presets.iter().any(|p| p.is_favorite);
-    let favorite_bubble_text = if has_favorites {
-        tray_locale.shell.tray_favorite_bubble
-    } else {
-        tray_locale.shell.tray_favorite_bubble_disabled
-    };
-    let tray_favorite_bubble_item = CheckMenuItem::with_id(
-        "1003",
-        favorite_bubble_text,
-        true,
-        initial_config.show_favorite_bubble,
-        None,
-    );
-
-    let tray_settings_item = MenuItem::with_id("1002", tray_locale.shell.tray_settings, true, None);
-    let tray_quit_item = MenuItem::with_id("1001", tray_locale.shell.tray_quit, true, None);
-    let _ = tray_menu.append(&tray_favorite_bubble_item);
-    let _ = tray_menu.append(&tray_settings_item);
-    let _ = tray_menu.append(&tray_quit_item);
-
     let (available_width, available_height) = crate::gui::window_state::available_size_points();
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([
@@ -99,6 +74,8 @@ pub(super) fn run(
         "Screen Goated Toolbox (SGT by nganlinh4)",
         options,
         Box::new(move |cc| {
+            // Everything below may address the main window; record it first.
+            gui::app::remember_main_window(cc);
             gui::configure_fonts(&cc.egui_ctx);
             *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
             gui::theme::AppTheme::apply_global_style(&cc.egui_ctx, effective_dark);
@@ -119,9 +96,6 @@ pub(super) fn run(
                         CreationUiTestApp::ThreeD => {
                             crate::overlay::three_d_generator::show_three_d_generator()
                         }
-                        CreationUiTestApp::Image => {
-                            crate::overlay::image_creator::show_image_creator()
-                        }
                         CreationUiTestApp::Svg => crate::overlay::image_to_svg::show_image_to_svg(),
                     }
                 });
@@ -140,10 +114,6 @@ pub(super) fn run(
             Ok(Box::new(gui::SettingsApp::new(gui::SettingsAppInit {
                 config: initial_config,
                 app_state: APP.clone(),
-                tray_menu,
-                tray_settings_item,
-                tray_quit_item,
-                tray_favorite_bubble_item,
                 ctx: cc.egui_ctx.clone(),
                 pending_file_path,
             })))

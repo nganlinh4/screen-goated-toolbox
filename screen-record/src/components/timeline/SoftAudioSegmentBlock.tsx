@@ -4,172 +4,43 @@ import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
+import {
+  AUDIO_SEGMENT_DEFAULT_SEC,
+  AUDIO_SEGMENT_MIN_SEC,
+  AUDIO_SEGMENT_SPLIT_GAP_SEC,
+  buildPointsFromRanges,
+  clamp,
+  getRangesFromPoints,
+  resolveRanges,
+  type SoftAudioPoint,
+  type SoftAudioRange,
+} from "./softAudioRanges";
 
-export interface SoftAudioPoint {
-  time: number;
-  volume: number;
-}
+import { startTimelinePointerDrag } from "./timelinePointerDrag";
+import { timelineRangeKeyProps } from "./timelineKeyboard";
+import { useSettings } from "@/hooks/useSettings";
 
-interface SoftAudioRange {
-  id: string;
-  startTime: number;
-  endTime: number;
-  volume: number;
-}
+export type { SoftAudioPoint } from "./softAudioRanges";
 
-const AUDIO_SEGMENT_MIN_SEC = 0.05;
-const AUDIO_SEGMENT_DEFAULT_SEC = 2;
-const AUDIO_SEGMENT_EDGE_EPS_SEC = 0.001;
-const AUDIO_SEGMENT_SPLIT_GAP_SEC = 0.04;
-const AUDIO_SEGMENT_FADE_SEC = 0.12;
-const AUDIBLE_VOLUME_EPS = 0.0001;
+type RangeEdit = "start" | "end" | "body";
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function normalizePoints(points: readonly SoftAudioPoint[], duration: number) {
-  const safeDuration = Math.max(duration, AUDIO_SEGMENT_MIN_SEC);
-  return [...points]
-    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.volume))
-    .map((point) => ({
-      time: clamp(point.time, 0, safeDuration),
-      volume: clamp(point.volume, 0, 1),
-    }))
-    .sort((a, b) => a.time - b.time);
-}
-
-function getRangesFromPoints(
-  points: readonly SoftAudioPoint[],
-  duration: number,
-): SoftAudioRange[] {
-  const safeDuration = Math.max(duration, AUDIO_SEGMENT_MIN_SEC);
-  const sorted = normalizePoints(points, safeDuration);
-  if (sorted.length === 0) return [];
-
-  const ranges: SoftAudioRange[] = [];
-  let startTime: number | null = null;
-  let volume = 0;
-
-  for (let index = 0; index < sorted.length; index += 1) {
-    const point = sorted[index];
-    const isAudible = point.volume > AUDIBLE_VOLUME_EPS;
-    if (isAudible && startTime === null) {
-      const previous = sorted[index - 1];
-      startTime = previous && previous.volume <= AUDIBLE_VOLUME_EPS
-        ? previous.time
-        : point.time;
-      volume = point.volume;
-      continue;
-    }
-
-    if (isAudible) {
-      volume = Math.max(volume, point.volume);
-      continue;
-    }
-
-    if (startTime !== null) {
-      const endTime = point.time;
-      if (endTime - startTime >= AUDIO_SEGMENT_MIN_SEC) {
-        ranges.push({
-          id: `${startTime.toFixed(4)}-${endTime.toFixed(4)}-${ranges.length}`,
-          startTime,
-          endTime,
-          volume: clamp(volume || 1, AUDIBLE_VOLUME_EPS, 1),
-        });
-      }
-      startTime = null;
-      volume = 0;
-    }
+/** A range with its start, end or whole body moved by `delta` seconds, kept inside the lane. */
+function moveSoftRange(range: SoftAudioRange, mode: RangeEdit, delta: number, duration: number): Partial<SoftAudioRange> {
+  if (mode === "start") {
+    return { startTime: clamp(range.startTime + delta, 0, range.endTime - AUDIO_SEGMENT_MIN_SEC), endTime: range.endTime };
   }
-
-  if (startTime !== null && safeDuration - startTime >= AUDIO_SEGMENT_MIN_SEC) {
-    ranges.push({
-      id: `${startTime.toFixed(4)}-${safeDuration.toFixed(4)}-${ranges.length}`,
-      startTime,
-      endTime: safeDuration,
-      volume: clamp(volume || 1, AUDIBLE_VOLUME_EPS, 1),
-    });
+  if (mode === "end") {
+    return { startTime: range.startTime, endTime: clamp(range.endTime + delta, range.startTime + AUDIO_SEGMENT_MIN_SEC, duration) };
   }
-
-  return ranges;
-}
-
-function pushPoint(points: SoftAudioPoint[], duration: number, time: number, volume: number) {
-  const clampedTime = clamp(time, 0, duration);
-  const last = points[points.length - 1];
-  if (last && Math.abs(last.time - clampedTime) < AUDIO_SEGMENT_EDGE_EPS_SEC / 2) {
-    last.volume = volume;
-    return;
-  }
-  points.push({ time: clampedTime, volume });
-}
-
-function buildPointsFromRanges(
-  duration: number,
-  ranges: readonly SoftAudioRange[],
-): SoftAudioPoint[] {
-  const safeDuration = Math.max(duration, AUDIO_SEGMENT_MIN_SEC);
-  const normalizedRanges = [...ranges]
-    .map((range) => ({
-      ...range,
-      startTime: clamp(range.startTime, 0, safeDuration - AUDIO_SEGMENT_MIN_SEC),
-      endTime: clamp(range.endTime, AUDIO_SEGMENT_MIN_SEC, safeDuration),
-      volume: clamp(range.volume, 0, 1),
-    }))
-    .filter((range) => range.endTime - range.startTime >= AUDIO_SEGMENT_MIN_SEC)
-    .sort((a, b) => a.startTime - b.startTime);
-
-  const points: SoftAudioPoint[] = [];
-  pushPoint(points, safeDuration, 0, 0);
-  for (const range of normalizedRanges) {
-    const start = range.startTime;
-    const end = range.endTime;
-    const fade = Math.min(AUDIO_SEGMENT_FADE_SEC, Math.max(0, (end - start) / 2));
-    if (start > AUDIO_SEGMENT_EDGE_EPS_SEC) {
-      pushPoint(points, safeDuration, start - AUDIO_SEGMENT_EDGE_EPS_SEC, 0);
-    }
-    pushPoint(points, safeDuration, start, 0);
-    pushPoint(points, safeDuration, start + fade, range.volume);
-    pushPoint(points, safeDuration, end - fade, range.volume);
-    pushPoint(points, safeDuration, end, 0);
-    if (end < safeDuration - AUDIO_SEGMENT_EDGE_EPS_SEC) {
-      pushPoint(points, safeDuration, end + AUDIO_SEGMENT_EDGE_EPS_SEC, 0);
-    }
-  }
-  pushPoint(points, safeDuration, safeDuration, 0);
-  return points.sort((a, b) => a.time - b.time);
-}
-
-function resolveRanges(
-  ranges: readonly SoftAudioRange[],
-  duration: number,
-) {
-  const safeDuration = Math.max(duration, AUDIO_SEGMENT_MIN_SEC);
-  const sorted = [...ranges]
-    .map((range) => ({
-      ...range,
-      startTime: clamp(range.startTime, 0, safeDuration - AUDIO_SEGMENT_MIN_SEC),
-      endTime: clamp(range.endTime, AUDIO_SEGMENT_MIN_SEC, safeDuration),
-    }))
-    .filter((range) => range.endTime - range.startTime >= AUDIO_SEGMENT_MIN_SEC)
-    .sort((a, b) => a.startTime - b.startTime);
-
-  const resolved: SoftAudioRange[] = [];
-  for (const range of sorted) {
-    const last = resolved[resolved.length - 1];
-    if (!last || range.startTime > last.endTime) {
-      resolved.push(range);
-      continue;
-    }
-    last.endTime = Math.max(last.endTime, range.endTime);
-    last.volume = Math.max(last.volume, range.volume);
-  }
-  return resolved.filter((range) => range.endTime - range.startTime >= AUDIO_SEGMENT_MIN_SEC);
+  const length = range.endTime - range.startTime;
+  const startTime = clamp(range.startTime + delta, 0, duration - length);
+  return { startTime, endTime: startTime + length, offset: startTime - range.startTime };
 }
 
 interface SoftAudioSegmentBlockProps<TPoint extends SoftAudioPoint> {
   classNamePrefix: string;
+  /** Lane name used for each segment's accessible label. */
+  laneName: string;
   duration: number;
   points: readonly TPoint[];
   isAvailable: boolean;
@@ -178,10 +49,13 @@ interface SoftAudioSegmentBlockProps<TPoint extends SoftAudioPoint> {
   onUpdatePoints: (points: TPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  /** Playhead time for keyboard split (S) and add (A). */
+  getPlayheadTime?: () => number;
 }
 
 export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
   classNamePrefix,
+  laneName,
   duration,
   points,
   isAvailable,
@@ -190,7 +64,9 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
   onUpdatePoints,
   beginBatch,
   commitBatch,
+  getPlayheadTime,
 }: SoftAudioSegmentBlockProps<TPoint>) {
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: "split"; x: number; time: number; range: SoftAudioRange }
     | { type: "add"; x: number; time: number }
@@ -199,67 +75,53 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
   const safeDuration = Math.max(duration, AUDIO_SEGMENT_MIN_SEC);
   const ranges = getRangesFromPoints(points, safeDuration);
 
+  // Every edit maps ranges of the current envelope to new ranges; each mapped
+  // range carries its source's interior points so custom automation survives.
   const applyRanges = (nextRanges: readonly SoftAudioRange[]) => {
-    onUpdatePoints(buildPointsFromRanges(safeDuration, nextRanges) as TPoint[]);
+    onUpdatePoints(
+      buildPointsFromRanges(
+        safeDuration,
+        resolveRanges(nextRanges, safeDuration),
+        points,
+        ranges,
+      ) as TPoint[],
+    );
   };
+  const withSource = (range: SoftAudioRange): SoftAudioRange => ({ ...range, sourceId: range.id });
 
   const updateRange = (rangeId: string, patch: Partial<SoftAudioRange>) => {
-    const nextRanges = resolveRanges(
-      ranges.map((range) => (range.id === rangeId ? { ...range, ...patch } : range)),
-      safeDuration,
+    applyRanges(
+      ranges.map((range) =>
+        range.id === rangeId ? { ...withSource(range), ...patch } : withSource(range),
+      ),
     );
-    applyRanges(nextRanges);
   };
 
   const handleDragStart = (
     event: React.PointerEvent<HTMLDivElement>,
     range: SoftAudioRange,
-    mode: "start" | "end" | "body",
+    mode: RangeEdit,
   ) => {
     if (!isAvailable) return;
     event.stopPropagation();
     const track = event.currentTarget.closest<HTMLElement>("[data-soft-audio-track='true']");
     if (!track) return;
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const startClientX = event.clientX;
-    const initialStart = range.startTime;
-    const initialEnd = range.endTime;
-    const initialDuration = initialEnd - initialStart;
+    const startRect = track.getBoundingClientRect();
+    if (startRect.width <= 0) return;
+    // Times come from the pointer position in the current rect, so follow-playhead
+    // scrolling during the drag does not shift the block.
+    const timeAt = (clientX: number, rect: DOMRect) =>
+      ((clientX - rect.left) / rect.width) * safeDuration;
+    const startPointerTime = timeAt(event.clientX, startRect);
     beginBatch();
 
-    const onMove = (moveEvent: MouseEvent) => {
-      const delta = ((moveEvent.clientX - startClientX) / rect.width) * safeDuration;
-      if (mode === "start") {
-        updateRange(range.id, {
-          startTime: clamp(initialStart + delta, 0, initialEnd - AUDIO_SEGMENT_MIN_SEC),
-          endTime: initialEnd,
-        });
-        return;
-      }
-      if (mode === "end") {
-        updateRange(range.id, {
-          startTime: initialStart,
-          endTime: clamp(initialEnd + delta, initialStart + AUDIO_SEGMENT_MIN_SEC, safeDuration),
-        });
-        return;
-      }
-      const maxStart = safeDuration - initialDuration;
-      const nextStart = clamp(initialStart + delta, 0, maxStart);
-      updateRange(range.id, {
-        startTime: nextStart,
-        endTime: nextStart + initialDuration,
-      });
+    const onMove = (moveEvent: PointerEvent, rect: DOMRect) => {
+      if (rect.width <= 0) return;
+      const delta = timeAt(moveEvent.clientX, rect) - startPointerTime;
+      updateRange(range.id, moveSoftRange(range, mode, delta, safeDuration));
     };
 
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      commitBatch();
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    startTimelinePointerDrag({ element: track, onMove, onEnd: () => commitBatch() });
   };
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -299,7 +161,7 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
       volume: ranges[0]?.volume ?? 1,
     };
     beginBatch();
-    applyRanges(resolveRanges([...ranges, nextRange], safeDuration));
+    applyRanges([...ranges.map(withSource), nextRange]);
     commitBatch();
   };
 
@@ -318,10 +180,10 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
       ranges.flatMap((item) =>
         item.id === range.id
           ? [
-              { ...item, endTime: leftEnd },
-              { ...item, id: `${item.id}-split`, startTime: rightStart },
+              { ...withSource(item), endTime: leftEnd },
+              { ...withSource(item), id: `${item.id}-split`, startTime: rightStart },
             ]
-          : [item],
+          : [withSource(item)],
       ),
     );
     commitBatch();
@@ -336,11 +198,29 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverState(null)}
     >
-      {ranges.map((range) => {
+      {ranges.map((range, rangeIndex) => {
         const rangeDuration = Math.max(AUDIO_SEGMENT_MIN_SEC, range.endTime - range.startTime);
+        const keys = timelineRangeKeyProps({
+          name: `${laneName} ${rangeIndex + 1}`,
+          startLabel: t.timelineSegmentStart,
+          endLabel: t.timelineSegmentEnd,
+          range,
+          duration: safeDuration,
+          nudge: isAvailable
+            ? (mode, delta) => {
+                beginBatch();
+                updateRange(range.id, moveSoftRange(range, mode, delta, safeDuration));
+                commitBatch();
+              }
+            : undefined,
+          onSplit: isAvailable ? (time) => splitRange(range, time) : undefined,
+          onAdd: isAvailable ? addRange : undefined,
+          getPlayheadTime,
+        });
         return (
           <div
             key={range.id}
+            {...keys.body}
             className={`${classNamePrefix}-soft-segment timeline-block absolute inset-y-0 overflow-hidden cursor-move group`}
             data-tone={tone}
             style={{
@@ -356,13 +236,15 @@ export function SoftAudioSegmentBlock<TPoint extends SoftAudioPoint>({
               }}
             />
             <div
-              className={`${classNamePrefix}-handle-start absolute inset-y-0 -left-[2px] z-10 flex w-[5px] cursor-ew-resize items-center justify-center opacity-0 group-hover:opacity-100`}
+              className={`${classNamePrefix}-handle-start absolute inset-y-0 -left-[2px] z-10 flex w-[5px] cursor-ew-resize items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100`}
+              {...keys.start}
               onPointerDown={(event) => handleDragStart(event, range, "start")}
             >
               <div className={`${classNamePrefix}-handle-bar timeline-handle-pill`} />
             </div>
             <div
-              className={`${classNamePrefix}-handle-end absolute inset-y-0 -right-[2px] z-10 flex w-[5px] cursor-ew-resize items-center justify-center opacity-0 group-hover:opacity-100`}
+              className={`${classNamePrefix}-handle-end absolute inset-y-0 -right-[2px] z-10 flex w-[5px] cursor-ew-resize items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100`}
+              {...keys.end}
               onPointerDown={(event) => handleDragStart(event, range, "end")}
             >
               <div className={`${classNamePrefix}-handle-bar timeline-handle-pill`} />

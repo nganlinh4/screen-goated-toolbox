@@ -3,11 +3,9 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityActionOutcome
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityActionVerb
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityGestureOutcome
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityObservation
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityMutationKind
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilitySurfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.activeOsOwnedUserStepFailure
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.surfaceLease
 import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
@@ -107,7 +105,7 @@ internal suspend fun handleClickAt(
 ): PhoneControlToolExecution {
     val cell = args.int("cell")
         ?: return invalidArgs(job, "click_at", "click_at requires cell")
-    val frame = currentOrFreshFrame(backend)
+    val frame = freshObservationFrame(backend)
         ?: return unavailableAccessibility(job, "click_at", POINTER_CAPABILITY)
     frame.observation
         .activeOsOwnedUserStepFailure(AccessibilityMutationKind.POINTER_ACTIVATE)
@@ -156,7 +154,7 @@ internal suspend fun handleDrag(
         ?: return invalidArgs(job, "drag", "drag requires from_cell")
     val to = args.int("to_cell")
         ?: return invalidArgs(job, "drag", "drag requires to_cell")
-    val frame = currentOrFreshFrame(backend)
+    val frame = freshObservationFrame(backend)
         ?: return unavailableAccessibility(job, "drag", POINTER_CAPABILITY)
     frame.observation
         .activeOsOwnedUserStepFailure(AccessibilityMutationKind.POINTER_ACTIVATE)
@@ -213,7 +211,7 @@ internal suspend fun handleScroll(
             argumentField = "direction",
             contractReason = "missing_or_invalid",
         )
-    val frame = currentOrFreshFrame(backend)
+    val frame = freshObservationFrame(backend)
         ?: return unavailableAccessibility(job, "scroll", POINTER_CAPABILITY)
     frame.observation
         .activeOsOwnedUserStepFailure(AccessibilityMutationKind.NAVIGATION_GESTURE)
@@ -344,24 +342,8 @@ private fun pointerExecution(
     refreshScreenFrame = result.snapshotInvalidated,
 )
 
-private fun staleSurfaceExecution(
-    job: PhoneControlToolJobContext,
-    tool: String,
-    backend: AccessibilityToolBackend,
-): PhoneControlToolExecution = accessibilityFailure(
-    job = job,
-    tool = tool,
-    capability = POINTER_CAPABILITY,
-    failure = AccessibilityProviderResult.Failure(
-        code = "stale_target",
-        message = "The visual surface no longer belongs to the current observation.",
-        retryable = true,
-        freshObservationRequired = true,
-    ),
-    backend = backend,
-)
-
-private suspend fun currentOrFreshFrame(
+/** Always takes a new observation, so coordinates are checked against the live screen. */
+private suspend fun freshObservationFrame(
     backend: AccessibilityToolBackend,
 ): AccessibilityObservationFrame? =
     (backend.observe() as? AccessibilityProviderResult.Success)?.value

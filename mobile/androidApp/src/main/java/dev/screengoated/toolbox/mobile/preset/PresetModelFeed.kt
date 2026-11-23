@@ -49,8 +49,6 @@ internal object PresetModelFeed {
         mutableState.value = ModelFeedSnapshot(feed, mutableState.value.revision + 1)
     }
 
-    fun rankedModels(): List<FeedModel> = rankedFeedModels(current())
-
     fun controlFor(provider: PresetModelProvider, fullName: String): FeedReasoningControl? {
         if (provider != PresetModelProvider.NVIDIA) return null
         return current()

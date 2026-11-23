@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getCompositionClipRenderSegment } from '@/lib/compositionSubtitles';
 import { invoke } from "@/lib/ipc";
 import { notifyUserError } from "@/lib/userNotifications";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
@@ -76,7 +77,6 @@ export function useExport(props: UseExportProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const exportInFlightRef = useRef(false);
   const exportCancellationRef = useRef(new ExportCancellationGeneration());
-  const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
   const [exportErrorMessage, setExportErrorMessage] = useState("");
@@ -206,7 +206,7 @@ export function useExport(props: UseExportProps) {
       video: videoEl,
       canvas: canvasEl,
       tempCanvas: props.tempCanvasRef.current!,
-      segment,
+      segment: getCompositionClipRenderSegment(compositionOverride ?? props.composition, null, segment),
       backgroundConfig: cloneBackgroundConfig(props.backgroundConfig),
       webcamConfig: cloneWebcamConfig(props.webcamConfig),
       mousePositions: props.mousePositions,
@@ -437,7 +437,6 @@ export function useExport(props: UseExportProps) {
                 latestComposition,
               ),
               format: exportOptions.format || "mp4",
-              onProgress: setExportProgress,
               isCancelled: () =>
                 !exportCancellationRef.current.isCurrent(exportGeneration),
             }),
@@ -472,7 +471,6 @@ export function useExport(props: UseExportProps) {
       if (exportCancellationRef.current.isCurrent(exportGeneration)) {
         exportInFlightRef.current = false;
         setIsProcessing(false);
-        setExportProgress(0);
       }
     }
   }, [
@@ -494,7 +492,6 @@ export function useExport(props: UseExportProps) {
       .then((exporter) => exporter.cancel())
       .catch((error) => console.error("[Export] Cancel failed:", error));
     setIsProcessing(false);
-    setExportProgress(0);
   }, []);
 
   const dialogSegment =
@@ -525,7 +522,6 @@ export function useExport(props: UseExportProps) {
 
   return {
     isProcessing,
-    exportProgress,
     showExportDialog,
     setShowExportDialog,
     exportOptions,

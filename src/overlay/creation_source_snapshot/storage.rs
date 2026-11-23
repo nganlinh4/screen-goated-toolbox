@@ -1,3 +1,4 @@
+pub(super) use crate::component_registry::is_reparse_point;
 use std::collections::HashSet;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    InspectedImage, MANIFEST_NAME, MAX_MANIFEST_BYTES, PREVIEW_ROOT_NAME, ROOT_NAME, SNAPSHOT_LOCK,
+    InspectedImage, MANIFEST_NAME, MAX_MANIFEST_BYTES, PREVIEW_ROOT_NAME, ROOT_NAME,
     SnapshotManifest,
 };
 
@@ -33,7 +34,7 @@ pub(super) fn validate_snapshot_directory(
     root: &Path,
     snapshot_id: &str,
 ) -> Result<PathBuf, String> {
-    if !super::valid_id(snapshot_id) {
+    if !super::valid_identifier(snapshot_id) {
         return Err("Creation source assignment is invalid.".to_string());
     }
     let directory = root.join(snapshot_id);
@@ -82,9 +83,7 @@ pub(super) fn write_manifest(directory: &Path, manifest: &SnapshotManifest) -> R
 }
 
 pub(super) fn cleanup_snapshot(snapshot_id: &str) -> Result<(), String> {
-    let _guard = SNAPSHOT_LOCK
-        .lock()
-        .map_err(|_| "Creation source cleanup is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     let root = snapshot_root()?;
     let directory = validate_snapshot_directory(&root, snapshot_id)?;
     match read_manifest(&directory) {
@@ -242,27 +241,6 @@ pub(super) fn file_sha256(path: &Path) -> Result<String, String> {
     }
     let mut file =
         std::fs::File::open(path).map_err(|_| "Creation preview is unavailable.".to_string())?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| "Creation preview is unavailable.".to_string())?;
-        if read == 0 {
-            break;
-        }
-        digest.update(&buffer[..read]);
-    }
-    Ok(format!("{:x}", digest.finalize()))
-}
-
-#[cfg(windows)]
-pub(super) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-pub(super) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
+    crate::crypto::sha256_reader(&mut file)
+        .map_err(|_| "Creation preview is unavailable.".to_string())
 }

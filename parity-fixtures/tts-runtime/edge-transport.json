@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "limits": { "setup_seconds": 10, "session_seconds": 180, "encoded_audio_bytes": 16777216 },
+  "cases": [
+    { "name": "complete_audio", "events": ["audio", "turn_end"], "expected": "complete" },
+    { "name": "empty_turn", "events": ["turn_end"], "expected": "failure" },
+    { "name": "close_after_audio", "events": ["audio", "close"], "expected": "failure" },
+    { "name": "error_after_audio", "events": ["audio", "error"], "expected": "failure" },
+    { "name": "malformed_audio_header", "events": ["malformed_audio"], "expected": "failure" },
+    { "name": "unterminated_completion_header", "events": ["audio", "unterminated_turn", "close"], "expected": "failure" },
+    { "name": "setup_timeout", "events": ["setup_timeout"], "expected": "failure" },
+    { "name": "session_timeout", "events": ["audio", "session_timeout"], "expected": "failure" },
+    { "name": "cancel_during_setup", "events": ["cancel"], "expected": "cancelled" },
+    { "name": "cancel_after_audio", "events": ["audio", "cancel"], "expected": "cancelled" },
+    { "name": "audio_overflow", "events": ["audio_overflow"], "expected": "failure" }
+  ]
+}

@@ -20,6 +20,37 @@ import org.junit.Test
 
 class BoundedProcessRunnerTest {
     @Test
+    fun liveReaderCannotCertifyAnEmptyOutputAsComplete() {
+        val reading = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val blocked = object : InputStream() {
+            override fun read(): Int {
+                reading.countDown()
+                while (true) {
+                    try {
+                        release.await()
+                        return -1
+                    } catch (_: InterruptedException) {
+                        // Simulate a stream that does not honor thread interruption.
+                    }
+                }
+            }
+        }
+        val process = FakeProcess(input = blocked)
+        val runner = BoundedProcessRunner { _, _ -> BoundedLaunchedProcess(process) }
+        try {
+            val result = AsyncReceipt { runner.run("reader-pending", command(), null, 1_000L, 2000) }
+            assertTrue(reading.await(WAIT_MS, TimeUnit.MILLISECONDS))
+            process.complete(0)
+            val receipt = result.await()
+            assertFalse(receipt.boolean("output_complete"))
+            assertFalse(receipt.boolean("output_bytes_complete"))
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test
     fun cancellationBeforeDispatchNeverLaunchesProcess() {
         val launches = AtomicInteger(0)
         val runner = BoundedProcessRunner { _, _ ->
@@ -115,6 +146,53 @@ class BoundedProcessRunnerTest {
     }
 
     @Test
+    fun aGroupThatOutlivesItsLeaderIsPolledNotSpun() {
+        val process = FakeProcess(ignoreDestroy = true)
+        val groupState = AtomicReference(ProcessGroupState.UNKNOWN)
+        val probes = AtomicInteger(0)
+        val groupFile = File.createTempFile("phone-control-process-group-", ".pid").apply {
+            writeText("4243")
+        }
+        val controller = object : ProcessGroupController {
+            override fun signal(groupId: Int, signal: Int, authorityUid: Int) = Unit
+
+            override fun state(groupId: Int, authorityUid: Int): ProcessGroupState {
+                probes.incrementAndGet()
+                return groupState.get()
+            }
+        }
+        // Each idle wait records how many probes preceded it; the fifth confirms the group dead.
+        // A loop that re-probes without waiting never reaches this hook and never settles.
+        // (The runner swallows a throw from its wait, so the hook only records.)
+        val probesAtWait = mutableListOf<Int>()
+        val waitedMs = mutableSetOf<Long>()
+        val idleWait: (Long) -> Unit = { pollMs ->
+            synchronized(probesAtWait) {
+                waitedMs += pollMs
+                probesAtWait += probes.get()
+                if (probesAtWait.size == IDLE_WAITS_BEFORE_DEAD) groupState.set(ProcessGroupState.DEAD)
+            }
+        }
+        val runner = BoundedProcessRunner(groupController = controller, idleWait = idleWait) { _, _ ->
+            BoundedLaunchedProcess(process.also { it.launched.countDown() }, groupFile)
+        }
+        val result = AsyncReceipt {
+            runner.run("operation-unconfirmed-group", command(), null, 5_000L, 0)
+        }
+        assertTrue(process.launched.await(WAIT_MS, TimeUnit.MILLISECONDS))
+
+        runner.requestCancellation("operation-unconfirmed-group")
+        process.complete(143)
+
+        assertEquals("process_cancelled", result.await().string("code"))
+        val recorded = synchronized(probesAtWait) { probesAtWait.toList() }
+        assertEquals(IDLE_WAITS_BEFORE_DEAD, recorded.size)
+        assertEquals(setOf(100L), synchronized(probesAtWait) { waitedMs.toSet() })
+        // Exactly one probe (and one signal round) per idle wait once the leader exited.
+        assertEquals(List(IDLE_WAITS_BEFORE_DEAD - 1) { 1 }, recorded.zipWithNext { a, b -> b - a })
+    }
+
+    @Test
     fun cancellationIsIsolatedByExactRemoteOperationId() {
         val processes = ConcurrentHashMap<String, FakeProcess>()
         val runner = BoundedProcessRunner { command, _ ->
@@ -163,6 +241,7 @@ class BoundedProcessRunnerTest {
 
     private class FakeProcess(
         private val ignoreDestroy: Boolean = false,
+        private val input: InputStream = ByteArrayInputStream(ByteArray(0)),
     ) : Process() {
         val launched = CountDownLatch(1)
         val destroyRequested = AtomicBoolean(false)
@@ -171,7 +250,7 @@ class BoundedProcessRunnerTest {
         private var code = 0
 
         override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
-        override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+        override fun getInputStream(): InputStream = input
         override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
 
         override fun waitFor(): Int {
@@ -211,6 +290,7 @@ class BoundedProcessRunnerTest {
 
     private companion object {
         const val WAIT_MS = 10_000L
+        const val IDLE_WAITS_BEFORE_DEAD = 5
 
         fun command(label: String = "default") = listOf("program", label)
 

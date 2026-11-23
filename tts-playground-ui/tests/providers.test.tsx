@@ -19,18 +19,7 @@ function baseState(): TtsPlaygroundState {
     },
     edge: { pitch: 0, rate: 0, voices: [] },
     google: { speed: "Normal" },
-    stepAudio: { reference: "" },
-    magpie: { speed: 1, threads: 4, voices: [] },
-    kokoro: { speed: 1, threads: 4, voices: [] },
-    supertonic: { speed: 1, threads: 4, steps: 24, voices: [] },
-    vieneu: { reference: "" },
-    audioEdit: {
-      sourcePath: "",
-      sourceText: "",
-      editType: "emotion",
-      editInfo: "",
-      targetText: "",
-    },
+    sourceAudio: { sourcePath: "" },
     s2sTargetLanguage: "Vietnamese",
     player: {
       isGenerating: false,
@@ -48,34 +37,16 @@ function baseState(): TtsPlaygroundState {
       geminiInstructionLanguages: [],
       edgeVoicesByLanguage: {},
       edgeAvailableLanguages: [],
-      magpieVoicesByLanguage: {},
-      magpieAvailableLanguages: [],
-      kokoroVoicesByLanguage: {},
-      kokoroAvailableLanguages: [],
-      supertonicVoicesByLanguage: {},
-      supertonicAvailableLanguages: [],
       s2sLanguages: [{ value: "Vietnamese", label: "Vietnamese" }],
-      audioEditTasks: [{ value: "emotion", label: "emotion" }],
-      audioEditSubtasksByTask: { emotion: [{ value: "happy", label: "happy" }] },
-      paralinguisticTags: ["(laughter)"],
-      stepAudioReferences: [],
-      vieneuReferences: [],
     },
     strings: {
       title: "TTS Playground",
       modeTtsClone: "TTS / Clone",
-      modeAudioEdit: "Audio Edit",
-      modeReferenceLibrary: "Reference Library",
       modeS2S: "S2S",
       methodLabel: "Method",
       methodGemini: "Gemini Live",
       methodEdge: "Edge TTS",
       methodGoogle: "Google Translate",
-      methodStepAudio: "Step Audio EditX",
-      methodMagpie: "Magpie",
-      methodKokoro: "Kokoro",
-      methodSupertonic: "Supertonic 3",
-      methodVieneu: "VieNeu",
       textLabel: "Text",
       textHint: "Hint",
       charCountTemplate: "{n} chars",
@@ -102,29 +73,17 @@ function baseState(): TtsPlaygroundState {
       speedFast: "Fast",
       pitchLabel: "Pitch",
       rateLabel: "Rate",
-      threadsLabel: "Threads",
-      qualityStepsLabel: "Steps",
       pickSource: "Pick source",
-      useCurrent: "Use current",
       recordMic: "Record",
       stopMic: "Stop mic",
       noSource: "No source",
-      sourceTranscript: "Source",
-      task: "Task",
-      subtask: "Subtask",
-      inlineSoundTag: "Inline tag",
-      insertTag: "Insert",
-      targetText: "Target",
       referenceVoice: "Reference",
       geminiModelLabel: "Model",
       instructionsLabel: "Instructions",
       instructionsHint: "Style hint",
       preview: "Preview",
       delete: "Delete",
-      stepAudioDesc: "Desc",
-      vieneuDesc: "Desc",
       s2sTarget: "Target",
-      referenceEmpty: "Empty",
     },
   };
 }
@@ -165,11 +124,11 @@ describe("Provider switching + state-driven rendering", () => {
     expect(screen.getByText("Speed")).toBeInTheDocument();
   });
 
-  it("renders the AudioEdit panel when mode switches", () => {
+  it("renders the S2S source panel when mode switches", () => {
     render(<App />);
-    pushState({ mode: "AudioEdit" });
+    pushState({ mode: "SpeechToSpeech" });
     expect(screen.getByText("Pick source")).toBeInTheDocument();
-    expect(screen.getByText("Task")).toBeInTheDocument();
+    expect(screen.getByText("Target")).toBeInTheDocument();
   });
 
   it("renders the player + exports when a current clip exists", () => {

@@ -9,7 +9,7 @@ const BACKGROUND_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 static REPLACE_NONCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn backgrounds_dir() -> PathBuf {
-    crate::paths::app_local_data_dir().join("backgrounds")
+    crate::paths::app_runtime_local_data_dir().join("backgrounds")
 }
 
 fn existing_background_paths(id: &str) -> Result<Vec<PathBuf>, String> {

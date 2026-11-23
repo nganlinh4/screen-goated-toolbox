@@ -2,7 +2,6 @@ mod audio_video;
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use serde::de::DeserializeOwned;
@@ -22,7 +21,6 @@ use super::{EXPORT_CANCELLED, ExportActiveGuard};
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     let _active_export_guard = ExportActiveGuard::activate()?;
-    EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let replay_args = args.clone();
     let parse_start = Instant::now();
@@ -113,11 +111,12 @@ pub(crate) fn run_native_export_with_staged(
     );
     let animated_cursor_slots = staging::get_animated_cursor_slots();
 
-    // 0. Handle Source Video/Audio
+    // 0. Handle Source Video/Audio. The mixed-audio intermediate is removed
+    // when this guard drops, on success and on every early return alike.
     let (
         source_video_path,
         source_audio_path,
-        mixed_audio_cleanup_path,
+        _mixed_audio,
         audio_is_preprocessed,
         device_audio_points,
         speed_points,
@@ -136,9 +135,6 @@ pub(crate) fn run_native_export_with_staged(
         t_mf_start.elapsed().as_secs_f64()
     );
     println!("[Export] Source dimensions: {}x{}", src_w, src_h);
-
-    // Generate camera path in Rust if not provided by frontend.
-    let baked_path = generate_camera_path_if_needed(baked_path, &config, src_w, src_h);
 
     // Generate cursor path in Rust if not provided by frontend.
     let baked_cursor = generate_cursor_path_if_needed(baked_cursor, &config, src_w, src_h);
@@ -170,10 +166,13 @@ pub(crate) fn run_native_export_with_staged(
     let out_w = out_w - (out_w % 2);
     let out_h = out_h - (out_h % 2);
 
+    // Auto-camera anchors depend on the output canvas and video scale.
+    let camera = camera_source(baked_path, &config, src_w, src_h, out_w, out_h);
+
     // Setup GPU compositor and uniform builder
     let gpu_result = pipeline_build::setup_gpu_and_uniforms(
         &config,
-        &baked_path,
+        camera,
         &baked_cursor,
         &cursor_slot_overrides,
         &atlas_rgba,
@@ -253,13 +252,14 @@ pub(crate) fn run_native_export_with_staged(
     fs::create_dir_all(&output_base_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    let is_gif = config.format == "gif";
+    let extension = super::validation::single_export_extension(&config.format)?;
+    let is_gif = extension == "gif";
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis();
     let final_output_path =
-        output_base_dir.join(format!("SGT_Export_{}.{}", timestamp_ms, config.format));
+        output_base_dir.join(format!("SGT_Export_{}.{}", timestamp_ms, extension));
     let encode_output_path = if is_gif {
         output_base_dir.join(format!("SGT_Export_{}_tmp.mp4", timestamp_ms))
     } else {
@@ -303,6 +303,10 @@ pub(crate) fn run_native_export_with_staged(
     let t_frame_times_start = Instant::now();
     let source_times = gpu_pipeline::build_frame_times(&pipeline_config);
     let total_frames = source_times.len() as u32;
+    pipeline_config.webcam_frames = gpu_pipeline::align_webcam_frames_to_output(
+        std::mem::take(&mut pipeline_config.webcam_frames),
+        &source_times,
+    );
     let planned_output_duration_sec = total_frames as f64 / config.framerate as f64;
 
     // Expand sparse overlay frames into dense array
@@ -343,7 +347,6 @@ pub(crate) fn run_native_export_with_staged(
         &config,
         &encode_output_path,
         &final_output_path,
-        &mixed_audio_cleanup_path,
         is_gif,
         out_w,
         out_h,
@@ -391,26 +394,30 @@ fn sort_baked_paths(
     }
 }
 
-fn generate_camera_path_if_needed(
+pub(super) fn camera_source(
     baked_path: Vec<config::BakedCameraFrame>,
     config: &ExportConfig,
     src_w: u32,
     src_h: u32,
-) -> Vec<config::BakedCameraFrame> {
-    if baked_path.is_empty()
-        && (!config.segment.smooth_motion_path.is_empty() || !config.segment.zoom_blocks.is_empty())
-    {
-        let t0 = Instant::now();
-        let generated =
-            camera_path::generate_camera_path(&config.segment, src_w, src_h, config.framerate);
-        println!(
-            "[Export] Camera path: {} frames in {:.3}s",
-            generated.len(),
-            t0.elapsed().as_secs_f64()
-        );
-        generated
-    } else {
-        baked_path
+    out_w: u32,
+    out_h: u32,
+) -> camera_path::CameraSource {
+    let derives_camera =
+        !config.segment.smooth_motion_path.is_empty() || !config.segment.zoom_blocks.is_empty();
+    if !baked_path.is_empty() || !derives_camera {
+        return camera_path::CameraSource::Baked(baked_path);
+    }
+    let canvas = (
+        out_w as f64,
+        out_h as f64,
+        config.background_config.scale / 100.0,
+    );
+    match camera_path::ExactCameraPath::new(&config.segment, src_w, src_h, canvas) {
+        Some(path) => camera_path::CameraSource::Exact(Box::new(path)),
+        None => {
+            eprintln!("[CameraPath] No trim segments — export camera stays centered");
+            camera_path::CameraSource::Baked(Vec::new())
+        }
     }
 }
 

@@ -21,16 +21,21 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
     // Stop queued text sync from republishing the scene while the HWND still
     // exists during WM_DESTROY. Removal then waits for any earlier scene dispatch.
     let state = WINDOW_STATES.lock().unwrap().remove(&(hwnd.0 as isize));
+    if let Some(state) = &state {
+        if let Some(token) = &state.refine_cancel_token {
+            token.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if let Some(token) = &state.cancellation_token {
+            token.cancel();
+        }
+    }
     super::super::scene_compositor::set_external_drag(hwnd, false);
     super::super::raw_webview::destroy(hwnd);
     super::super::scene_compositor::remove_window(hwnd);
-    if let Some(state) = state {
-        if let Some(token) = state.cancellation_token {
-            token.cancel();
-        }
-        if state.tts_request_id != 0 {
-            crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
-        }
+    if let Some(state) = state
+        && state.tts_request_id != 0
+    {
+        crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
     }
     LRESULT(0)
 }
@@ -89,23 +94,19 @@ pub unsafe fn handle_show_window(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> 
 }
 
 pub unsafe fn handle_back_click(hwnd: HWND) -> LRESULT {
-    if !super::super::raw_webview::go_back(hwnd) {
-        super::super::scene_compositor::go_back(hwnd);
-    }
+    super::super::raw_webview::go_back(hwnd);
     LRESULT(0)
 }
 
 pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
-    if !super::super::raw_webview::go_forward(hwnd) {
-        super::super::scene_compositor::go_forward(hwnd);
-    }
+    super::super::raw_webview::go_forward(hwnd);
     LRESULT(0)
 }
 
 pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
     let (text, _) = crate::overlay::result::control_action_text(hwnd);
     if !text.is_empty() {
-        super::super::markdown_view::save_html_file(&text);
+        super::super::markdown_view::save_html_file(text);
     }
     LRESULT(0)
 }

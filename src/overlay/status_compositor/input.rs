@@ -18,7 +18,7 @@ struct ActiveDrag {
 
 static ACTIVE_DRAG: Mutex<Option<ActiveDrag>> = Mutex::new(None);
 static BUTTON_REGIONS: Mutex<Option<(PhysicalRect, PhysicalRect)>> = Mutex::new(None);
-static PRESSED_TARGET: Mutex<Option<RecordingTarget>> = Mutex::new(None);
+static PRESSED_TARGET: Mutex<Option<(RecordingTarget, String)>> = Mutex::new(None);
 static LAST_FEEDBACK: Mutex<(Option<RecordingTarget>, bool)> = Mutex::new((None, false));
 
 pub(super) fn set_button_regions(pause: PhysicalRect, cancel: PhysicalRect) {
@@ -46,20 +46,27 @@ fn target_for_point(
     }
 }
 
-pub(super) fn begin_button(hwnd: HWND, target: RecordingTarget) {
-    *PRESSED_TARGET.lock().unwrap() = Some(target);
+pub(super) fn begin_button(hwnd: HWND, target: RecordingTarget, session: String) {
+    *PRESSED_TARGET.lock().unwrap() = Some((target, session));
     unsafe {
         let _ = SetCapture(hwnd);
     }
 }
 
-pub(super) fn finish_button() -> Option<RecordingTarget> {
+pub(super) fn finish_button() -> Option<(RecordingTarget, String)> {
     let pressed = PRESSED_TARGET.lock().unwrap().take();
-    let activated = pressed.filter(|target| Some(*target) == target_at_cursor());
+    let activated = finish_pressed(pressed, target_at_cursor());
     unsafe {
         let _ = ReleaseCapture();
     }
     activated
+}
+
+fn finish_pressed(
+    pressed: Option<(RecordingTarget, String)>,
+    hovered: Option<RecordingTarget>,
+) -> Option<(RecordingTarget, String)> {
+    pressed.filter(|(target, _)| Some(*target) == hovered)
 }
 
 pub(super) fn cancel_button() -> bool {
@@ -81,7 +88,8 @@ pub(super) fn feedback_change() -> Option<(Option<RecordingTarget>, bool)> {
     let active = PRESSED_TARGET
         .lock()
         .unwrap()
-        .is_some_and(|target| Some(target) == hovered);
+        .as_ref()
+        .is_some_and(|(target, _)| Some(*target) == hovered);
     let next = (hovered, active);
     let mut previous = LAST_FEEDBACK.lock().unwrap();
     if *previous == next {
@@ -176,5 +184,21 @@ mod tests {
             Some(RecordingTarget::Cancel)
         );
         assert_eq!(target_for_point(regions, POINT { x: 114, y: 54 }), None);
+    }
+
+    #[test]
+    fn completed_gesture_keeps_the_session_captured_at_press() {
+        let pressed = Some((RecordingTarget::Cancel, "7".to_string()));
+        assert_eq!(
+            finish_pressed(pressed, Some(RecordingTarget::Cancel)),
+            Some((RecordingTarget::Cancel, "7".to_string()))
+        );
+        assert_eq!(
+            finish_pressed(
+                Some((RecordingTarget::Pause, "7".to_string())),
+                Some(RecordingTarget::Cancel)
+            ),
+            None
+        );
     }
 }

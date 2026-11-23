@@ -7,7 +7,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, ULW_ALPHA, UpdateLa
 pub fn update_bubble_visual(hwnd: HWND) {
     // Sync theme state
     let is_dark = crate::overlay::is_dark_mode();
-    LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+    record_bubble_theme(is_dark);
 
     unsafe {
         let hdc_screen = GetDC(None);

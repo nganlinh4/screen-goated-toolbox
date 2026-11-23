@@ -1,9 +1,13 @@
 //! Hotkey registration, listener, and mouse hook.
+mod capture;
+pub(crate) mod listener;
 mod modifiers;
 pub(crate) mod names;
 mod processor;
 pub(crate) mod web_binding;
 
+pub(crate) use capture::{CaptureOwner, set_binding_capture};
+pub(crate) use listener::{RegisteredBindings, reload_registrations};
 pub use processor::hotkey_proc;
 
 use crate::APP;
@@ -130,34 +134,11 @@ fn register_and_track(
 static LISTENER_HWND: LazyLock<Mutex<SendHwnd>> = LazyLock::new(|| Mutex::new(SendHwnd::default()));
 /// Global handle for the mouse hook.
 static MOUSE_HOOK: LazyLock<Mutex<SendHhook>> = LazyLock::new(|| Mutex::new(SendHhook::default()));
-static BINDING_CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static REGISTRATION_ENABLED: AtomicBool = AtomicBool::new(false);
-
-pub(crate) fn set_binding_capture(active: bool) {
-    if BINDING_CAPTURE_ACTIVE.swap(active, Ordering::SeqCst) == active {
-        return;
-    }
-    if let Ok(hwnd) = LISTENER_HWND.lock()
-        && !hwnd.0.is_invalid()
-    {
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd.0),
-                if active {
-                    WM_UNREGISTER_HOTKEYS
-                } else {
-                    WM_REGISTER_HOTKEYS
-                },
-                WPARAM(0),
-                LPARAM(0),
-            );
-        }
-    }
-}
 
 /// Register all hotkeys from config.
 pub fn register_all_hotkeys(hwnd: HWND) {
-    if BINDING_CAPTURE_ACTIVE.load(Ordering::SeqCst) {
+    if capture::active() {
         return;
     }
     REGISTRATION_ENABLED.store(true, Ordering::SeqCst);
@@ -172,7 +153,7 @@ pub fn register_all_hotkeys(hwnd: HWND) {
                 continue;
             }
 
-            let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
+            let id = listener::preset_hotkey_id(p_idx, h_idx);
             register_and_track(
                 hwnd,
                 HotkeyRegistrationGroup::Preset(p_idx),
@@ -285,19 +266,9 @@ pub fn unregister_all_hotkeys(hwnd: HWND) {
     }
 }
 
-pub(crate) fn reload_registrations() {
-    unsafe {
-        let listener = FindWindowW(w!("HotkeyListenerClass"), w!("Listener")).unwrap_or_default();
-        if !listener.is_invalid() {
-            let _ = PostMessageW(Some(listener), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
-        }
-    }
-}
-
 /// Low-Level Mouse Hook Procedure.
 unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if BINDING_CAPTURE_ACTIVE.load(Ordering::SeqCst) || !REGISTRATION_ENABLED.load(Ordering::SeqCst)
-    {
+    if capture::active() || !REGISTRATION_ENABLED.load(Ordering::SeqCst) {
         return unsafe { CallNextHookEx(None, code, wparam, lparam) };
     }
     unsafe {
@@ -351,7 +322,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     for (p_idx, preset) in app.config.presets.iter().enumerate() {
                         for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
                             if hotkey.code == vk && hotkey.modifiers == mods {
-                                found_id = Some((p_idx as i32 * 1000) + (h_idx as i32) + 1);
+                                found_id = Some(listener::preset_hotkey_id(p_idx, h_idx));
                                 break;
                             }
                         }

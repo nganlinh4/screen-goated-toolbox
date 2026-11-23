@@ -54,15 +54,17 @@ struct Target {
     _apartment: PhantomData<Rc<()>>,
 }
 
+pub(super) fn require_ownership(valid: bool) -> Result<()> {
+    ensure!(valid, UnsafeCapture);
+    Ok(())
+}
+
 impl Target {
     fn capture(expected: HWND) -> Result<Self> {
         #[cfg(test)]
         require_test_target(expected)?;
         unsafe {
-            ensure!(
-                !expected.is_invalid() && GetForegroundWindow() == expected,
-                "foreground changed before capture"
-            );
+            require_ownership(!expected.is_invalid() && GetForegroundWindow() == expected)?;
             let automation: IUIAutomation2 =
                 CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)?;
             automation.SetAutoSetFocus(false)?;
@@ -83,13 +85,10 @@ impl Target {
                 };
                 ancestor = parent;
             }
-            ensure!(belongs, "focused element is outside captured foreground");
+            require_ownership(belongs)?;
             let mut process = 0;
             let thread = GetWindowThreadProcessId(expected, Some(&mut process));
-            ensure!(
-                thread != 0 && process != 0,
-                "foreground identity unavailable"
-            );
+            require_ownership(thread != 0 && process != 0)?;
             let target = Self {
                 automation,
                 element,
@@ -113,39 +112,20 @@ impl Target {
 
     fn check(&self) -> Result<()> {
         unsafe {
-            ensure!(
-                GetForegroundWindow() == self.foreground,
-                "foreground changed"
-            );
+            require_ownership(GetForegroundWindow() == self.foreground)?;
             let mut process = 0;
             let thread = GetWindowThreadProcessId(self.foreground, Some(&mut process));
-            ensure!(
-                process == self.process && thread == self.thread,
-                "foreground identity changed"
-            );
-            ensure!(
-                self.element.CurrentIsEnabled()?.as_bool(),
-                "focused control is disabled"
-            );
-            ensure!(
-                !self.element.CurrentIsPassword()?.as_bool(),
-                "password fields are excluded"
-            );
-            ensure!(
-                self.element.CurrentHasKeyboardFocus()?.as_bool(),
-                "editor lost keyboard focus"
-            );
+            require_ownership(process == self.process && thread == self.thread)?;
+            require_ownership(self.element.CurrentIsEnabled()?.as_bool())?;
+            require_ownership(!self.element.CurrentIsPassword()?.as_bool())?;
+            require_ownership(self.element.CurrentHasKeyboardFocus()?.as_bool())?;
             let focused = self.automation.GetFocusedElement()?;
-            ensure!(
+            require_ownership(
                 self.automation
                     .CompareElements(&focused, &self.element)?
                     .as_bool(),
-                "focused element changed"
-            );
-            ensure!(
-                GetForegroundWindow() == self.foreground,
-                "foreground changed during verification"
-            );
+            )?;
+            require_ownership(GetForegroundWindow() == self.foreground)?;
             Ok(())
         }
     }
@@ -161,7 +141,12 @@ pub(super) struct Editor {
 }
 
 impl Editor {
+    #[cfg(test)]
     pub(super) fn capture(expected: HWND) -> Result<Self> {
+        Self::capture_guarded(expected, &|| true)
+    }
+
+    pub(super) fn capture_guarded(expected: HWND, allowed: &dyn Fn() -> bool) -> Result<Self> {
         let target = Target::capture(expected)?;
         unsafe {
             let text = target
@@ -180,8 +165,12 @@ impl Editor {
                 before,
                 after,
             };
-            editor.check()?;
-            ranges::probe(&editor)?;
+            editor.check().context(UnsafeCapture)?;
+            if let Err(error) = ranges::probe(&editor, allowed) {
+                ensure!(allowed(), UnsafeCapture);
+                editor.check().context(UnsafeCapture)?;
+                return Err(error);
+            }
             Ok(editor)
         }
     }
@@ -492,10 +481,7 @@ fn snapshot(
 ) -> Result<(String, String, String, IUIAutomationTextRange)> {
     unsafe {
         let selections = text.GetSelection()?;
-        ensure!(
-            selections.Length()? == 1,
-            "editor does not expose exactly one selection"
-        );
+        ensure!(selections.Length()? == 1, UnsafeCapture);
         let selection = selections.GetElement(0)?;
         let document = text.DocumentRange()?;
         let whole = range_text(&document).context("document snapshot")?;
@@ -514,10 +500,7 @@ fn snapshot(
         let before = range_text(&before).context("prefix snapshot")?;
         let selected = range_text(&selection).context("selection snapshot")?;
         let after = range_text(&after).context("suffix snapshot")?;
-        ensure!(
-            format!("{before}{selected}{after}") == whole,
-            "provider document and selection disagree"
-        );
+        ensure!(format!("{before}{selected}{after}") == whole, UnsafeCapture);
         if selected.is_empty() {
             ensure!(
                 selection.CompareEndpoints(
@@ -525,7 +508,7 @@ fn snapshot(
                     &selection,
                     TextPatternRangeEndpoint_End
                 )? == 0,
-                "empty selection has noncollapsed endpoints"
+                UnsafeCapture
             );
         }
         Ok((before, selected, after, selection))

@@ -250,7 +250,8 @@
         "old-8",
         "old-9"
       ],
-      "expectedDeletedMediaPaths": [
+      "expectedDeletedMediaPaths": [],
+      "expectedRetainedMediaPaths": [
         "text_pruned.txt"
       ]
     },
@@ -293,7 +294,7 @@
       "expectedCount": 0
     },
     {
-      "name": "clear_all_removes_orphan_media_files",
+      "name": "clear_all_preserves_unproven_orphan_media_files",
       "orphanMediaFiles": [
         "orphan_text.txt",
         "orphan_image.png"
@@ -301,7 +302,10 @@
       "operation": {
         "type": "clear_all"
       },
-      "expectedRemainingMediaFiles": []
+      "expectedRemainingMediaFiles": [
+        "orphan_image.png",
+        "orphan_text.txt"
+      ]
     }
   ]
 }

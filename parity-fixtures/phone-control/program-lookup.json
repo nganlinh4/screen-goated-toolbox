@@ -1,0 +1,194 @@
+{
+  "contract": "Bare program lookup does not implicitly search the selected working directory; explicit program paths and configured search directories retain their meaning.",
+  "cases": [
+    {
+      "id": "bare-name-shadow",
+      "program": "tool.exe",
+      "files": [
+        "cwd/tool.exe",
+        "path/tool.exe"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "path/tool.exe",
+      "androidProgram": "tool"
+    },
+    {
+      "id": "extensionless-shim-shadow",
+      "program": "tool",
+      "files": [
+        "cwd/tool.exe",
+        "path/tool.cmd"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "path/tool.cmd",
+      "androidProgram": "tool"
+    },
+    {
+      "id": "path-order",
+      "program": "tool",
+      "files": [
+        "first/tool.exe",
+        "second/tool.exe"
+      ],
+      "path": [
+        "first",
+        "second"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "first/tool.exe",
+      "androidProgram": "tool"
+    },
+    {
+      "id": "extension-order",
+      "program": "tool",
+      "files": [
+        "path/tool.exe",
+        "path/tool.cmd"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "cmd",
+        "exe"
+      ],
+      "expected": "path/tool.cmd",
+      "androidProgram": "tool"
+    },
+    {
+      "id": "cwd-alone-is-not-search-path",
+      "program": "tool.exe",
+      "files": [
+        "cwd/tool.exe"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": null,
+      "androidProgram": "tool"
+    },
+    {
+      "id": "explicit-relative-shim",
+      "program": "./tool",
+      "files": [
+        "cwd/tool.cmd",
+        "path/tool.exe"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "cwd/./tool.cmd",
+      "androidProgram": "./tool"
+    },
+    {
+      "id": "explicit-relative-directory",
+      "program": "tools/tool",
+      "files": [
+        "cwd/tools/tool.exe",
+        "path/tool.exe"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "cwd/tools/tool.exe",
+      "androidProgram": "tools/tool"
+    },
+    {
+      "id": "explicit-absolute",
+      "program": "<root>/other/tool.exe",
+      "files": [
+        "other/tool.exe",
+        "path/tool.exe"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "other/tool.exe",
+      "androidProgram": "/data/local/tmp/other/tool"
+    },
+    {
+      "id": "unknown-extension",
+      "program": "tool.future",
+      "files": [
+        "cwd/tool.future",
+        "path/tool.future"
+      ],
+      "path": [
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "path/tool.future",
+      "androidProgram": "tool.future"
+    },
+    {
+      "id": "explicit-path-includes-cwd",
+      "program": "tool",
+      "files": [
+        "cwd/tool.exe",
+        "path/tool.exe"
+      ],
+      "path": [
+        "cwd",
+        "path"
+      ],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": "cwd/tool.exe",
+      "androidProgram": "tool"
+    },
+    {
+      "id": "empty-search-path",
+      "program": "tool",
+      "files": [
+        "cwd/tool.cmd"
+      ],
+      "path": [],
+      "extensions": [
+        "exe",
+        "cmd"
+      ],
+      "expected": null,
+      "androidProgram": "tool"
+    }
+  ],
+  "windowsInvalidPrograms": [
+    "C:tool.exe",
+    "D:tools/tool"
+  ]
+}

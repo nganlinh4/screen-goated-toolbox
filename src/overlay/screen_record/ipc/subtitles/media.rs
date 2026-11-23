@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::overlay::screen_record::mf_decode;
 use crate::overlay::screen_record::native_export::config::compute_default_video_bitrate_kbps;
 use crate::overlay::screen_record::native_export::native_stitch::{
-    StitchClip, StitchConfig, stitch_clips_to_mp4,
+    StitchClip, StitchConfig, StitchObserver, stitch_clips_to_mp4,
 };
 
 use super::audio::build_trimmed_wav;
@@ -114,6 +114,7 @@ fn build_trimmed_video_mp4_bytes_inner(
             framerate,
             bitrate_kbps,
         },
+        &StitchObserver::UNOBSERVED,
     )?;
     fs::read(&final_output).map_err(|err| format!("Read concatenated subtitle video bytes: {err}"))
 }

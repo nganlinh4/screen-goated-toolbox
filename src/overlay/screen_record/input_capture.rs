@@ -1,5 +1,7 @@
 // --- INPUT CAPTURE ---
-// Low-level keyboard + mouse event capture.
+// Low-level keyboard + mouse event capture. Both hooks run for every
+// recording, whatever the keystroke overlay mode is, so the overlay can be
+// turned on later for an existing recording.
 
 use crossbeam_queue::ArrayQueue;
 use parking_lot::Mutex;
@@ -8,7 +10,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
-use std::time::{SystemTime, UNIX_EPOCH};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -21,6 +22,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, names};
 use windows::Win32::UI::Input::KeyboardAndMouse::HKL;
+
+mod key_state;
+mod timeline;
+use key_state::{
+    MOD_ALT_BIT, MOD_CTRL_BIT, MOD_SHIFT_BIT, MOD_WIN_BIT, clear_key_down, clear_key_state_bits,
+    mark_key_down, snapshot_modifiers_bits,
+};
+pub use timeline::set_timeline_origin;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InputModifiers {
@@ -78,26 +87,9 @@ static EVENT_QUEUE: LazyLock<ArrayQueue<QueuedInputEvent>> =
     LazyLock::new(|| ArrayQueue::new(MAX_CAPTURE_EVENTS));
 
 const MAX_CAPTURE_EVENTS: usize = 250_000;
-const MOD_CTRL_BIT: u8 = 1 << 0;
-const MOD_ALT_BIT: u8 = 1 << 1;
-const MOD_SHIFT_BIT: u8 = 1 << 2;
-const MOD_WIN_BIT: u8 = 1 << 3;
-const TRACKED_VK_WORDS: usize = 8; // 512 virtual keys
-
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
-static START_CAPTURE_UNIX_NS: AtomicU64 = AtomicU64::new(0);
+static KEYBOARD_HOOKED: AtomicBool = AtomicBool::new(false);
 static DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
-static KEY_DOWN_BITS: [AtomicU64; TRACKED_VK_WORDS] = [
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-    AtomicU64::new(0),
-];
-
 pub fn start_capture() -> anyhow::Result<()> {
     {
         let mut state = CAPTURE_STATE.lock();
@@ -110,7 +102,7 @@ pub fn start_capture() -> anyhow::Result<()> {
     clear_key_state_bits();
     while EVENT_QUEUE.pop().is_some() {}
     DROPPED_EVENTS.store(0, Ordering::Relaxed);
-    START_CAPTURE_UNIX_NS.store(now_unix_nanos(), Ordering::Release);
+    timeline::mark_capture_start();
     IS_RUNNING.store(true, Ordering::Release);
 
     let (ready_tx, ready_rx) = mpsc::channel::<anyhow::Result<()>>();
@@ -129,6 +121,7 @@ pub fn start_capture() -> anyhow::Result<()> {
 
         let (kb_hook, mouse_hook) = match (keyboard_hook.ok(), mouse_hook.ok()) {
             (Some(kb), Some(ms)) => {
+                KEYBOARD_HOOKED.store(true, Ordering::Release);
                 let _ = ready_tx.send(Ok(()));
                 (kb, ms)
             }
@@ -162,6 +155,7 @@ pub fn start_capture() -> anyhow::Result<()> {
 
         let _ = UnhookWindowsHookEx(kb_hook);
         let _ = UnhookWindowsHookEx(mouse_hook);
+        KEYBOARD_HOOKED.store(false, Ordering::Release);
     });
 
     match ready_rx.recv_timeout(std::time::Duration::from_secs(2)) {
@@ -172,18 +166,13 @@ pub fn start_capture() -> anyhow::Result<()> {
         }
         Ok(Err(err)) => {
             let _ = handle.join();
-            let mut state = CAPTURE_STATE.lock();
-            state.hook_thread_id = 0;
-            state.hook_thread = None;
-            IS_RUNNING.store(false, Ordering::Release);
+            abandon_failed_start();
             Err(err)
         }
         Err(_) => {
             IS_RUNNING.store(false, Ordering::Release);
             let _ = handle.join();
-            let mut state = CAPTURE_STATE.lock();
-            state.hook_thread_id = 0;
-            state.hook_thread = None;
+            abandon_failed_start();
             Err(anyhow::anyhow!(
                 "Timed out while starting key/mouse capture"
             ))
@@ -191,12 +180,24 @@ pub fn start_capture() -> anyhow::Result<()> {
     }
 }
 
+fn abandon_failed_start() {
+    let mut state = CAPTURE_STATE.lock();
+    state.hook_thread_id = 0;
+    state.hook_thread = None;
+    IS_RUNNING.store(false, Ordering::Release);
+}
+
 pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
+    stop_capture();
+    drain_captured_events()
+}
+
+pub fn stop_capture() {
     let (thread_id, handle_opt) = {
         let mut state = CAPTURE_STATE.lock();
         if !IS_RUNNING.load(Ordering::Acquire) && state.hook_thread.is_none() {
             clear_key_state_bits();
-            return drain_events();
+            return;
         }
         (state.hook_thread_id, state.hook_thread.take())
     };
@@ -216,7 +217,6 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
     if let Some(handle) = handle_opt {
         let _ = handle.join();
     }
-
     let mut state = CAPTURE_STATE.lock();
     state.hook_thread_id = 0;
     clear_key_state_bits();
@@ -227,7 +227,12 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
             dropped
         );
     }
-    drain_events()
+}
+
+pub fn drain_captured_events() -> Vec<RawInputEvent> {
+    let events = drain_events();
+    timeline::clear_timeline_origin();
+    events
 }
 
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -250,7 +255,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                 }
                 let _ = push_queued_event(QueuedInputEvent {
                     kind: QueuedEventKind::KeyboardDown,
-                    timestamp_ns: relative_timestamp_ns(),
+                    timestamp_ns: timeline::event_stamp_ns(),
                     code: vk,
                     modifiers: snapshot_modifiers_bits(),
                     layout: names::input_layout().0 as usize,
@@ -263,7 +268,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                 }
                 let _ = push_queued_event(QueuedInputEvent {
                     kind: QueuedEventKind::KeyboardUp,
-                    timestamp_ns: relative_timestamp_ns(),
+                    timestamp_ns: timeline::event_stamp_ns(),
                     code: vk,
                     modifiers: snapshot_modifiers_bits(),
                     layout: names::input_layout().0 as usize,
@@ -299,7 +304,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
 
                 let _ = push_queued_event(QueuedInputEvent {
                     kind,
-                    timestamp_ns: relative_timestamp_ns(),
+                    timestamp_ns: timeline::event_stamp_ns(),
                     code: message,
                     modifiers,
                     layout: 0,
@@ -309,7 +314,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 let delta = ((mouse.mouseData >> 16) & 0xFFFF) as u16 as i16;
                 let _ = push_queued_event(QueuedInputEvent {
                     kind: QueuedEventKind::Wheel,
-                    timestamp_ns: relative_timestamp_ns(),
+                    timestamp_ns: timeline::event_stamp_ns(),
                     code: delta as i32 as u32,
                     modifiers,
                     layout: 0,
@@ -331,21 +336,6 @@ fn mouse_button_name(message: u32) -> &'static str {
     }
 }
 
-fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
-fn relative_timestamp_ns() -> u64 {
-    let start = START_CAPTURE_UNIX_NS.load(Ordering::Relaxed);
-    if start == 0 {
-        return 0;
-    }
-    now_unix_nanos().saturating_sub(start)
-}
-
 fn push_queued_event(event: QueuedInputEvent) -> bool {
     if EVENT_QUEUE.push(event).is_err() {
         DROPPED_EVENTS.fetch_add(1, Ordering::Relaxed);
@@ -360,13 +350,13 @@ fn drain_events() -> Vec<RawInputEvent> {
         if events.len() >= MAX_CAPTURE_EVENTS {
             break;
         }
-        events.push(convert_event(event));
+        events.push(event);
     }
-    events
+    events.into_iter().map(convert_event).collect()
 }
 
 fn convert_event(event: QueuedInputEvent) -> RawInputEvent {
-    let timestamp = event.timestamp_ns as f64 / 1_000_000_000.0;
+    let timestamp = timeline::seconds_on_timeline(event.timestamp_ns);
     let modifiers = modifiers_from_bits(event.modifiers);
     let mut result = match event.kind {
         QueuedEventKind::KeyboardDown => RawInputEvent {
@@ -470,56 +460,5 @@ fn modifiers_from_bits(bits: u8) -> InputModifiers {
     }
 }
 
-fn snapshot_modifiers_bits() -> u8 {
-    let mut bits = 0u8;
-    // VK_CONTROL (17), VK_LCONTROL (162), VK_RCONTROL (163)
-    if key_is_down(17) || key_is_down(162) || key_is_down(163) {
-        bits |= MOD_CTRL_BIT;
-    }
-    // VK_MENU (18), VK_LMENU (164), VK_RMENU (165)
-    if key_is_down(18) || key_is_down(164) || key_is_down(165) {
-        bits |= MOD_ALT_BIT;
-    }
-    // VK_SHIFT (16), VK_LSHIFT (160), VK_RSHIFT (161)
-    if key_is_down(16) || key_is_down(160) || key_is_down(161) {
-        bits |= MOD_SHIFT_BIT;
-    }
-    // VK_LWIN (91), VK_RWIN (92)
-    if key_is_down(91) || key_is_down(92) {
-        bits |= MOD_WIN_BIT;
-    }
-    bits
-}
-
-fn key_is_down(vk: u32) -> bool {
-    let idx = (vk / 64) as usize;
-    if idx >= TRACKED_VK_WORDS {
-        return false;
-    }
-    let mask = 1u64 << (vk % 64);
-    (KEY_DOWN_BITS[idx].load(Ordering::Relaxed) & mask) != 0
-}
-
-fn mark_key_down(vk: u32) -> bool {
-    let idx = (vk / 64) as usize;
-    if idx >= TRACKED_VK_WORDS {
-        return false;
-    }
-    let mask = 1u64 << (vk % 64);
-    (KEY_DOWN_BITS[idx].fetch_or(mask, Ordering::Relaxed) & mask) != 0
-}
-
-fn clear_key_down(vk: u32) {
-    let idx = (vk / 64) as usize;
-    if idx >= TRACKED_VK_WORDS {
-        return;
-    }
-    let mask = !(1u64 << (vk % 64));
-    KEY_DOWN_BITS[idx].fetch_and(mask, Ordering::Relaxed);
-}
-
-fn clear_key_state_bits() {
-    for word in &KEY_DOWN_BITS {
-        word.store(0, Ordering::Relaxed);
-    }
-}
+#[cfg(test)]
+mod tests;

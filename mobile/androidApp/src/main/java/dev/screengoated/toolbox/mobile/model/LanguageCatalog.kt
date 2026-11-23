@@ -192,7 +192,10 @@ object LanguageCatalog {
 
     val names: List<String> = entries.map { it.first }
 
+    /** The catalog code for an exact English name, or null when the name is not listed. */
+    fun exactCodeForName(name: String): String? = codeByName[name]
+
     fun codeForName(name: String): String {
-        return codeByName[name] ?: name.trim().take(2).uppercase().ifBlank { "EN" }
+        return exactCodeForName(name) ?: name.trim().take(2).uppercase().ifBlank { "EN" }
     }
 }

@@ -20,12 +20,30 @@ class DownloaderProcessHostTest {
         assertEquals("--no-plugin-dirs", arguments[1])
         assertEquals(1, arguments.count { it == "--ignore-config" })
         assertEquals(1, arguments.count { it == "--no-plugin-dirs" })
+        assertEquals(1, arguments.count { it == "--no-update" })
         assertTrue(arguments.windowed(2).contains(listOf("--js-runtimes", "quickjs:/runtime/qjs")))
         assertTrue(fixture.getJSONObject("commandIsolation").getBoolean("ignoreUserConfiguration"))
         assertTrue(fixture.getJSONObject("commandIsolation").getBoolean("disableUserPluginDirectories"))
         assertTrue(fixture.getJSONObject("commandIsolation").getBoolean("managedJavaScriptRuntime"))
         assertTrue(fixture.getJSONObject("commandIsolation").getBoolean("managedChallengeScripts"))
         assertEquals(1, fixture.getJSONObject("failure").getInt("maximumRetries"))
+    }
+
+    @Test
+    fun dashLeadingInputStaysAUrlOperand() {
+        val fixture = JSONObject(
+            repoFile("parity-fixtures/video-downloader/recovery.json").readText(),
+        )
+        assertTrue(fixture.getJSONObject("commandIsolation").getBoolean("endOptionsBeforeUrl"))
+        listOf("-wNyEUrxzFU", "--config-locations=/sdcard/Download/x.conf", "https://media.invalid/item")
+            .forEach { input ->
+                val command = YtDlpCommand(input).addOption("--dump-json")
+                val arguments = buildYtDlpProcessArguments(command, "/runtime/ffmpeg", "/runtime/qjs")
+
+                assertEquals(listOf("--", input), arguments.takeLast(2))
+                assertEquals(1, arguments.count { it == "--" })
+                assertTrue(arguments.indexOf("--dump-json") < arguments.indexOf("--"))
+            }
     }
 
     @Test

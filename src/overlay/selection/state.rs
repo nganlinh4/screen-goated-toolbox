@@ -1,31 +1,29 @@
 // --- SELECTION STATE ---
 // Static variables, atomics, and constants for selection overlay.
 
-use crate::win_types::{SendHbitmap, SendHwnd};
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::win_types::SendHwnd;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
-use windows::Win32::Foundation::{HMODULE, HWND, POINT};
-use windows::Win32::Graphics::Gdi::HBITMAP;
+use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;
-use windows_core::BOOL;
 
 // --- ABORT SIGNAL ---
 pub static SELECTION_ABORT_SIGNAL: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 pub(super) static CAPTURE_TARGET: LazyLock<
-    Mutex<crate::overlay::image_capture_target::ImageCaptureTarget>,
-> = LazyLock::new(|| Mutex::new(Default::default()));
+    Mutex<(
+        crate::overlay::image_capture_target::ImageCaptureTarget,
+        crate::overlay::process::chain::AutoPasteDestination,
+    )>,
+> = LazyLock::new(|| {
+    Mutex::new((
+        Default::default(),
+        crate::overlay::process::chain::AutoPasteDestination::External(None),
+    ))
+});
 
-// --- MAGNIFICATION API FFI ---
-pub type MagInitializeFn = unsafe extern "system" fn() -> BOOL;
-pub type MagUninitializeFn = unsafe extern "system" fn() -> BOOL;
-pub type MagSetFullscreenTransformFn = unsafe extern "system" fn(f32, i32, i32) -> BOOL;
-
-pub static mut MAG_DLL: HMODULE = HMODULE(std::ptr::null_mut());
-pub static mut MAG_INITIALIZE: Option<MagInitializeFn> = None;
-pub static mut MAG_UNINITIALIZE: Option<MagUninitializeFn> = None;
-pub static mut MAG_SET_FULLSCREEN_TRANSFORM: Option<MagSetFullscreenTransformFn> = None;
-pub static mut MAG_INITIALIZED: bool = false;
+// Whether this selection session holds a shared magnifier lease.
+pub static MAG_LEASE_HELD: AtomicBool = AtomicBool::new(false);
 
 // --- CONFIGURATION CONSTANTS ---
 pub const FADE_TIMER_ID: usize = 2;
@@ -54,17 +52,16 @@ pub static mut SELECTION_OVERLAY_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_m
 pub static mut SELECTION_HOOK: HHOOK = HHOOK(std::ptr::null_mut());
 
 // --- CONTINUOUS MODE HOTKEY TRACKING ---
-pub static mut TRIGGER_VK_CODE: u32 = 0;
-pub static mut TRIGGER_MODIFIERS: u32 = 0;
+/// Virtual key of the hotkey that opened the selection; 0 when untracked.
+/// Written by the overlay thread and read by the keyboard hook.
+pub static TRIGGER_VK_CODE: AtomicU32 = AtomicU32::new(0);
 pub static IS_HOTKEY_HELD: AtomicBool = AtomicBool::new(false);
 pub static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 pub static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 
 // --- CACHED BACK BUFFER ---
-pub static mut CACHED_BITMAP: SendHbitmap = SendHbitmap(HBITMAP(std::ptr::null_mut()));
-pub static mut CACHED_BITS: *mut u8 = std::ptr::null_mut();
-pub static mut CACHED_W: i32 = 0;
-pub static mut CACHED_H: i32 = 0;
+pub static CACHED_DIB: Mutex<crate::overlay::cached_dib::CachedDib> =
+    Mutex::new(crate::overlay::cached_dib::CachedDib::empty());
 
 // --- ZOOM STATE ---
 pub static mut ZOOM_LEVEL: f32 = 1.0;
@@ -90,8 +87,15 @@ pub fn is_selection_overlay_active() -> bool {
 }
 
 pub(super) fn capture_target() -> crate::overlay::image_capture_target::ImageCaptureTarget {
-    CAPTURE_TARGET
-        .lock()
-        .map(|target| *target)
-        .unwrap_or_default()
+    capture_request().0
+}
+
+pub(super) fn capture_request() -> (
+    crate::overlay::image_capture_target::ImageCaptureTarget,
+    crate::overlay::process::chain::AutoPasteDestination,
+) {
+    CAPTURE_TARGET.lock().map(|target| *target).unwrap_or((
+        Default::default(),
+        crate::overlay::process::chain::AutoPasteDestination::External(None),
+    ))
 }

@@ -10,9 +10,7 @@ use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus};
 use crate::gui::settings_ui::{ConfirmModal, ConfirmResult};
 use crate::gui::theme::AppTheme;
 
-use super::utils::clear_downloaded_tools_caches;
-
-mod process;
+mod completion;
 
 const CLEANUP_STEP_COUNT: usize = 6;
 
@@ -55,11 +53,6 @@ struct StatusTargets {
     ytdlp: Arc<Mutex<InstallStatus>>,
     ffmpeg: Arc<Mutex<InstallStatus>>,
     deno: Arc<Mutex<InstallStatus>>,
-    zipformer_dlls: Arc<Mutex<InstallStatus>>,
-    zipformer_languages: Vec<(
-        crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage,
-        Arc<Mutex<InstallStatus>>,
-    )>,
 }
 
 impl StatusTargets {
@@ -68,12 +61,6 @@ impl StatusTargets {
             ytdlp: manager.ytdlp_status.clone(),
             ffmpeg: manager.ffmpeg_status.clone(),
             deno: manager.deno_status.clone(),
-            zipformer_dlls: manager.zipformer_dlls_status.clone(),
-            zipformer_languages: manager
-                .zipformer_lang_statuses
-                .iter()
-                .map(|(language, status)| (*language, status.clone()))
-                .collect(),
         }
     }
 
@@ -84,24 +71,6 @@ impl StatusTargets {
             (ExternalTool::Deno, &self.deno),
         ] {
             set_status(target, external_tool_status(tool));
-        }
-        set_status(
-            &self.zipformer_dlls,
-            if crate::api::realtime_audio::sherpa_onnx::dlls::is_sherpa_dlls_installed() {
-                InstallStatus::Installed
-            } else {
-                InstallStatus::Missing
-            },
-        );
-        for (language, target) in &self.zipformer_languages {
-            set_status(
-                target,
-                if crate::api::realtime_audio::sherpa_onnx::is_model_payload_present(*language) {
-                    InstallStatus::Installed
-                } else {
-                    InstallStatus::Missing
-                },
-            );
         }
     }
 }
@@ -249,20 +218,29 @@ fn start_cleanup(ctx: egui::Context, targets: StatusTargets) {
         completed: 0,
         step: CleanupStep::Interfaces,
     });
-    std::thread::spawn(move || {
-        let attention_count =
-            match crate::install_activity::begin_quiescence(std::time::Duration::from_secs(30)) {
-                Ok(_quiescence) => run_cleanup(&ctx),
-                Err(error) => {
-                    crate::log_info!("[Downloaded Tools] could not stop installers: {error:#}");
-                    1
-                }
-            };
-        targets.refresh();
-        clear_downloaded_tools_caches();
-        set_state(CleanupDialogState::Complete { attention_count });
-        ctx.request_repaint();
-    });
+    let completion = completion::CleanupCompletion::new(ctx.clone(), move || targets.refresh());
+    if let Err(error) = std::thread::Builder::new()
+        .name("sgt-cleanup".into())
+        .spawn(move || {
+            let mut completion = completion;
+            let attention_count =
+                match crate::install_activity::begin_quiescence(std::time::Duration::from_secs(30))
+                {
+                    Ok(quiescence) => {
+                        completion.hold_quiescence(quiescence);
+                        completion.mark_started();
+                        run_cleanup(&ctx)
+                    }
+                    Err(error) => {
+                        crate::log_info!("[Downloaded Tools] could not stop installers: {error:#}");
+                        1
+                    }
+                };
+            completion.finish(attention_count);
+        })
+    {
+        crate::log_info!("[Downloaded Tools] could not start cleanup: {error}");
+    }
 }
 
 fn run_cleanup(ctx: &egui::Context) -> usize {
@@ -288,7 +266,11 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
             crate::component_registry::recorder::remove_all(),
             &mut attention_count,
         );
-        crate::overlay::computer_control::ui_remove_all();
+        record_result(
+            "Computer Control integrations",
+            crate::overlay::computer_control::ui_remove_all(),
+            &mut attention_count,
+        );
         record_result(
             "Computer Control",
             crate::overlay::computer_control::remove_downloaded_engine(),
@@ -307,7 +289,7 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         ctx,
         1,
         CleanupStep::Components,
-        || match crate::component_registry::clean_all() {
+        || match crate::component_registry::clean_all(&[]) {
             Ok(outcomes) => {
                 for (id, outcome) in outcomes {
                     if matches!(
@@ -325,6 +307,21 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
         },
     );
     run_step(ctx, 2, CleanupStep::Recoveries, || {
+        match crate::component_registry::recovery::purge_all_recorded() {
+            Ok(outcomes) => {
+                for outcome in outcomes {
+                    if !outcome.preserved_paths.is_empty() {
+                        attention_count += 1;
+                        crate::log_info!(
+                            "[Downloaded Tools] recovery at {} preserved {} path(s)",
+                            outcome.path.display(),
+                            outcome.preserved_paths.len()
+                        );
+                    }
+                }
+            }
+            Err(error) => record_error("component recovery files", error, &mut attention_count),
+        }
         match crate::component_registry::recorder::purge_all_recorded_recoveries() {
             Ok(outcomes) => {
                 for outcome in outcomes {
@@ -353,92 +350,15 @@ fn run_cleanup(ctx: &egui::Context) -> usize {
     });
     run_step(ctx, 3, CleanupStep::Models, || {
         record_result(
-            "Parakeet realtime model",
-            crate::api::realtime_audio::model_loader::remove_parakeet_model(),
+            "legacy offline models",
+            crate::component_registry::legacy_offline::remove(),
             &mut attention_count,
         );
-        record_result(
-            "Parakeet TDT model",
-            crate::api::realtime_audio::parakeet_tdt_assets::remove_parakeet_tdt_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Qwen3-ASR 0.6B model",
-            crate::api::realtime_audio::qwen3::assets::remove_qwen3_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Qwen3-ASR 1.7B model",
-            crate::api::realtime_audio::qwen3::assets::remove_qwen3_1_7b_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Kokoro model",
-            crate::api::realtime_audio::kokoro_assets::remove_kokoro_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Supertonic model",
-            crate::api::realtime_audio::supertonic_assets::remove_supertonic_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Step Audio model",
-            crate::api::realtime_audio::step_audio_assets::remove_step_audio_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "Magpie model",
-            crate::api::realtime_audio::magpie_assets::remove_magpie_model(),
-            &mut attention_count,
-        );
-        record_result(
-            "VieNeu model",
-            crate::api::realtime_audio::vieneu_assets::remove_vieneu_model(),
-            &mut attention_count,
-        );
-        for language in zipformer_languages() {
-            record_result(
-                "Zipformer model",
-                crate::api::realtime_audio::sherpa_onnx::remove_model(language),
-                &mut attention_count,
-            );
-        }
     });
     run_step(ctx, 4, CleanupStep::Runtimes, || {
         record_result(
             "legacy AI runtime",
             crate::unpack_dlls::remove_ai_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "Qwen3-ASR runtime",
-            crate::api::realtime_audio::qwen3::runtime::remove_qwen3_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "Step Audio runtime",
-            crate::api::realtime_audio::step_audio_runtime::remove_step_audio_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "Magpie runtime",
-            crate::api::realtime_audio::magpie_runtime::remove_magpie_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "VieNeu runtime",
-            crate::api::realtime_audio::vieneu_runtime::remove_vieneu_runtime(),
-            &mut attention_count,
-        );
-        record_result(
-            "Zipformer runtime",
-            crate::api::realtime_audio::sherpa_onnx::dlls::remove_sherpa_dlls(),
-            &mut attention_count,
-        );
-        record_result(
-            "archived Qwen server",
-            remove_archived_qwen_server(),
             &mut attention_count,
         );
     });
@@ -491,35 +411,6 @@ fn set_status(target: &Arc<Mutex<InstallStatus>>, status: InstallStatus) {
     if let Ok(mut current) = target.lock() {
         *current = status;
     }
-}
-
-fn zipformer_languages() -> [crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage; 8] {
-    use crate::api::realtime_audio::sherpa_onnx::ZipformerLanguage;
-    [
-        ZipformerLanguage::English,
-        ZipformerLanguage::Korean,
-        ZipformerLanguage::Chinese,
-        ZipformerLanguage::French,
-        ZipformerLanguage::German,
-        ZipformerLanguage::Spanish,
-        ZipformerLanguage::Russian,
-        ZipformerLanguage::All8Lang,
-    ]
-}
-
-fn remove_archived_qwen_server() -> Result<()> {
-    let directory = crate::paths::app_data_dir()
-        .join("bin")
-        .join("qwen3_asr_reference");
-    let executable = directory.join("asr-server.exe");
-    if executable.exists() {
-        process::stop_exact_executable(&executable)?;
-        std::fs::remove_file(executable)?;
-    }
-    if directory.exists() {
-        std::fs::remove_dir(directory)?;
-    }
-    Ok(())
 }
 
 fn cleanup_fraction(completed: usize) -> f32 {

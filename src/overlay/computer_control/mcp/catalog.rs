@@ -16,6 +16,27 @@ pub(super) enum ReadinessProbe {
     Tcp { host: &'static str, port: u16 },
 }
 
+/// A PyPI release whose immutable per-version metadata carries the README
+/// that shipped with exactly that version.
+pub(super) struct PinnedDocs {
+    pub package: &'static str,
+    pub version: &'static str,
+}
+
+impl PinnedDocs {
+    pub(super) fn metadata_url(&self) -> String {
+        format!(
+            "https://pypi.org/pypi/{}/{}/json",
+            self.package, self.version
+        )
+    }
+
+    /// The uv requirement that launches this exact release.
+    pub(super) fn requirement(&self) -> String {
+        format!("{}=={}", self.package, self.version)
+    }
+}
+
 /// One curated integration.
 pub(super) struct Integration {
     pub id: &'static str,
@@ -23,12 +44,12 @@ pub(super) struct Integration {
     pub description: &'static str,
     pub publisher: &'static str,
     pub source_url: &'static str,
-    /// Exact documentation resource fetched by the support tool. Provider URL
-    /// conventions are catalog data, never inferred by generic runtime code.
-    pub docs_url: &'static str,
+    /// The exact package release whose published description is the setup
+    /// documentation; it is the same release the launch spec runs.
+    pub docs: PinnedDocs,
     pub launch: LaunchSpec,
     /// One-line statement of WHAT in-app setup the integration needs (never HOW — the
-    /// agent researches the steps from `docs_url` + the web and figures them out).
+    /// agent researches the steps from `docs` + the web and figures them out).
     /// `None` = fully self-contained, no in-app setup.
     pub addon_hint: Option<&'static str>,
     pub readiness_probe: Option<ReadinessProbe>,
@@ -46,7 +67,10 @@ const CATALOG: &[Integration] = &[
         description: "Current time + timezone conversion (IANA zones). Reference integration that verifies the MCP bridge.",
         publisher: "modelcontextprotocol.io (official)",
         source_url: "https://github.com/modelcontextprotocol/servers",
-        docs_url: "https://raw.githubusercontent.com/modelcontextprotocol/servers/HEAD/README.md",
+        docs: PinnedDocs {
+            package: "mcp-server-time",
+            version: "2026.6.4",
+        },
         launch: LaunchSpec {
             program: "uvx",
             args: &["--from", "mcp-server-time==2026.6.4", "mcp-server-time"],
@@ -63,7 +87,10 @@ const CATALOG: &[Integration] = &[
         description: "Drive Blender's Python API directly (objects, materials, render, export, …) instead of clicking its UI.",
         publisher: "ahujasid (blender-mcp)",
         source_url: "https://github.com/ahujasid/blender-mcp",
-        docs_url: "https://raw.githubusercontent.com/ahujasid/blender-mcp/HEAD/README.md",
+        docs: PinnedDocs {
+            package: "blender-mcp",
+            version: "1.6.4",
+        },
         launch: LaunchSpec {
             program: "uvx",
             args: &[
@@ -97,4 +124,34 @@ pub(super) fn all() -> &'static [Integration] {
 
 pub(super) fn get(id: &str) -> Option<&'static Integration> {
     CATALOG.iter().find(|i| i.id == id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn docs_describe_the_exact_release_each_integration_launches() {
+        for integration in all() {
+            let docs = &integration.docs;
+            assert!(
+                integration
+                    .launch
+                    .args
+                    .contains(&docs.requirement().as_str()),
+                "{} documents {} but launches {:?}",
+                integration.id,
+                docs.requirement(),
+                integration.launch.args
+            );
+            let safe = |part: &str| {
+                !part.is_empty()
+                    && part
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+            };
+            assert!(safe(docs.package) && safe(docs.version));
+            assert!(url::Url::parse(&docs.metadata_url()).is_ok());
+        }
+    }
 }

@@ -12,6 +12,22 @@ const r = (x, y, w, h) => ({ x, y, w, h });
 const normalSizes = { horizontal: { w: 200, h: 32 }, vertical: { w: 40, h: 210 } };
 const area = r(0, 0, 1000, 760);
 const json = value => JSON.parse(JSON.stringify(value));
+
+test('monitor scale follows the last physical pixel across mixed-DPI seams and gaps', () => {
+  const monitors = [
+    {bounds: r(-1920, 0, 1920, 1080), work: r(-1920, 0, 1920, 1040), dpi: 144},
+    {bounds: r(0, 0, 2560, 1440), work: r(0, 0, 2560, 1400), dpi: 192},
+  ];
+  assert.equal(placement.monitorScale(r(-300, 100, 300, 200), monitors), 1.5);
+  assert.equal(placement.monitorScale(r(-300, 100, 301, 200), monitors), 2);
+  assert.equal(placement.monitorScale(r(-2500, 100, 100, 100), monitors), 1.5);
+  assert.equal(placement.monitorScale(r(0, 0, 20, 20), []), 1);
+  scope.window.devicePixelRatio = 1.5;
+  assert.equal(placement.monitorScale(r(-300, 100, 300, 200), monitors), 1);
+  assert.equal(placement.monitorScale(r(100, 100, 100, 200), monitors), 4 / 3);
+  assert.equal(placement.monitorScale(r(0, 0, 20, 20), []), 2 / 3);
+  delete scope.window.devicePixelRatio;
+});
 function inside(pos, bounds = area) {
   assert.ok(pos.x >= bounds.x && pos.y >= bounds.y, JSON.stringify(pos));
   assert.ok(pos.x + pos.w <= bounds.x + bounds.w + 0.01, JSON.stringify(pos));

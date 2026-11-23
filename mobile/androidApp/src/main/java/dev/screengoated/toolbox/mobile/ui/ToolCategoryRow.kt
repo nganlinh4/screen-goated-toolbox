@@ -2,9 +2,7 @@
 
 package dev.screengoated.toolbox.mobile.ui
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import dev.screengoated.toolbox.mobile.ui.i18n.MobileToolsToolbarCopy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -39,7 +37,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -48,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontFamily
@@ -162,14 +158,13 @@ internal fun ToolCategoryRow(
     onPresetClick: (String) -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     toolbarMode: ToolbarMode = ToolbarMode.NONE,
-    favoritePresetIds: Set<String> = emptySet(),
+    toolbarLabels: MobileToolsToolbarCopy? = null,
+    favoriteRowIds: Set<String> = emptySet(),
     onFavoriteToggle: (String) -> Unit = {},
     onDuplicate: (String) -> Unit = {},
     onDelete: (String) -> Unit = {},
 ) {
     val trailingClearance = 12.dp
-    // Track presets being deleted for fade-out animation
-    var deletingIds by remember { mutableStateOf(emptySet<String>()) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // Category label
@@ -205,11 +200,9 @@ internal fun ToolCategoryRow(
             }
             prevCount.intValue = presets.size
         }
-        val scrollFraction by remember {
-            derivedStateOf {
-                val max = (presets.size - 1).coerceAtLeast(1)
-                carouselState.currentItem.toFloat() / max.toFloat()
-            }
+        val presetCount = presets.size
+        val scrollFraction by remember(presetCount) {
+            derivedStateOf { carouselScrollFraction(carouselState.currentItem, presetCount) }
         }
         HorizontalUncontainedCarousel(
             state = carouselState,
@@ -248,41 +241,13 @@ internal fun ToolCategoryRow(
                 },
         ) { index ->
             val preset = presets[index]
-            val presetId = if (preset.isFullId) preset.id else "preset_${preset.id}"
-            val isActionMode = toolbarMode != ToolbarMode.NONE
-            val isFavorite = presetId in favoritePresetIds
-            val isDeleting = presetId in deletingIds
-
-            // Animate fade-out + shrink when deleting
-            val deleteAlpha by animateFloatAsState(
-                targetValue = if (isDeleting) 0f else 1f,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "del-alpha-$index",
-                finishedListener = { value ->
-                    if (value == 0f) {
-                        deletingIds = deletingIds - presetId
-                        onDelete(presetId)
-                    }
-                },
-            )
-            val deleteScale by animateFloatAsState(
-                targetValue = if (isDeleting) 0.6f else 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
-                label = "del-scale-$index",
-            )
+            val rowKey = preset.rowKey ?: return@HorizontalUncontainedCarousel
+            val isFavorite = rowKey in favoriteRowIds
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = deleteAlpha
-                        scaleX = deleteScale
-                        scaleY = deleteScale
-                    }
                     .maskClip(MaterialTheme.shapes.large)
-                    .clickable(enabled = !isDeleting) { onPresetClick(presetId) },
+                    .clickable { onPresetClick(rowKey) },
             ) {
                 Card(
                     modifier = Modifier.fillMaxSize(),
@@ -332,7 +297,7 @@ internal fun ToolCategoryRow(
                 }
                 if (toolbarMode == ToolbarMode.FAVORITE) {
                     IconButton(
-                        onClick = { onFavoriteToggle(presetId) },
+                        onClick = { onFavoriteToggle(rowKey) },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 10.dp)
@@ -344,14 +309,14 @@ internal fun ToolCategoryRow(
                     ) {
                         Icon(
                             painter = painterResource(if (isFavorite) R.drawable.ms_star else R.drawable.ms_star_outline),
-                            contentDescription = null,
+                            contentDescription = toolbarLabels?.let { toolbarActionLabel(it.favorite, preset.name(lang)) },
                             tint = if (isFavorite) MaterialTheme.sgtColors.favoriteStar else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 if (toolbarMode == ToolbarMode.DUPLICATE) {
                     IconButton(
-                        onClick = { onDuplicate(presetId) },
+                        onClick = { onDuplicate(rowKey) },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 10.dp)
@@ -363,14 +328,14 @@ internal fun ToolCategoryRow(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ms_content_copy),
-                            contentDescription = null,
+                            contentDescription = toolbarLabels?.let { toolbarActionLabel(it.duplicate, preset.name(lang)) },
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
-                if (toolbarMode == ToolbarMode.DELETE && !isDeleting) {
+                if (toolbarMode == ToolbarMode.DELETE) {
                     IconButton(
-                        onClick = { deletingIds = deletingIds + presetId },
+                        onClick = { onDelete(rowKey) },
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 10.dp)
@@ -382,7 +347,7 @@ internal fun ToolCategoryRow(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ms_delete),
-                            contentDescription = null,
+                            contentDescription = toolbarLabels?.let { toolbarActionLabel(it.delete, preset.name(lang)) },
                             tint = MaterialTheme.colorScheme.error,
                         )
                     }
@@ -391,6 +356,9 @@ internal fun ToolCategoryRow(
         }
     }
 }
+
+/** Screen-reader label for a per-preset toolbar action, e.g. "Delete: Translate". */
+internal fun toolbarActionLabel(action: String, presetName: String): String = "$action: $presetName"
 
 internal fun Modifier.lockPagerForCarouselDrag(
     canScrollBackward: () -> Boolean,
@@ -430,3 +398,7 @@ internal fun shouldLockPagerForCarouselTouch(
     canScrollBackward: Boolean,
     canScrollForward: Boolean,
 ): Boolean = canScrollBackward || canScrollForward
+
+/** Edge-fade progress; the caller keys it on the live preset count so additions are not missed. */
+internal fun carouselScrollFraction(currentItem: Int, presetCount: Int): Float =
+    currentItem.toFloat() / (presetCount - 1).coerceAtLeast(1).toFloat()

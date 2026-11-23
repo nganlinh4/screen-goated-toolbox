@@ -54,6 +54,7 @@ internal fun mobileCanvasJavascript(): String {
         let renderedWindowId = null;
         let canvasPinned = false;
         let sliderActive = false;
+        const originalCanvasActions = new WeakMap();
 
         function scheduleCanvasHide() {
             if (canvasPinned || sliderActive) return;
@@ -74,6 +75,7 @@ internal fun mobileCanvasJavascript(): String {
                 group.querySelectorAll('[data-action]').forEach(btn => {
                     const action = btn.dataset.action;
                     const blocked = disabled.has(action);
+                    if (!originalCanvasActions.has(btn)) originalCanvasActions.set(btn, btn.onclick);
                     btn.classList.toggle('disabled', blocked);
                     if (blocked) {
                         btn.onclick = () => window.ipc.postMessage(JSON.stringify({
@@ -81,6 +83,8 @@ internal fun mobileCanvasJavascript(): String {
                             hwnd: hwnd,
                             placeholder: action
                         }));
+                    } else {
+                        btn.onclick = originalCanvasActions.get(btn);
                     }
                 });
             });

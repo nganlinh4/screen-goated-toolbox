@@ -1,0 +1,559 @@
+{
+  "version": 1,
+  "canonical": "src/model_feed.rs merge_into_chain_with_overrides",
+  "maximumAdaptiveOffers": 5,
+  "rank": "[qualityTier, latencyMs]; priority cost = latency * 3^(6-tier) / 2^(6-tier) with tier clamped to 1..6, saturating at 4294967295",
+  "cases": [
+    {
+      "name": "empty_chain_stays_empty",
+      "chain": [],
+      "offered": [
+        "live-fast"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "live-fast": [
+          5,
+          300
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "offers_interleave_after_protected_leaders",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b",
+        "local-c"
+      ],
+      "offered": [
+        "live-fast",
+        "live-next"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-next": [
+          4,
+          200
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ],
+        "local-c": [
+          3,
+          2000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-fast",
+        "live-next",
+        "local-b",
+        "local-c"
+      ]
+    },
+    {
+      "name": "offered_configured_rows_return_to_the_formula",
+      "chain": [
+        "head",
+        "local-a",
+        "live-slow",
+        "local-b"
+      ],
+      "offered": [
+        "live-slow",
+        "live-fast"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-slow": [
+          2,
+          5000
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-fast",
+        "local-b",
+        "live-slow"
+      ]
+    },
+    {
+      "name": "pinned_row_keeps_its_authored_slot",
+      "chain": [
+        "head",
+        "local-a",
+        "live-slow",
+        "local-b"
+      ],
+      "offered": [
+        "live-slow",
+        "live-fast"
+      ],
+      "pinned": [
+        "live-slow"
+      ],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-slow": [
+          2,
+          5000
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-slow",
+        "live-fast",
+        "local-b"
+      ]
+    },
+    {
+      "name": "excluded_rows_leave_chain_and_offers",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b",
+        "local-c"
+      ],
+      "offered": [
+        "live-fast",
+        "live-next"
+      ],
+      "pinned": [],
+      "excluded": [
+        "local-b",
+        "live-next"
+      ],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-next": [
+          4,
+          200
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ],
+        "local-c": [
+          3,
+          2000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-fast",
+        "local-c"
+      ]
+    },
+    {
+      "name": "short_chain_skips_adaptive_insertion",
+      "chain": [
+        "head"
+      ],
+      "offered": [
+        "live-fast"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ]
+      },
+      "expected": [
+        "head"
+      ]
+    },
+    {
+      "name": "text_chains_protect_four_leaders",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b",
+        "local-c",
+        "local-d"
+      ],
+      "offered": [
+        "live-fast",
+        "live-x"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 4,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-x": [
+          5,
+          250
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ],
+        "local-c": [
+          3,
+          2000
+        ],
+        "local-d": [
+          5,
+          900
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "local-b",
+        "local-c",
+        "live-x",
+        "live-fast",
+        "local-d"
+      ]
+    },
+    {
+      "name": "at_most_five_offers_are_admitted",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b"
+      ],
+      "offered": [
+        "live-fast",
+        "live-next",
+        "live-slow",
+        "live-x",
+        "live-y",
+        "live-z"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-next": [
+          4,
+          200
+        ],
+        "live-slow": [
+          2,
+          5000
+        ],
+        "live-x": [
+          5,
+          250
+        ],
+        "live-y": [
+          3,
+          150
+        ],
+        "live-z": [
+          6,
+          700
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-x",
+        "live-fast",
+        "live-next",
+        "live-y",
+        "live-z",
+        "local-b"
+      ]
+    },
+    {
+      "name": "protected_head_is_never_displaced_by_its_offer",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b"
+      ],
+      "offered": [
+        "head",
+        "live-fast"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "live-fast",
+        "local-b"
+      ]
+    },
+    {
+      "name": "pin_restoration_keeps_authored_rows_in_the_protected_prefix",
+      "chain": [
+        "head",
+        "live-x",
+        "local-a",
+        "local-b"
+      ],
+      "offered": [
+        "live-x",
+        "live-fast",
+        "live-y"
+      ],
+      "pinned": [
+        "live-x"
+      ],
+      "excluded": [],
+      "protectedLocalLeaders": 4,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-x": [
+          5,
+          250
+        ],
+        "live-y": [
+          3,
+          150
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "live-x",
+        "local-a",
+        "local-b",
+        "live-fast",
+        "live-y"
+      ]
+    },
+    {
+      "name": "unfillable_protected_prefix_drops_automatic_rows",
+      "chain": [
+        "head",
+        "local-c",
+        "live-x",
+        "live-slow",
+        "local-a",
+        "local-b"
+      ],
+      "offered": [
+        "live-fast",
+        "live-slow",
+        "live-x"
+      ],
+      "pinned": [
+        "local-b"
+      ],
+      "excluded": [],
+      "protectedLocalLeaders": 4,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "live-fast": [
+          5,
+          300
+        ],
+        "live-slow": [
+          2,
+          5000
+        ],
+        "live-x": [
+          5,
+          250
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ],
+        "local-c": [
+          3,
+          2000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-c",
+        "local-a",
+        "local-b"
+      ]
+    },
+    {
+      "name": "saturated_costs_tie_and_prefer_the_higher_tier",
+      "chain": [
+        "head",
+        "local-a",
+        "local-b"
+      ],
+      "offered": [
+        "huge-tier2",
+        "huge-tier3"
+      ],
+      "pinned": [],
+      "excluded": [],
+      "protectedLocalLeaders": 2,
+      "ranks": {
+        "head": [
+          6,
+          400
+        ],
+        "huge-tier2": [
+          2,
+          1000000000
+        ],
+        "huge-tier3": [
+          3,
+          2000000000
+        ],
+        "local-a": [
+          6,
+          500
+        ],
+        "local-b": [
+          4,
+          1000
+        ]
+      },
+      "expected": [
+        "head",
+        "local-a",
+        "local-b",
+        "huge-tier3",
+        "huge-tier2"
+      ]
+    }
+  ]
+}

@@ -8,7 +8,8 @@ internal class CreationViewerModelFiles(private val files: CreationFileStore) {
     private val directory = File(files.context.cacheDir, "creation/model-viewer")
 
     fun materialize(path: String): File {
-        val source = files.materializePreview(path, "glb")
+        // Validate once: the private copy below is what the viewer origin serves.
+        val source = files.materializePreview(path, "glb", validateLocal = false)
         val target = cache.materialize(
             directory = directory,
             key = UUID.randomUUID().toString().replace("-", ""),

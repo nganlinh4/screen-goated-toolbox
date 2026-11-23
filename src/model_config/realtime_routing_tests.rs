@@ -24,3 +24,25 @@ fn realtime_model_routing_remains_available_while_app_state_is_locked() {
         );
     });
 }
+
+#[test]
+fn source_language_choice_follows_the_catalog_capability() {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../catalog/model_catalog.json")).unwrap();
+    let declared = manifest["realtime_transcription_requires_source_language"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect::<Vec<_>>();
+    for &(id, _) in realtime_transcription_model_options() {
+        assert_eq!(
+            realtime_transcription_requires_source_language(id),
+            declared.contains(&id),
+            "{id}"
+        );
+    }
+    for id in declared {
+        assert!(realtime_transcription_requires_source_language(id), "{id}");
+    }
+}

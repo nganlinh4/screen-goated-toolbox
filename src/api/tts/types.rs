@@ -26,6 +26,18 @@ pub struct TtsCollectedAudio {
 pub struct QueuedRequest {
     pub req: TtsRequest,
     pub generation: u64,
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub artifact: bool,
+}
+
+impl QueuedRequest {
+    pub fn is_cancelled(&self, manager: &super::manager::TtsManager) -> bool {
+        use std::sync::atomic::Ordering;
+        self.cancel.load(Ordering::SeqCst)
+            || manager.shutdown.load(Ordering::SeqCst)
+            || (!self.artifact
+                && self.generation < manager.interrupt_generation.load(Ordering::SeqCst))
+    }
 }
 
 /// Per-request TTS settings for sandboxed callers such as TTS Playground.
@@ -37,17 +49,12 @@ pub struct TtsRequestProfile {
     pub gemini_speed: String,
     pub gemini_instruction: String,
     pub gemini_language_conditions: Vec<crate::config::TtsLanguageCondition>,
+    #[cfg(feature = "recorder-worker")]
     pub gemini_parallel_requests: usize,
     pub google_speed: String,
+    #[cfg(feature = "recorder-worker")]
     pub edge_voice: String,
     pub edge_settings: crate::config::EdgeTtsSettings,
-    pub step_audio_settings: crate::config::StepAudioSettings,
-    pub magpie_settings: crate::config::MagpieSettings,
-    /// Local open-weights providers read their per-request settings here so
-    /// playground/narration callers can override voice routing per session.
-    pub kokoro_settings: crate::config::KokoroSettings,
-    pub supertonic_settings: crate::config::SupertonicSettings,
-    pub vieneu_settings: crate::config::VieneuSettings,
     /// Optional ISO 639-3 language hint for batched callers such as subtitle narration.
     pub language_code_override: Option<String>,
 }
@@ -61,15 +68,12 @@ impl From<&crate::config::TtsPlaygroundSettings> for TtsRequestProfile {
             gemini_speed: settings.gemini_speed.clone(),
             gemini_instruction: settings.gemini_instruction.clone(),
             gemini_language_conditions: settings.gemini_language_conditions.clone(),
+            #[cfg(feature = "recorder-worker")]
             gemini_parallel_requests: 2,
             google_speed: settings.google_speed.clone(),
+            #[cfg(feature = "recorder-worker")]
             edge_voice: settings.edge_voice.clone(),
             edge_settings: settings.edge_settings.clone(),
-            step_audio_settings: settings.step_audio_settings.clone(),
-            magpie_settings: settings.magpie_settings.clone(),
-            kokoro_settings: settings.kokoro_settings.clone(),
-            supertonic_settings: settings.supertonic_settings.clone(),
-            vieneu_settings: settings.vieneu_settings.clone(),
             language_code_override: None,
         }
     }

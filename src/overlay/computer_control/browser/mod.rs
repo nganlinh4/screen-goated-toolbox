@@ -8,25 +8,34 @@
 //! default profile). All logic lives here in Rust; the extension just forwards CDP.
 
 mod bridge;
+mod bridge_auth;
 mod bridge_cdp;
+mod bridge_cipher;
 mod bridge_cleanup;
 mod bridge_listener;
 mod bridge_rpc;
 mod bridge_wait;
 mod capabilities;
 mod controller_io;
+mod controller_isolated;
 mod crypto;
+mod document_binding;
 mod document_readiness;
+mod effect_barrier;
 mod errors;
 mod extension_update;
 mod frame_identity;
+mod frame_inventory;
+mod frame_url;
 mod page;
 mod pointer;
 mod prefs;
 mod readiness;
+mod reload_receipt;
 mod setup;
 mod surface_binding;
 mod tab_lifecycle;
+mod tab_switch;
 mod tab_tools;
 mod temporary_tabs;
 mod upload;
@@ -36,10 +45,29 @@ use std::sync::{Arc, atomic::AtomicBool, atomic::Ordering};
 use std::time::Duration;
 
 pub(super) use bridge::is_connected;
+pub(super) use tab_switch::switch_tab;
+pub(super) fn effect_unsettled() -> bool {
+    !effect_barrier::ready()
+}
 pub(super) use controller_io::{
-    DOCUMENT_ID_JS, active_tab_id, click_selector_on_active_tab, click_selector_on_tab,
-    eval_value_in_active_tab, fill_in_on_active_tab, fill_in_on_tab,
+    active_tab_id, click_selector_on_active_tab, click_selector_on_tab, fill_in_on_active_tab,
+    fill_in_on_tab,
 };
+pub(super) use controller_isolated::DOCUMENT_ID_JS as CONTROLLER_DOCUMENT_ID_JS;
+
+pub(super) fn eval_controller(
+    expression: &str,
+    tab_id: i64,
+    session_id: Option<&str>,
+    require_active: bool,
+) -> anyhow::Result<Value> {
+    let route = if require_active {
+        controller_io::MutationRoute::Active
+    } else {
+        controller_io::MutationRoute::Exact
+    };
+    controller_isolated::eval(route, expression, tab_id, session_id)
+}
 pub(super) use document_readiness::await_readable_document_on_tab;
 pub(super) use frame_identity::{
     StableDocumentIdentity, acquire_stable_document_identity_on_tab, active_document_identity,
@@ -65,7 +93,7 @@ pub(super) use temporary_tabs::{
     open_effect_ambiguous as temporary_tab_open_effect_ambiguous, open_persistent_tab,
     open_temporary_tab, open_turn_owned_tab,
 };
-pub(super) use upload::{upload_file, upload_file_on_document};
+pub(super) use upload::upload_file;
 
 pub(super) fn ensure_started() {
     readiness::mark_bridge_start();
@@ -149,6 +177,10 @@ fn not_connected() -> Value {
 fn connection_state() -> &'static str {
     if is_connected() {
         "connected"
+    } else if bridge::pairing_retry_required() {
+        "pairing_retry_required"
+    } else if bridge::legacy_update_required() {
+        "extension_reload_suggested_unverified"
     } else if bridge::pairing_window_open() {
         "pairing_window_open"
     } else if recently_connected() {
@@ -245,46 +277,48 @@ fn js_exception_text(exc: &Value) -> String {
     }
 }
 
-/// CDP sessions of the cross-origin (out-of-process) iframes flat-attached to the
-/// tab, learned from the auto-attach events. Best-effort: a dead/detached session
-/// just errors when used and is skipped. Used to perceive + act inside frames the
-/// top document can't reach (login / payment / embed widgets).
-pub(super) fn child_frames() -> Vec<String> {
-    child_frames_for_tab(None)
+pub(super) use frame_inventory::FrameInventory;
+
+pub(super) fn child_frames_on_tab(
+    tab_id: i64,
+    require_active: bool,
+) -> anyhow::Result<FrameInventory> {
+    frame_inventory::snapshot(tab_id, require_active)
 }
 
-pub(super) fn child_frames_on_tab(tab_id: i64) -> Vec<String> {
-    child_frames_for_tab(Some(tab_id))
+pub(super) fn incomplete_frame_coverage(message: impl Into<String>) -> anyhow::Error {
+    frame_inventory::Incomplete(message.into()).into()
 }
 
-fn child_frames_for_tab(tab_id: Option<i64>) -> Vec<String> {
-    use std::collections::HashSet;
-    let detached: HashSet<String> =
-        bridge::recent_events_on_tab("Target.detachedFromTarget", 50, tab_id)
-            .iter()
-            .filter_map(|e| {
-                e.get("params")
-                    .and_then(|p| p.get("sessionId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .collect();
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for e in bridge::recent_events_on_tab("Target.attachedToTarget", 50, tab_id) {
-        let p = e.get("params");
-        let ttype = p
-            .and_then(|p| p.get("targetInfo"))
-            .and_then(|t| t.get("type"))
-            .and_then(Value::as_str);
-        let Some(sid) = p.and_then(|p| p.get("sessionId")).and_then(Value::as_str) else {
-            continue;
-        };
-        if ttype == Some("iframe") && !detached.contains(sid) && seen.insert(sid.to_string()) {
-            out.push(sid.to_string());
-        }
+pub(super) fn frame_coverage_error(error: &anyhow::Error) -> Option<Value> {
+    if error
+        .downcast_ref::<effect_barrier::EffectSettling>()
+        .is_some()
+    {
+        return Some(errors::response(effect_barrier::EffectSettling.into()));
     }
-    out
+    if let Some(capability) = capabilities::unsupported_from(error)
+        && matches!(
+            capability,
+            capabilities::FRAME_INVENTORY
+                | capabilities::CDP_DISPATCH_ADMISSION
+                | capabilities::EFFECT_ADMISSION
+        )
+    {
+        return Some(errors::response(capabilities::unsupported(capability)));
+    }
+    if let Some(error) = error.downcast_ref::<frame_inventory::TooManyFrames>() {
+        return Some(json!({
+            "ok": false, "code": "ERR_BROWSER_TOO_MANY_FRAMES", "error": error.to_string(),
+            "retryable": false,
+            "next_step": "This page has more frames than the browser controller observes. Use screen-level tools (look, then click_at by coordinates) for it instead of retrying.",
+            "effect_may_have_occurred": false,
+        }));
+    }
+    error.downcast_ref::<frame_inventory::Incomplete>().map(|error| json!({
+        "ok": false, "code": "ERR_BROWSER_FRAME_COVERAGE_INCOMPLETE", "error": error.to_string(),
+        "effect_may_have_occurred": false,
+    }))
 }
 
 // ── Page tools (all guard on connection) ─────────────────────────────────────
@@ -461,50 +495,6 @@ pub(super) fn get_tabs() -> Value {
         Ok(v) => json!({"ok": true, "tabs": v}),
         Err(e) => err(e),
     }
-}
-
-pub(super) fn switch_tab(tab_id: i64) -> Value {
-    let tab_id = match tab_lifecycle::required_tab_id(tab_id, "browser_switch_tab") {
-        Ok(tab_id) => tab_id,
-        Err(error) => return error,
-    };
-    require_conn!();
-    let tabs = match bridge::rpc("tabs", json!({"action": "list"})) {
-        Ok(tabs) => tabs,
-        Err(error) => return tab_lifecycle::tab_inventory_unavailable(&error),
-    };
-    if let Err(error) = tab_lifecycle::preflight_tab_activation(tab_id, &tabs) {
-        return error;
-    }
-    if let Err(e) = bridge::rpc("tabs", json!({"action": "activate", "tabId": tab_id})) {
-        return err(e);
-    }
-    // Confirm WHERE we landed (title + url) so the agent doesn't keep reading/acting on the wrong tab.
-    let (title, url, pending_url) = tab_title_url(tab_id);
-    json!({
-        "ok": true,
-        "switched": tab_id,
-        "target_tab_id": tab_id,
-        "title": title,
-        "url": url,
-        "pending_url": pending_url,
-        "effect_verified": true,
-        "effect_may_have_occurred": true,
-        "executed": true,
-    })
-}
-
-/// A tab's title, committed URL, and pending URL (best-effort; nulls on miss).
-fn tab_title_url(tab_id: i64) -> (Value, Value, Value) {
-    if let Ok(v) = bridge::rpc("tabs", json!({"action": "list"}))
-        && let Some(t) = v.as_array().and_then(|tabs| {
-            tabs.iter()
-                .find(|t| t.get("id").and_then(Value::as_i64) == Some(tab_id))
-        })
-    {
-        return tab_lifecycle::tab_title_url(t);
-    }
-    (Value::Null, Value::Null, Value::Null)
 }
 
 #[cfg(test)]

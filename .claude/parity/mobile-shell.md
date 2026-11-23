@@ -6,6 +6,7 @@
 - Windows theme and system-language enums/helpers: [src/config/types/enums.rs](../../src/config/types/enums.rs)
 - Windows locale string bundles: [src/gui/locale/mod.rs](../../src/gui/locale/mod.rs), [src/gui/locale/en.rs](../../src/gui/locale/en.rs), [src/gui/locale/vi.rs](../../src/gui/locale/vi.rs), [src/gui/locale/ko.rs](../../src/gui/locale/ko.rs)
 - Windows TTS settings preview behavior: [src/gui/settings_ui/global/tts_settings.rs](../../src/gui/settings_ui/global/tts_settings.rs)
+- Windows credential card/toggle/field order: [src/gui/settings_ui/global/api_keys.rs](../../src/gui/settings_ui/global/api_keys.rs)
 - Windows app/tray icon assets: [assets/app-icon-small.png](../../assets/app-icon-small.png), [assets/app-icon-small-light.png](../../assets/app-icon-small-light.png), [assets/tray_icon.png](../../assets/tray_icon.png), [assets/tray_icon-light.png](../../assets/tray_icon-light.png)
 
 ## Behavior Contract
@@ -47,6 +48,7 @@
   - tools uses a page-scoped footer for preset actions; its preset rows scroll independently beneath that footer instead of owning the footer position
   - nested horizontal carousels in apps/tools own touch gestures for the full gesture whenever they have horizontal scroll available; the shell tab pager must not compete for drags that start inside a scrollable inner carousel
 - Mobile may keep Android-native rendering, but the language/theme state model and localized preview text source must match Windows.
+- Reset defaults follows the Windows restore_defaults.rs app and audio scope with every category selected: presets, theme, result overlay opacity, preset runtime, history limits, and every global TTS field (method, Gemini model, voice, speed, language conditions, Edge settings). It also resets the Live Translate part of the audio scope (translation and transcription models, custom vocabulary, transcription and target languages, audio source, pane font sizes) and keeps Android display-mode and notification settings. It keeps the UI language and API keys. Deliberate deviation: Android has no category picker and always applies the Windows default selection (every category), because the shortcut, mini-app and local-data categories have no Android settings to choose between.
 
 ## Android Implementation Guard
 - The Android root owns `localeCode` plus `shell`, `history`, `help`,

@@ -91,19 +91,6 @@ fn integration_effect_uses_structured_annotations_and_defaults_conservative() {
 }
 
 #[test]
-fn reconciliation_requires_external_state_evidence() {
-    assert!(provides_reconciliation_evidence("observe"));
-    assert!(provides_reconciliation_evidence("read_text_file"));
-    assert!(provides_reconciliation_evidence("browser_read_page"));
-    assert!(provides_reconciliation_evidence("extract_artifact"));
-    assert!(provides_reconciliation_evidence("browser_wait_for"));
-    assert!(!provides_reconciliation_evidence("wait"));
-    assert!(!provides_reconciliation_evidence("browser_status"));
-    assert!(!provides_reconciliation_evidence("done"));
-    assert!(!provides_reconciliation_evidence("future_dynamic_tool"));
-}
-
-#[test]
 fn task_summary_uses_executed_capabilities() {
     assert_eq!(task_class_from_tools(&[]), "conversation");
     assert_eq!(task_class_from_tools(&["done".to_string()]), "conversation");

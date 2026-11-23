@@ -8,7 +8,6 @@ param(
         "computer-control",
         "local-asr",
         "vc-runtime",
-        "qwen-runtime",
         "external-tools"
     )]
     [string]$Component,
@@ -78,8 +77,7 @@ switch ($Component) {
         $trackedRelative = "component-delivery/windows/computer-control-v1.json"
     }
     "local-asr" {
-        & (Join-Path $PSScriptRoot "build-local-asr-packs.ps1") `
-            -OutputDir $output -CargoTargetDir $cargoTarget
+        & (Join-Path $PSScriptRoot "build-local-asr-packs.ps1") -OutputDir $output
         $manifestName = "sgt_local_asr.packages.json"
         $trackedRelative = "component-delivery/windows/local-asr-v1.json"
     }
@@ -87,11 +85,6 @@ switch ($Component) {
         & (Join-Path $PSScriptRoot "build-vc-runtime-pack.ps1") -OutputDir $output
         $manifestName = "sgt_vc_runtime.packages.json"
         $trackedRelative = "component-delivery/windows/vc-runtime-v1.json"
-    }
-    "qwen-runtime" {
-        & (Join-Path $PSScriptRoot "build-qwen3-runtime-pack.ps1") -OutputDir $output
-        $manifestName = "sgt_qwen3_runtime.packages.json"
-        $trackedRelative = "component-delivery/windows/qwen-runtime-v1.json"
     }
     "external-tools" {
         & (Join-Path $PSScriptRoot "build-external-tool-packs.ps1") -OutputDir $output

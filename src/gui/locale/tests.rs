@@ -125,28 +125,28 @@ fn locale_root_contains_only_the_eighteen_typed_sections() {
 #[test]
 fn locale_leaf_fields_have_one_section_owner() {
     let sections = [
-        ("badge", include_str!("badge.rs"), 47),
-        ("workspace", include_str!("workspace.rs"), 25),
+        ("badge", include_str!("badge.rs"), 45),
+        ("workspace", include_str!("workspace.rs"), 29),
         ("preset_basics", include_str!("preset_basics.rs"), 36),
-        ("desktop_settings", include_str!("desktop_settings.rs"), 36),
-        ("preset_editor", include_str!("preset_editor.rs"), 37),
-        ("global_settings", include_str!("global_settings.rs"), 34),
-        ("tts_playground", include_str!("tts_playground.rs"), 29),
-        ("model_catalog", include_str!("model_catalog.rs"), 28),
-        ("tts_settings", include_str!("tts_settings.rs"), 29),
-        ("tts_advanced", include_str!("tts_advanced.rs"), 35),
-        ("realtime", include_str!("realtime.rs"), 34),
+        ("desktop_settings", include_str!("desktop_settings.rs"), 41),
+        ("preset_editor", include_str!("preset_editor.rs"), 51),
+        ("global_settings", include_str!("global_settings.rs"), 39),
+        ("tts_playground", include_str!("tts_playground.rs"), 28),
+        ("model_catalog", include_str!("model_catalog.rs"), 34),
+        ("tts_settings", include_str!("tts_settings.rs"), 30),
+        ("tts_advanced", include_str!("tts_advanced.rs"), 8),
+        ("realtime", include_str!("realtime.rs"), 35),
         ("live_translate", include_str!("live_translate.rs"), 11),
-        ("screen_translate", include_str!("screen_translate.rs"), 30),
-        ("shell", include_str!("shell.rs"), 47),
+        ("screen_translate", include_str!("screen_translate.rs"), 31),
+        ("shell", include_str!("shell.rs"), 75),
         (
             "translation_gummy",
             include_str!("translation_gummy.rs"),
             30,
         ),
-        ("tool_runtime", include_str!("tool_runtime.rs"), 44),
-        ("overlay", include_str!("overlay.rs"), 24),
-        ("auxiliary", include_str!("auxiliary.rs"), 10),
+        ("tool_runtime", include_str!("tool_runtime.rs"), 2),
+        ("overlay", include_str!("overlay.rs"), 43),
+        ("auxiliary", include_str!("auxiliary.rs"), 12),
     ];
     let mut owners = BTreeMap::new();
 
@@ -161,21 +161,51 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 566);
+    assert_eq!(owners.len(), 580);
+    assert_eq!(owners["history_write_failed"], "workspace");
+    assert_eq!(owners["history_load_failed"], "workspace");
+    for field in [
+        "admin_startup_protected_location",
+        "admin_startup_conflict",
+        "admin_startup_operation_failed",
+        "admin_startup_uncertain",
+        "admin_startup_path_too_long",
+    ] {
+        assert_eq!(owners[field], "desktop_settings");
+    }
+    assert_eq!(owners["tts_preview_english_sample"], "tts_settings");
+    assert_eq!(
+        owners["screen_translate_subtitle_display_changed"],
+        "screen_translate"
+    );
     assert_eq!(owners["cancel_label"], "preset_basics");
     assert_eq!(owners["favorites_keep_open"], "shell");
-    assert_eq!(owners["image_creator_btn"], "shell");
     assert_eq!(owners["download"], "auxiliary");
     assert_eq!(owners["managed_tools"], "auxiliary");
     assert_eq!(owners["realtime_app_loading"], "realtime");
     assert_eq!(owners["live_translate_title"], "live_translate");
+    assert_eq!(owners["restart_in_progress_title"], "badge");
+    assert_eq!(owners["restart_in_progress_body"], "badge");
+    assert_eq!(owners["restart_launch_failed_title"], "shell");
+    assert_eq!(owners["restart_launch_failed_body"], "shell");
+    assert_eq!(owners["restart_launch_retry"], "shell");
+    assert_eq!(owners["restart_launch_cancel"], "shell");
+    assert_eq!(owners["drop_unsupported"], "shell");
+    assert_eq!(owners["drop_too_large"], "shell");
+    assert_eq!(owners["drop_read_failed"], "shell");
+    assert_eq!(owners["drop_busy"], "shell");
+    assert_eq!(owners["drop_process_failed"], "shell");
+    assert_eq!(owners["text_input_unavailable"], "shell");
+    assert_eq!(owners["text_input_delivery_failed"], "shell");
+    assert_eq!(owners["text_input_delivery_uncertain"], "shell");
+    assert_eq!(owners["graph_invalid_readonly"], "preset_editor");
 }
 
 #[test]
 fn downloaded_tools_progress_and_cards_are_localized() {
     assert_eq!(
         public_field_names(include_str!("managed_tools.rs")).len(),
-        150
+        124
     );
     let english = LocaleText::get("en");
     for code in ["en", "ko", "vi"] {
@@ -206,14 +236,16 @@ fn downloaded_tools_progress_and_cards_are_localized() {
             managed.tool_creation_interface,
             managed.tool_prompt_dj_interface,
             managed.tool_tts_playground_interface,
-            managed.tool_step_audio_model,
-            managed.tool_magpie_model,
-            managed.tool_vieneu_model,
+            managed.tool_legacy_offline_card,
+            managed.tool_legacy_offline_files,
+            managed.tool_desc_legacy_offline,
             managed.downloaded_tools_clean_confirm_title,
             managed.downloaded_tools_clean_confirm_body,
             managed.downloaded_tools_clean_progress_title,
             managed.downloaded_tools_clean_complete,
-            managed.tool_desc_supertonic,
+            managed.tool_status_unavailable,
+            managed.tool_status_repair_required,
+            managed.tool_action_repair,
             managed.tool_mcp_time_desc,
             managed.tool_mcp_blender_desc,
         ] {
@@ -252,8 +284,15 @@ fn downloaded_tools_progress_and_cards_are_localized() {
                 .downloaded_tools_clean_confirm_body
         );
         assert_ne!(
-            localized.auxiliary.managed_tools.tool_desc_supertonic,
-            english.auxiliary.managed_tools.tool_desc_supertonic
+            localized
+                .auxiliary
+                .managed_tools
+                .tool_status_repair_required,
+            english.auxiliary.managed_tools.tool_status_repair_required
+        );
+        assert_ne!(
+            localized.auxiliary.managed_tools.tool_action_repair,
+            english.auxiliary.managed_tools.tool_action_repair
         );
     }
 }

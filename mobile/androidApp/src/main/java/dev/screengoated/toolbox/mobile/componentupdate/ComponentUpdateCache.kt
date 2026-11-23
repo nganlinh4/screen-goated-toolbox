@@ -7,21 +7,8 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 
-internal object ComponentUpdateRuntime {
-    @Volatile private var applicationContext: Context? = null
-
-    fun initialize(context: Context) {
-        applicationContext = context.applicationContext
-    }
-
-    fun context(): Context = requireNotNull(applicationContext) {
-        "Component update runtime is not initialized"
-    }
-}
-
 internal object ComponentUpdateCache {
     fun loadHighest(context: Context): VerifiedComponentCatalog? {
-        ComponentUpdateRuntime.initialize(context)
         val root = root(context)
         if (!root.exists()) return null
         requireRegularDirectory(root)
@@ -48,6 +35,16 @@ internal object ComponentUpdateCache {
         requireRegularDirectory(root)
         storeOne(root, name, catalog)
         storeOne(root, name.removeSuffix(".json") + ".sig", signature)
+        prune(root, keep = name)
+    }
+
+    /** Signature first, so a crash mid-prune never leaves an unsigned catalog that looks current. */
+    private fun prune(root: File, keep: String) {
+        val names = root.listFiles().orEmpty().map(File::getName).filter { CACHED_CATALOG.matches(it) }
+        cachedCatalogsToPrune(names, keep).forEach { stale ->
+            File(root, stale.removeSuffix(".json") + ".sig").delete()
+            File(root, stale).delete()
+        }
     }
 
     private fun storeOne(root: File, name: String, bytes: ByteArray) {
@@ -82,6 +79,16 @@ internal object ComponentUpdateCache {
     private fun root(context: Context) = File(context.noBackupFilesDir, "component-update-catalog")
 }
 
+/** Keeps the just-stored catalog plus the newest few by name; names embed a zero-padded sequence. */
+internal fun cachedCatalogsToPrune(
+    names: List<String>,
+    keep: String,
+    retained: Int = RETAINED_CACHED_CATALOGS,
+): List<String> {
+    val newest = names.sortedDescending().take(retained).toSet()
+    return names.filter { it != keep && it !in newest }
+}
+
 private fun readRegular(file: File, maximum: Long): ByteArray {
     require(file.isFile && !Files.isSymbolicLink(file.toPath()) && file.length() <= maximum)
     return file.readBytes()
@@ -94,3 +101,4 @@ private fun requireRegularDirectory(directory: File) {
 private val CACHED_CATALOG =
     Regex("^sgt-component-catalog-v\\d{6}-[0-9a-fA-F]{16}\\.json$")
 private const val MAXIMUM_CACHED_CATALOGS = 64
+private const val RETAINED_CACHED_CATALOGS = 4

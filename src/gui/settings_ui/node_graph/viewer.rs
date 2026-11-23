@@ -6,7 +6,7 @@ use crate::gui::locale::LocaleText;
 use crate::gui::theme::AppTheme;
 use eframe::egui;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
-use egui_snarl::{InPin, NodeId, OutPin, Snarl};
+use egui_snarl::{InPin, InPinId, NodeId, OutPin, OutPinId, Snarl};
 
 const NODE_HEADER_MIN_WIDTH: f32 = 170.0;
 
@@ -14,7 +14,6 @@ pub struct ChainViewer<'a> {
     pub text: &'a LocaleText,
     pub ui_language: String,
     pub changed: bool,
-    pub language_search: String,
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
@@ -28,7 +27,6 @@ impl<'a> ChainViewer<'a> {
             text,
             ui_language: config.ui_language.clone(),
             changed: false,
-            language_search: String::new(),
             use_groq: config.use_groq,
             use_gemini: config.use_gemini,
             use_openrouter: config.use_openrouter,
@@ -245,36 +243,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
             resp.clicked()
         };
         if add_special_clicked {
-            let mut node = ChainNode::default();
-            // Force it to be Special
-            if let ChainNode::Process {
-                id,
-                block_type,
-                model,
-                prompt,
-                language_vars,
-                show_overlay,
-                streaming_enabled,
-                search_enabled,
-                render_mode,
-                auto_copy,
-                auto_speak,
-            } = node
-            {
-                node = ChainNode::Special {
-                    id,
-                    block_type,
-                    model,
-                    prompt,
-                    language_vars,
-                    show_overlay,
-                    streaming_enabled,
-                    search_enabled,
-                    render_mode,
-                    auto_copy,
-                    auto_speak,
-                };
-            }
+            let node = ChainNode::new_special(&self.preset_type);
             snarl.insert_node(pos, node);
             self.changed = true;
             ui.close();
@@ -293,11 +262,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         ui: &mut egui::Ui,
         snarl: &mut Snarl<ChainNode>,
     ) {
-        let delete_label = match self.ui_language.as_str() {
-            "vi" => "Xóa node",
-            "ko" => "노드 삭제",
-            _ => "Delete Node",
-        };
+        let delete_label = self.text.preset_editor.node_delete;
 
         ui.horizontal(|ui| {
             draw_icon_static(ui, Icon::Delete, Some(crate::gui::icons::ICON_MD));
@@ -310,26 +275,89 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
     }
 
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<ChainNode>) {
-        // Enforce constraints:
-        // Preceding node of Special Node can ONLY be the Input Node.
-
-        let to_node = snarl.get_node(to.id.node);
-        let from_node = snarl.get_node(from.id.node);
-
-        if let (Some(to_node), Some(from_node)) = (to_node, from_node)
-            && to_node.is_special()
-            && !from_node.is_input()
-        {
-            // Violation: Attempting to connect non-input to Special node
-            return;
-        }
-
-        snarl.connect(from.id, to.id);
-        self.changed = true;
+        self.changed |= connect_replacing_input(snarl, from.id, to.id);
     }
 
     fn disconnect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<ChainNode>) {
         snarl.disconnect(from.id, to.id);
         self.changed = true;
+    }
+}
+
+fn connect_replacing_input(snarl: &mut Snarl<ChainNode>, from: OutPinId, to: InPinId) -> bool {
+    if from.node == to.node {
+        return false;
+    }
+    let (Some(from_node), Some(to_node)) = (snarl.get_node(from.node), snarl.get_node(to.node))
+    else {
+        return false;
+    };
+    if to_node.is_input() || (to_node.is_special() && !from_node.is_input()) {
+        return false;
+    }
+    if snarl
+        .wires()
+        .any(|(existing_from, existing_to)| existing_from == from && existing_to == to)
+    {
+        return false;
+    }
+    snarl.drop_inputs(to);
+    snarl.connect(from, to)
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+
+    #[test]
+    fn shared_fixture_replaces_the_occupied_input() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/preset-system/node-graph-editor.json"
+        ))
+        .unwrap();
+        let case = fixture["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == "new_connection_replaces_occupied_input")
+            .unwrap();
+        let mut snarl = Snarl::new();
+        let nodes: Vec<_> = (0..3)
+            .map(|_| snarl.insert_node(egui::Pos2::ZERO, ChainNode::default()))
+            .collect();
+        let edge = |value: &serde_json::Value| {
+            (
+                OutPinId {
+                    node: nodes[value[0].as_u64().unwrap() as usize],
+                    output: 0,
+                },
+                InPinId {
+                    node: nodes[value[1].as_u64().unwrap() as usize],
+                    input: 0,
+                },
+            )
+        };
+        for value in case["initial_connections"].as_array().unwrap() {
+            let (from, to) = edge(value);
+            assert!(connect_replacing_input(&mut snarl, from, to));
+        }
+        let (from, to) = edge(&case["new_connection"]);
+        assert!(connect_replacing_input(&mut snarl, from, to));
+        let expected: Vec<_> = case["expected_connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(edge)
+            .collect();
+        assert_eq!(snarl.wires().collect::<Vec<_>>(), expected);
+        assert!(!connect_replacing_input(&mut snarl, from, to));
+        assert!(!connect_replacing_input(
+            &mut snarl,
+            OutPinId {
+                node: nodes[2],
+                output: 0
+            },
+            to
+        ));
     }
 }

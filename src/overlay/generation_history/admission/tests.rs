@@ -31,6 +31,17 @@ fn planner_preserves_free_reserve_and_managed_cap() {
 }
 
 #[test]
+fn reclaim_candidates_are_needed_only_under_hard_or_soft_pressure() {
+    assert!(!requires_reclamation(budget()));
+    let mut soft_pressure = budget();
+    soft_pressure.managed_bytes = MANAGED_HIGH_WATERMARK_BYTES;
+    assert!(requires_reclamation(soft_pressure));
+    let mut free_pressure = budget();
+    free_pressure.available_bytes = FREE_SPACE_RESERVE_BYTES + 1;
+    assert!(requires_reclamation(free_pressure));
+}
+
+#[test]
 fn free_reserve_is_bounded_for_large_volumes() {
     assert_eq!(
         free_reserve_bytes(64 * 1024 * 1024 * 1024),
@@ -81,19 +92,34 @@ fn entry(id: &str, tool: &str, created_at_ms: u64, output_path: &Path) -> Result
         artifact_size_bytes: 10,
         artifact_sha256: "0".repeat(64),
         managed_artifact: true,
+        companion_origin_path: None,
         metadata: Value::Null,
     }
 }
 
 #[test]
 fn reclamation_protects_the_newest_result_even_when_entries_are_appended() {
-    let oldest_path = PathBuf::from("managed/oldest.glb");
-    let newest_path = PathBuf::from("managed/newest.glb");
+    let root = std::env::temp_dir().join(format!(
+        "sgt-reclaim-{}-{}",
+        std::process::id(),
+        HISTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let oldest_path = root.join("oldest.glb");
+    let newest_path = root.join("newest.glb");
+    std::fs::write(&oldest_path, b"0123456789").unwrap();
+    std::fs::write(&newest_path, b"0123456789").unwrap();
+    let artifact = inspect_delivery_artifact(&oldest_path.to_string_lossy()).unwrap();
+    let mut oldest = entry("oldest", "3d", 10, &oldest_path);
+    oldest.artifact_sha256 = artifact.sha256;
     let store = ResultHistoryStore {
-        entries: vec![
-            entry("oldest", "3d", 10, &oldest_path),
-            entry("newest", "3d", 20, &newest_path),
-        ],
+        entries: vec![oldest, entry("newest", "3d", 20, &newest_path)],
+        delivery_identities: vec![HistoryDeliveryIdentity {
+            tool: "3d".into(),
+            entry_id: "oldest".into(),
+            dispatch_id: "dispatch".into(),
+            artifact_file_identity: artifact.file_identity,
+        }],
         ..ResultHistoryStore::default()
     };
     let files = HashMap::from([(path_key(&oldest_path), 10), (path_key(&newest_path), 10)]);
@@ -105,6 +131,73 @@ fn reclamation_protects_the_newest_result_even_when_entries_are_appended() {
             .collect::<Vec<_>>(),
         vec!["oldest"]
     );
+    let mut constrained = budget();
+    constrained.available_bytes = FREE_SPACE_RESERVE_BYTES;
+    constrained.requested_volume_bytes = 11;
+    assert!(plan_reclamation(&store, &files, &HashSet::new(), constrained).is_err());
+    assert_eq!(std::fs::read(&oldest_path).unwrap(), b"0123456789");
+    assert_eq!(store.entries.len(), 2);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reclamation_excludes_unverifiable_companion_metadata() {
+    let oldest_path = PathBuf::from("managed/oldest.glb");
+    let newest_path = PathBuf::from("managed/newest.glb");
+    let mut oldest = entry("oldest", "3d", 10, &oldest_path);
+    oldest.metadata = serde_json::json!({"download": {"path": "invalid"}});
+    let store = ResultHistoryStore {
+        entries: vec![oldest, entry("newest", "3d", 20, &newest_path)],
+        ..Default::default()
+    };
+    let files = HashMap::from([(path_key(&oldest_path), 10), (path_key(&newest_path), 10)]);
+    assert!(reclaimable_entries(&store, &files, &HashSet::new()).is_empty());
+}
+
+#[test]
+fn insufficient_reclaim_budget_preserves_candidates() {
+    let older_path = PathBuf::from("managed/old.glb");
+    let newest_path = PathBuf::from("managed/new.glb");
+    let store = ResultHistoryStore {
+        entries: vec![
+            entry("old", "3d", 1, &older_path),
+            entry("new", "3d", 2, &newest_path),
+        ],
+        ..Default::default()
+    };
+    let files = HashMap::from([(path_key(&older_path), 10), (path_key(&newest_path), 10)]);
+    let mut constrained = budget();
+    constrained.available_bytes = FREE_SPACE_RESERVE_BYTES;
+    constrained.requested_volume_bytes = 11;
+    assert!(plan_reclamation(&store, &files, &HashSet::new(), constrained).is_err());
+    assert_eq!(store.entries.len(), 2);
+    assert!(store.pending_cleanup.is_empty());
+    assert!(store.pending_deletes.is_empty());
+}
+
+#[test]
+fn companion_reclaim_bytes_require_managed_scan_and_matching_identity() {
+    let root = std::env::temp_dir().join(format!(
+        "sgt-reclaim-pair-{}-{}",
+        std::process::id(),
+        HISTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let primary = root.join("model.glb");
+    let side = root.join("model.fbx");
+    std::fs::write(&primary, b"0123456789").unwrap();
+    std::fs::write(&side, b"companion").unwrap();
+    let artifact = inspect_delivery_artifact(&side.to_string_lossy()).unwrap();
+    let mut item = entry("pair", "3d", 1, &primary);
+    item.metadata = serde_json::json!({"download": {"path": side, "name": "model.fbx", "sizeBytes": artifact.size_bytes, "sha256": artifact.sha256, "fileIdentity": artifact.file_identity}});
+    let mut scanned = HashMap::new();
+    assert_eq!(candidate_bytes(&item, &scanned), 10);
+    scanned.insert(path_key(&side), artifact.size_bytes);
+    assert_eq!(candidate_bytes(&item, &scanned), 10 + artifact.size_bytes);
+    std::fs::remove_file(&side).unwrap();
+    std::fs::write(&side, b"new bytes").unwrap();
+    assert_eq!(candidate_bytes(&item, &scanned), 10);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

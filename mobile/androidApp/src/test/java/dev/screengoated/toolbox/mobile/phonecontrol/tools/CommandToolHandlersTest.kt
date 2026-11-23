@@ -17,6 +17,28 @@ import org.junit.Test
 
 class CommandToolHandlersTest {
     @Test
+    fun textOnlyProviderReceiptIsPreservedWithoutFabricatingBytes() = runTest {
+        val receipt = buildJsonObject {
+            put("ok", true)
+            put("code", "process_exited")
+            put("output", "provider text")
+        }
+        val backend = FakeCommandBackend(
+            sgt = CommandProviderAvailability(CapabilityState.READY),
+            shizuku = CommandProviderAvailability(CapabilityState.UNAVAILABLE),
+            root = CommandProviderAvailability(CapabilityState.UNAVAILABLE),
+            sgtResult = CommandProviderExecution.Receipt(receipt),
+        )
+        val response = handleRunCommand(JOB, buildJsonObject { put("program", "/system/bin/id") }, backend).response
+        assertEquals(receipt, response.getValue("receipt"))
+        assertFalse(receipt.containsKey("output_bytes_base64"))
+        val evidence = response.getValue("output_evidence").jsonObject.getValue("output").jsonObject
+        assertEquals("unknown_or_mixed", evidence.stringValue("encoding"))
+        assertFalse(evidence.getValue("text_exact").jsonPrimitive.content.toBoolean())
+        assertFalse(evidence.getValue("raw_bytes_reported_by_provider").jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
     fun exactArgvUsesSgtBridgeBeforeShizukuAndRootAndReturnsUnverifiedEffectReceipt() = runTest {
         val backend = FakeCommandBackend(
             sgt = CommandProviderAvailability(CapabilityState.READY),

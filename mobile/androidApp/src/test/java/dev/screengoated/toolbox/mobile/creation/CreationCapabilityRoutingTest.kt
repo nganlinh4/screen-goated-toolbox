@@ -62,16 +62,10 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
-    fun `generation modes preserve their product routes`() {
-        val fast = CreationContract.route3dMode(
-            CreationGenerationMode.FAST,
-            CreationContract.MAXIMUM_POLYCOUNT,
-            requestedAutoSegment = true,
-        )
-        assertEquals(CreationGenerationMode.FAST, fast.mode)
-        assertEquals(CreationContract.FAST_MAXIMUM_POLYCOUNT, fast.polycount)
-        assertFalse(fast.autoSegment)
-        assertFalse(fast.showAutoSegment)
+    fun `new generations admit only the canonical Quality route`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            CreationContract.route3dMode(CreationGenerationMode.FAST, 100, false)
+        }
 
         val quality = CreationContract.route3dMode(
             CreationGenerationMode.QUALITY,
@@ -84,10 +78,10 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
-    fun `draft queue and worker wire preserve both 3d modes`() {
+    fun `new draft queue and worker wire preserve Quality`() {
         val codec = Json { encodeDefaults = true; explicitNulls = false }
 
-        CreationGenerationMode.entries.forEach { mode ->
+        listOf(CreationGenerationMode.QUALITY).forEach { mode ->
             val draft = routeCreationNativeItem(
                 CreationTool.IMAGE_TO_3D,
                 CreationNativeItem(
@@ -119,7 +113,6 @@ class CreationCapabilityRoutingTest {
                 generationMode = args.getValue("generationMode").jsonPrimitive.content,
                 operation = "generate",
                 imagePath = "source.png",
-                imagePaths = listOf("source.png"),
                 outputPath = "result.glb",
                 outputName = "result.glb",
             )
@@ -173,7 +166,6 @@ class CreationCapabilityRoutingTest {
                 "generationMode",
                 "operation",
                 "imagePath",
-                "imagePaths",
                 "outputPath",
                 "outputName",
                 "polycount",
@@ -193,35 +185,6 @@ class CreationCapabilityRoutingTest {
     }
 
     @Test
-    fun `source descriptors preserve exact reference order and duplicates`() {
-        val descriptors = listOf(
-            CreationSourceDescriptor("first.png", 10, "a".repeat(64)),
-            CreationSourceDescriptor("second.png", 20, "b".repeat(64)),
-            CreationSourceDescriptor("first.png", 10, "a".repeat(64)),
-        )
-        val request = CreationWorkerRequest(
-            jobId = "image-job",
-            dispatchId = "image-dispatch",
-            requestFingerprint = "c".repeat(64),
-            sourceDescriptors = descriptors,
-            tool = CreationTool.IMAGE_CREATOR.wireName,
-            operation = CreationContract.IMAGE_CREATOR_OPERATION,
-            imagePath = "first.png",
-            imagePaths = descriptors.map(CreationSourceDescriptor::path),
-            outputPath = "result.png",
-            outputName = "result.png",
-        )
-        val decoded = Json.decodeFromString(
-            CreationWorkerRequest.serializer(),
-            Json.encodeToString(CreationWorkerRequest.serializer(), request),
-        )
-
-        assertEquals(listOf("first.png", "second.png", "first.png"), decoded.imagePaths)
-        assertEquals(descriptors, decoded.sourceDescriptors)
-        assertEquals("create_image", decoded.operation)
-    }
-
-    @Test
     fun `segmentation continuation follows result capability only`() {
         assertTrue(CreationContract.canContinueSegmentation(false, true))
         assertFalse(CreationContract.canContinueSegmentation(true, true))
@@ -232,13 +195,13 @@ class CreationCapabilityRoutingTest {
     fun `runtime handshake requires version and product capability manifest`() {
         val expected = CreationRuntimeProductDescriptor(
             runtimeVersion = "1",
-            features = setOf("image_to_3d", "image_to_svg", "image_creator"),
+            features = setOf("image_to_3d", "image_to_svg"),
         )
         val manifest = """
             {
               "contractVersion":1,
               "runtimeVersion":"1",
-              "features":["image_to_3d","image_to_svg","image_creator"],
+              "features":["image_to_3d","image_to_svg"],
               "tools":{
                 "image_to_3d":{
                   "generationModes":{
@@ -256,8 +219,8 @@ class CreationCapabilityRoutingTest {
         assertFalse(
             isCompatibleCreationRuntimeManifest(
                 manifest.replace(
-                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\"]",
                     "\"features\":[\"image_to_3d\",\"image_to_svg\"]",
+                    "\"features\":[\"image_to_3d\"]",
                 ),
                 expected,
             ),
@@ -284,8 +247,8 @@ class CreationCapabilityRoutingTest {
         assertFalse(
             isCompatibleCreationRuntimeManifest(
                 manifest.replace(
-                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\"]",
-                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_creator\",\"image_creator\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\"]",
+                    "\"features\":[\"image_to_3d\",\"image_to_svg\",\"image_to_svg\"]",
                 ),
                 expected,
             ),
@@ -298,7 +261,7 @@ class CreationCapabilityRoutingTest {
             {
               "contractVersion": 1,
               "runtimeVersion": "1",
-              "features": ["image_to_3d", "image_to_svg", "image_creator"],
+              "features": ["image_to_3d", "image_to_svg"],
               "tools": {
                 "image_to_3d": {
                   "generationModes": {

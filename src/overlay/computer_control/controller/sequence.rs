@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::world::{IndexedElement, WorldState};
+use super::world::{ElHandle, IndexedElement, WorldState};
 use super::{ActCtx, Controller, Surface, Verb, browser, gate, transition, validation, verify};
 
 struct PlannedStep {
@@ -33,7 +33,16 @@ impl Controller {
         surface: &mut dyn Surface,
     ) -> Value {
         let Some(planned_world) = self.last.take() else {
-            let elements = self.reobserve(surface);
+            let (current, published, coverage_error) = self.reobserve_for_delivery(surface);
+            if let Some(error) = coverage_error {
+                return super::coverage_before_dispatch(error);
+            }
+            let elements = current
+                .as_ref()
+                .map(WorldState::to_model_text)
+                .unwrap_or_default();
+            self.last = current;
+            let _ = published;
             return json!({
                 "ok": false,
                 "code": "ERR_OBSERVATION_REQUIRED",
@@ -75,6 +84,9 @@ impl Controller {
             }
             Err(error) => {
                 self.last = None;
+                if let Some(error) = super::super::browser::frame_coverage_error(&error) {
+                    return super::coverage_before_dispatch(error);
+                }
                 return json!({
                     "ok": false,
                     "code": "ERR_OBSERVATION_UNAVAILABLE",
@@ -122,36 +134,52 @@ impl Controller {
                 stopped = Some(format!("step {number} blocked: {reason}"));
                 break;
             }
-            let before_surface = super::super::uia::input_target_snapshot();
-            let execution =
-                match surface.execute(&element, planned.verb, value, act, &current.identity) {
-                    Ok(execution) => execution,
-                    Err(error) => {
-                        receipts.push(browser::step_failure(
-                            &error,
-                            number,
-                            planned.requested_id,
-                            &element,
-                            planned.verb,
-                        ));
-                        stopped = Some(format!(
-                            "step {number} ({} @{} {:?}) failed: {error}",
-                            planned.verb.as_str(),
-                            element.id,
-                            element.name
-                        ));
-                        match surface.observe() {
-                            Ok(world) => current = world,
-                            Err(_) => cache_valid = false,
+            let prepared = surface.prepare_input(planned.verb, act, &current.identity);
+            let before_surface = surface.input_snapshot();
+            let execution = match prepared.and_then(|()| {
+                surface.execute(&element, planned.verb, value, act, &current.identity)
+            }) {
+                Ok(execution) => execution,
+                Err(error) => {
+                    let mut receipt = browser::step_failure(
+                        &error,
+                        number,
+                        planned.requested_id,
+                        &element,
+                        planned.verb,
+                    );
+                    stopped = Some(format!(
+                        "step {number} ({} @{} {:?}) failed: {error}",
+                        planned.verb.as_str(),
+                        element.id,
+                        element.name
+                    ));
+                    match surface.observe() {
+                        Ok(world) => current = world,
+                        Err(error) => {
+                            cache_valid = false;
+                            if let Some(error) = super::super::browser::frame_coverage_error(&error)
+                            {
+                                receipt["observation_error"] = error;
+                            }
                         }
-                        break;
                     }
-                };
-            let verification = planned
-                .verb
-                .verifies()
-                .then(|| verify::verify_fill(value.unwrap_or(""), &surface.read_back(&element)));
-            let value_verified = verification.as_ref().is_none_or(|result| result.is_ok());
+                    receipts.push(receipt);
+                    break;
+                }
+            };
+            let verification = planned.verb.verifies().then(|| {
+                let read_back = surface.read_back(&element, &current.identity);
+                if planned.verb == Verb::Select {
+                    verify::verify_select(value.unwrap_or(""), &read_back)
+                } else {
+                    verify::verify_fill(value.unwrap_or(""), &read_back)
+                }
+            });
+            let value_accepted = verification
+                .as_ref()
+                .is_none_or(|result| result.permits_progress());
+            let value_unavailable = matches!(verification, Some(verify::VerifyOutcome::Unknown));
             let observed = transition::observe_after_action(
                 surface,
                 &current,
@@ -163,12 +191,15 @@ impl Controller {
                 transition::requires_context_change(planned.verb, &element, &current.identity);
             let (activation_verified, effect_may_have_occurred) =
                 transition::dispatched_effect_status(context_required, observed.context_changed);
-            let verified = value_verified && activation_verified;
-            let effect_verified = verification.as_ref().is_some_and(|result| result.is_ok())
-                || observed.context_changed;
+            let accepted = value_accepted && activation_verified;
+            let effect_verified = if planned.verb.verifies() {
+                verification.as_ref().is_some_and(|result| result.is_ok())
+            } else {
+                observed.context_changed
+            };
             let mut receipt = json!({
                 "step": number,
-                "ok": verified,
+                "ok": accepted,
                 "effect_may_have_occurred": effect_may_have_occurred,
                 "effect_verified": effect_verified,
                 "requested_id": planned.requested_id,
@@ -184,6 +215,9 @@ impl Controller {
                 },
             });
             if let Some(result) = verification {
+                if matches!(result, verify::VerifyOutcome::Protected) {
+                    receipt["verification_status"] = json!("protected_unverified");
+                }
                 receipt["verify"] = json!(result.describe());
             }
             if !activation_verified {
@@ -195,6 +229,10 @@ impl Controller {
                 Some(world) => world,
                 None => {
                     cache_valid = false;
+                    if let Some(error) = observed.coverage_error {
+                        receipt["observation_error"] = error;
+                        receipt["effect_may_have_occurred"] = json!(true);
+                    }
                     stopped = Some(format!(
                         "step {number}: effect dispatched but post-action observation failed: {}",
                         observed
@@ -207,16 +245,20 @@ impl Controller {
             };
             receipts.push(receipt);
             current = next_world;
-            if !verified {
-                stopped = Some(if !value_verified {
-                    format!("step {number}: read-back verification failed")
+            if !accepted {
+                stopped = Some(if !value_accepted {
+                    if value_unavailable {
+                        format!("step {number}: read-back unavailable; effect is unverified")
+                    } else {
+                        format!("step {number}: read-back verification failed")
+                    }
                 } else {
                     format!("step {number}: activation verification failed")
                 });
                 break;
             }
             log.push(format!(
-                "{} @{} {:?} ✓",
+                "{} @{} {:?}",
                 planned.verb.as_str(),
                 element.id,
                 element.name
@@ -234,15 +276,7 @@ impl Controller {
         } else {
             self.last = None;
         }
-        let effect_verified = receipts
-            .iter()
-            .any(|receipt| receipt.get("effect_verified").and_then(Value::as_bool) == Some(true));
-        let effect_may_have_occurred = receipts.iter().any(|receipt| {
-            receipt
-                .get("effect_may_have_occurred")
-                .and_then(Value::as_bool)
-                == Some(true)
-        });
+        let effect_status = super::super::effect_receipt::batch_status(&receipts);
         let stale_target = receipts.iter().any(|receipt| {
             receipt.get("code").and_then(Value::as_str) == Some("ERR_BROWSER_STALE_TARGET")
         });
@@ -251,9 +285,11 @@ impl Controller {
             "completed": format!("{}/{}", log.len(), plan.len()),
             "did": log,
             "receipts": receipts,
-            "effect_verified": effect_verified,
-            "effect_may_have_occurred": effect_may_have_occurred,
-            "executed": effect_verified.then_some(true),
+            "effect_scope": "batch",
+            "effect_status": effect_status.code(),
+            "effect_verified": effect_status.is_verified(),
+            "effect_may_have_occurred": effect_status.may_have_occurred(),
+            "executed": effect_status.executed(),
         });
         if let Some(published) = published {
             published.attach(&mut result);
@@ -326,6 +362,8 @@ fn refind_unique(world: &WorldState, planned: &IndexedElement) -> Result<Indexed
                 && element.name == planned.name
                 && element.form == planned.form
                 && element.submit == planned.submit
+                && element.protected == planned.protected
+                && same_target_identity(&element.handle, &planned.handle)
         })
         .cloned()
         .collect();
@@ -339,5 +377,51 @@ fn refind_unique(world: &WorldState, planned: &IndexedElement) -> Result<Indexed
             "planned target {:?} is now ambiguous; re-observe and use separate actions",
             planned.name
         )),
+    }
+}
+
+/// Re-observation may renumber browser selectors or move native controls, but
+/// a planned action remains bound to its original provider-owned identity.
+fn same_target_identity(current: &ElHandle, planned: &ElHandle) -> bool {
+    match (current, planned) {
+        (
+            ElHandle::Browser {
+                session: left_session,
+                tab_id: left_tab,
+                document_id: left_document,
+                element_id: left_element,
+                ..
+            },
+            ElHandle::Browser {
+                session: right_session,
+                tab_id: right_tab,
+                document_id: right_document,
+                element_id: right_element,
+                ..
+            },
+        ) => {
+            !left_element.is_empty()
+                && left_element == right_element
+                && left_document == right_document
+                && left_tab == right_tab
+                && left_session == right_session
+        }
+        (
+            ElHandle::Native {
+                automation_id: left_automation,
+                runtime_id: left_runtime,
+                ..
+            },
+            ElHandle::Native {
+                automation_id: right_automation,
+                runtime_id: right_runtime,
+                ..
+            },
+        ) => {
+            !left_runtime.is_empty()
+                && left_runtime == right_runtime
+                && left_automation == right_automation
+        }
+        _ => false,
     }
 }

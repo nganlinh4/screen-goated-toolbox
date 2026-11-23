@@ -20,7 +20,7 @@ pub(super) unsafe fn handle_color_pick(pt: POINT) {
                 let _ = ReleaseDC(None, hdc_screen);
                 return;
             }
-            let old_bmp = SelectObject(hdc_mem, capture.hbitmap.into());
+            let old_bmp = SelectObject(hdc_mem, capture.image.hbitmap.into());
 
             let sx = GetSystemMetrics(SM_XVIRTUALSCREEN);
             let sy = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -56,8 +56,11 @@ pub(super) fn handle_region_capture(start_x: i32, start_y: i32, end_x: i32, end_
 
     let capture_guard = GESTURE_CAPTURE.lock().unwrap();
     if let Some(capture) = capture_guard.as_ref() {
-        let cropped = extract_crop_from_hbitmap_public(capture, rect);
-        get_target().process(cropped, rect);
+        let cropped = extract_crop_from_hbitmap_public(&capture.image, rect);
+        // A queued replacement may already be visible to hotkey routing; this
+        // capture remains bound to the currently owning worker.
+        let target = *CAPTURE_TARGET.lock().unwrap();
+        target.process(cropped, rect, capture.destination);
     }
 }
 
@@ -73,26 +76,31 @@ pub(super) fn handle_zoom(delta: i32, cursor: POINT) {
     drop(zoom);
 
     if z > 1.01 {
-        ensure_magnification_initialized();
-        unsafe {
-            if let Some(func) = MAG_SET_FULLSCREEN_TRANSFORM_FN {
-                let sw = GetSystemMetrics(SM_CXVIRTUALSCREEN) as f32;
-                let sh = GetSystemMetrics(SM_CYVIRTUALSCREEN) as f32;
-                let sx = GetSystemMetrics(SM_XVIRTUALSCREEN) as f32;
-                let sy = GetSystemMetrics(SM_YVIRTUALSCREEN) as f32;
-
-                let view_w = sw / z;
-                let view_h = sh / z;
-
-                let mut ox = cursor.x as f32 - view_w / 2.0;
-                let mut oy = cursor.y as f32 - view_h / 2.0;
-
-                ox = ox.max(sx).min(sx + sw - view_w);
-                oy = oy.max(sy).min(sy + sh - view_h);
-
-                let _ = func(z, ox as i32, oy as i32);
+        if !MAG_LEASE_HELD.load(Ordering::SeqCst) {
+            if !crate::overlay::magnifier::acquire() {
+                return;
             }
+            MAG_LEASE_HELD.store(true, Ordering::SeqCst);
         }
+        let (sw, sh, sx, sy) = unsafe {
+            (
+                GetSystemMetrics(SM_CXVIRTUALSCREEN) as f32,
+                GetSystemMetrics(SM_CYVIRTUALSCREEN) as f32,
+                GetSystemMetrics(SM_XVIRTUALSCREEN) as f32,
+                GetSystemMetrics(SM_YVIRTUALSCREEN) as f32,
+            )
+        };
+
+        let view_w = sw / z;
+        let view_h = sh / z;
+
+        let mut ox = cursor.x as f32 - view_w / 2.0;
+        let mut oy = cursor.y as f32 - view_h / 2.0;
+
+        ox = ox.max(sx).min(sx + sw - view_w);
+        oy = oy.max(sy).min(sy + sh - view_h);
+
+        crate::overlay::magnifier::set_fullscreen_transform(z, ox as i32, oy as i32);
     } else {
         reset_magnification();
     }
@@ -100,45 +108,9 @@ pub(super) fn handle_zoom(delta: i32, cursor: POINT) {
 
 pub(super) fn reset_magnification() {
     *ZOOM_LEVEL.lock().unwrap() = 1.0;
-    if MAG_INITIALIZED.load(Ordering::SeqCst) {
-        unsafe {
-            if let Some(func) = MAG_SET_FULLSCREEN_TRANSFORM_FN {
-                let _ = func(1.0, 0, 0);
-            }
-        }
-    }
-}
-
-#[allow(static_mut_refs)]
-fn ensure_magnification_initialized() {
-    if MAG_INITIALIZED.load(Ordering::SeqCst) {
-        return;
-    }
-    unsafe {
-        if !MAG_DLL_LOADED && let Ok(lib) = LoadLibraryW(windows::core::w!("Magnification.dll")) {
-            if let Some(init) = GetProcAddress(lib, windows::core::s!("MagInitialize")) {
-                MAG_INITIALIZE_FN = Some(std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    MagInitializeFn,
-                >(init));
-                if let Some(f) = MAG_INITIALIZE_FN {
-                    let _ = f();
-                }
-            }
-            if let Some(u) = GetProcAddress(lib, windows::core::s!("MagUninitialize")) {
-                MAG_UNINITIALIZE_FN = Some(std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    MagUninitializeFn,
-                >(u));
-            }
-            if let Some(s) = GetProcAddress(lib, windows::core::s!("MagSetFullscreenTransform")) {
-                MAG_SET_FULLSCREEN_TRANSFORM_FN = Some(std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    MagSetFullscreenTransformFn,
-                >(s));
-            }
-            MAG_DLL_LOADED = true;
-            MAG_INITIALIZED.store(true, Ordering::SeqCst);
-        }
+    // Return the shared lease so the magnifier is balanced across overlays.
+    if MAG_LEASE_HELD.swap(false, Ordering::SeqCst) {
+        crate::overlay::magnifier::set_fullscreen_transform(1.0, 0, 0);
+        crate::overlay::magnifier::release();
     }
 }

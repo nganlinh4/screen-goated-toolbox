@@ -27,7 +27,6 @@ MAX_WEB_FILES = 512
 LICENSE_PREFIXES = ("license", "licence", "copying", "notice", "copyright")
 FIRST_PARTY_RUST_PACKAGES = {
     "sgt-language-catalog",
-    "sgt-local-asr-protocol",
     "sgt-recorder-protocol",
     "sgt-recorder-worker",
 }
@@ -92,11 +91,12 @@ def license_record(path: Path) -> dict[str, object]:
     }
 
 
-def rust_license_inventory(repo: Path, manifest: Path) -> list[dict[str, object]]:
+def rust_license_inventory(repo: Path, manifest: Path, first_party_names: set[str] | None = None) -> list[dict[str, object]]:
     result = subprocess.run(
         [
             "cargo",
             "metadata",
+            "--locked",
             "--format-version",
             "1",
             "--filter-platform",
@@ -125,7 +125,7 @@ def rust_license_inventory(repo: Path, manifest: Path) -> list[dict[str, object]
     packages = []
     for package_id in sorted(reachable):
         package = package_by_id[package_id]
-        if package["name"] in FIRST_PARTY_RUST_PACKAGES:
+        if package["name"] in (FIRST_PARTY_RUST_PACKAGES if first_party_names is None else first_party_names):
             continue
         package_root = Path(package["manifest_path"]).parent
         files = [license_record(path) for path in license_files(package_root)]
@@ -184,7 +184,7 @@ def license_ids(expression: str | None) -> list[str]:
     ]
 
 
-def complete_license_inventory(kind: str, packages: list[dict[str, object]]) -> dict[str, object]:
+def complete_license_inventory(kind: str, packages: list[dict[str, object]], supplemental_texts: dict | None = None) -> dict[str, object]:
     required = set()
     for package in packages:
         if package["files"]:
@@ -201,8 +201,12 @@ def complete_license_inventory(kind: str, packages: list[dict[str, object]]) -> 
     corpus = {}
     for license_id in sorted(required):
         marker = STANDARD_LICENSE_MARKERS[license_id]
-        match = None
+        match = (supplemental_texts or {}).get(license_id)
+        if match and marker not in base64.b64decode(match["base64"]):
+            raise RuntimeError(f"supplemental {license_id} text has an invalid identity")
         for package in packages:
+            if match:
+                break
             for record in package["files"]:
                 if marker in base64.b64decode(record["base64"]):
                     match = record

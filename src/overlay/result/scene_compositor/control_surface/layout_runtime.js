@@ -3,14 +3,23 @@ let controlFontRevision = 0;
 let controlLayoutFrame = null;
 function queueControlLayout() {
     if (controlLayoutFrame !== null) return;
+    const epoch = window.__SGT_TOPOLOGY_EPOCH__ || '1';
     controlLayoutFrame = requestAnimationFrame(() => {
         controlLayoutFrame = null;
+        if (epoch !== (window.__SGT_TOPOLOGY_EPOCH__ || '1')) return;
         window.__SGT_BUTTON_SCENE__?.rebuild();
     });
 }
 window.__SGT_SET_CONTROL_MONITORS__ = function(monitors) {
     controlMonitors = Array.isArray(monitors) ? monitors : [];
+    window.__SGT_REFRESH_CARD_DPI__?.();
     queueControlLayout();
+};
+window.__SGT_MONITOR_SCALE_FOR_RECT__ = function(anchor) {
+    const scale = window.devicePixelRatio || 1;
+    const rect = raw => ({x: raw[0] / scale, y: raw[1] / scale, w: raw[2] / scale, h: raw[3] / scale});
+    const monitors = controlMonitors.map(m => ({bounds: rect(m.bounds), work: rect(m.work), dpi: m.dpi}));
+    return window.__SGT_CONTROL_PLACEMENT__.monitorScale(anchor, monitors);
 };
 window.addEventListener('resize', queueControlLayout);
 document.fonts.addEventListener('loadingdone', () => { controlFontRevision++; queueControlLayout(); });
@@ -50,6 +59,17 @@ function measureControlOrientations(group, hwnd, state, editor, source) {
     return result;
 }
 
+// The host echoes each opacity step back through updateWindows; an echo of an
+// earlier step must not pull the slider back under the pointer mid-drag.
+function syncOpacityControl(group, opacityPercent) {
+    if (opacityPercent == null || activeGrabbingSources.has('opacity')) return;
+    const opacity = group.querySelector('.opacity-slider-inline');
+    const opacityLabel = group.querySelector('.opacity-value-inline');
+    if (!opacity) return;
+    opacity.value = opacityPercent;
+    if (opacityLabel) opacityLabel.textContent = opacityPercent + '%';
+}
+
 function updateWindows(windowsData) {
     window.registeredWindows = windowsData;
     const container = document.getElementById('button-container');
@@ -57,7 +77,7 @@ function updateWindows(windowsData) {
     const deviceScale = window.devicePixelRatio || 1;
     const rect = raw => ({ x: raw[0] / deviceScale, y: raw[1] / deviceScale,
         w: raw[2] / deviceScale, h: raw[3] / deviceScale });
-    const monitors = controlMonitors.map(m => ({ bounds: rect(m.bounds), work: rect(m.work) }));
+    const monitors = controlMonitors.map(m => ({ bounds: rect(m.bounds), work: rect(m.work), dpi: m.dpi }));
     const existingGroups = new Map();
     const processingIds = new Set();
     container.querySelectorAll('.button-group').forEach(el => existingGroups.set(el.dataset.hwnd, el));
@@ -67,7 +87,8 @@ function updateWindows(windowsData) {
         const rawAnchor = state.controlAnchor;
         const placementRect = Array.isArray(rawAnchor) && rawAnchor.length === 4 ? rect(rawAnchor) : data.rect;
         const geometry = data.sourceGeometry || { anchor: placementRect, obstacles: [placementRect], source: false };
-        const controlScale = Math.max(0.5, Math.min(3, Number(state.controlScalePercent || 100) / 100));
+        const monitorScale = window.__SGT_CONTROL_PLACEMENT__.monitorScale(geometry.anchor, monitors);
+        const controlScale = Math.max(0.5, Math.min(3, Number(state.controlScalePercent || 100) / 100)) * monitorScale;
         let group = existingGroups.get(hwnd);
         if (!group) {
             group = document.createElement('div');
@@ -82,7 +103,7 @@ function updateWindows(windowsData) {
         group.style.visibility = data.previewOnly ? 'hidden' : '';
 
         const { opacityPercent, ...structuralState } = state;
-        const stateKey = JSON.stringify(structuralState) + ':' + controlFontRevision;
+        const stateKey = JSON.stringify(structuralState) + ':' + controlFontRevision + ':' + monitorScale;
         const editor = Boolean(window.__SGT_REFINE_EDITOR__?.reconcile(group, hwnd, state));
         group.classList.toggle('proximity-pinned', editor);
         if (state.controlColor) group.style.setProperty('--chain-control-color', state.controlColor);
@@ -132,12 +153,7 @@ function updateWindows(windowsData) {
         group.style.maxHeight = work.h + 'px';
         group.style.overflow = natural && (Math.max(natural.w, natural.reserveW || 0) > work.w
             || Math.max(natural.h, natural.reserveH || 0) > work.h) ? 'auto' : '';
-        const opacity = group.querySelector('.opacity-slider-inline');
-        const opacityLabel = group.querySelector('.opacity-value-inline');
-        if (opacity && opacityPercent != null) {
-            opacity.value = opacityPercent;
-            if (opacityLabel) opacityLabel.textContent = opacityPercent + '%';
-        }
+        syncOpacityControl(group, opacityPercent);
         if (geometry.source || pos.direction === 'bottom' || pos.direction === 'right') {
             group.style.left = 'auto';
             group.style.right = (screenW - (pos.x + pos.w)) + 'px';
@@ -153,6 +169,7 @@ function updateWindows(windowsData) {
     }
     window.__SGT_PROCESSING_CONTROLS__.retain(processingIds);
     existingGroups.forEach((el, key) => {
+        window.__SGT_REFINE_EDITOR__?.remove(key);
         controlResizeObserver.unobserve(el);
         el.remove();
         lastVisibleState.delete(key);
@@ -160,8 +177,9 @@ function updateWindows(windowsData) {
     });
     window.__SGT_REFINE_EDITOR__?.settleFocusMode();
     updateButtonOpacity();
+    window.__SGT_CONTROL_TOOLTIP__?.refresh();
     if (container.querySelectorAll('.button-group').length === 0) {
-        window.ipc.postMessage(JSON.stringify({ action: 'update_clickable_regions', scale: deviceScale, regions: [] }));
+        window.ipc.postMessage(JSON.stringify({ action: 'update_clickable_regions', topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1', scale: deviceScale, regions: [] }));
     }
 }
 window.updateWindows = updateWindows;

@@ -1,7 +1,4 @@
-use super::client::{
-    UREQ_AGENT, UREQ_RESPONSE_AGENT, record_groq_json_usage, record_usage_headers,
-    record_usage_simple,
-};
+use super::client::{UREQ_AGENT, record_groq_json_usage, record_usage_headers};
 use super::gemini_generate::{GeminiGenerateRequest, stream_gemini_generate};
 use super::openai_compat::stream_openai_compat_payload;
 use crate::api::providers::Provider;
@@ -9,14 +6,13 @@ use anyhow::Result;
 use image::{ImageBuffer, Rgba};
 use std::io::BufReader;
 use std::sync::{Arc, atomic::AtomicBool};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 mod image_payload;
 mod payloads;
 mod repetition;
 mod request_policy;
 mod telemetry;
-use super::groq::{groq_rate_limit_retry_delay, retry_after_seconds, wait_for_groq_retry};
 use image_payload::{GROQ_SAFE_REQUEST_BYTES, prepare_image_payload};
 use payloads::{groq_vision_payload, nvidia_vision_payload, openrouter_vision_payload};
 
@@ -34,17 +30,6 @@ pub struct TranslateImageRequest<'a> {
     pub response_schema: Option<serde_json::Value>,
     pub cancel_token: Option<Arc<AtomicBool>>,
     pub request_timeout: Option<crate::api::client::RequestTimeouts>,
-}
-
-fn groq_error_message(status: u16, body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|root| {
-            root.pointer("/error/message")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| format!("HTTP {status}"))
 }
 
 pub fn translate_image_streaming<F>(
@@ -190,13 +175,23 @@ where
         let ollama_image = image::load_from_memory(&image_data)?.to_rgba8();
 
         trace.mark_provider_started();
-        return super::ollama::ollama_generate_vision(
-            &ollama_base_url,
-            &model,
-            &prompt,
-            ollama_image,
+        // Same first-output/idle deadlines and blocked-read cancellation as
+        // the other vision providers.
+        let _deadline = super::client::first_token::FirstTokenGuard::new(
             streaming_enabled,
-            &ui_language,
+            request_timeout,
+            &cancel_token,
+        );
+        return super::ollama::ollama_generate_vision(
+            super::ollama::OllamaVisionRequest {
+                base_url: &ollama_base_url,
+                model: &model,
+                prompt: &prompt,
+                image: ollama_image,
+                streaming_enabled,
+                ui_language: &ui_language,
+                cancel_token: cancel_token.as_deref(),
+            },
             on_chunk,
         );
     } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
@@ -257,7 +252,7 @@ where
 
         trace.mark_provider_started();
         let resp = UREQ_AGENT
-            .post("http://api.qrserver.com/v1/read-qr-code/")
+            .post("https://api.qrserver.com/v1/read-qr-code/")
             .header(
                 "Content-Type",
                 &format!("multipart/form-data; boundary={}", boundary),
@@ -323,6 +318,7 @@ where
                 map_auth_errors: true,
                 request_timeout,
                 response_schema: response_schema.as_ref(),
+                audio_transcription_config: None,
                 media_resolution: request_policy::media_resolution(profile),
                 enable_google_search: false,
                 retry_observer: Some(&mut retry_observer),
@@ -361,10 +357,8 @@ where
             &cancel_token,
             request_timeout,
             "NVIDIA API Error",
-            true,
-            false,
+            Some("nvidia"),
             |headers| record_usage_headers("nvidia", &model, headers),
-            |_| {},
             on_chunk,
         )?;
     } else if Provider::from_wire(&provider) == Some(Provider::OpenRouter) {
@@ -400,14 +394,12 @@ where
             &cancel_token,
             request_timeout,
             "OpenRouter API Error",
-            true,
-            false,
+            Some("openrouter"),
             |headers| record_usage_headers("openrouter", &model, headers),
-            |_| {},
             on_chunk,
         )?;
-    } else {
-        // Groq API (default)
+    } else if Provider::from_wire(&provider) == Some(Provider::Groq) {
+        // Groq API
         if groq_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
@@ -421,18 +413,16 @@ where
             response_schema.as_ref(),
         );
 
-        let mut payload_bytes = serde_json::to_vec(&payload)
-            .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?;
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|e| anyhow::anyhow!("Failed to encode Groq vision request: {e}"))?
+            .len();
         println!(
-            "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={} limit={GROQ_SAFE_REQUEST_BYTES}",
+            "[vision] Groq request model={model} mime={mime_type} image_bytes={} request_bytes={payload_bytes} limit={GROQ_SAFE_REQUEST_BYTES}",
             image_data.len(),
-            payload_bytes.len()
         );
-        if payload_bytes.len() > GROQ_SAFE_REQUEST_BYTES {
+        if payload_bytes > GROQ_SAFE_REQUEST_BYTES {
             return Err(anyhow::anyhow!(
-                "Groq vision request exceeded the local byte limit: {} > {}",
-                payload_bytes.len(),
-                GROQ_SAFE_REQUEST_BYTES
+                "Groq vision request exceeded the local byte limit: {payload_bytes} > {GROQ_SAFE_REQUEST_BYTES}"
             ));
         }
 
@@ -442,58 +432,18 @@ where
             request_timeout,
             &cancel_token,
         );
-        let mut rate_attempt = 0;
-        let resp = loop {
-            let request = UREQ_RESPONSE_AGENT
-                .post("https://api.groq.com/openai/v1/chat/completions")
-                .header("Authorization", &format!("Bearer {}", groq_api_key))
-                .header("Content-Type", "application/json");
-            let response = super::client::with_request_timeouts(request, request_timeout)
-                .send(payload_bytes.as_slice())
-                .map_err(|error| {
-                    anyhow::anyhow!(super::client::transport_error_message(
-                        "Groq vision transport error",
-                        &error,
-                    ))
-                })?;
-            record_usage_simple(response.headers(), &model);
-            let status = response.status().as_u16();
-            if response.status().is_success() {
-                break response;
-            }
-
-            let retry_after = retry_after_seconds(response.headers());
-            let body = response.into_body().read_to_string().unwrap_or_default();
-            let message = groq_error_message(status, &body);
-            if let Some(limit) = super::groq::output_limit::output_limit_retry(
-                status,
-                rate_attempt,
-                &body,
-                payload["max_completion_tokens"].as_u64(),
-            ) {
-                payload["max_completion_tokens"] = limit.into();
-                payload_bytes = serde_json::to_vec(&payload)?;
-                trace.record_retry(Duration::ZERO);
-                rate_attempt += 1;
-                continue;
-            }
-            if let Some(seconds) = groq_rate_limit_retry_delay(status, rate_attempt, retry_after) {
-                trace.record_retry(Duration::from_secs(seconds));
-                crate::log_info!("[vision] Groq token limit reached; retrying once in {seconds}s");
-                if !wait_for_groq_retry(seconds, &cancel_token) {
-                    return Err(anyhow::anyhow!("Groq vision request cancelled"));
-                }
-                rate_attempt += 1;
-                continue;
-            }
-            if status == 401 || status == 403 {
-                return Err(anyhow::anyhow!("INVALID_API_KEY"));
-            }
-            return Err(anyhow::anyhow!(
-                "{}Groq vision API HTTP {status}: {message}",
-                super::groq::output_limit::failure_prefix(status, &body)
-            ));
-        };
+        let resp = super::groq::send_chat(
+            super::groq::ChatSend {
+                endpoint: super::groq::CHAT_COMPLETIONS_URL,
+                api_key: groq_api_key,
+                request_timeout,
+                cancel_token: &cancel_token,
+                retry_short_rate_limit: true,
+                transport_label: "Groq vision transport error",
+            },
+            &mut payload,
+            |delay| trace.record_retry(delay),
+        )?;
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());
             full_content =
@@ -509,6 +459,8 @@ where
             full_content = super::openai_compat::parse_chat_completion(&root)?;
             on_chunk(&full_content);
         }
+    } else {
+        anyhow::bail!("Unsupported vision provider: {provider}");
     }
 
     Ok(full_content)

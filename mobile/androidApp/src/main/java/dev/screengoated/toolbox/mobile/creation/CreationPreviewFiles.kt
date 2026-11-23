@@ -37,10 +37,6 @@ internal class CreationPreviewFiles(private val files: CreationFileStore) {
         files.readBytes(path, CreationContract.MAXIMUM_SVG_ARTIFACT_BYTES).decodeToString()
     }
 
-    suspend fun saveSvg(path: String, svg: String) = withContext(Dispatchers.IO) {
-        CreationArtifactValidator.validateSvgText(svg)
-        files.writeText(path, svg)
-    }
 }
 
 private val creationModelPreviewLane = Mutex()

@@ -203,9 +203,8 @@ export function TimelineLabelColumn({
                 step={0.01}
                 value={value}
                 disabled={!isAvailable || !segment}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
-                onPointerCancel={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(nextValue) => onChange(normalizeTrackDelaySec(nextValue))}
                 className={`${className}-delay-slider timeline-label-track-delay-slider playback-keystroke-delay-slider block w-full`}
               />
@@ -234,7 +233,7 @@ export function TimelineLabelColumn({
                   ? "bg-blue-500 text-white"
                   : "ui-surface text-[var(--outline)] hover:text-[var(--on-surface)]"
               }`}
-              title="Debug zoom curve"
+              title={t.debugZoomCurve}
             >
               D
             </button>
@@ -250,7 +249,7 @@ export function TimelineLabelColumn({
         {showSpeed && (
           <div className="timeline-label-speed h-7 flex items-center justify-between">
             <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-              {t.trackSpeed || "Speed"}
+              {t.trackSpeed}
             </span>
             <button
               onClick={() => {
@@ -267,7 +266,7 @@ export function TimelineLabelColumn({
               }}
               disabled={!segment}
               className="timeline-speed-reset-btn ui-icon-button p-1 text-[9px] font-mono leading-none disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent"
-              title={t.resetSpeed || "Reset"}
+              title={t.resetSpeed}
             >
               R
             </button>
@@ -333,9 +332,9 @@ export function TimelineLabelColumn({
         {showNarration && (
           <div className="timeline-label-narration group/narration-label relative h-7 flex items-center">
             <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">
-              {t.tabNarration || "Narration"}
+              {t.tabNarration}
             </span>
-            {renderDownloadButton("narration", t.tabNarration || "Narration", "narration-label", (narrationSegments?.length ?? 0) === 0)}
+            {renderDownloadButton("narration", t.tabNarration, "narration-label", (narrationSegments?.length ?? 0) === 0)}
           </div>
         )}
         <div className="timeline-label-subtitles group/subtitle-label relative h-7 flex items-center">

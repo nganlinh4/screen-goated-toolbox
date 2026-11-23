@@ -4,6 +4,7 @@ mod deserialize;
 mod preset_defaults;
 mod profiles;
 
+#[cfg(not(feature = "recorder-worker"))]
 pub use profiles::{GlobalHotkeyOwner, HotkeyConflict};
 
 use serde::Serialize;
@@ -11,12 +12,11 @@ use serde::Serialize;
 use crate::config::preset::{Preset, get_default_presets};
 use crate::config::types::{
     AdaptiveModelPriority, CustomModelDefinition, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
-    EdgeTtsSettings, Hotkey, KokoroSettings, LiveTranslateSettings, MagpieSettings,
-    ModelPriorityChains, PendingPresetModelUpdate, PresetProfile, RestoreDefaultsSelection,
-    ScreenTranslateSettings, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
-    ThemeMode, TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
-    VieneuSettings, VoxtralSettings, default_result_overlay_opacity_percent,
-    default_tts_language_conditions, get_system_ui_language,
+    EdgeTtsSettings, Hotkey, LiveTranslateSettings, ModelPriorityChains, PendingPresetModelUpdate,
+    PresetProfile, RestoreDefaultsSelection, ScreenTranslateSettings, ThemeMode,
+    TranslationGummySettings, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    default_result_overlay_opacity_percent, default_tts_language_conditions,
+    get_system_ui_language,
 };
 
 // ============================================================================
@@ -81,34 +81,6 @@ fn default_tts_method() -> TtsMethod {
 
 fn default_edge_tts_settings() -> EdgeTtsSettings {
     EdgeTtsSettings::default()
-}
-
-fn default_step_audio_settings() -> StepAudioSettings {
-    StepAudioSettings::default()
-}
-
-fn default_step_audio_reference_voices() -> Vec<StepAudioReferenceVoice> {
-    Vec::new()
-}
-
-fn default_magpie_settings() -> MagpieSettings {
-    MagpieSettings::default()
-}
-
-fn default_kokoro_settings() -> KokoroSettings {
-    KokoroSettings::default()
-}
-
-fn default_supertonic_settings() -> SupertonicSettings {
-    SupertonicSettings::default()
-}
-
-fn default_vieneu_settings() -> VieneuSettings {
-    VieneuSettings::default()
-}
-
-fn default_voxtral_settings() -> VoxtralSettings {
-    VoxtralSettings::default()
 }
 
 fn default_tts_playground_settings() -> TtsPlaygroundSettings {
@@ -192,6 +164,11 @@ pub struct Config {
     /// Index of the active preset profile.
     #[serde(default)]
     pub active_preset_profile_idx: usize,
+
+    /// Built-in preset ids every preset list has already been offered, so
+    /// startup appends only new built-ins and user deletions stay deleted.
+    #[serde(default)]
+    pub offered_builtin_preset_ids: Vec<String>,
 
     // -------------------------------------------------------------------------
     // UI Settings
@@ -383,35 +360,6 @@ pub struct Config {
     #[serde(default = "default_edge_tts_settings")]
     pub edge_tts_settings: EdgeTtsSettings,
 
-    /// Step Audio EditX settings (managed local sidecar).
-    #[serde(default = "default_step_audio_settings")]
-    pub step_audio_settings: StepAudioSettings,
-
-    /// Shared Step Audio reference voices for global TTS, narration, and the
-    /// TTS Playground.
-    #[serde(default = "default_step_audio_reference_voices")]
-    pub step_audio_reference_voices: Vec<StepAudioReferenceVoice>,
-
-    /// NVIDIA Magpie-Multilingual 357M settings (managed local sidecar).
-    #[serde(default = "default_magpie_settings")]
-    pub magpie_settings: MagpieSettings,
-
-    /// Kokoro 82M v1.0 settings (sherpa-onnx local TTS).
-    #[serde(default = "default_kokoro_settings")]
-    pub kokoro_settings: KokoroSettings,
-
-    /// Supertonic 3 settings (sherpa-onnx local TTS).
-    #[serde(default = "default_supertonic_settings")]
-    pub supertonic_settings: SupertonicSettings,
-
-    /// VieNeu-TTS v2 settings (managed local SDK runtime).
-    #[serde(default = "default_vieneu_settings")]
-    pub vieneu_settings: VieneuSettings,
-
-    /// Legacy TTS settings retained for config migration.
-    #[serde(default = "default_voxtral_settings")]
-    pub voxtral_settings: VoxtralSettings,
-
     /// Independent sandbox profile for the TTS Playground mini app.
     #[serde(default = "default_tts_playground_settings")]
     pub tts_playground: TtsPlaygroundSettings,
@@ -496,6 +444,7 @@ impl Default for Config {
             active_preset_idx: 0,
             preset_profiles: vec![PresetProfile::new_default(get_default_presets(), 0)],
             active_preset_profile_idx: 0,
+            offered_builtin_preset_ids: Vec::new(),
 
             // UI Settings
             theme_mode: ThemeMode::System,
@@ -550,13 +499,6 @@ impl Default for Config {
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
             edge_tts_settings: default_edge_tts_settings(),
-            step_audio_settings: default_step_audio_settings(),
-            step_audio_reference_voices: default_step_audio_reference_voices(),
-            magpie_settings: default_magpie_settings(),
-            kokoro_settings: default_kokoro_settings(),
-            supertonic_settings: default_supertonic_settings(),
-            vieneu_settings: default_vieneu_settings(),
-            voxtral_settings: default_voxtral_settings(),
             tts_playground: default_tts_playground_settings(),
 
             // Favorite Bubble

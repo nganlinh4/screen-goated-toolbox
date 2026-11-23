@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useId, useMemo } from 'react';
 import { useExportDialogDefaults } from '@/hooks/useExportDialogDefaults';
 import { MIN_VIDEO_BITRATE_KBPS, MAX_VIDEO_BITRATE_KBPS } from '@/lib/exportEstimator';
 import { Button } from '@/components/ui/button';
@@ -91,6 +91,9 @@ export function ExportDialog({
   onToggleAutoCopy
 }: ExportDialogProps) {
   const { t } = useSettings();
+  const resolutionLabelId = useId();
+  const formatLabelId = useId();
+  const frameRateLabelId = useId();
   const [isPickingDir, setIsPickingDir] = useState(false);
   const [exportCapabilities, setExportCapabilities] = useState<ExportCapabilities | null>(null);
   const [capabilityProbeFailed, setCapabilityProbeFailed] = useState(false);
@@ -321,9 +324,9 @@ export function ExportDialog({
 
               <div className="export-resolution-field">
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.resolution}</label>
+                  <span id={resolutionLabelId} className="text-xs font-medium text-[var(--on-surface-variant)]">{t.resolution}</span>
                 </div>
-                <div className="resolution-options grid grid-cols-3 gap-2">
+                <div className="resolution-options grid grid-cols-3 gap-2" role="group" aria-labelledby={resolutionLabelId}>
                   {resOptions.map((opt: ResolutionOption) => {
                     const key = `${opt.width}x${opt.height}`;
                     const isSourceOption = !isGif && opt.width === sourceResOptionW && opt.height === sourceResOptionH;
@@ -331,6 +334,8 @@ export function ExportDialog({
                     return (
                       <button
                         key={key}
+                        type="button"
+                        aria-pressed={isSelected}
                         onClick={() => updateDefaults(isGif
                           ? { gifWidth: opt.width }
                           : { mp4Height: isSourceOption ? null : opt.height })}
@@ -365,12 +370,14 @@ export function ExportDialog({
               <div className="export-compact-options grid gap-4 sm:grid-cols-2">
                 <div className="export-format-field">
                   <div className="mb-2 flex items-center justify-between">
-                    <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.exportFormat}</label>
+                    <span id={formatLabelId} className="text-xs font-medium text-[var(--on-surface-variant)]">{t.exportFormat}</span>
                   </div>
-                  <div className="format-options flex gap-2">
+                  <div className="format-options flex gap-2" role="group" aria-labelledby={formatLabelId}>
                     {(['mp4', 'gif'] as const).map(fmt => (
                       <button
                         key={fmt}
+                        type="button"
+                        aria-pressed={selectedFormat === fmt}
                         onClick={() => {
                           updateDefaults({ format: fmt });
                           setExportOptions(prev => {
@@ -398,9 +405,9 @@ export function ExportDialog({
 
                 <div className="export-fps-field">
                   <div className="mb-2 flex items-center justify-between">
-                    <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.frameRate}</label>
+                    <span id={frameRateLabelId} className="text-xs font-medium text-[var(--on-surface-variant)]">{t.frameRate}</span>
                   </div>
-                  <div className="fps-options grid grid-cols-3 gap-2">
+                  <div className="fps-options grid grid-cols-3 gap-2" role="group" aria-labelledby={frameRateLabelId}>
                     {fpsChoices.map(({ key, fps, isSource, disabled }) => {
                       const active = isGif
                         ? exportOptions.fps === fps
@@ -410,6 +417,8 @@ export function ExportDialog({
                       return (
                         <button
                           key={key}
+                          type="button"
+                          aria-pressed={active}
                           disabled={disabled}
                           onClick={() => {
                             if (isGif) {
@@ -441,7 +450,7 @@ export function ExportDialog({
               </div>
 
               {!isGif && <div className="export-bitrate-field">
-                <label className="mb-2 block text-xs text-[var(--on-surface-variant)]">{t.videoBitrate}</label>
+                <span className="mb-2 block text-xs text-[var(--on-surface-variant)]">{t.videoBitrate}</span>
                 <div className="bitrate-control ui-surface rounded-2xl p-3">
                   <div className="bitrate-display mb-3 flex items-center justify-between gap-3">
                     <span className="text-sm text-[var(--on-surface)] tabular-nums">
@@ -533,7 +542,7 @@ export function ExportDialog({
               </div>
 
               <div className="export-location-card ui-surface rounded-2xl p-4">
-                <label className="mb-2 block text-xs text-[var(--on-surface-variant)]">{t.saveLocation}</label>
+                <span className="mb-2 block text-xs text-[var(--on-surface-variant)]">{t.saveLocation}</span>
                 <div className="export-location-stack space-y-2">
                   <div
                     className="export-location-value ui-input thin-scrollbar w-full overflow-x-auto whitespace-nowrap rounded-xl px-3 py-2 text-xs text-[var(--on-surface)]"

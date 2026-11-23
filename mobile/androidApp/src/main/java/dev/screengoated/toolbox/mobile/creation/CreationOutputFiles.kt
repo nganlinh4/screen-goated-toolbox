@@ -1,29 +1,17 @@
 package dev.screengoated.toolbox.mobile.creation
 
-import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
-import java.util.UUID
 
 internal const val CREATION_OUTPUT_NAME_MAXIMUM_CHARACTERS = 180
 
 internal fun forceCreationDirectory(directory: File) {
     runCatching {
         FileChannel.open(directory.toPath(), StandardOpenOption.READ).use { it.force(true) }
-    }
-}
-
-internal fun copyCreationFileDurably(source: File, target: File) {
-    check(target.createNewFile()) { "Could not reserve output file" }
-    try {
-        writeCreationFileDurably(source, target)
-    } catch (failure: Throwable) {
-        target.delete()
-        throw failure
     }
 }
 
@@ -181,19 +169,6 @@ internal fun creationDownloadsPendingName(token: String, finalName: String): Str
     return "sgt-$token.pending" + extension.takeIf(String::isNotEmpty)?.let { ".$it" }.orEmpty()
 }
 
-internal fun uniqueCreationOutputFile(directory: File, requested: String): File {
-    val first = File(directory, requested)
-    if (!first.exists()) return first
-    val dot = requested.lastIndexOf('.')
-    val stem = if (dot > 0) requested.substring(0, dot) else requested
-    val extension = if (dot > 0) requested.substring(dot) else ""
-    repeat(9_998) { offset ->
-        val candidate = File(directory, "${stem}_${offset + 2}$extension")
-        if (!candidate.exists()) return candidate
-    }
-    return File(directory, "${stem}_${UUID.randomUUID()}$extension")
-}
-
 internal data class CreationPendingReservation(
     val handle: String,
     val identity: String,
@@ -208,9 +183,6 @@ internal fun creationSafRenameRecoveryMatches(
     (!oldHandleExists || oldHandleIdentity == expectedIdentity)
 
 internal val managedDeliveryLock = Any()
-
-internal fun String.creationContentUri(): Uri? =
-    takeIf { startsWith("content://") }?.let(Uri::parse)
 
 internal fun CreationTool.usesDownloadsByDefault(): Boolean =
     this == CreationTool.IMAGE_TO_SVG

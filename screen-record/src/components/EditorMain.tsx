@@ -8,9 +8,15 @@ import { TimelineArea } from "@/components/timeline";
 import { useSettings } from "@/hooks/useSettings";
 import { saveCurrentFrame } from "@/lib/frameDownload";
 import type { EditorMainProps } from "./EditorMainTypes";
+import { RecordingRecoveryNotice } from "./RecordingRecoveryNotice";
 import { useEditorMainTimelineState } from "./useEditorMainTimelineState";
+import { projectAudioClock, useClipAudioView } from "@/hooks/useClipAudioView";
 
 export function EditorMain({
+  onPopulateS2sSubtitles,
+  getNarrationSourceSnapshot,
+  renderedProjectEpoch,
+  loadedClipId,
   error,
   isOverlayMode,
   previewContainerRef,
@@ -79,7 +85,7 @@ export function EditorMain({
   zoomFactor,
   setZoomFactor,
   handleDeleteKeyframe,
-  throttledUpdateZoom,
+  updateZoom,
   webcamConfig,
   setWebcamConfig,
   recentUploads,
@@ -115,6 +121,7 @@ export function EditorMain({
   onSelectedTextIdsChange,
   onSelectedSubtitleIdsChange,
   projectResetKey,
+  currentProjectIdRef,
   currentRawVideoPath,
   currentRawMicAudioPath,
   currentProjectName,
@@ -202,6 +209,12 @@ export function EditorMain({
     totalSelectedCount,
     visibleSubtitleSegments,
   } = useEditorMainTimelineState({
+    getNarrationSourceSnapshot,
+    renderedProjectEpoch,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    loadedClipId,
+    currentProjectIdRef,
     t,
     activePanel,
     setActivePanel,
@@ -227,6 +240,8 @@ export function EditorMain({
     beginBatch,
     commitBatch,
   });
+  const audioTimeView = useClipAudioView(composition, loadedClipId);
+  const previewAudioClockTime = projectAudioClock(audioTimeView, currentTime);
 
   const wallClockCurrentTime = useMemo(() => {
     const pts = segment?.speedPoints;
@@ -239,6 +254,7 @@ export function EditorMain({
       className="app-main flex flex-col px-3 py-3 overflow-hidden"
       style={{ height: "calc(100vh - 44px)" }}
     >
+      <RecordingRecoveryNotice />
       {error && (
         <p
           className="error-message text-[var(--tertiary-color)] mb-2 shrink-0"
@@ -290,6 +306,7 @@ export function EditorMain({
             narrationTrackVolumePoints={narrationTrackVolumePoints}
             speedPoints={segment?.speedPoints}
             currentTime={currentTime}
+            audioClockTime={previewAudioClockTime}
             isPlaying={isPlaying}
             audioResetKey={audioResetKey}
             liveNarrationProjectId={projectResetKey}
@@ -327,6 +344,8 @@ export function EditorMain({
             setSegment={setSegment as (s: VideoSegment) => void}
             handleToggleKeystrokeMode={handleToggleKeystrokeMode}
             handleKeystrokeDelayChange={handleKeystrokeDelayChange}
+            beginBatch={beginBatch}
+            commitBatch={commitBatch}
             currentVideo={currentVideo}
             mousePositionsLength={mousePositionsLength}
             handleAutoZoom={handleAutoZoom}
@@ -344,6 +363,10 @@ export function EditorMain({
         {/* Side Panel */}
         <div className="side-panel-container w-[24rem] shrink-0 min-h-0 relative overflow-visible">
           <SidePanel
+            onPopulateS2sSubtitles={onPopulateS2sSubtitles}
+            getNarrationSourceSnapshot={getNarrationSourceSnapshot}
+            projectResetKey={projectResetKey ?? null}
+            currentProjectIdRef={currentProjectIdRef}
             activePanel={activePanel}
             setActivePanel={setActivePanel}
             segment={segment}
@@ -351,7 +374,7 @@ export function EditorMain({
             zoomFactor={zoomFactor}
             setZoomFactor={setZoomFactor}
             onDeleteKeyframe={handleDeleteKeyframe}
-            onUpdateZoom={throttledUpdateZoom}
+            onUpdateZoom={updateZoom}
             backgroundConfig={backgroundConfig}
             setBackgroundConfig={setBackgroundConfig}
             webcamConfig={webcamConfig}
@@ -496,6 +519,7 @@ export function EditorMain({
           onAudioSelectionChange={handleAudioSelectionChange}
           onAudioRangeChange={handleAudioRangeChange}
           narrationSegments={narrationSegments}
+          audioTimeView={audioTimeView}
           liveNarrationProjectId={projectResetKey}
           onNarrationSegmentClick={handleNarrationSegmentClick}
           onUpdateNarrationSegment={onUpdateNarrationSegment}

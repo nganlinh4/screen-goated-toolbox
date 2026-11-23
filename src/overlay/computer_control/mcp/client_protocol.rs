@@ -2,12 +2,11 @@ use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
-use std::process::ChildStdout;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 
-const MAX_JSON_RPC_LINE_BYTES: u64 = 1024 * 1024;
+pub(super) const MAX_JSON_RPC_LINE_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientLifecycleKind {
@@ -85,7 +84,7 @@ impl ClientLifecycleEvents {
 }
 
 pub(super) fn reader_loop(
-    stdout: ChildStdout,
+    stdout: impl Read,
     pending: &Mutex<HashMap<u64, Sender<Value>>>,
     alive: &AtomicBool,
     lifecycle: Option<&ClientLifecycleSignal>,
@@ -124,14 +123,21 @@ fn handle_message(
     let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
         return;
     };
-    if let Some(id) = value.get("id").and_then(Value::as_u64) {
-        if let Some(tx) = pending.lock().remove(&id) {
-            let _ = tx.send(value);
+    // A message naming a method is a peer request or notification. Peer
+    // request IDs live in the peer's own namespace, so only a method-less
+    // message can settle one of this client's requests.
+    match value.get("method") {
+        None => {
+            if let Some(id) = value.get("id").and_then(Value::as_u64)
+                && let Some(tx) = pending.lock().remove(&id)
+            {
+                let _ = tx.send(value);
+            }
         }
-        return;
-    }
-    if value.get("method").and_then(Value::as_str) == Some("notifications/tools/list_changed") {
-        raise(lifecycle, ClientLifecycleKind::ToolsChanged);
+        Some(method) if method.as_str() == Some("notifications/tools/list_changed") => {
+            raise(lifecycle, ClientLifecycleKind::ToolsChanged);
+        }
+        Some(_) => {}
     }
 }
 
@@ -144,9 +150,9 @@ fn raise(lifecycle: Option<&ClientLifecycleSignal>, kind: ClientLifecycleKind) {
 fn read_protocol_line(reader: &mut impl BufRead, line: &mut String) -> std::io::Result<usize> {
     let bytes = reader
         .by_ref()
-        .take(MAX_JSON_RPC_LINE_BYTES + 1)
+        .take((MAX_JSON_RPC_LINE_BYTES + 1) as u64)
         .read_line(line)?;
-    if bytes as u64 > MAX_JSON_RPC_LINE_BYTES {
+    if bytes > MAX_JSON_RPC_LINE_BYTES {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "MCP JSON-RPC line exceeds the bounded transport limit",
@@ -216,6 +222,23 @@ mod tests {
     }
 
     #[test]
+    fn a_peer_request_never_settles_a_local_request_with_the_same_id() {
+        let (response_tx, response_rx) = mpsc::channel();
+        let pending = Mutex::new(HashMap::from([(1, response_tx)]));
+        let alive = AtomicBool::new(true);
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[]}}\n"
+        );
+
+        read_messages(Cursor::new(input.as_bytes()), &pending, &alive, None);
+
+        let reply = response_rx.recv().unwrap();
+        assert!(reply.get("method").is_none(), "{reply}");
+        assert_eq!(reply["result"], serde_json::json!({"content": []}));
+    }
+
+    #[test]
     fn eof_emits_disconnect_and_wakes_pending_requests() {
         let (response_tx, response_rx) = mpsc::channel();
         let pending = Mutex::new(HashMap::from([(1, response_tx)]));
@@ -238,7 +261,7 @@ mod tests {
 
     #[test]
     fn oversized_line_disconnects_without_unbounded_buffering() {
-        let mut input = vec![b'x'; MAX_JSON_RPC_LINE_BYTES as usize + 1];
+        let mut input = vec![b'x'; MAX_JSON_RPC_LINE_BYTES + 1];
         input.push(b'\n');
         let events = read_fixture(input);
 

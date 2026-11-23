@@ -8,6 +8,32 @@ import {
 } from "./trackHoverUtils";
 import { useSettings } from "@/hooks/useSettings";
 import { formatTime } from "@/utils/helpers";
+import { rangeLaneKeys, type TimelineKeyboardEdits } from "./useTimelineKeyboardEdits";
+
+/** Thumbnails outside every kept trim segment show at this opacity. */
+const TRIMMED_OUT_THUMBNAIL_ALPHA = 0.06;
+const OPAQUE = "rgb(0, 0, 0)";
+
+/**
+ * One alpha mask over the single thumbnail strip: opaque inside kept trim
+ * segments, dimmed elsewhere. Replaces a full strip copy per segment.
+ */
+export function buildTrimThumbnailMask(
+  trimSegments: readonly TrimSegment[],
+  duration: number,
+  dimAlpha: number = TRIMMED_OUT_THUMBNAIL_ALPHA,
+): string {
+  const safeDuration = Math.max(duration, 0.001);
+  const dim = `rgba(0, 0, 0, ${dimAlpha})`;
+  const stops: string[] = [`${dim} 0%`];
+  for (const seg of trimSegments) {
+    const start = Math.max(0, Math.min(100, (seg.startTime / safeDuration) * 100));
+    const end = Math.max(start, Math.min(100, (seg.endTime / safeDuration) * 100));
+    stops.push(`${dim} ${start}%`, `${OPAQUE} ${start}%`, `${OPAQUE} ${end}%`, `${dim} ${end}%`);
+  }
+  stops.push(`${dim} 100%`);
+  return `linear-gradient(to right, ${stops.join(", ")})`;
+}
 
 interface TrimTrackProps {
   segment: VideoSegment;
@@ -16,6 +42,7 @@ interface TrimTrackProps {
   onTrimDragStart: (id: string, type: "start" | "end") => void;
   onTrimSplit: (id: string, splitTime: number) => void;
   onTrimAddSegment: (atTime: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   isDraggingTrim?: boolean;
   isSeeking?: boolean;
 }
@@ -27,6 +54,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
   onTrimDragStart,
   onTrimSplit,
   onTrimAddSegment,
+  keyboardEdits,
   isDraggingTrim,
   isSeeking,
 }) => {
@@ -60,6 +88,10 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
         />
       )),
     [thumbnails],
+  );
+  const thumbnailMask = useMemo(
+    () => buildTrimThumbnailMask(trimSegments, duration),
+    [trimSegments, duration],
   );
 
   useEffect(() => {
@@ -96,6 +128,11 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
     setHoverState({ type: "add", x, time });
   };
 
+  const segmentKeys = rangeLaneKeys({
+    lane: "trim", name: t.trackVideo, startLabel: t.timelineSegmentStart, endLabel: t.timelineSegmentEnd,
+    duration, keyboardEdits, onAdd: onTrimAddSegment, addFromEdges: true,
+  });
+
   const excludedRanges = (() => {
     const gaps: Array<{ start: number; end: number }> = [];
     let cursor = 0;
@@ -124,33 +161,12 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
           className="trim-track-clip absolute inset-0 overflow-hidden"
           style={{ borderRadius: "inherit" }}
         >
-          <div className="trim-thumbnails absolute inset-0 bg-[var(--ui-surface-2)] flex gap-[1px] opacity-[0.06]">
+          <div
+            className="trim-thumbnails absolute inset-0 bg-[var(--ui-surface-2)] flex gap-[1px]"
+            style={{ maskImage: thumbnailMask, WebkitMaskImage: thumbnailMask }}
+          >
             {thumbnailCells}
           </div>
-
-          {trimSegments.map((seg) => {
-            const segmentDuration = Math.max(seg.endTime - seg.startTime, 0.001);
-            return (
-              <div
-                key={`trim-active-thumbs-${seg.id}`}
-                className="trim-active-thumbnails absolute inset-y-0 overflow-hidden pointer-events-none"
-                style={{
-                  left: `${(seg.startTime / duration) * 100}%`,
-                  width: `${(segmentDuration / duration) * 100}%`,
-                }}
-              >
-                <div
-                  className="trim-active-thumbnails-strip absolute inset-y-0 flex gap-[1px]"
-                  style={{
-                    left: `${-(seg.startTime / segmentDuration) * 100}%`,
-                    width: `${(duration / segmentDuration) * 100}%`,
-                  }}
-                >
-                  {thumbnailCells}
-                </div>
-              </div>
-            );
-          })}
 
           {excludedRanges.map((gap, idx) => (
             <div
@@ -191,10 +207,13 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
           </div>
         )}
 
-        {trimSegments.map((seg) => (
+        {trimSegments.map((seg, segIndex) => {
+          const keys = segmentKeys(seg, segIndex);
+          return (
           <React.Fragment key={`handles-${seg.id}`}>
             <div
               className="trim-handle-start absolute inset-y-0 w-3 cursor-col-resize z-10 group"
+              {...keys.start}
               style={{
                 left: `calc(${(seg.startTime / duration) * 100}% - 6px)`,
               }}
@@ -207,6 +226,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
             </div>
             <div
               className="trim-handle-end absolute inset-y-0 w-3 cursor-col-resize z-10 group"
+              {...keys.end}
               style={{ left: `calc(${(seg.endTime / duration) * 100}% - 6px)` }}
               onPointerDown={(e) => {
                 e.stopPropagation();
@@ -216,7 +236,8 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
               <div className="trim-handle-bar trim-handle-pill absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:bg-[var(--timeline-zoom-color)] group-hover:border-[var(--timeline-zoom-color)] group-hover:shadow-[0_0_6px_rgba(59,130,246,0.3)] group-hover:scale-y-110" />
             </div>
           </React.Fragment>
-        ))}
+          );
+        })}
       </div>
 
       {hoverState && !isSeeking && (

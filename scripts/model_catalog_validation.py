@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from model_catalog_realtime import validate_realtime_engines
+
 
 PROVIDER_NAME_PREFIXES = {
     "google": "GG",
@@ -11,8 +13,6 @@ PROVIDER_NAME_PREFIXES = {
     "openrouter": "O",
     "nvidia": "N",
     "taalas": "T",
-    "parakeet": "L",
-    "qwen3": "L",
     "qrserver": "QR",
 }
 
@@ -24,8 +24,6 @@ PROVIDER_ID_PREFIXES = {
     "openrouter": "openrouter-",
     "nvidia": "nvidia-",
     "taalas": "taalas-",
-    "parakeet": "local-",
-    "qwen3": "local-",
     "qrserver": "qrserver-",
 }
 
@@ -68,6 +66,7 @@ def validate_manifest(manifest: dict) -> None:
             raise ValueError(f"S2S requires an enabled Gemini Live audio row: {model_id}")
         if manifest["endpoints"][row["full_name"]].get("live_protocol") not in {"native-audio", "live-translate"}:
             raise ValueError(f"S2S requires an audio-output protocol: {model_id}")
+    validate_realtime_engines(manifest)
     labels = manifest["realtime_transcription_labels"]
     for options in manifest["realtime_transcription_options"].values():
         for model_id in options:
@@ -84,20 +83,25 @@ def validate_manifest(manifest: dict) -> None:
 
 
 def _validate_vision_request_profiles(manifest: dict) -> None:
-    expected = {
-        f"{model['provider']}:{model['full_name']}"
+    ordinary_vision = [
+        model
         for model in manifest["models"]
-        if (
-            model["enabled"]
-            and model["model_type"] == "Vision"
-            and model["provider"] in {"google", "groq", "openrouter", "nvidia"}
-        )
+        if model["model_type"] == "Vision"
+        and model["provider"] in {"google", "groq", "openrouter", "nvidia"}
+    ]
+    allowed_endpoints = {f"{model['provider']}:{model['full_name']}" for model in ordinary_vision}
+    required_endpoints = {
+        f"{model['provider']}:{model['full_name']}"
+        for model in ordinary_vision
+        if model["enabled"]
     }
     request_profiles = manifest.get("vision_request_profiles")
-    if not isinstance(request_profiles, dict) or set(request_profiles) != expected:
+    if not isinstance(request_profiles, dict) or not (
+        required_endpoints <= request_profiles.keys() <= allowed_endpoints
+    ):
         raise ValueError(
-            "vision_request_profiles must cover every enabled ordinary LLM "
-            "vision endpoint exactly"
+            "vision_request_profiles must cover every enabled ordinary LLM vision endpoint "
+            "and may preserve profiles for disabled ordinary LLM vision endpoints"
         )
 
     for profile_key, request_profile in request_profiles.items():

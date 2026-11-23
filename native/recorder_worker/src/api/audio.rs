@@ -21,35 +21,6 @@ pub(crate) fn encode_wav(samples: &[i16], sample_rate: u32, channels: u16) -> Ve
     output.into_inner()
 }
 
-pub(crate) fn extract_pcm_from_wav(wav_data: &[u8]) -> anyhow::Result<Vec<i16>> {
-    let reader = hound::WavReader::new(Cursor::new(wav_data))?;
-    let spec = reader.spec();
-    let samples: Vec<i16> = match spec.sample_format {
-        hound::SampleFormat::Int => reader.into_samples::<i16>().collect::<Result<_, _>>()?,
-        hound::SampleFormat::Float => reader
-            .into_samples::<f32>()
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-            .collect(),
-    };
-    let mono = if spec.channels > 1 {
-        samples
-            .chunks(spec.channels as usize)
-            .map(|chunk| {
-                let sum: i32 = chunk.iter().map(|sample| i32::from(*sample)).sum();
-                (sum / chunk.len() as i32) as i16
-            })
-            .collect()
-    } else {
-        samples
-    };
-    Ok(resample_linear_i16(
-        &mono,
-        16_000.0 / f64::from(spec.sample_rate),
-    ))
-}
-
 pub(crate) fn resample_linear_i16(samples: &[i16], ratio: f64) -> Vec<i16> {
     if (ratio - 1.0).abs() < f64::EPSILON || samples.is_empty() {
         return samples.to_vec();

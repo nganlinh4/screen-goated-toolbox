@@ -24,8 +24,6 @@ object RealtimeModelIds {
     const val TRANSCRIPTION_GEMINI_S2S = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_S2S
     const val TRANSCRIPTION_GEMINI_TRANSLATE = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_TRANSLATE
     const val TRANSCRIPTION_GEMINI_TRANSCRIBE = GeneratedLiveModelCatalog.TRANSCRIPTION_GEMINI_TRANSCRIBE
-    const val TRANSCRIPTION_PARAKEET = GeneratedLiveModelCatalog.TRANSCRIPTION_PARAKEET
-    const val TRANSCRIPTION_MOONSHINE = GeneratedLiveModelCatalog.TRANSCRIPTION_MOONSHINE
     const val GEMINI_LIVE_API_MODEL_2_5 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_2_5
     const val GEMINI_LIVE_API_MODEL_3_1 = GeneratedLiveModelCatalog.GEMINI_LIVE_API_MODEL_3_1
     const val GEMINI_LIVE_TRANSLATE_API_MODEL = GeneratedLiveModelCatalog.GEMINI_LIVE_TRANSLATE_API_MODEL
@@ -49,16 +47,23 @@ object RealtimeModelIds {
         return normalized in GeneratedLiveModelCatalog.realtimeS2sModelIds
     }
 
-    fun isGeminiTranslateModelId(modelId: String): Boolean {
-        return normalizeTranscriptionModelId(modelId) == TRANSCRIPTION_GEMINI_TRANSLATE
-    }
+    private const val ANDROID_PLATFORM = "android"
 
-    /** True for the on-device engines, which transcribe without any network call or API key. */
-    fun isOfflineTranscriptionModelId(modelId: String): Boolean {
-        val normalized = normalizeTranscriptionModelId(modelId)
-        return normalized.startsWith("moonshine-") || normalized.startsWith("zipformer") ||
-            normalized == TRANSCRIPTION_MOONSHINE
-    }
+    private fun engineFacts(modelId: String) =
+        GeneratedLiveModelCatalog.realtimeTranscriptionEngine(normalizeTranscriptionModelId(modelId))
+
+    /**
+     * True when Android cannot run the selector: the catalog lists it for another platform,
+     * or it names an on-device engine and Android ships no on-device engine runtime
+     * (docs/OFFLINE-ENGINES.md). Such selectors fail as unavailable, never as a missing key.
+     */
+    fun isUnavailableOnAndroid(modelId: String): Boolean =
+        engineFacts(modelId)?.let { ANDROID_PLATFORM !in it.platforms || it.onDeviceEngine != null }
+            ?: false
+
+    /** Only cloud transcription that Android can run needs a Gemini key. */
+    fun requiresGeminiApiKey(modelId: String): Boolean =
+        engineFacts(modelId)?.let { it.onDeviceEngine == null && ANDROID_PLATFORM in it.platforms } ?: true
 
     fun normalizeTtsGeminiModel(apiModel: String): String {
         return GeneratedLiveModelCatalog.normalizeTtsGeminiModel(apiModel)

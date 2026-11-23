@@ -104,7 +104,7 @@ internal val defaultMicPresets: List<Preset> = listOf(
                 PRESET_AUDIO_DIRECT_TRANSLATE_MODEL_ID,
                 "Translate the audio to {language1}. Only output the translated text.",
                 "language1" to "Korean",
-            ).copy(showOverlay = false, autoCopy = true),
+            ).copy(streamingEnabled = true, showOverlay = false, autoCopy = true),
         ),
     ),
 
@@ -124,6 +124,7 @@ internal val defaultMicPresets: List<Preset> = listOf(
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
                 "Answer the following question concisely and helpfully. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
+                "language1" to "Vietnamese",
             ),
         ),
     ),
@@ -144,6 +145,7 @@ internal val defaultMicPresets: List<Preset> = listOf(
             textBlock(
                 PRESET_SEARCH_MODEL_ID,
                 "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
+                "language1" to "Vietnamese",
             ).copy(searchEnabled = true),
         ),
     ),

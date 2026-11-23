@@ -65,8 +65,7 @@ internal data class ToolPresetItem(
     val nameVi: String,
     val nameKo: String,
     @param:DrawableRes val icon: Int,
-    /** If true, `id` is the full preset ID. If false, needs "preset_" prefix. */
-    val isFullId: Boolean = false,
+    val rowKey: String? = null,
 ) {
     fun name(lang: String): String = when (lang) {
         "vi" -> nameVi
@@ -198,11 +197,11 @@ internal fun ToolsSection(
         .appContainer
         .presetRepository
     val presetCatalog by presetRepository.catalogState.collectAsState()
-    val favoritePresetIds by remember(presetCatalog) {
+    val favoriteRowIds by remember(presetCatalog) {
         derivedStateOf {
             presetCatalog.presets
                 .filter { it.preset.isFavorite }
-                .map { it.preset.id }
+                .map { it.rowIdentity }
                 .toSet()
         }
     }
@@ -256,6 +255,15 @@ internal fun ToolsSection(
             ),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
+            presetCatalog.persistenceFailure?.let { failure ->
+                item {
+                    Text(
+                        text = dev.screengoated.toolbox.mobile.preset.presetPersistenceMessage(lang, failure),
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             items(toolCategories) { category ->
                 // Merge static presets with custom presets from catalog
                 val customItems = presetCatalog.presets
@@ -267,12 +275,14 @@ internal fun ToolsSection(
                             nameVi = resolved.preset.nameVi,
                             nameKo = resolved.preset.nameKo,
                             icon = R.drawable.ms_auto_awesome,
-                            isFullId = true,
+                            rowKey = resolved.rowIdentity,
                         )
                     }
                 // Filter out hidden/deleted built-in presets
-                val catalogIds = presetCatalog.presets.map { it.preset.id }.toSet()
-                val visibleBuiltIns = category.presets.filter { "preset_${it.id}" in catalogIds }
+                val builtIns = presetCatalog.presets.filter { it.isBuiltIn }.associateBy { it.preset.id }
+                val visibleBuiltIns = category.presets.mapNotNull { item ->
+                    builtIns["preset_${item.id}"]?.let { item.copy(rowKey = it.rowIdentity) }
+                }
                 val effectivePresets = visibleBuiltIns + customItems
                 ToolCategoryRow(
                     label = category.labelGetter(locale),
@@ -282,20 +292,16 @@ internal fun ToolsSection(
                     onPresetClick = onPresetClick,
                     onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                     toolbarMode = toolbarMode,
-                    favoritePresetIds = favoritePresetIds,
-                    onFavoriteToggle = { presetId ->
-                        presetRepository.toggleFavorite(presetId)
+                    toolbarLabels = locale.toolsToolbar,
+                    favoriteRowIds = favoriteRowIds,
+                    onFavoriteToggle = { rowKey ->
+                        presetRepository.toggleFavoriteRow(rowKey)
                     },
-                    onDuplicate = { presetId ->
-                        val newId = presetRepository.duplicatePreset(presetId, lang)
-                        android.util.Log.d("PresetTools", "DUPLICATE preset=$presetId → newId=$newId")
-                        android.util.Log.d("PresetTools", "Catalog size after: ${presetRepository.catalogState.value.presets.size}")
-                        android.util.Log.d("PresetTools", "Custom presets: ${presetRepository.catalogState.value.presets.filter { !it.isBuiltIn }.map { it.preset.nameEn }}")
+                    onDuplicate = { rowKey ->
+                        presetRepository.duplicatePresetRow(rowKey, lang)
                     },
-                    onDelete = { presetId ->
-                        android.util.Log.d("PresetTools", "DELETE preset=$presetId")
-                        presetRepository.deletePreset(presetId)
-                        android.util.Log.d("PresetTools", "Catalog size after: ${presetRepository.catalogState.value.presets.size}")
+                    onDelete = { rowKey ->
+                        presetRepository.deletePresetRow(rowKey)
                     },
                 )
             }
@@ -311,7 +317,7 @@ internal fun ToolsSection(
             floatingActionButton = {
                 MorphingCreateFab(
                     expanded = fabMenuExpanded,
-                    contentDescription = when (lang) { "vi" -> "Tạo"; "ko" -> "생성"; else -> "Create" },
+                    contentDescription = locale.toolsToolbar.create,
                     onClick = { fabMenuExpanded = !fabMenuExpanded },
                 )
             },
@@ -320,7 +326,7 @@ internal fun ToolsSection(
                 ToolbarModeButton(
                     active = false,
                     icon = R.drawable.ms_help_outline,
-                    contentDescription = when (lang) { "vi" -> "Trợ giúp"; "ko" -> "도움말"; else -> "Help" },
+                    contentDescription = locale.toolsToolbar.help,
                     activeContainer = MaterialTheme.colorScheme.primary,
                     activeContent = MaterialTheme.colorScheme.onPrimary,
                     onClick = { showHelpDialog = true },
@@ -336,15 +342,15 @@ internal fun ToolsSection(
                 )
                 val actions = listOf(
                     ToolAction(ToolbarMode.DUPLICATE, R.drawable.ms_content_copy,
-                        when (lang) { "vi" -> "Nhân bản"; "ko" -> "복제"; else -> "Duplicate" },
+                        locale.toolsToolbar.duplicate,
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.onPrimary),
                     ToolAction(ToolbarMode.FAVORITE, R.drawable.ms_star,
-                        when (lang) { "vi" -> "Yêu thích"; "ko" -> "즐겨찾기"; else -> "Favorite" },
+                        locale.toolsToolbar.favorite,
                         MaterialTheme.colorScheme.primary,
                         MaterialTheme.colorScheme.onPrimary),
                     ToolAction(ToolbarMode.DELETE, R.drawable.ms_delete,
-                        when (lang) { "vi" -> "Xóa"; "ko" -> "삭제"; else -> "Delete" },
+                        locale.toolsToolbar.delete,
                         MaterialTheme.colorScheme.error,
                         MaterialTheme.colorScheme.onError),
                 )

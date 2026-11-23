@@ -1,11 +1,9 @@
 //! CSS styles for markdown view
 
-/// Get font CSS for markdown view (uses locally cached fonts)
-pub fn get_font_style() -> String {
-    format!(
-        "<style>{}</style>",
-        crate::overlay::html_components::font_manager::get_font_css()
-    )
+/// Saved documents carry their font independently of the current app session.
+pub fn get_export_font_style() -> String {
+    let font_face = crate::overlay::result::scene_compositor::font::isolated_face_css();
+    format!("<style>{font_face}</style>")
 }
 
 /// Font contract for isolated result cards rendered inside the singleton compositor.

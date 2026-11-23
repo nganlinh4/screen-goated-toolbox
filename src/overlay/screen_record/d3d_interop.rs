@@ -8,89 +8,52 @@
 
 use std::mem::ManuallyDrop;
 
+mod keyed_mutex;
 mod readback;
 
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
-use windows::Win32::Foundation::{HANDLE, HMODULE, RECT};
+use windows::Win32::Foundation::{HANDLE, HMODULE, LUID, RECT};
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIKeyedMutex, IDXGIResource1, IDXGISurface};
+use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIResource1, IDXGISurface};
 use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
 use windows::core::Interface;
 
+pub use keyed_mutex::KeyedMutexGuard;
 pub use readback::{D3D11GpuFence, D3D11Readback};
 
-/// RAII guard for an `IDXGIKeyedMutex` acquisition on a shared decode/encode ring slot.
-///
-/// Acquire uses an INFINITE timeout and the keyed mutex is non-recursive, so leaking
-/// an acquisition — an early `?`, error, or panic between `AcquireSync` and
-/// `ReleaseSync` — makes the *other* side's next `AcquireSync` block forever, hanging
-/// the export instead of failing cleanly. Holding the slot in this guard releases the
-/// key on every exit path. Acquire and release both use the same `key` (the producer
-/// and consumer sides agree on `0`), matching the previous manual pairs.
-pub struct KeyedMutexGuard<'a> {
-    mutex: &'a IDXGIKeyedMutex,
-    key: u64,
+/// The DXGI adapter with this LUID. A LUID names one adapter instance, unlike
+/// vendor/device IDs, which two identical GPUs (or a GPU and its
+/// software-composited twin) share.
+fn adapter_by_luid(luid: LUID) -> Option<dxgi::IDXGIAdapter1> {
+    let factory: dxgi::IDXGIFactory4 = unsafe { dxgi::CreateDXGIFactory1().ok()? };
+    unsafe { factory.EnumAdapterByLuid(luid).ok() }
 }
 
-impl<'a> KeyedMutexGuard<'a> {
-    /// Acquire `mutex` with `key` (infinite wait); the key is released on drop.
-    pub fn acquire(mutex: &'a IDXGIKeyedMutex, key: u64) -> windows::core::Result<Self> {
-        unsafe { mutex.AcquireSync(key, u32::MAX)? };
-        Ok(Self { mutex, key })
-    }
-}
-
-impl Drop for KeyedMutexGuard<'_> {
-    fn drop(&mut self) {
-        // Drop cannot propagate errors and there is no recovery for a release failure,
-        // so the result is intentionally ignored (matching the prior `let _ = ...`).
-        unsafe {
-            let _ = self.mutex.ReleaseSync(self.key);
-        }
-    }
-}
-
-/// Create a D3D11 device on the SAME adapter as the wgpu/DX12 device.
-///
-/// Takes an adapter LUID (from `wgpu::AdapterInfo::device`) and enumerates DXGI
-/// adapters to find the matching one. This ensures shared textures live on the
-/// same GPU — without this, D3D11 may pick the iGPU while wgpu uses the dGPU,
-/// causing cross-adapter sharing where D3D12 reads stale VRAM from the wrong GPU.
+/// Create a D3D11 device on the SAME adapter as the wgpu/DX12 device, found by
+/// the adapter LUID of the wgpu D3D12 device. Shared textures must live on one
+/// GPU: on an iGPU + dGPU system D3D11's default adapter may differ from
+/// wgpu's, and D3D12 would then read stale VRAM from the wrong GPU.
 pub fn create_d3d11_device_on_adapter(
-    vendor_id: u32,
-    device_id: u32,
+    luid: LUID,
 ) -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
-    let factory: dxgi::IDXGIFactory1 =
-        unsafe { dxgi::CreateDXGIFactory1().map_err(|e| format!("CreateDXGIFactory1: {e}"))? };
-
-    // Enumerate adapters and find the one matching the wgpu adapter's vendor/device.
-    let mut matched_adapter = None;
-    for i in 0.. {
-        let adapter = match unsafe { factory.EnumAdapters1(i) } {
-            Ok(a) => a,
-            Err(_) => break,
-        };
-        let desc = unsafe { adapter.GetDesc1().map_err(|e| format!("GetDesc1: {e}"))? };
-        if desc.VendorId == vendor_id && desc.DeviceId == device_id {
-            let name = String::from_utf16_lossy(
-                &desc.Description[..desc
-                    .Description
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(desc.Description.len())],
-            );
-            eprintln!(
-                "[D3D11] Matched wgpu adapter: {name} (vendor=0x{:x} device=0x{:x})",
-                vendor_id, device_id
-            );
-            matched_adapter = Some(adapter);
-            break;
-        }
+    let matched_adapter = adapter_by_luid(luid);
+    if let Some(adapter) = &matched_adapter
+        && let Ok(desc) = unsafe { adapter.GetDesc1() }
+    {
+        let name_len = desc
+            .Description
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(desc.Description.len());
+        eprintln!(
+            "[D3D11] Matched wgpu adapter by LUID: {}",
+            String::from_utf16_lossy(&desc.Description[..name_len])
+        );
     }
 
     let flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -362,7 +325,7 @@ impl VideoProcessor {
         }
         let output_view = output_view.ok_or("CreateOutputView returned null")?;
 
-        let stream = D3D11_VIDEO_PROCESSOR_STREAM {
+        let mut stream = D3D11_VIDEO_PROCESSOR_STREAM {
             Enable: true.into(),
             OutputIndex: 0,
             InputFrameOrField: 0,
@@ -376,11 +339,17 @@ impl VideoProcessor {
             ppFutureSurfacesRight: std::ptr::null_mut(),
         };
 
-        unsafe {
-            self.video_context
-                .VideoProcessorBlt(&self.processor, &output_view, 0, &[stream])
-                .map_err(|e| format!("VideoProcessorBlt: {e}"))?;
-        }
+        let result = unsafe {
+            self.video_context.VideoProcessorBlt(
+                &self.processor,
+                &output_view,
+                0,
+                std::slice::from_ref(&stream),
+            )
+        };
+        // The generated stream uses ManuallyDrop for the COM interface fields.
+        unsafe { ManuallyDrop::drop(&mut stream.pInputSurface) };
+        result.map_err(|e| format!("VideoProcessorBlt: {e}"))?;
 
         Ok(())
     }
@@ -512,5 +481,36 @@ impl Drop for SharedVramBuffer {
                 let _ = windows::Win32::Foundation::CloseHandle(self.handle);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adapters_are_found_by_their_own_luid() {
+        let factory: dxgi::IDXGIFactory1 = unsafe { dxgi::CreateDXGIFactory1().unwrap() };
+        let mut checked = 0;
+        while let Ok(adapter) = unsafe { factory.EnumAdapters1(checked) } {
+            let desc = unsafe { adapter.GetDesc1().unwrap() };
+            let found = adapter_by_luid(desc.AdapterLuid).expect("enumerated adapter by LUID");
+            let found_desc = unsafe { found.GetDesc1().unwrap() };
+            assert_eq!(found_desc.AdapterLuid.LowPart, desc.AdapterLuid.LowPart);
+            assert_eq!(found_desc.AdapterLuid.HighPart, desc.AdapterLuid.HighPart);
+            assert_eq!(found_desc.Description, desc.Description);
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "DXGI always lists at least the software adapter"
+        );
+        assert!(
+            adapter_by_luid(LUID {
+                LowPart: u32::MAX,
+                HighPart: i32::MAX
+            })
+            .is_none()
+        );
     }
 }

@@ -12,12 +12,12 @@ $pdjDist = Join-Path $pdjDir "dist"
 $pdjTargetDist = Join-Path $PSScriptRoot "src\overlay\prompt_dj\dist"
 Push-Location $pdjDir
 try {
-    if (-not (Test-Path "node_modules")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: PromptDJ npm install failed." -ForegroundColor Red
-            exit 1
-        }
+    try {
+        & (Join-Path $PSScriptRoot "scripts\build-frontend-dependencies.ps1") -Project $pdjDir
+    }
+    catch {
+        Write-Host "FAILED: PromptDJ lockfile install failed: $_" -ForegroundColor Red
+        exit 1
     }
     npm run build
     if ($LASTEXITCODE -ne 0) {
@@ -46,12 +46,12 @@ $brDist = Join-Path $brDir "dist"
 $brTargetDist = Join-Path $PSScriptRoot "src\overlay\translation_gummy\dist"
 Push-Location $brDir
 try {
-    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\\.bin\\vite.cmd")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: Translation Gummy npm install failed." -ForegroundColor Red
-            exit 1
-        }
+    try {
+        & (Join-Path $PSScriptRoot "scripts\build-frontend-dependencies.ps1") -Project $brDir
+    }
+    catch {
+        Write-Host "FAILED: Translation Gummy lockfile install failed: $_" -ForegroundColor Red
+        exit 1
     }
     npm run build
     if ($LASTEXITCODE -ne 0) {
@@ -79,12 +79,12 @@ $svgDir = Join-Path $PSScriptRoot "image-to-svg-ui"
 $svgTargetDist = Join-Path $PSScriptRoot "src\overlay\image_to_svg\dist"
 Push-Location $svgDir
 try {
-    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: Image to SVG npm install failed." -ForegroundColor Red
-            exit 1
-        }
+    try {
+        & (Join-Path $PSScriptRoot "scripts\build-frontend-dependencies.ps1") -Project $svgDir
+    }
+    catch {
+        Write-Host "FAILED: Image to SVG lockfile install failed: $_" -ForegroundColor Red
+        exit 1
     }
     npm run build
     if ($LASTEXITCODE -ne 0) {
@@ -103,38 +103,6 @@ else {
     exit 1
 }
 
-# --- Build Image Creator Frontend ---
-Write-Host "Building Image Creator Frontend..." -ForegroundColor Cyan
-$imageCreatorDir = Join-Path $PSScriptRoot "image-creator-ui"
-$imageCreatorTargetDist = Join-Path $PSScriptRoot "src\overlay\image_creator\dist"
-
-Push-Location $imageCreatorDir
-try {
-    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules\.bin\vite.cmd")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: Image Creator npm install failed." -ForegroundColor Red
-            exit 1
-        }
-    }
-    npm run build
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAILED: Image Creator build failed." -ForegroundColor Red
-        exit 1
-    }
-}
-finally {
-    Pop-Location
-}
-
-if (Test-Path $imageCreatorTargetDist) {
-    Write-Host "Image Creator assets synchronized." -ForegroundColor Green
-}
-else {
-    Write-Host "FAILED: Image Creator build did not produce dist folder." -ForegroundColor Red
-    exit 1
-}
-
 # --- Build TTS Playground Frontend ---
 Write-Host "Building TTS Playground Frontend..." -ForegroundColor Cyan
 $ttsDir = Join-Path $PSScriptRoot "tts-playground-ui"
@@ -143,12 +111,12 @@ $ttsTargetDist = Join-Path $PSScriptRoot "src\overlay\tts_playground\dist"
 
 Push-Location $ttsDir
 try {
-    if (-not (Test-Path "node_modules")) {
-        npm install
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAILED: TTS Playground npm install failed." -ForegroundColor Red
-            exit 1
-        }
+    try {
+        & (Join-Path $PSScriptRoot "scripts\build-frontend-dependencies.ps1") -Project $ttsDir
+    }
+    catch {
+        Write-Host "FAILED: TTS Playground lockfile install failed: $_" -ForegroundColor Red
+        exit 1
     }
     npm run build
     if ($LASTEXITCODE -ne 0) {
@@ -321,25 +289,8 @@ if ($LASTEXITCODE -ne 0) {
 $vcRuntimeDelivery = Join-Path $vcRuntimeOutput "sgt_vc_runtime.delivery.json"
 Assert-TrackedDelivery $vcRuntimeDelivery (Join-Path $trackedDeliveryRoot "vc-runtime-v1.json")
 
-# Rebuild the host-owned Qwen3 runtime pack and compare it with the reviewed
-# delivery. Reproduce the large pinned libtorch packs too when their source
-# archive is present; an unchanged release does not require fetching it again.
-Write-Host "Verifying Qwen3 CUDA runtime delivery..." -ForegroundColor Cyan
-$qwenRuntimeOutput = Join-Path $releasePackageRoot "sgt_qwen3_runtime"
-Initialize-DeliveryOutput $qwenRuntimeOutput `
-    (Join-Path $trackedDeliveryRoot "qwen-runtime-v1.json") `
-    "sgt_qwen3_runtime.delivery.json"
-& py -3 (Join-Path $PSScriptRoot "scripts\package_qwen3_runtime.py") `
-    --output-dir $qwenRuntimeOutput --require-delivery
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "FAILED: Qwen3 CUDA runtime delivery is not release-ready." -ForegroundColor Red
-    exit $LASTEXITCODE
-}
-$qwenRuntimeDelivery = Join-Path $qwenRuntimeOutput "sgt_qwen3_runtime.delivery.json"
-Assert-TrackedDelivery $qwenRuntimeDelivery (Join-Path $trackedDeliveryRoot "qwen-runtime-v1.json")
-
-# Local ASR packs are built explicitly because they include a separate release
-# worker. Canonical host builds consume only the read-back-verified manifest.
+# The ONNX DirectML runtime pack (local-asr-v1.json) is built explicitly.
+# Canonical host builds consume only the read-back-verified manifest.
 $localAsrOutput = Join-Path $releasePackageRoot "sgt_local_asr"
 New-Item -ItemType Directory -Path $localAsrOutput -Force | Out-Null
 $localAsrDelivery = Join-Path $localAsrOutput "sgt_local_asr.delivery.json"

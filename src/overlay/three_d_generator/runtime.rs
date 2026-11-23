@@ -6,8 +6,11 @@ use std::sync::{LazyLock, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod admission;
+mod cancellation;
 mod capabilities;
 mod companion;
+mod completion;
 mod control;
 mod failure;
 mod generation_mode;
@@ -17,18 +20,20 @@ mod process;
 mod recovery;
 mod refinement;
 mod restore;
+mod scheduling;
 mod submission;
 pub(super) use refinement::RefineRequest;
 use refinement::RefinementKind;
-pub(super) use submission::{start_job, start_refinement, start_segmentation};
+pub(super) use submission::{start_job, start_refinement};
 
 pub(super) use control::{
-    cancel_for_shutdown, cancel_job, forget_result_path, is_known_result_path, open_output,
-    remap_result_path,
+    cancel_for_shutdown, cancel_job, forget_result_path, is_known_result_path, remap_result_path,
 };
 use generation_mode::GenerationMode;
 use process::run_runtime_operation;
 use restore::ensure_recovery_started;
+pub(super) use restore::recovery_pending;
+use scheduling::schedule_next;
 
 const MAX_PARALLEL_JOBS: usize = 2;
 // The picker admits 100 images per import, so the queue must admit a whole
@@ -138,6 +143,7 @@ struct RuntimeState {
     job_order: Vec<String>,
     pids: HashMap<String, u32>,
     continuations: HashMap<String, Continuation>,
+    reserved_continuations: std::collections::HashSet<String>,
     operations: HashMap<String, RuntimeOperation>,
     request_fingerprints: HashMap<String, String>,
     deadlines: HashMap<String, u64>,
@@ -148,9 +154,22 @@ struct RuntimeState {
 impl RuntimeState {
     fn running_count(&self) -> usize {
         self.jobs
-            .values()
-            .filter(|status| status_is_busy(&status.stage))
+            .iter()
+            .filter(|(job_id, status)| {
+                (status_is_busy(&status.stage) || self.pids.contains_key(*job_id))
+                    && !self.pending_completions.contains_key(*job_id)
+            })
             .count()
+    }
+
+    fn next_queued_job(&self) -> Option<String> {
+        self.job_order
+            .iter()
+            .find(|id| {
+                !self.pids.contains_key(*id)
+                    && self.jobs.get(*id).is_some_and(|job| job.stage == "queued")
+            })
+            .cloned()
     }
 
     fn pending_count(&self) -> usize {
@@ -173,6 +192,9 @@ impl RuntimeState {
             .job_order
             .iter()
             .filter(|job_id| {
+                if self.reserved_continuations.contains(*job_id) {
+                    return false;
+                }
                 self.jobs.get(*job_id).is_some_and(|status| {
                     matches!(status.stage.as_str(), "done" | "failed" | "cancelled")
                 })
@@ -212,7 +234,9 @@ impl RuntimeState {
         let expired = self
             .continuations
             .iter()
-            .filter(|(_, continuation)| continuation.expires_at_ms <= now_ms)
+            .filter(|(id, continuation)| {
+                continuation.expires_at_ms <= now_ms && !self.reserved_continuations.contains(*id)
+            })
             .map(|(job_id, continuation)| (job_id.clone(), continuation.source_descriptor.clone()))
             .collect::<Vec<_>>();
         for (job_id, descriptor) in expired {
@@ -387,7 +411,8 @@ pub(super) fn product_capabilities() -> Value {
 }
 
 fn runtime_command() -> Option<Command> {
-    crate::overlay::creation_runtime::shared_runtime_path().map(Command::new)
+    crate::overlay::creation_runtime::shared_runtime_path()
+        .and_then(|path| crate::overlay::creation_runtime::configured_command(path).ok())
 }
 
 fn runtime_status_label() -> String {
@@ -399,7 +424,7 @@ fn runtime_status_label() -> String {
 }
 
 pub(super) fn default_output_dir() -> Result<PathBuf, String> {
-    let directory = crate::paths::app_local_data_dir().join("3d-generator");
+    let directory = crate::paths::app_runtime_local_data_dir().join("3d-generator");
     std::fs::create_dir_all(&directory)
         .map_err(|_| "The 3D project library is unavailable.".to_string())?;
     std::fs::canonicalize(directory)
@@ -473,6 +498,8 @@ fn idle_status() -> JobStatus {
 
 pub(super) fn job_status(job_id: Option<&str>) -> JobStatus {
     ensure_recovery_started();
+    crate::overlay::creation_delivery::schedule_reconciliation("3d");
+    completion::settle_reconciled_completions();
     STATE
         .lock()
         .ok()
@@ -489,7 +516,7 @@ pub(super) fn job_status(job_id: Option<&str>) -> JobStatus {
 pub(super) fn job_statuses() -> Vec<JobStatus> {
     ensure_recovery_started();
     crate::overlay::creation_delivery::schedule_reconciliation("3d");
-    settle_reconciled_completions();
+    completion::settle_reconciled_completions();
     STATE
         .lock()
         .map(|mut state| {
@@ -501,99 +528,6 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn settle_reconciled_completions() {
-    let Ok(active) = crate::overlay::creation_intent_journal::load("3d") else {
-        return;
-    };
-    let active = active
-        .into_iter()
-        .map(|intent| intent.job_id)
-        .collect::<std::collections::HashSet<_>>();
-    let Ok(mut state) = STATE.lock() else {
-        return;
-    };
-    let completed = state
-        .pending_completions
-        .keys()
-        .filter(|job_id| {
-            !active.contains(*job_id)
-                && state
-                    .jobs
-                    .get(*job_id)
-                    .is_some_and(|status| !status_is_non_publishable(&status.stage))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for job_id in completed {
-        if let Some((status, continuation)) = state.pending_completions.remove(&job_id) {
-            state.jobs.insert(job_id.clone(), status);
-            if let Some(continuation) = continuation {
-                state.continuations.insert(job_id.clone(), continuation);
-            }
-            state.operations.remove(&job_id);
-            state.request_fingerprints.remove(&job_id);
-            state.deadlines.remove(&job_id);
-            state.recovered_jobs.remove(&job_id);
-        }
-    }
-    state.prune_terminal_jobs();
-}
-
-fn schedule_next() {
-    loop {
-        let next = {
-            let Ok(mut state) = STATE.lock() else {
-                return;
-            };
-            if state.running_count() >= MAX_PARALLEL_JOBS {
-                return;
-            }
-            let Some(job_id) = state
-                .job_order
-                .iter()
-                .find(|id| state.jobs.get(*id).is_some_and(|job| job.stage == "queued"))
-                .cloned()
-            else {
-                return;
-            };
-            let Some(operation) = state.operations.get(&job_id).cloned() else {
-                return;
-            };
-            let Some(request_fingerprint) = state.request_fingerprints.get(&job_id).cloned() else {
-                return;
-            };
-            let Some(deadline_at_ms) = state.deadlines.get(&job_id).copied() else {
-                return;
-            };
-            let recovered = state.recovered_jobs.remove(&job_id);
-            if let Some(status) = state.jobs.get_mut(&job_id) {
-                let (stage, text, phase) = match operation {
-                    RuntimeOperation::Segment { .. } => {
-                        ("segmenting", "Separating model parts.", "separation")
-                    }
-                    RuntimeOperation::Refine { .. } => {
-                        ("refining", "Creating a new version.", "refinement")
-                    }
-                    RuntimeOperation::Generate { .. } => {
-                        ("preparing", "Preparing creation.", "preparing")
-                    }
-                };
-                status.stage = stage.to_string();
-                status.progress_text = text.to_string();
-                status.phase = Some(phase.to_string());
-            }
-            (
-                job_id,
-                operation,
-                request_fingerprint,
-                deadline_at_ms,
-                recovered,
-            )
-        };
-        std::thread::spawn(move || run_runtime_operation(next.0, next.1, next.2, next.3, next.4));
-    }
 }
 
 #[cfg(test)]

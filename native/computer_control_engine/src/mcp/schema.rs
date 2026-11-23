@@ -1,8 +1,8 @@
 use serde_json::{Value, json};
-use std::collections::HashSet;
+
+mod composition;
 
 const MAX_PROSE_CHARS: usize = 512;
-const MAX_DECL_NAME_BYTES: usize = 128;
 const MAX_SCHEMA_DEPTH: usize = 16;
 const MAX_SCHEMA_NODES: usize = 1_024;
 const MAX_TOTAL_PROPERTIES: usize = 512;
@@ -63,83 +63,10 @@ pub(super) fn bounded_prose(value: &str) -> String {
     bounded
 }
 
-/// Produce a bounded ASCII declaration name. The route digest makes normalized
-/// collisions independent of catalog order; ToolRoute retains both exact names.
-pub(super) fn unique_decl_name(id: &str, tool: &str, seen: &mut HashSet<String>) -> String {
-    let digest = stable_route_digest(id, tool);
-    let digest_suffix = format!("_h{digest:016x}");
-    let stem_limit = MAX_DECL_NAME_BYTES - digest_suffix.len();
-    let normalized = format!(
-        "mcp__{}__{}",
-        normalize_decl_component(id),
-        normalize_decl_component(tool)
-    );
-    let stem = normalized
-        .bytes()
-        .take(stem_limit)
-        .map(char::from)
-        .collect::<String>();
-    let base = format!("{stem}{digest_suffix}");
-    if seen.insert(base.clone()) {
-        return base;
-    }
-    let mut n = 2;
-    loop {
-        let suffix = format!("_{n}");
-        let keep = MAX_DECL_NAME_BYTES - suffix.len();
-        let candidate = format!("{}{suffix}", &base[..keep]);
-        if seen.insert(candidate.clone()) {
-            return candidate;
-        }
-        n += 1;
-    }
-}
-
-fn normalize_decl_component(value: &str) -> String {
-    let mut normalized = String::with_capacity(value.len().min(MAX_DECL_NAME_BYTES));
-    let mut previous_separator = false;
-    for character in value.chars() {
-        let mapped = if character.is_ascii_alphanumeric() || character == '_' {
-            character
-        } else {
-            '_'
-        };
-        if mapped == '_' && previous_separator {
-            continue;
-        }
-        if normalized.len() == MAX_DECL_NAME_BYTES {
-            break;
-        }
-        normalized.push(mapped);
-        previous_separator = mapped == '_';
-    }
-    if normalized.is_empty() {
-        normalized.push_str("unnamed");
-    }
-    normalized
-}
-
-fn stable_route_digest(id: &str, tool: &str) -> u64 {
-    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    let mut hash = OFFSET;
-    for byte in (id.len() as u64)
-        .to_le_bytes()
-        .into_iter()
-        .chain(id.bytes())
-        .chain((tool.len() as u64).to_le_bytes())
-        .chain(tool.bytes())
-    {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(PRIME);
-    }
-    hash
-}
-
 /// Reduce MCP JSON-Schema to the supported provider-wire subset.
 pub(super) fn sanitize_schema(schema: &Value) -> Result<Value, SchemaCompatibilityError> {
     let mut budget = SchemaBudget::default();
-    let sanitized = sanitize_schema_at_depth(schema, 0, &mut budget)?;
+    let sanitized = sanitize_schema_at_depth(schema, 0, schema, &mut budget)?;
     let output_bytes = serde_json::to_vec(&sanitized)
         .map_err(|_| SchemaCompatibilityError::new("schema_serialization", 1, 0))?
         .len();
@@ -189,9 +116,11 @@ impl SchemaBudget {
 /// Deep structures are rejected once the depth budget is exceeded. Replacing
 /// them with an empty object would discard nested `required` constraints, so the
 /// caller quarantines the whole tool instead of emitting a weakened contract.
+/// `root` is the tool's whole input schema, against which local `$ref`s resolve.
 fn sanitize_schema_at_depth(
     schema: &Value,
     depth: usize,
+    root: &Value,
     budget: &mut SchemaBudget,
 ) -> Result<Value, SchemaCompatibilityError> {
     if depth > MAX_SCHEMA_DEPTH {
@@ -205,6 +134,9 @@ fn sanitize_schema_at_depth(
     let Value::Object(map) = schema else {
         return Ok(json!({"type": "object", "properties": {}}));
     };
+    if let Some(expanded) = composition::expand(map, root)? {
+        return sanitize_schema_at_depth(&expanded, depth + 1, root, budget);
+    }
     let mut out = serde_json::Map::new();
     let mut nullable = false;
     if let Some(value) = map.get("type") {
@@ -272,7 +204,7 @@ fn sanitize_schema_at_depth(
             budget.charge_string(name)?;
             sanitized.insert(
                 name.clone(),
-                sanitize_schema_at_depth(property_schema, depth + 1, budget)?,
+                sanitize_schema_at_depth(property_schema, depth + 1, root, budget)?,
             );
         }
         out.insert("properties".to_string(), Value::Object(sanitized));
@@ -286,7 +218,7 @@ fn sanitize_schema_at_depth(
     if let Some(value) = map.get("items") {
         out.insert(
             "items".to_string(),
-            sanitize_schema_at_depth(value, depth + 1, budget)?,
+            sanitize_schema_at_depth(value, depth + 1, root, budget)?,
         );
     }
     if out.get("type").and_then(Value::as_str) == Some("object") && !out.contains_key("properties")
@@ -413,187 +345,4 @@ fn sanitize_enum(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn valid_decl_name(name: &str) -> bool {
-        !name.is_empty()
-            && name.len() <= MAX_DECL_NAME_BYTES
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-            && name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
-    }
-    #[test]
-    fn declared_names_are_bounded_ascii_and_collision_free() {
-        let mut seen = HashSet::new();
-        let first = unique_decl_name(
-            " 123/集成 ",
-            &format!("9 tool/{}", "x".repeat(300)),
-            &mut seen,
-        );
-        let second = unique_decl_name(
-            " 123/集成 ",
-            &format!("9 tool/{}", "x".repeat(300)),
-            &mut seen,
-        );
-        assert!(valid_decl_name(&first));
-        assert!(valid_decl_name(&second));
-        assert_ne!(first, second);
-        assert!(second.ends_with("_2"));
-    }
-    #[test]
-    fn normalized_collision_mapping_is_independent_of_input_order() {
-        let mut forward = HashSet::new();
-        let a = unique_decl_name("provider/a", "tool name", &mut forward);
-        let b = unique_decl_name("provider a", "tool/name", &mut forward);
-        let mut reverse = HashSet::new();
-        let reverse_b = unique_decl_name("provider a", "tool/name", &mut reverse);
-        let reverse_a = unique_decl_name("provider/a", "tool name", &mut reverse);
-        assert_eq!(
-            (a.as_str(), b.as_str()),
-            (reverse_a.as_str(), reverse_b.as_str())
-        );
-        assert_ne!(a, b);
-        assert!(valid_decl_name(&a) && valid_decl_name(&b));
-    }
-    #[test]
-    fn schema_sanitizing_keeps_supported_structure_recursively() {
-        let schema = json!({
-            "type": "object",
-            "required": ["items"],
-            "properties": {"items": {"type": "array", "items": {
-                "type": "string", "format": "ignored", "description": "kept"
-            }}},
-            "title": "ignored"
-        });
-        let sanitized = sanitize_schema(&schema).unwrap();
-        assert_eq!(sanitized["required"], json!(["items"]));
-        assert_eq!(
-            sanitized["properties"]["items"]["items"],
-            json!({"type": "string", "description": "kept"})
-        );
-        assert!(sanitized.get("title").is_none());
-    }
-    #[test]
-    fn nullable_union_maps_to_provider_schema_and_other_unions_fail_closed() {
-        for union in [json!(["string", "null"]), json!(["null", "string"])] {
-            let schema = sanitize_schema(&json!({"type": union})).unwrap();
-            assert_eq!(schema["type"], "string");
-            assert_eq!(schema["nullable"], true);
-        }
-        assert_eq!(
-            sanitize_schema(&json!({"type": "null"})).unwrap()["type"],
-            "null"
-        );
-        let error = sanitize_schema(&json!({"type": ["string", "number"]})).unwrap_err();
-        assert_eq!(error.reason, "schema_type_union");
-    }
-    #[test]
-    fn server_prose_and_enum_payloads_are_bounded_without_losing_required_fields() {
-        let long = "word ".repeat(600);
-        let enum_values: Vec<_> = (0..100).map(|index| format!("value-{index}")).collect();
-        let schema = json!({
-            "type": "object",
-            "description": format!("{long}\u{0001}"),
-            "required": ["must_keep"],
-            "properties": {
-                "must_keep": {"type": "string", "description": long},
-                "choice": {"type": "string", "enum": enum_values}
-            }
-        });
-        let sanitized = sanitize_schema(&schema).expect("bounded ordinary schema");
-        assert_eq!(sanitized["required"], json!(["must_keep"]));
-        assert_eq!(sanitized["properties"]["must_keep"]["type"], "string");
-        assert!(
-            sanitized["description"]
-                .as_str()
-                .is_some_and(|value| value.chars().count() <= MAX_PROSE_CHARS + 1)
-        );
-        assert_eq!(
-            sanitized["properties"]["choice"]["enum"]
-                .as_array()
-                .map(Vec::len),
-            Some(100)
-        );
-    }
-
-    #[test]
-    fn excessive_required_names_fail_closed() {
-        let count = MAX_TOTAL_REQUIRED_NAMES + 1;
-        let required = (0..count)
-            .map(|index| format!("field_{index}"))
-            .collect::<Vec<_>>();
-        let properties = required
-            .iter()
-            .map(|name| (name.clone(), json!({"type": "string"})))
-            .collect::<serde_json::Map<_, _>>();
-        let error = sanitize_schema(&json!({
-            "type": "object",
-            "required": required,
-            "properties": properties,
-        }))
-        .expect_err("required-name overflow must quarantine the tool");
-        assert_eq!(error.reason, "required_names");
-        assert_eq!(error.observed, count);
-        assert_eq!(error.limit, MAX_TOTAL_REQUIRED_NAMES);
-    }
-
-    #[test]
-    fn excessive_property_count_and_string_bytes_fail_closed() {
-        let property_count = MAX_TOTAL_PROPERTIES + 1;
-        let properties = (0..property_count)
-            .map(|index| (format!("field_{index}"), json!({"type": "string"})))
-            .collect::<serde_json::Map<_, _>>();
-        let error = sanitize_schema(&json!({"type": "object", "properties": properties}))
-            .expect_err("property overflow must quarantine the tool");
-        assert_eq!(error.reason, "properties");
-        let properties = (0..200)
-            .map(|index| {
-                (
-                    format!("field_{index:03}_{}", "x".repeat(380)),
-                    json!({"type": "string"}),
-                )
-            })
-            .collect::<serde_json::Map<_, _>>();
-        let error = sanitize_schema(&json!({"type": "object", "properties": properties}))
-            .expect_err("total schema string overflow must quarantine the tool");
-        assert_eq!(error.reason, "schema_string_bytes");
-        assert!(error.observed > error.limit);
-    }
-
-    #[test]
-    fn oversized_required_and_enum_strings_fail_closed() {
-        let long_name = "r".repeat(MAX_FIELD_NAME_BYTES + 1);
-        let error = sanitize_schema(&json!({
-            "type": "object",
-            "required": [long_name.clone()],
-            "properties": {long_name: {"type": "string"}},
-        }))
-        .expect_err("oversized required name must quarantine the tool");
-        assert_eq!(error.reason, "required_name_bytes");
-        let error = sanitize_schema(&json!({
-            "type": "string",
-            "enum": ["e".repeat(MAX_ENUM_STRING_BYTES + 1)],
-        }))
-        .expect_err("oversized enum string must quarantine the tool");
-        assert_eq!(error.reason, "enum_string_bytes");
-        let error = sanitize_schema(&json!({"type": "string", "enum": [1]})).unwrap_err();
-        assert_eq!(error.reason, "enum_value_shape");
-    }
-
-    #[test]
-    fn structures_beyond_depth_limit_are_rejected_not_weakened() {
-        let mut schema = json!({"type": "string"});
-        for _ in 0..=MAX_SCHEMA_DEPTH {
-            schema = json!({
-                "type": "object",
-                "required": ["next"],
-                "properties": {"next": schema},
-            });
-        }
-        let error =
-            sanitize_schema(&schema).expect_err("deep required constraints must not be truncated");
-        assert_eq!(error.reason, "schema_depth");
-        assert!(error.observed > error.limit);
-    }
-}
+mod tests;

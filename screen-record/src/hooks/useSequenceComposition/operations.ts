@@ -7,6 +7,10 @@ import {
 } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
 import {
+  SNAPSHOT_CLIP_MEDIA_PATH_KEYS,
+  type SnapshotClipMediaPaths,
+} from "@/lib/mediaServer";
+import {
   applyCanvasConfig,
   createCompositionSnapshotClip,
   extractCanvasConfig,
@@ -18,6 +22,35 @@ import {
 } from "@/lib/projectComposition";
 import type { PersistOptions } from "./index";
 import type { MutableRefObject } from "react";
+
+/** Copies every snapshot-owned media file of a picked project into managed storage. */
+async function copySnapshotClipMedia(
+  project: Project,
+): Promise<SnapshotClipMediaPaths> {
+  const copies: SnapshotClipMediaPaths = {};
+  for (const key of SNAPSHOT_CLIP_MEDIA_PATH_KEYS) {
+    const sourcePath = project[key];
+    if (!sourcePath) continue;
+    try {
+      const saved = await invoke<{ savedPath: string }>(
+        "save_composition_snapshot_copy",
+        { sourcePath },
+      );
+      copies[key] = saved?.savedPath || undefined;
+    } catch (error) {
+      console.error(`[Composition] Failed to create native snapshot copy of ${key}:`, error);
+    }
+  }
+  return copies;
+}
+
+async function deleteFiles(paths: Array<string | undefined>): Promise<void> {
+  await Promise.allSettled(
+    paths
+      .filter((path): path is string => Boolean(path))
+      .map((path) => invoke("delete_file", { path })),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // pickProjectForSequence
@@ -74,57 +107,12 @@ export async function pickProjectForSequence(
 
   const pickedProject = await projectManager.loadProject(projectId);
   if (!pickedProject) return;
-  let snapshotRawVideoPath: string | undefined;
-  let snapshotRawMicAudioPath: string | undefined;
-  let snapshotRawWebcamVideoPath: string | undefined;
-  if (pickedProject.rawVideoPath) {
-    try {
-      const saved = await invoke<{ savedPath: string }>(
-        "save_composition_snapshot_copy",
-        {
-          sourcePath: pickedProject.rawVideoPath,
-        },
-      );
-      snapshotRawVideoPath = saved?.savedPath || undefined;
-    } catch (error) {
-      console.error(
-        "[Composition] Failed to create native snapshot copy:",
-        error,
-      );
-    }
-  }
-  if (pickedProject.rawMicAudioPath) {
-    try {
-      const saved = await invoke<{ savedPath: string }>(
-        "save_composition_snapshot_copy",
-        {
-          sourcePath: pickedProject.rawMicAudioPath,
-        },
-      );
-      snapshotRawMicAudioPath = saved?.savedPath || undefined;
-    } catch (error) {
-      console.error(
-        "[Composition] Failed to create native snapshot mic copy:",
-        error,
-      );
-    }
-  }
-  if (pickedProject.rawWebcamVideoPath) {
-    try {
-      const saved = await invoke<{ savedPath: string }>(
-        "save_composition_snapshot_copy",
-        {
-          sourcePath: pickedProject.rawWebcamVideoPath,
-        },
-      );
-      snapshotRawWebcamVideoPath = saved?.savedPath || undefined;
-    } catch (error) {
-      console.error(
-        "[Composition] Failed to create native snapshot webcam copy:",
-        error,
-      );
-    }
-  }
+  const snapshotPaths = await copySnapshotClipMedia(pickedProject);
+  const {
+    rawVideoPath: snapshotRawVideoPath,
+    rawMicAudioPath: snapshotRawMicAudioPath,
+    rawWebcamVideoPath: snapshotRawWebcamVideoPath,
+  } = snapshotPaths;
   const snapshotClip = normalizeCompositionClipToCanvas(
     createCompositionSnapshotClip({
       ...pickedProject,
@@ -138,6 +126,7 @@ export async function pickProjectForSequence(
     console.error(
       "[Composition] Insert failed: project has neither raw video path nor stored video blob",
     );
+    await deleteFiles(Object.values(snapshotPaths));
     return;
   }
   const nextComposition = insertCompositionClip(
@@ -165,15 +154,7 @@ export async function pickProjectForSequence(
     );
     if (!applied) throw new Error("The project changed while the clip was being inserted");
   } catch (error) {
-    await Promise.allSettled(
-      [
-        snapshotRawVideoPath,
-        snapshotRawMicAudioPath,
-        snapshotRawWebcamVideoPath,
-      ]
-        .filter((path): path is string => Boolean(path))
-        .map((path) => invoke("delete_file", { path })),
-    );
+    await deleteFiles(Object.values(snapshotPaths));
     throw error;
   }
   setComposition(nextComposition);

@@ -4,8 +4,10 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal class CreationJobDispatcher(
     scope: CoroutineScope,
@@ -48,7 +50,13 @@ internal class CreationJobDispatcher(
             val pending = pendingSnapshot()
             preparationRecovery.retain(pending.mapTo(mutableSetOf()) { it.jobId })
             if (pending.isEmpty()) return
-            if (!dispatchRound(pending)) delay(DISPATCH_RETRY_DELAY_MS)
+            if (!dispatchRound(pending)) {
+                awaitCreationDispatchWake(
+                    signal,
+                    DISPATCH_RETRY_DELAY_MS,
+                    CREATION_DISPATCH_IDLE_FALLBACK_MS,
+                )
+            }
         }
     }
 
@@ -105,4 +113,22 @@ internal class CreationJobDispatcher(
         const val TAG = "CreationDispatcher"
         const val DISPATCH_RETRY_DELAY_MS = 1_000L
     }
+}
+
+/** Longest idle wait after a round that dispatched nothing. */
+internal const val CREATION_DISPATCH_IDLE_FALLBACK_MS = 15_000L
+
+/**
+ * Waits after a round that dispatched nothing. Worker release, cancel, enqueue and
+ * preparation-state changes all signal, so the dispatcher sleeps on that signal
+ * instead of polling the pool every second. The floor keeps signal bursts (such as
+ * repeated preparation failures) to at most one round per [minimumMs].
+ */
+internal suspend fun awaitCreationDispatchWake(
+    signal: ReceiveChannel<Unit>,
+    minimumMs: Long,
+    fallbackMs: Long,
+) {
+    delay(minimumMs)
+    withTimeoutOrNull((fallbackMs - minimumMs).coerceAtLeast(0L)) { signal.receive() }
 }

@@ -1,7 +1,7 @@
 import { setLocale } from "./i18n";
 import type { GenerationMode } from "./generation-mode";
 import type { ShadingMode, ModelViewer } from "./viewer";
-import type { AppNodes, AppState, ExportedResult, HostContext, JobStatus, QueueItem } from "./types";
+import type { AppNodes, AppState, ExportedResult, HostContext, QueueItem } from "./types";
 import { t } from "./i18n";
 import type { ModelPresentation } from "./presentation";
 import type { JobRunner } from "./job-runner";
@@ -107,21 +107,9 @@ export function bindControls(options: BindControlOptions) {
     else batchItems(item.batchId).filter(member => member.state === "queued" && !member.submitted).forEach(update);
     updateUi();
   });
-  nodes.cancelButton.addEventListener("click", async () => {
+  nodes.cancelButton.addEventListener("click", () => {
     const item = selectedItem();
-    if (!item) return;
-    item.cancelRequested = true;
-    if (item.result?.jobId) {
-      const status = await invoke<JobStatus>("cancel_job", { jobId: item.result.jobId });
-      item.result = status;
-      item.state = "cancelled";
-      state.runningIds.delete(item.id);
-      updateUi();
-      return;
-    }
-    item.state = "cancelled";
-    state.runningIds.delete(item.id);
-    updateUi();
+    if (item) void jobRunner.cancelItem(item);
   });
   nodes.modeButtons.forEach((button) => button.addEventListener("click", () => {
     const item = selectedItem();

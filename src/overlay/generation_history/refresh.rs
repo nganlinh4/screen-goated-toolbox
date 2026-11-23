@@ -17,16 +17,15 @@ use super::*;
 pub fn refresh_artifact_proof(tool: &str, output_path: &str) -> Result<(), String> {
     validate_tool(tool)?;
     let path = history_path();
-    match HISTORY_LOCK.try_lock() {
-        Ok(_guard) => refresh_at(&path, tool, output_path),
-        Err(_) => {
+    match locking::try_acquire() {
+        Ok(Some(_guard)) => refresh_at(&path, tool, output_path),
+        Ok(None) | Err(_) => {
             let tool = tool.to_string();
             let output_path = output_path.to_string();
             std::thread::spawn(move || {
-                let _guard = HISTORY_LOCK
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner());
-                if let Err(error) = refresh_at(&path, &tool, &output_path) {
+                let result =
+                    locking::acquire().and_then(|_guard| refresh_at(&path, &tool, &output_path));
+                if let Err(error) = result {
                     crate::log_info!(
                         "[Creation history] Artifact proof was not refreshed: {error}"
                     );
@@ -51,6 +50,10 @@ pub(crate) fn refresh_at(path: &Path, tool: &str, output_path: &str) -> Result<(
         .pending_renames
         .iter()
         .any(|rename| rename.tool == tool && rename.entry_id == id)
+        || store
+            .pending_deletes
+            .iter()
+            .any(|delete| delete.entry.tool == tool && delete.entry.id == id)
     {
         return Err("Result is awaiting recovery.".to_string());
     }

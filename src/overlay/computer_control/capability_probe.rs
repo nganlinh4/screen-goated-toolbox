@@ -176,7 +176,7 @@ fn run(
                     ensure!(calls.len() <= 20, "too many calls");
                     pending.push((
                         Instant::now() + Duration::from_millis(case.delay_ms),
-                        super::protocol::tool_response(&call.id, &call.name, result),
+                        super::response_budget::prepare(&call.id, &call.name, result)?.wire,
                     ));
                 }
                 if frame.turn_complete

@@ -282,7 +282,7 @@ pub(super) fn language_to_639_3(language: &str) -> String {
     {
         return lang.to_639_3().to_string();
     }
-    isolang::Language::from_name(language)
+    crate::config::language_from_name(language)
         .map(|lang| lang.to_639_3())
         .map(|code| code.to_string())
         .unwrap_or_else(|| language.to_ascii_lowercase())
@@ -304,4 +304,18 @@ pub(super) fn truncate_chars(value: &str, max_chars: usize) -> String {
 pub(super) fn is_stale_session(session_id: u64) -> bool {
     crate::overlay::realtime_webview::state::REALTIME_SESSION_ID.load(Ordering::SeqCst)
         != session_id
+}
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+mod tests {
+    use super::language_to_639_3;
+
+    #[test]
+    fn every_picker_name_targets_the_listed_language_code() {
+        for name in crate::config::get_all_languages() {
+            let listed = crate::config::language_from_name(name).expect("picker name resolves");
+            assert!(listed.to_639_1().is_some(), "{name}");
+            assert_eq!(language_to_639_3(name), listed.to_639_3(), "{name}");
+        }
+    }
 }

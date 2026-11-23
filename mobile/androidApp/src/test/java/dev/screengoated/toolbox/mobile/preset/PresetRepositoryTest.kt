@@ -242,6 +242,7 @@ class PresetRepositoryTest {
                 "windows_verified_replacement",
                 "canonical_windows_files",
                 "recording_toggle_contract",
+                "recording_resource_contract",
                 "auto_stop_thresholds",
                 "default_auto_stop_presets",
                 "recording_shell_contract",
@@ -283,8 +284,7 @@ class PresetRepositoryTest {
         assertEquals("abort_and_close", toggleContract.getValue("third_launch_while_processing").jsonPrimitive.content)
         assertTrue(audioSession.contains("fun toggleOrAbortIfMatching(presetId: String): Boolean"))
         assertTrue(audioSession.contains("""if (state == "processing")"""))
-        assertTrue(audioSession.contains("val onCancelled = onCancelledCallback"))
-        assertTrue(audioSession.contains("onCancelled?.invoke()"))
+        assertTrue(audioSession.contains("cancelAudioCaptureAndNotify(onCancelledCallback, ::cancel)"))
         assertTrue(audioSession.contains("cancel()"))
         assertTrue(audioSession.contains("stopAndSubmit()"))
         assertTrue(overlayController.contains("if (audioCaptureSession.toggleOrAbortIfMatching(presetId))"))

@@ -52,6 +52,6 @@ internal fun nodeGraphLanguageSearchPlaceholder(lang: String): String =
     nodeGraphLocalized(lang, "Search...", "Tìm kiếm...", "검색...")
 
 internal fun nodeGraphStreamLabel(lang: String, isStreaming: Boolean): String = when {
-    isStreaming -> nodeGraphLocalized(lang, "Stream", "Stream", "스트림")
-    else -> nodeGraphLocalized(lang, "No Stream", "Không stream", "스트림 없음")
+    isStreaming -> nodeGraphLocalized(lang, "Stream on", "Stream bật", "스트림 켜짐")
+    else -> nodeGraphLocalized(lang, "Stream off", "Stream tắt", "스트림 꺼짐")
 }

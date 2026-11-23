@@ -7,6 +7,7 @@ mod dirty_region;
 #[cfg(test)]
 mod render_tests;
 
+use crate::overlay::rounded_selection::RoundedSelection;
 use clipped_render::render_frozen_clip;
 use dirty_region::{damaged_region, selection_rect};
 
@@ -64,20 +65,12 @@ pub(crate) fn render_frozen_with_selection(request: FrozenSelectionRender<'_>) {
     let inv_dim = 256u32 - dim_alpha as u32;
     let dim_f = dim_alpha as f32 / 255.0;
 
-    // SDF parameters
-    let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
-    let border_width = 2.0f32;
-    let hw = (right - left) as f32 / 2.0;
-    let hh_f = (bottom - top) as f32 / 2.0;
-    let cx = left as f32 + hw;
-    let cy = top as f32 + hh_f;
-    let radius = default_radius.min(hw).min(hh_f);
-
+    let rounded = RoundedSelection::new(left, top, right, bottom);
     let b_left = (left - 10).max(0);
     let b_right = (right + 10).min(w);
     let b_top_y = (top - 10).max(0);
     let b_bottom_y = (bottom + 10).min(h);
-    let rad_int = radius.ceil() as i32;
+    let rad_int = rounded.corner_rows();
     let top_band_end = (top + rad_int).min(b_bottom_y);
     let bottom_band_start = (bottom - rad_int).max(top_band_end);
     let len = pixels.len();
@@ -108,24 +101,12 @@ pub(crate) fn render_frozen_with_selection(request: FrozenSelectionRender<'_>) {
             let b_l = b_left.max(0) as usize;
             let b_r = (b_right as usize).min(row.len());
             dim_pixels(&mut row[..b_l], inv_dim);
-            let py = y as f32 + 0.5;
             for px_int in b_left..b_right {
                 let xi = px_int as usize;
                 if xi >= row.len() {
                     continue;
                 }
-                let px_f = px_int as f32 + 0.5;
-                let dx = (px_f - cx).abs() - (hw - radius);
-                let dy = (py - cy).abs() - (hh_f - radius);
-                let dist = if dx > 0.0 && dy > 0.0 {
-                    (dx * dx + dy * dy).sqrt() - radius
-                } else {
-                    dx.max(dy) - radius
-                };
-
-                let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
-                let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
-                let border_alpha = alpha_outer - alpha_inner;
+                let (alpha_outer, border_alpha) = rounded.coverage(px_int, y);
                 let pixel_dim = dim_f * (1.0 - alpha_outer);
                 let inv_pd = 1.0 - pixel_dim;
 
@@ -161,7 +142,7 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
         }
 
         let dim_alpha = CURRENT_DIM_ALPHA;
-        let is_dragging = RIGHT_DOWN.load(Ordering::SeqCst);
+        let is_dragging = GESTURE.is_dragging();
         let current_selection = is_dragging
             .then(|| {
                 selection_rect(
@@ -176,43 +157,16 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             .flatten();
 
         // 1. Cache DIB section (avoid per-frame allocation of ~8MB)
-        if OVERLAY_DIB_W != w || OVERLAY_DIB_H != h {
-            if !std::ptr::addr_of!(OVERLAY_DIB).read().0.is_invalid() {
-                let _ = DeleteObject(OVERLAY_DIB.0.into());
-                OVERLAY_DIB_BITS = std::ptr::null_mut();
-            }
-
-            let bmi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: w,
-                    biHeight: -h,
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            let hdc_screen = GetDC(None);
-            if hdc_screen.is_invalid() {
-                return;
-            }
-            let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbm = CreateDIBSection(Some(hdc_screen), &bmi, DIB_RGB_COLORS, &mut bits, None, 0);
-            let _ = ReleaseDC(None, hdc_screen);
-
-            if let Ok(dib) = hbm {
-                OVERLAY_DIB = SendHbitmap(dib);
-                OVERLAY_DIB_BITS = bits as *mut u32;
-                OVERLAY_DIB_W = w;
-                OVERLAY_DIB_H = h;
+        let mut dib = OVERLAY_DIB
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        match dib.ensure(w, h) {
+            Some(true) => {
                 LAST_RENDERED_SELECTION = None;
                 LAST_RENDERED_DIM_ALPHA = u8::MAX;
-            } else {
-                return;
             }
+            Some(false) => {}
+            None => return,
         }
 
         if LAST_RENDERED_DIM_ALPHA == dim_alpha && LAST_RENDERED_SELECTION == current_selection {
@@ -233,10 +187,10 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
             let _ = ReleaseDC(None, hdc_screen);
             return;
         }
-        let old_bmp = SelectObject(mem_dc, OVERLAY_DIB.0.into());
+        let old_bmp = SelectObject(mem_dc, dib.bitmap().into());
 
         let len = (w * h) as usize;
-        let pixels_u32 = std::slice::from_raw_parts_mut(OVERLAY_DIB_BITS, len);
+        let pixels_u32 = std::slice::from_raw_parts_mut(dib.bits().cast::<u32>(), len);
 
         // Restore either the damaged selection region or the whole frozen frame.
         let has_frozen = {
@@ -246,7 +200,7 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
                 if hdc_src.is_invalid() {
                     false
                 } else {
-                    let old = SelectObject(hdc_src, cap.hbitmap.into());
+                    let old = SelectObject(hdc_src, cap.image.hbitmap.into());
                     let copy = dirty.unwrap_or(RECT {
                         left: 0,
                         top: 0,
@@ -299,7 +253,7 @@ pub(super) unsafe fn sync_rect_overlay(hwnd: HWND) {
                 pixels_u32.fill(0);
             }
 
-            if RIGHT_DOWN.load(Ordering::SeqCst) {
+            if GESTURE.is_dragging() {
                 render_selection_border_transparent(pixels_u32, w, h, sx, sy);
             }
         }
@@ -388,19 +342,12 @@ unsafe fn render_selection_border_transparent(
             }
         }
 
-        let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
-        let border_width = 2.0f32;
-        let sel_hw = (right - left) as f32 / 2.0;
-        let sel_hh = (bottom - top) as f32 / 2.0;
-        let cx = left as f32 + sel_hw;
-        let cy = top as f32 + sel_hh;
-        let radius = default_radius.min(sel_hw).min(sel_hh);
-
+        let rounded = RoundedSelection::new(left, top, right, bottom);
         let b_left = (left - 10).max(0);
         let b_top = (top - 10).max(0);
         let b_right = (right + 10).min(w);
         let b_bottom = (bottom + 10).min(h);
-        let rad_int = radius.ceil() as i32;
+        let rad_int = rounded.corner_rows();
         let top_band_end = (top + rad_int).min(b_bottom);
         let bottom_band_start = (bottom - rad_int).max(top_band_end);
 
@@ -421,23 +368,12 @@ unsafe fn render_selection_border_transparent(
                 }
                 continue;
             }
-            let py = py_int as f32 + 0.5;
             for px_int in b_left..b_right {
                 let idx = row_base + px_int as usize;
                 if idx >= pixels_u32.len() {
                     continue;
                 }
-                let px = px_int as f32 + 0.5;
-                let dx = (px - cx).abs() - (sel_hw - radius);
-                let dy = (py - cy).abs() - (sel_hh - radius);
-                let dist = if dx > 0.0 && dy > 0.0 {
-                    (dx * dx + dy * dy).sqrt() - radius
-                } else {
-                    dx.max(dy) - radius
-                };
-                let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
-                let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
-                let border_alpha = alpha_outer - alpha_inner;
+                let (_, border_alpha) = rounded.coverage(px_int, py_int);
                 if border_alpha > 0.001 {
                     let a = (border_alpha * 255.0) as u32;
                     let c = (border_alpha * 255.0) as u32;
@@ -455,10 +391,17 @@ pub(super) unsafe extern "system" fn rect_overlay_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
+        if hooks::handle_deferred(msg, wparam, lparam) {
+            return LRESULT(0);
+        }
         match msg {
+            DRAG_CANCEL_MESSAGE => {
+                hooks::restore_cancelled_gesture();
+                LRESULT(0)
+            }
             DRAG_RENDER_MESSAGE => {
                 DRAG_RENDER_PENDING.store(false, Ordering::SeqCst);
-                if RIGHT_DOWN.load(Ordering::SeqCst) {
+                if GESTURE.is_dragging() {
                     CURRENT_DIM_ALPHA = stepped_dim_alpha(CURRENT_DIM_ALPHA, TARGET_DIM_ALPHA);
                     sync_rect_overlay(hwnd);
                 }
@@ -466,7 +409,7 @@ pub(super) unsafe extern "system" fn rect_overlay_wnd_proc(
             }
             WM_TIMER => {
                 if wparam.0 == DIM_TIMER_ID {
-                    let target = if RIGHT_DOWN.load(Ordering::SeqCst) {
+                    let target = if GESTURE.is_dragging() {
                         TARGET_DIM_ALPHA
                     } else {
                         0
@@ -481,7 +424,7 @@ pub(super) unsafe extern "system" fn rect_overlay_wnd_proc(
                         sync_rect_overlay(hwnd);
                     } else {
                         let _ = KillTimer(Some(hwnd), DIM_TIMER_ID);
-                        if !RIGHT_DOWN.load(Ordering::SeqCst) {
+                        if !GESTURE.is_dragging() {
                             // Fade complete, not dragging — clean up.
                             let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
                             if style & WS_EX_TRANSPARENT.0 as i32 == 0 {

@@ -12,20 +12,25 @@ use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes,
     SetWindowLongPtrW, SetWindowPos, WM_APP, WS_CLIPCHILDREN,
 };
-use wry::{PageLoadEvent, Rect, WebView, WebViewBuilder};
+use wry::{Rect, WebView, WebViewBuilder};
+
+mod navigation_events;
+mod navigation_history;
+use navigation_events::{NavigationEvent, NavigationEvents};
+use navigation_history::NavigationHistory;
+use std::rc::Rc;
 
 pub(super) const WM_SYNC: u32 = WM_APP + 241;
 pub(super) const WM_NAVIGATE: u32 = WM_APP + 242;
+pub(super) const WM_NAVIGATION_EVENT: u32 = WM_APP + 243;
 static ACTIVE: LazyLock<Mutex<HashSet<isize>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-static EARLY_FINISHED_LOADS: LazyLock<Mutex<HashSet<isize>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
 static PENDING_NAVIGATION: LazyLock<Mutex<HashMap<isize, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 struct RawView {
     webview: WebView,
-    urls: Vec<String>,
-    depth: usize,
+    history: NavigationHistory,
+    events: Rc<RefCell<NavigationEvents>>,
     loading: bool,
 }
 
@@ -79,7 +84,7 @@ pub(super) fn sync(hwnd: HWND) {
         let active = navigation_surface_active(
             visible,
             browsing,
-            views.get(&key).map_or(0, |entry| entry.depth),
+            views.get(&key).map_or(0, |entry| entry.history.depth()),
             loading,
         );
         if let Some(entry) = views.get(&key) {
@@ -93,8 +98,7 @@ pub(super) fn sync(hwnd: HWND) {
     super::scene_compositor::sync_window(hwnd, visible);
 }
 
-fn build_navigation(hwnd: HWND, page_url: &str) -> anyhow::Result<WebView> {
-    let key = hwnd.0 as isize;
+fn build_navigation(hwnd: HWND) -> anyhow::Result<(WebView, Rc<RefCell<NavigationEvents>>)> {
     let wrapper = HwndWrapper(hwnd);
     let bounds = content_bounds(hwnd);
     let _init = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
@@ -105,65 +109,19 @@ fn build_navigation(hwnd: HWND, page_url: &str) -> anyhow::Result<WebView> {
                 crate::overlay::webview_runtime::Profile::ResultNavigation,
             ));
         }
-        WebViewBuilder::new_with_web_context(context.as_mut().unwrap())
+        let webview = WebViewBuilder::new_with_web_context(context.as_mut().unwrap())
             .with_bounds(bounds)
-            .with_url(page_url)
             .with_transparent(true)
             .with_visible(false)
             .with_focused(false)
             .with_initialization_script(navigation_initialization_script())
-            .with_on_page_load_handler(move |event, _| match event {
-                PageLoadEvent::Started => begin_navigation_load(hwnd),
-                PageLoadEvent::Finished => {
-                    crate::debug_log::log_debug(&format!(
-                        "[ResultNavigation] id={key} phase=page_loaded"
-                    ));
-                    finish_navigation_load(hwnd);
-                }
-            })
-            .with_ipc_handler(move |request| handle_ipc(hwnd, request.body()))
+            .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
+            .with_download_started_handler(|_, _| false)
             .build_as_child(&wrapper)
-            .map_err(Into::into)
+            .map_err(anyhow::Error::from)?;
+        let events = navigation_events::attach(&webview, hwnd)?;
+        Ok((webview, events))
     })
-}
-
-fn handle_ipc(hwnd: HWND, body: &str) {
-    match body {
-        "navigation_surface_interaction" => focus(hwnd),
-        "navigation_surface_ready" => {
-            let trace_id = super::WINDOW_STATES
-                .lock()
-                .unwrap()
-                .get(&(hwnd.0 as isize))
-                .and_then(|state| state.latency_trace_id.clone());
-            if let Some(trace_id) = trace_id {
-                super::latency::mark(&trace_id, "interactive_surface_visible");
-                VIEWS.with(|views| {
-                    if let Some(entry) = views.borrow().get(&(hwnd.0 as isize)) {
-                        super::scene_compositor::acceptance_capture::capture_for_trace(
-                            &entry.webview,
-                            trace_id,
-                        );
-                    }
-                });
-            }
-        }
-        _ => {
-            let request = serde_json::from_str::<serde_json::Value>(body).ok();
-            let request_type = request
-                .as_ref()
-                .and_then(|value| value.get("type"))
-                .and_then(|value| value.as_str());
-            if let Some("navigation_request") = request_type
-                && let Some(url) = request
-                    .as_ref()
-                    .and_then(|value| value.get("url"))
-                    .and_then(|value| value.as_str())
-            {
-                request_navigation(hwnd, url);
-            }
-        }
-    }
 }
 
 pub(super) fn navigate_pending(hwnd: HWND) {
@@ -173,30 +131,43 @@ pub(super) fn navigate_pending(hwnd: HWND) {
     };
     let existing = VIEWS.with(|views| {
         let mut views = views.borrow_mut();
-        let Some(entry) = views.get_mut(&key) else {
-            return false;
-        };
-        entry.urls.truncate(entry.depth);
-        entry.urls.push(url.clone());
-        entry.depth += 1;
+        let entry = views.get_mut(&key)?;
+        entry.events.borrow_mut().invalidate();
+        entry.events.borrow_mut().expect_url(&url);
+        entry.history.open(url.clone());
         entry.loading = true;
         let _ = entry.webview.set_visible(false);
-        let _ = entry.webview.load_url(&url);
-        true
+        Some(entry.webview.load_url(&url).is_ok())
     });
-    if !existing {
-        match build_navigation(hwnd, &url) {
-            Ok(webview) => VIEWS.with(|views| {
-                views.borrow_mut().insert(
-                    key,
-                    RawView {
-                        webview,
-                        urls: vec![url],
-                        depth: 1,
-                        loading: true,
-                    },
-                );
-            }),
+    if existing == Some(false) {
+        fail_navigation_load(hwnd);
+        return;
+    }
+    if existing.is_none() {
+        match build_navigation(hwnd) {
+            Ok((webview, events)) => {
+                let started = VIEWS.with(|views| {
+                    views.borrow_mut().insert(
+                        key,
+                        RawView {
+                            webview,
+                            history: NavigationHistory::new(url.clone()),
+                            events,
+                            loading: true,
+                        },
+                    );
+                    if let Some(entry) = views.borrow().get(&key) {
+                        entry.events.borrow_mut().expect_url(&url);
+                        entry.webview.load_url(&url).is_ok()
+                    } else {
+                        false
+                    }
+                });
+                if !started {
+                    fail_navigation_load(hwnd);
+                    return;
+                }
+            }
             Err(error) => {
                 crate::debug_log::log_debug(&format!(
                     "[ResultNavigation] id={key} phase=navigation_failed error={error}"
@@ -206,31 +177,30 @@ pub(super) fn navigate_pending(hwnd: HWND) {
         }
     }
     present_navigation(hwnd, true);
-    if EARLY_FINISHED_LOADS.lock().unwrap().remove(&key) {
-        finish_navigation_load(hwnd);
-    }
 }
 
 pub(super) fn go_back(hwnd: HWND) -> bool {
     let key = hwnd.0 as isize;
-    let loading = VIEWS.with(|views| {
+    let result = VIEWS.with(|views| {
         let mut views = views.borrow_mut();
         let entry = views.get_mut(&key)?;
-        if entry.depth == 0 {
-            return None;
-        }
-        entry.depth -= 1;
-        if entry.depth > 0 {
+        entry.events.borrow_mut().invalidate();
+        if let Some(url) = entry.history.back()? {
+            entry.events.borrow_mut().expect_url(&url);
             entry.loading = true;
             let _ = entry.webview.set_visible(false);
-            let _ = entry.webview.load_url(&entry.urls[entry.depth - 1]);
-            return Some(true);
+            return Some((true, entry.webview.load_url(&url).is_ok()));
         }
         entry.loading = false;
+        entry.events.borrow_mut().retire();
         let _ = entry.webview.set_visible(false);
-        Some(false)
+        Some((false, true))
     });
-    if let Some(loading) = loading {
+    if let Some((loading, started)) = result {
+        if !started {
+            fail_navigation_load(hwnd);
+            return true;
+        }
         present_navigation(hwnd, loading);
         true
     } else {
@@ -240,43 +210,120 @@ pub(super) fn go_back(hwnd: HWND) -> bool {
 
 pub(super) fn go_forward(hwnd: HWND) -> bool {
     let key = hwnd.0 as isize;
-    let loading = VIEWS.with(|views| {
+    let result = VIEWS.with(|views| {
         let mut views = views.borrow_mut();
         let entry = views.get_mut(&key)?;
-        if entry.depth >= entry.urls.len() {
-            return None;
-        }
-        let url = entry.urls[entry.depth].clone();
-        entry.depth += 1;
+        let url = entry.history.forward()?;
+        entry.events.borrow_mut().invalidate();
+        entry.events.borrow_mut().expect_url(&url);
         entry.loading = true;
         let _ = entry.webview.set_visible(false);
-        let _ = entry.webview.load_url(&url);
-        Some(true)
+        Some(entry.webview.load_url(&url).is_ok())
     });
-    if let Some(loading) = loading {
-        present_navigation(hwnd, loading);
+    if let Some(started) = result {
+        if !started {
+            fail_navigation_load(hwnd);
+            return true;
+        }
+        present_navigation(hwnd, true);
         true
     } else {
         false
     }
 }
 
-fn finish_navigation_load(hwnd: HWND) {
+pub(super) fn handle_navigation_event(hwnd: HWND) {
+    let (event, same_document) = VIEWS.with(|views| {
+        let views = views.borrow();
+        views
+            .get(&(hwnd.0 as isize))
+            .map(|entry| entry.events.borrow_mut().take())
+            .unwrap_or_default()
+    });
+    match event {
+        Some(NavigationEvent::Started) => begin_navigation_load(hwnd),
+        Some(NavigationEvent::Finished {
+            success: true,
+            url: Some(url),
+        }) => {
+            begin_navigation_load(hwnd);
+            finish_navigation_load(hwnd, &url);
+        }
+        Some(NavigationEvent::Finished { .. }) => {
+            begin_navigation_load(hwnd);
+            fail_navigation_load(hwnd);
+        }
+        None => {}
+    }
+    if let Some(url) = same_document {
+        let changed = VIEWS.with(|views| {
+            let mut views = views.borrow_mut();
+            let Some(entry) = views.get_mut(&(hwnd.0 as isize)) else {
+                return false;
+            };
+            if entry.loading || entry.history.depth() == 0 {
+                return false;
+            }
+            entry.history.finished(Some(url));
+            true
+        });
+        if changed {
+            present_navigation(hwnd, false);
+        }
+    }
+}
+
+fn fail_navigation_load(hwnd: HWND) {
+    let changed = VIEWS.with(|views| {
+        let mut views = views.borrow_mut();
+        let Some(entry) = views.get_mut(&(hwnd.0 as isize)) else {
+            return false;
+        };
+        if !entry.loading {
+            return false;
+        }
+        entry.loading = false;
+        entry.events.borrow_mut().retire();
+        entry.history.retire_failed();
+        true
+    });
+    if changed {
+        present_navigation(hwnd, false);
+    }
+}
+
+fn finish_navigation_load(hwnd: HWND, url: &str) {
     let key = hwnd.0 as isize;
     let should_present = VIEWS.with(|views| {
         let mut views = views.borrow_mut();
         let Some(entry) = views.get_mut(&key) else {
-            EARLY_FINISHED_LOADS.lock().unwrap().insert(key);
             return false;
         };
-        if !entry.loading || entry.depth == 0 {
+        if !entry.loading || entry.history.depth() == 0 {
             return false;
         }
+        entry.history.finished(public_web_url(url));
         entry.loading = false;
         true
     });
     if should_present {
         present_navigation(hwnd, false);
+        let trace_id = super::WINDOW_STATES
+            .lock()
+            .unwrap()
+            .get(&key)
+            .and_then(|state| state.latency_trace_id.clone());
+        if let Some(trace_id) = trace_id {
+            super::latency::mark(&trace_id, "interactive_surface_visible");
+            VIEWS.with(|views| {
+                if let Some(entry) = views.borrow().get(&key) {
+                    super::scene_compositor::acceptance_capture::capture_for_trace(
+                        &entry.webview,
+                        trace_id,
+                    );
+                }
+            });
+        }
     }
 }
 
@@ -286,7 +333,7 @@ fn begin_navigation_load(hwnd: HWND) {
         let Some(entry) = views.get_mut(&(hwnd.0 as isize)) else {
             return false;
         };
-        if entry.loading || entry.depth == 0 {
+        if entry.loading || entry.history.depth() == 0 {
             return false;
         }
         entry.loading = true;
@@ -303,9 +350,9 @@ fn present_navigation(hwnd: HWND, loading: bool) {
     let (depth, max_depth) = VIEWS.with(|views| {
         let views = views.borrow();
         let entry = views.get(&key).expect("raw navigation view must exist");
-        (entry.depth, entry.urls.len())
+        (entry.history.depth(), entry.history.max_depth())
     });
-    let browsing = depth > 0;
+    let view = navigation_view(depth, loading);
     {
         let mut states = super::WINDOW_STATES.lock().unwrap();
         let Some(state) = states.get_mut(&key) else {
@@ -313,13 +360,13 @@ fn present_navigation(hwnd: HWND, loading: bool) {
         };
         state.navigation_depth = depth;
         state.max_navigation_depth = max_depth;
-        state.is_browsing = browsing;
-        state.is_navigation_loading = browsing && loading;
+        state.is_browsing = view.browsing;
+        state.is_navigation_loading = view.loading;
         if state.is_browsing {
             state.refine_session.cancel_edit();
         }
     }
-    let active = browsing && !loading;
+    let active = view.visible;
     VIEWS.with(|views| {
         if let Some(entry) = views.borrow().get(&key) {
             let _ = entry.webview.set_visible(active);
@@ -330,9 +377,6 @@ fn present_navigation(hwnd: HWND, loading: bool) {
     resize(hwnd);
     super::scene_compositor::sync_window(hwnd, unsafe { IsWindowVisible(hwnd).as_bool() });
     super::scene_compositor::sync_controls(hwnd);
-    if active {
-        focus(hwnd);
-    }
 }
 
 pub(super) fn focus(hwnd: HWND) {
@@ -347,6 +391,24 @@ pub(super) fn focus(hwnd: HWND) {
         }
     });
     super::raise_window(hwnd);
+}
+
+/// How a navigation history position is presented. A page stays hidden
+/// while its top-level load runs, so a half-loaded remote page never shows.
+#[derive(Debug, PartialEq, Eq)]
+struct NavigationView {
+    browsing: bool,
+    loading: bool,
+    visible: bool,
+}
+
+fn navigation_view(depth: usize, loading: bool) -> NavigationView {
+    let browsing = depth > 0;
+    NavigationView {
+        browsing,
+        loading: browsing && loading,
+        visible: browsing && !loading,
+    }
 }
 
 fn should_activate_foreground(offscreen_acceptance: bool) -> bool {
@@ -390,7 +452,6 @@ pub(super) fn destroy(hwnd: HWND) {
 fn remove_view(hwnd: HWND, restore_host: bool) {
     let key = hwnd.0 as isize;
     PENDING_NAVIGATION.lock().unwrap().remove(&key);
-    EARLY_FINISHED_LOADS.lock().unwrap().remove(&key);
     VIEWS.with(|views| {
         views.borrow_mut().remove(&key);
     });
@@ -412,8 +473,12 @@ fn set_active(hwnd: HWND, active: bool) {
 }
 
 fn public_web_url(raw: &str) -> Option<String> {
+    if raw.len() > 8192 {
+        return None;
+    }
     let parsed = url::Url::parse(raw.trim()).ok()?;
-    matches!(parsed.scheme(), "http" | "https").then(|| parsed.into())
+    (matches!(parsed.scheme(), "http" | "https") && parsed.as_str().len() <= 8192)
+        .then(|| parsed.into())
 }
 
 fn navigation_initialization_script() -> String {
@@ -464,74 +529,4 @@ fn set_host_mode(hwnd: HWND, raw: bool) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        WM_NAVIGATE, WM_SYNC, content_bounds, host_alpha, navigation_initialization_script,
-        navigation_surface_active, public_web_url, should_activate_foreground,
-    };
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::WM_APP;
-
-    #[test]
-    fn external_navigation_sync_uses_a_private_window_message() {
-        assert!(std::hint::black_box(WM_SYNC) > WM_APP);
-        assert!(std::hint::black_box(WM_NAVIGATE) > WM_SYNC);
-    }
-
-    #[test]
-    fn browsing_accepts_only_absolute_public_web_urls() {
-        assert_eq!(
-            public_web_url("https://example.com/page").as_deref(),
-            Some("https://example.com/page")
-        );
-        assert!(public_web_url("javascript:alert(1)").is_none());
-        assert!(public_web_url("/relative").is_none());
-    }
-
-    #[test]
-    fn real_pointer_interaction_activates_keyboard_focus_but_offscreen_acceptance_does_not() {
-        assert!(should_activate_foreground(false));
-        assert!(!should_activate_foreground(true));
-    }
-
-    #[test]
-    fn external_navigation_uses_the_complete_result_surface() {
-        let bounds = content_bounds(HWND::default());
-        let wry::dpi::Position::Physical(position) = bounds.position else {
-            panic!("navigation bounds must use physical pixels");
-        };
-        assert_eq!((position.x, position.y), (0, 0));
-    }
-
-    #[test]
-    fn authored_result_mode_never_exposes_a_stored_navigation_surface() {
-        assert!(!navigation_surface_active(true, false, 1, false));
-        assert!(!navigation_surface_active(true, true, 0, false));
-        assert!(!navigation_surface_active(true, true, 1, true));
-        assert!(navigation_surface_active(true, true, 1, false));
-    }
-
-    #[test]
-    fn external_navigation_is_fully_opaque_instead_of_inheriting_result_dimming() {
-        assert_eq!(host_alpha(true), 255);
-        assert_eq!(host_alpha(false), 1);
-    }
-
-    #[test]
-    fn native_page_visibility_is_bracketed_by_top_level_load_events() {
-        let source = include_str!("raw_webview.rs");
-
-        assert!(source.contains(".with_visible(false)"));
-        assert!(source.contains("PageLoadEvent::Started => begin_navigation_load(hwnd)"));
-        assert!(source.contains("PageLoadEvent::Finished =>"));
-        assert!(source.contains("present_navigation(hwnd, false)"));
-    }
-
-    #[test]
-    fn external_navigation_page_script_does_not_own_overlay_geometry() {
-        let script = navigation_initialization_script();
-        assert!(!script.contains("resize"));
-        assert!(!script.contains("scrollbar"));
-        assert!(!script.contains("anchor.target === '_blank'"));
-    }
-}
+mod tests;

@@ -10,7 +10,8 @@ const ASR_TRANSCRIPT_DEADLINE: Duration = Duration::from_secs(5);
 const LOW_CONFIDENCE_RETIRE_DEADLINE: Duration = Duration::from_millis(1500);
 const MIN_TIMEOUT_ACTIVITY: Duration = Duration::from_millis(750);
 const MIN_TIMEOUT_PEAK_LEVEL: f32 = 0.10;
-const MIN_TRANSCRIPT_OVERLAP_CHARS: usize = 3;
+mod input_transcript;
+pub(super) use input_transcript::InputTranscriptAssembler;
 
 /// PCM retained only while no output sink exists. With a healthy sink, current
 /// generation audio streams immediately; structural ownership rejects late
@@ -31,104 +32,6 @@ impl GenerationAudioBuffer {
 
     pub(super) fn len(&self) -> usize {
         self.samples_24k.len()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct InputTranscriptUpdate {
-    pub(super) text: String,
-    pub(super) starts_turn: bool,
-    pub(super) changed: bool,
-    pub(super) fragment_index: usize,
-}
-
-/// Joins Live input-transcription deltas within one user turn. The endpoint may
-/// send a growing cumulative string, overlapping chunks, or exact duplicates.
-/// Lifecycle code resets this only at a structural user/model turn boundary.
-#[derive(Default)]
-pub(super) struct InputTranscriptAssembler {
-    text: String,
-    open: bool,
-    /// Set by a structural user-input signal (local speech onset, interruption,
-    /// or explicit text submission). A transcript without this signal while the
-    /// previous epoch is still open is a late revision, not a new request.
-    fresh_epoch: bool,
-    fragment_count: usize,
-}
-
-impl InputTranscriptAssembler {
-    pub(super) fn merge(&mut self, fragment: &str) -> Option<InputTranscriptUpdate> {
-        let fragment = fragment.trim();
-        if fragment.is_empty() {
-            return None;
-        }
-        let starts_turn = self.fresh_epoch || !self.open;
-        if starts_turn {
-            self.text.clear();
-            self.text.push_str(fragment);
-            self.open = true;
-            self.fresh_epoch = false;
-            self.fragment_count = 1;
-            return Some(InputTranscriptUpdate {
-                text: self.text.clone(),
-                starts_turn,
-                changed: true,
-                fragment_index: self.fragment_count,
-            });
-        }
-        self.fragment_count = self.fragment_count.saturating_add(1);
-        let before = self.text.clone();
-        merge_transcript_text(&mut self.text, fragment);
-        Some(InputTranscriptUpdate {
-            text: self.text.clone(),
-            starts_turn,
-            changed: self.text != before,
-            fragment_index: self.fragment_count,
-        })
-    }
-
-    pub(super) fn begin_epoch(&mut self) {
-        self.fresh_epoch = true;
-    }
-
-    pub(super) fn has_fresh_epoch(&self) -> bool {
-        self.fresh_epoch
-    }
-
-    pub(super) fn is_open(&self) -> bool {
-        self.open
-    }
-}
-
-fn merge_transcript_text(existing: &mut String, incoming: &str) {
-    let current = existing.trim();
-    if current.is_empty() || incoming.starts_with(current) {
-        existing.clear();
-        existing.push_str(incoming);
-        return;
-    }
-    if current.starts_with(incoming) || current.ends_with(incoming) {
-        return;
-    }
-    let overlap = incoming
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(incoming.len()))
-        .filter(|&length| {
-            length > 0 && length <= current.len() && current.ends_with(&incoming[..length])
-        })
-        .max()
-        .unwrap_or(0);
-    let meaningful = overlap > 0
-        && (incoming[..overlap].chars().any(char::is_whitespace)
-            || incoming[..overlap].chars().count() >= MIN_TRANSCRIPT_OVERLAP_CHARS);
-    if meaningful {
-        existing.push_str(&incoming[overlap..]);
-    } else {
-        if !existing.ends_with(char::is_whitespace) {
-            existing.push(' ');
-        }
-        existing.push_str(incoming);
     }
 }
 
@@ -214,6 +117,7 @@ impl PlaybackTracker {
 
 #[derive(Default)]
 pub(super) struct UserAudioTracker {
+    completed_input_epoch: Option<u64>,
     active_since: Option<Instant>,
     last_active: Option<Instant>,
     uncommitted: bool,
@@ -239,9 +143,19 @@ impl UserAudioEvidence {
 
 impl UserAudioTracker {
     pub(super) fn update(&mut self, voiced: bool, level: f32, samples: usize) -> bool {
+        self.update_at(voiced, level, samples, Instant::now())
+    }
+
+    pub(super) fn update_at(
+        &mut self,
+        voiced: bool,
+        level: f32,
+        samples: usize,
+        now: Instant,
+    ) -> bool {
         let started = voiced && self.active_since.is_none();
         if started {
-            self.active_since = Some(Instant::now());
+            self.active_since = Some(now);
             self.last_active = self.active_since;
             self.uncommitted = true;
             self.ended_uncommitted_at = None;
@@ -258,15 +172,15 @@ impl UserAudioTracker {
                 }),
             );
         } else if voiced {
-            self.last_active = Some(Instant::now());
+            self.last_active = Some(now);
             self.peak_level = self.peak_level.max(level);
             self.voiced_samples = self.voiced_samples.saturating_add(samples);
         } else if self
             .last_active
-            .is_some_and(|last| last.elapsed() > Duration::from_millis(500))
+            .is_some_and(|last| now.saturating_duration_since(last) > Duration::from_millis(500))
             && let Some(started) = self.active_since.take()
         {
-            let duration_ms = started.elapsed().as_millis();
+            let duration_ms = now.saturating_duration_since(started).as_millis();
             let evidence = UserAudioEvidence {
                 duration_ms,
                 peak_level: self.peak_level,
@@ -290,22 +204,39 @@ impl UserAudioTracker {
             self.voiced_samples = 0;
             self.last_active = None;
             if self.uncommitted {
-                self.ended_uncommitted_at = Some(Instant::now());
+                self.ended_uncommitted_at = Some(now);
             }
         }
         started
     }
 
-    /// Local RMS can hear the assistant's own speakers. During playback, only
-    /// the server's typed `Interrupted` event may establish a fresh user epoch.
+    /// RMS gaps are activity segments, not user-turn boundaries. Once a
+    /// response has completed, playback must not suppress the next candidate.
     pub(super) fn update_for_local_epoch(
         &mut self,
         voiced: bool,
         level: f32,
         samples: usize,
         assistant_playing: bool,
-    ) -> bool {
-        self.update(voiced, level, samples) && !assistant_playing
+        phase: super::input_activity::LocalInputPhase,
+    ) -> super::input_activity::LocalAudioUpdate {
+        use super::input_activity::{LocalAudioUpdate, LocalInputPhase};
+        let started = self.update(voiced, level, samples);
+        let begin_epoch = match phase {
+            LocalInputPhase::Collecting => false,
+            LocalInputPhase::Initial => started && !assistant_playing,
+            LocalInputPhase::Complete(epoch) => {
+                let after_boundary = voiced && self.completed_input_epoch != Some(epoch);
+                if voiced {
+                    self.completed_input_epoch = Some(epoch);
+                }
+                voiced && (started || after_boundary)
+            }
+        };
+        LocalAudioUpdate {
+            begin_epoch,
+            request_frame: begin_epoch || (started && !assistant_playing),
+        }
     }
 
     pub(super) fn commit_transcript(&mut self, source: &'static str) {
@@ -532,7 +463,7 @@ pub(super) fn interrupted(state: &mut Reader, sink: Option<&AudioSink>) {
     );
 }
 
-pub(super) fn transcript(state: &mut Reader, text: &str, _sink: Option<&AudioSink>) {
+pub(super) fn transcript(state: &mut Reader, text: &str) {
     if !text.trim().is_empty() {
         state.generation_output_seen = true;
     }

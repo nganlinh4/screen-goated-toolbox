@@ -22,7 +22,6 @@ pub fn supports_structured_translation(provider: &str) -> bool {
 
 #[derive(Clone, Copy)]
 pub enum TranslationSchema<'a> {
-    ProviderEnforced(&'a serde_json::Value),
     /// The caller validates completed items and retries unresolved items.
     /// Providers without schema streaming may use unconstrained text transport.
     LocallyValidated(&'a serde_json::Value),
@@ -36,12 +35,20 @@ pub struct TranslateTextRequest<'a> {
     pub model: String,
     pub provider: String,
     pub streaming_enabled: bool,
+    /// Best-effort hint that the caller expects a JSON object. Only a provider
+    /// with a model-independent JSON-object mode (Groq) applies it; others
+    /// receive the prompt unchanged. The reply is never reshaped, so the caller
+    /// always validates it. Use `response_schema` when the shape must be enforced.
     pub use_json_format: bool,
     pub response_schema: Option<TranslationSchema<'a>>,
     /// Optional output cap for OpenAI-compatible translation providers.
     pub max_output_tokens: Option<u32>,
     /// Explicit authorization to invoke a provider web-search tool.
     pub search_enabled: bool,
+    /// Capability of the exact selected model; absent callers use catalog endpoint data.
+    pub search_capability: Option<bool>,
+    /// Whether the selected endpoint invokes search without an explicit tool request.
+    pub search_tool_enabled_by_default: Option<bool>,
     pub search_label: Option<String>,
     pub ui_language: &'a str,
     pub cancel_token: Option<Arc<AtomicBool>>,
@@ -102,6 +109,8 @@ fn translate_text_streaming_inner(
         response_schema,
         max_output_tokens,
         search_enabled,
+        search_capability,
+        search_tool_enabled_by_default,
         search_label,
         ui_language,
         cancel_token,
@@ -109,33 +118,21 @@ fn translate_text_streaming_inner(
         target_language,
     } = request;
 
-    let saved_openrouter_api_key = crate::APP
+    // One lock, and only the fields this request reads: a full Config clone
+    // copies every preset while the global APP lock is held.
+    let (saved_openrouter_api_key, saved_nvidia_api_key, saved_ollama_base_url) = crate::APP
         .lock()
-        .ok()
-        .and_then(|app| {
-            let config = app.config.clone();
-            if config.openrouter_api_key.is_empty() {
-                None
-            } else {
-                Some(config.openrouter_api_key.clone())
-            }
+        .map(|app| {
+            (
+                app.config.openrouter_api_key.clone(),
+                app.config.nvidia_api_key.clone(),
+                Some(app.config.ollama_base_url.clone()),
+            )
         })
         .unwrap_or_default();
     let openrouter_api_key =
         crate::api::provider_credentials::resolve("OPENROUTER_API_KEY", &saved_openrouter_api_key);
 
-    let saved_nvidia_api_key = crate::APP
-        .lock()
-        .ok()
-        .and_then(|app| {
-            let config = app.config.clone();
-            if config.nvidia_api_key.is_empty() {
-                None
-            } else {
-                Some(config.nvidia_api_key.clone())
-            }
-        })
-        .unwrap_or_default();
     let nvidia_api_key =
         crate::api::provider_credentials::resolve("NVIDIA_API_KEY", &saved_nvidia_api_key);
 
@@ -146,8 +143,7 @@ fn translate_text_streaming_inner(
         Some(TranslationSchema::LocallyValidated(_))
     );
     let response_schema = response_schema.map(|schema| match schema {
-        TranslationSchema::ProviderEnforced(schema)
-        | TranslationSchema::LocallyValidated(schema) => schema,
+        TranslationSchema::LocallyValidated(schema) => schema,
     });
     let transport = TranslateTransportOptions {
         locally_validated_schema,
@@ -171,9 +167,20 @@ fn translate_text_streaming_inner(
     if response_schema.is_some() && !supports_structured_translation(&provider) {
         return Err(anyhow::anyhow!("STRUCTURED_OUTPUT_UNSUPPORTED:{provider}"));
     }
-    if search_enabled
-        && !crate::model_config::model_supports_search_by_provider_and_name(&provider, &model)
+    if !search_enabled
+        && search_tool_enabled_by_default.unwrap_or_else(|| {
+            crate::model_config::get_all_models().iter().any(|entry| {
+                entry.provider == provider
+                    && entry.full_name == model
+                    && entry.search_tool_enabled_by_default
+            })
+        })
     {
+        return Err(anyhow::anyhow!(
+            "SEARCH_REQUIRES_EXPLICIT_OPT_IN:{provider}:{model}"
+        ));
+    }
+    if search_enabled && !search_request_supported(&provider, &model, search_capability) {
         return Err(anyhow::anyhow!("SEARCH_UNSUPPORTED:{provider}:{model}"));
     }
     if search_enabled && provider == "groq" && (response_schema.is_some() || use_json_format) {
@@ -182,21 +189,19 @@ fn translate_text_streaming_inner(
     match Provider::from_wire(&provider) {
         Some(Provider::Ollama) => {
             // --- OLLAMA LOCAL API ---
-            let ollama_base_url = crate::APP
-                .lock()
-                .ok()
-                .map(|app| {
-                    let config = app.config.clone();
-                    config.ollama_base_url.clone()
-                })
-                .unwrap_or_else(|| "http://localhost:11434".to_string());
+            let ollama_base_url =
+                saved_ollama_base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
 
-            return crate::api::ollama::ollama_generate_text(
-                &ollama_base_url,
-                &model,
-                &prompt,
-                streaming_enabled,
-                ui_language,
+            return crate::api::ollama::ollama_generate_text_in_chain(
+                crate::api::ollama::OllamaChainTextRequest {
+                    base_url: &ollama_base_url,
+                    model: &model,
+                    prompt: &prompt,
+                    streaming_enabled,
+                    ui_language,
+                    cancel_token: &cancel_token,
+                    request_timeout,
+                },
                 on_chunk,
             );
         }
@@ -257,7 +262,8 @@ fn translate_text_streaming_inner(
         }
         Some(Provider::Taalas) => {
             // --- TAALAS API (chatjimmy.ai / HC1 silicon) ---
-            full_content = translate_taalas(&prompt, &cancel_token, &mut on_chunk)?;
+            full_content =
+                translate_taalas(&prompt, &cancel_token, request_timeout, &mut on_chunk)?;
         }
         Some(Provider::Google) => {
             // --- GEMINI TEXT API ---
@@ -306,8 +312,7 @@ fn translate_text_streaming_inner(
                     &model,
                     &prompt,
                     search_label,
-                    ui_language,
-                    request_timeout,
+                    transport,
                     on_chunk,
                 );
             } else {
@@ -336,4 +341,71 @@ fn translate_text_streaming_inner(
     // offline, where a mistake costs a model an eligibility streak rather than
     // costing a user their answer.
     Ok(full_content)
+}
+
+fn search_request_supported(provider: &str, model: &str, capability: Option<bool>) -> bool {
+    matches!(provider, "google" | "groq")
+        && capability.unwrap_or_else(|| {
+            crate::model_config::model_supports_search_by_provider_and_name(provider, model)
+        })
+}
+
+#[cfg(test)]
+mod search_tests {
+    #[test]
+    fn custom_model_capability_is_honored_only_by_search_capable_adapters() {
+        assert!(super::search_request_supported(
+            "google",
+            "custom",
+            Some(true)
+        ));
+        assert!(super::search_request_supported(
+            "groq",
+            "custom",
+            Some(true)
+        ));
+        assert!(!super::search_request_supported(
+            "google",
+            "custom",
+            Some(false)
+        ));
+        assert!(!super::search_request_supported(
+            "openrouter",
+            "custom",
+            Some(true)
+        ));
+        assert!(!super::search_request_supported(
+            "ollama",
+            "custom",
+            Some(true)
+        ));
+    }
+
+    #[test]
+    fn initial_default_search_requires_explicit_opt_in_before_dispatch() {
+        let request = super::TranslateTextRequest {
+            groq_api_key: "",
+            gemini_api_key: "",
+            text: "private".to_string(),
+            instruction: "".to_string(),
+            model: "future-model".to_string(),
+            provider: "google".to_string(),
+            streaming_enabled: false,
+            use_json_format: false,
+            response_schema: None,
+            max_output_tokens: None,
+            search_enabled: false,
+            search_capability: Some(true),
+            search_tool_enabled_by_default: Some(true),
+            search_label: None,
+            ui_language: "en",
+            cancel_token: None,
+            request_timeout: None,
+            target_language: None,
+        };
+        let error = super::translate_text_streaming(request, |_| panic!("unexpected dispatch"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.starts_with("SEARCH_REQUIRES_EXPLICIT_OPT_IN:"));
+    }
 }

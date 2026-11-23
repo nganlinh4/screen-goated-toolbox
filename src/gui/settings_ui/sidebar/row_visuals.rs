@@ -69,13 +69,20 @@ pub(super) fn proximity_icon_button(
 /// proximity the row actions use, then smoothed over time so a pointer arriving
 /// from off-screen fades in. Takes the slot's *allocated* rect, not a predicted
 /// one, so the field is centred exactly where the icon is painted.
-pub(super) fn icon_drag_morph(ui: &egui::Ui, icon_rect: egui::Rect, preset_id: &str) -> f32 {
+pub(super) fn icon_drag_morph(
+    ui: &egui::Ui,
+    icon_rect: egui::Rect,
+    preset_id: &str,
+    index: usize,
+) -> f32 {
     let target = proximity_opacity_within(
         ui.input(|input| input.pointer.hover_pos()),
         icon_rect,
         PRESET_DRAG_MORPH_RADIUS,
     );
-    let animation_id = egui::Id::new("preset-drag-morph").with(preset_id);
+    let animation_id = egui::Id::new("preset-drag-morph")
+        .with(preset_id)
+        .with(index);
     ui.ctx()
         .animate_value_with_time(animation_id, target, PRESET_DRAG_MORPH_SECONDS)
 }
@@ -109,9 +116,10 @@ pub(super) fn preset_row_band<R>(
     )
 }
 
-pub(super) fn preset_action_id(preset_id: &str, action: &'static str) -> egui::Id {
+pub(super) fn preset_action_id(preset_id: &str, index: usize, action: &'static str) -> egui::Id {
     egui::Id::new("preset-overlay-action")
         .with(preset_id)
+        .with(index)
         .with(action)
 }
 

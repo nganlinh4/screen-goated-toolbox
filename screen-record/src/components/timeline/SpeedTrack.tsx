@@ -8,6 +8,8 @@ import {
   getHighlightedCurveSegmentPath,
 } from './curvePath';
 import { useAdjustableLineTrack } from './useAdjustableLineTrack';
+import { SPEED_POINT_SCALE } from './curvePointKeyboard';
+import { useSettings } from '@/hooks/useSettings';
 
 // Logarithmic vertical mapping for intuitive dragging:
 // 1x in the middle, 16x at top, 0.1x at bottom.
@@ -52,6 +54,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
   beginBatch,
   commitBatch,
 }) => {
+  const { t } = useSettings();
   const points = segment.speedPoints?.length
     ? segment.speedPoints
     : [{ time: 0, speed: 1 }, { time: duration, speed: 1 }];
@@ -69,6 +72,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     handlePointPointerDown,
     handleTrackPointerMove,
     setHoveredSegmentIndices,
+    getPointKeyProps,
   } = useAdjustableLineTrack<SpeedPoint>({
     points,
     duration,
@@ -122,13 +126,12 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
     const clickX = e.clientX - rect.left;
     const time = (clickX / rect.width) * duration;
     e.stopPropagation();
-    handleTrackPointerDown(e, rect, time);
+    handleTrackPointerDown(e, e.currentTarget, time);
   };
 
   const onPointPointerDown = (e: React.PointerEvent, i: number) => {
     e.stopPropagation();
-    const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-    handlePointPointerDown(rect, e.clientX, e.clientY, i);
+    handlePointPointerDown(e.currentTarget.parentElement!, e.clientX, e.clientY, i);
   };
 
   const highlightedSegmentPath = getHighlightedSegmentPath(
@@ -226,6 +229,7 @@ export const SpeedTrack: React.FC<SpeedTrackProps> = ({
               }}
               onMouseLeave={() => setHoveredIdx(null)}
               onPointerDown={(e) => onPointPointerDown(e, i)}
+              {...getPointKeyProps(i, `${t.timelineSpeedPoint} ${i + 1}`, SPEED_POINT_SCALE)}
             />
           ))}
         </div>

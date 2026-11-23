@@ -57,7 +57,7 @@ class PhoneControlScreenReconciliationTest {
 
         fun completeUncertainAction() {
             val call = GeminiLiveFunctionCall("uncertain-action", "act", JsonObject(emptyMap()))
-            coordinator.userSpeechStarted(assistantPlaybackActive = false)
+            coordinator.userSpeechActivity(assistantPlaybackActive = false, burstStarted = true)
             coordinator.handleFrame(
                 frame = GeminiLiveServerFrame(
                     inputTranscript = "perform an action",

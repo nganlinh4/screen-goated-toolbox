@@ -5,7 +5,10 @@
 use super::audio::SplashAudio;
 use super::math::{Vec3, lerp, smoothstep};
 use super::scene::{Cloud, Voxel};
-use super::{ANIMATION_DURATION, EXIT_DURATION, START_TRANSITION, SplashStatus};
+use super::{
+    ANIMATION_DURATION, AUTO_EXIT_DELAY, EXIT_DURATION, IDLE_FRAME_INTERVAL, START_TRANSITION,
+    SplashStatus, SplashText, UNATTENDED_EXIT_DELAY,
+};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui::{self, Pos2, Rect, Vec2};
 use std::sync::{Arc, Mutex};
@@ -13,7 +16,10 @@ use std::sync::{Arc, Mutex};
 pub struct SplashUpdateContext<'a> {
     pub ctx: &'a egui::Context,
     pub start_time: f64,
+    pub text: SplashText,
     pub exit_start_time: &'a mut Option<f64>,
+    pub background_since: &'a mut Option<f64>,
+    pub quiet_exit: &'a mut bool,
     pub voxels: &'a mut [Voxel],
     pub clouds: &'a mut [Cloud],
     pub mouse_influence: &'a mut Vec2,
@@ -29,7 +35,10 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
     let SplashUpdateContext {
         ctx,
         start_time,
+        text,
         exit_start_time,
+        background_since,
+        quiet_exit,
         voxels,
         clouds,
         mouse_influence,
@@ -61,6 +70,17 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
     }
 
     let t_abs = (now - start_time) as f32;
+
+    // SGT is often driven by hotkeys alone, so an assembled splash can sit behind
+    // other windows indefinitely. Leave quietly once it has been unwatched long enough.
+    // A focused splash nobody is touching (an unattended login launch) leaves too,
+    // so it never keeps a core, the GPU and the audio device busy indefinitely.
+    let backgrounded = background_exit_due(ctx.input(|i| i.focused), now, background_since);
+    let unattended = unattended_exit_due(ctx.input(|i| i.pointer.time_since_last_movement()));
+    if exit_start_time.is_none() && t_abs >= ANIMATION_DURATION && (backgrounded || unattended) {
+        *exit_start_time = Some(now);
+        *quiet_exit = true;
+    }
     let physics_t = t_abs.min(ANIMATION_DURATION);
 
     // --- EXIT LOGIC ---
@@ -85,7 +105,8 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
         && let Ok(mut s) = audio.state.lock()
     {
         s.physics_t = physics_t;
-        s.warp_progress = warp_progress;
+        // The warp whoosh is the only exit sound; a quiet exit never sends it.
+        s.warp_progress = if *quiet_exit { 0.0 } else { warp_progress };
         s.is_dark = *is_dark;
 
         // Trigger impact once when assembly is nearly complete
@@ -96,7 +117,13 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
         }
     }
 
-    ctx.request_repaint();
+    // Once assembled the scene only drifts. Re-rendering the CPU framebuffer at the
+    // display rate while waiting for a click would keep a core busy indefinitely.
+    if exit_start_time.is_none() && t_abs >= ANIMATION_DURATION {
+        ctx.request_repaint_after(IDLE_FRAME_INTERVAL);
+    } else {
+        ctx.request_repaint();
+    }
 
     // --- UPDATE CLOUDS ---
     let viewport_rect = ctx.input(|i| {
@@ -135,17 +162,18 @@ pub fn update(update_ctx: SplashUpdateContext<'_>) -> SplashStatus {
     }
 
     if exit_start_time.is_none() {
-        if t_abs < 0.8 {
-            *loading_text = "TRANSLATING...".to_string();
+        let line = if t_abs < 0.8 {
+            text.translating
         } else if t_abs < 1.6 {
-            *loading_text = "OCR...".to_string();
+            text.ocr
         } else if t_abs < 2.4 {
-            *loading_text = "TRANSCRIBING...".to_string();
+            text.transcribing
         } else {
-            *loading_text = "nganlinh4".to_string();
-        }
+            "nganlinh4"
+        };
+        line.clone_into(loading_text);
     } else {
-        *loading_text = "READY TO ROCK!".to_string();
+        text.ready.clone_into(loading_text);
     }
 
     // --- PHYSICS UPDATE (Voxels) ---
@@ -264,5 +292,54 @@ fn update_voxels(
                 v.scale = lerp(0.8, 1.0, progress);
             }
         }
+    }
+}
+
+/// Tracks how long the window has been unfocused and reports when the grace
+/// period has run out. Refocusing restarts the period.
+fn background_exit_due(focused: bool, now: f64, background_since: &mut Option<f64>) -> bool {
+    if focused {
+        *background_since = None;
+        return false;
+    }
+    let since = *background_since.get_or_insert(now);
+    now - since >= AUTO_EXIT_DELAY
+}
+
+fn unattended_exit_due(pointer_idle_seconds: f32) -> bool {
+    f64::from(pointer_idle_seconds) >= UNATTENDED_EXIT_DELAY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_untouched_focused_splash_leaves_after_the_unattended_delay() {
+        assert!(!unattended_exit_due(UNATTENDED_EXIT_DELAY as f32 - 1.0));
+        assert!(unattended_exit_due(UNATTENDED_EXIT_DELAY as f32));
+        const { assert!(UNATTENDED_EXIT_DELAY > AUTO_EXIT_DELAY) };
+    }
+
+    #[test]
+    fn background_exit_waits_for_the_full_grace_period() {
+        let mut since = None;
+        let deadline = 100.0 + AUTO_EXIT_DELAY;
+        assert!(!background_exit_due(false, 100.0, &mut since));
+        assert!(!background_exit_due(false, deadline - 0.1, &mut since));
+        assert!(background_exit_due(false, deadline, &mut since));
+    }
+
+    #[test]
+    fn refocusing_restarts_the_grace_period() {
+        let mut since = None;
+        assert!(!background_exit_due(false, 100.0, &mut since));
+        assert!(!background_exit_due(true, 105.0, &mut since));
+        assert_eq!(since, None);
+
+        let deadline = 106.0 + AUTO_EXIT_DELAY;
+        assert!(!background_exit_due(false, 106.0, &mut since));
+        assert!(!background_exit_due(false, deadline - 0.1, &mut since));
+        assert!(background_exit_due(false, deadline, &mut since));
     }
 }

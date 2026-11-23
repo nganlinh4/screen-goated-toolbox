@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::super::raw_video::unique_destination;
+use super::path_validation::validate_file_name;
+
 use base64::Engine as _;
 
 use crate::overlay::auto_copy_badge::{NotificationType, show_timed_detailed_notification};
@@ -10,6 +13,7 @@ const MAX_ENCODED_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PNG_BYTES: usize = 96 * 1024 * 1024;
 const MAX_PNG_AXIS: u32 = 16_384;
 const MAX_PNG_PIXELS: u64 = 100_000_000;
+const DEFAULT_FRAME_FILE_NAME: &str = "recording-frame.png";
 
 pub fn handle_save_current_frame(args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let data_url = args["dataUrl"].as_str().ok_or("Missing dataUrl")?;
@@ -114,29 +118,13 @@ fn safe_png_file_name(value: &str) -> String {
         .take(120)
         .collect();
     let cleaned = cleaned.trim_matches([' ', '.', '-']);
-    format!(
-        "{}.png",
-        if cleaned.is_empty() {
-            "recording-frame"
-        } else {
-            cleaned
-        }
-    )
-}
-
-fn unique_destination(dir: &Path, file_name: &str) -> PathBuf {
-    let stem = Path::new(file_name)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("recording-frame");
-    let mut destination = dir.join(file_name);
-    for index in 1..10_000 {
-        if !destination.exists() {
-            return destination;
-        }
-        destination = dir.join(format!("{stem} ({index}).png"));
+    let candidate = format!("{cleaned}.png");
+    // "con.png" would be written to the console device and silently lost.
+    if cleaned.is_empty() || validate_file_name(&candidate).is_err() {
+        DEFAULT_FRAME_FILE_NAME.to_string()
+    } else {
+        candidate
     }
-    dir.join(format!("{stem}-copy.png"))
 }
 
 #[cfg(test)]
@@ -170,5 +158,12 @@ mod tests {
             "My- Project.png"
         );
         assert_eq!(safe_png_file_name("..."), "recording-frame.png");
+    }
+
+    #[test]
+    fn device_names_fall_back_to_the_default_frame_name() {
+        for name in ["con", "NUL .png", "com1.jpg", "conout$"] {
+            assert_eq!(safe_png_file_name(name), "recording-frame.png", "{name}");
+        }
     }
 }

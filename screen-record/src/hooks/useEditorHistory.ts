@@ -29,12 +29,33 @@ interface UseEditorHistoryParams {
   maxHistory?: number;
 }
 
-function cloneSnapshot(snapshot: EditorHistorySnapshot): EditorHistorySnapshot {
-  return structuredClone(snapshot);
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Editor state is immutable and structurally shared, so equality short-circuits
+ * on identical references and only walks the subtrees an edit replaced. Heavy
+ * unchanged data (mouse positions, clip media) is never serialized or copied.
+ */
+function structurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left)) {
+    return Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => structurallyEqual(item, right[index]));
+  }
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  const leftKeys = Object.keys(left).filter((key) => left[key] !== undefined);
+  const rightKeys = Object.keys(right).filter((key) => right[key] !== undefined);
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => structurallyEqual(left[key], right[key]));
 }
 
 function snapshotsEqual(left: EditorHistorySnapshot, right: EditorHistorySnapshot) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return structurallyEqual(left, right);
 }
 
 function shallowObjectEqual<T extends object>(left: T, right: T) {
@@ -50,33 +71,42 @@ export function useEditorHistory({
   applySnapshot,
   maxHistory = 30,
 }: UseEditorHistoryParams) {
-  const [snapshotRef] = useState(() => ({
-    current: cloneSnapshot(initialSnapshot),
-  }));
+  // History entries share references with immutable editor state; nothing is cloned.
+  const [snapshotRef] = useState(() => ({ current: { ...initialSnapshot } }));
   const batchSnapshotRef = useRef<EditorHistorySnapshot | null>(null);
   const batchDepthRef = useRef(0);
   const suppressHistoryRef = useRef(0);
-  const [past, setPast] = useState<EditorHistorySnapshot[]>([]);
-  const [future, setFuture] = useState<EditorHistorySnapshot[]>([]);
+  // Stacks live in refs so undo/redo compute outside React updaters (which
+  // StrictMode may double-invoke); the counts drive canUndo/canRedo renders.
+  const pastRef = useRef<EditorHistorySnapshot[]>([]);
+  const futureRef = useRef<EditorHistorySnapshot[]>([]);
+  const [stackSizes, setStackSizes] = useState({ past: 0, future: 0 });
   const [isBatching, setIsBatching] = useState(false);
 
-  const getSnapshot = useCallback(() => cloneSnapshot(snapshotRef.current), []);
+  const getSnapshot = useCallback(() => snapshotRef.current, [snapshotRef]);
 
   const replaceSnapshot = useCallback((patch: Partial<EditorHistorySnapshot>) => {
     snapshotRef.current = {
       ...snapshotRef.current,
       ...patch,
     };
-  }, []);
+  }, [snapshotRef]);
+
+  const setStacks = useCallback((
+    past: EditorHistorySnapshot[],
+    future: EditorHistorySnapshot[],
+  ) => {
+    pastRef.current = past.length > maxHistory ? past.slice(past.length - maxHistory) : past;
+    futureRef.current = future;
+    setStackSizes((previous) =>
+      previous.past === pastRef.current.length && previous.future === future.length
+        ? previous
+        : { past: pastRef.current.length, future: future.length });
+  }, [maxHistory]);
 
   const pushPast = useCallback((snapshot: EditorHistorySnapshot) => {
-    setPast((prev) => {
-      const next = [...prev, cloneSnapshot(snapshot)];
-      if (next.length > maxHistory) next.shift();
-      return next;
-    });
-    setFuture([]);
-  }, [maxHistory]);
+    setStacks([...pastRef.current, snapshot], []);
+  }, [setStacks]);
 
   const recordBeforeChange = useCallback(() => {
     if (suppressHistoryRef.current > 0) return;
@@ -116,46 +146,51 @@ export function useEditorHistory({
     setIsBatching(false);
     if (!snapshot || snapshotsEqual(snapshot, snapshotRef.current)) return;
     pushPast(snapshot);
-  }, [pushPast]);
+  }, [pushPast, snapshotRef]);
 
   const resetHistory = useCallback((snapshot: EditorHistorySnapshot) => {
-    snapshotRef.current = cloneSnapshot(snapshot);
+    snapshotRef.current = { ...snapshot };
     batchSnapshotRef.current = null;
     batchDepthRef.current = 0;
     setIsBatching(false);
-    setPast([]);
-    setFuture([]);
-  }, []);
+    setStacks([], []);
+  }, [setStacks, snapshotRef]);
+
+  const restore = useCallback((
+    target: EditorHistorySnapshot,
+    nextPast: EditorHistorySnapshot[],
+    nextFuture: EditorHistorySnapshot[],
+  ) => {
+    setStacks(nextPast, nextFuture);
+    snapshotRef.current = target;
+    withoutHistory(() => applySnapshot(target));
+  }, [applySnapshot, setStacks, snapshotRef, withoutHistory]);
+
+  // Undo/redo inside an open gesture batch (Ctrl+Z mid-drag) first closes the
+  // part of the gesture already made as its own step. The batch stays open and
+  // captures a fresh baseline on its next change, so its commit cannot push a
+  // stale pre-undo snapshot over the restored state.
+  const settleOpenBatch = useCallback(() => {
+    if (batchDepthRef.current === 0) return;
+    const snapshot = batchSnapshotRef.current;
+    batchSnapshotRef.current = null;
+    if (snapshot && !snapshotsEqual(snapshot, snapshotRef.current)) pushPast(snapshot);
+  }, [pushPast, snapshotRef]);
 
   const undo = useCallback(() => {
-    setPast((prev) => {
-      if (prev.length === 0) return prev;
-      const previous = prev[prev.length - 1];
-      const nextPast = prev.slice(0, -1);
-      const current = getSnapshot();
-      setFuture((nextFuture) => [current, ...nextFuture]);
-      snapshotRef.current = cloneSnapshot(previous);
-      withoutHistory(() => applySnapshot(previous));
-      return nextPast;
-    });
-  }, [applySnapshot, getSnapshot, withoutHistory]);
+    settleOpenBatch();
+    const past = pastRef.current;
+    if (past.length === 0) return;
+    const previous = past[past.length - 1];
+    restore(previous, past.slice(0, -1), [getSnapshot(), ...futureRef.current]);
+  }, [getSnapshot, restore, settleOpenBatch]);
 
   const redo = useCallback(() => {
-    setFuture((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev[0];
-      const nextFuture = prev.slice(1);
-      const current = getSnapshot();
-      setPast((nextPast) => {
-        const updated = [...nextPast, current];
-        if (updated.length > maxHistory) updated.shift();
-        return updated;
-      });
-      snapshotRef.current = cloneSnapshot(next);
-      withoutHistory(() => applySnapshot(next));
-      return nextFuture;
-    });
-  }, [applySnapshot, getSnapshot, maxHistory, withoutHistory]);
+    settleOpenBatch();
+    const future = futureRef.current;
+    if (future.length === 0) return;
+    restore(future[0], [...pastRef.current, getSnapshot()], future.slice(1));
+  }, [getSnapshot, restore, settleOpenBatch]);
 
   const setSegment: NullableSetter<VideoSegment> = useCallback((value) => {
     const previous = snapshotRef.current.segment;
@@ -243,18 +278,17 @@ export function useEditorHistory({
     setCurrentRawWebcamVideoPath,
     undo,
     redo,
-    canUndo: past.length > 0,
-    canRedo: future.length > 0,
+    canUndo: stackSizes.past > 0,
+    canRedo: stackSizes.future > 0,
     isBatching,
     beginBatch,
     commitBatch,
   }), [
     beginBatch,
     commitBatch,
-    future.length,
     getSnapshot,
     isBatching,
-    past.length,
+    stackSizes,
     redo,
     replaceSnapshot,
     resetHistory,

@@ -1,18 +1,21 @@
 import React, { useState, useMemo } from 'react';
 import { Keyboard, MousePointer2, Scissors } from '@/components/ui/MaterialIcon';
-import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
+import type { VideoSegment } from '@/types/video';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import { useSettings } from '@/hooks/useSettings';
 import {
-  filterKeystrokeEventsByMode,
-  KEYSTROKE_VISIBILITY_MARGIN_AFTER,
-  KEYSTROKE_VISIBILITY_MARGIN_BEFORE
-} from '@/lib/keystrokeVisibility';
+  analyzeKeystrokeSegments,
+  buildRawEventIndex,
+  getRawEventRanges,
+  getSegmentsForMode,
+  getVisualActivityRanges,
+} from './keystrokeTrackRanges';
 import {
   getHandlePriorityThresholdTime,
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
 import { useTrackRangeSelect } from './useTrackRangeSelect';
+import { rangeLaneKeys, type TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 
 interface KeystrokeTrackProps {
   segment: VideoSegment;
@@ -20,6 +23,7 @@ interface KeystrokeTrackProps {
   editingKeystrokeSegmentId: string | null;
   onKeystrokeClick: (id: string, splitTime: number) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddKeystrokeSegment?: (atTime?: number) => void;
   onKeystrokeHover?: (id: string | null) => void;
   onDeleteKeystrokeSegments?: (ids: string[]) => void;
@@ -28,145 +32,13 @@ interface KeystrokeTrackProps {
   onEmptyClick?: (time: number) => void;
 }
 
-interface TimeRange {
-  startTime: number;
-  endTime: number;
-}
-
-type InputKind = 'keyboard' | 'mouse';
-
-interface TypedTimeRange extends TimeRange {
-  kind: InputKind;
-}
-
-function getSegmentsForMode(segment: VideoSegment): CursorVisibilitySegment[] {
-  const mode = segment.keystrokeMode ?? 'off';
-  if (mode === 'keyboard') return segment.keyboardVisibilitySegments ?? [];
-  if (mode === 'keyboardMouse') return segment.keyboardMouseVisibilitySegments ?? [];
-  return [];
-}
-
-function getRawEventRanges(segment: VideoSegment, duration: number): TypedTimeRange[] {
-  const mode = segment.keystrokeMode ?? 'off';
-  if (mode === 'off') return [];
-  const events = [...filterKeystrokeEventsByMode(segment.keystrokeEvents ?? [], mode)]
-    .sort((a, b) => a.startTime - b.startTime);
-  if (!events.length) return [];
-
-  const safeDuration = Math.max(duration, 0);
-  const delaySecRaw = segment.keystrokeDelaySec;
-  const delaySec = typeof delaySecRaw === 'number' && Number.isFinite(delaySecRaw)
-    ? Math.max(-1, Math.min(1, delaySecRaw))
-    : 0;
-  const ranges: TypedTimeRange[] = [];
-  const effectiveEnds = events.map((event) => Math.min(event.endTime, safeDuration));
-
-  for (let i = 0; i < events.length; i++) {
-    const event: KeystrokeEvent = events[i];
-    const startTime = Math.max(0, Math.min(safeDuration, event.startTime + delaySec));
-    const endTime = Math.max(0, Math.min(safeDuration, effectiveEnds[i] + delaySec));
-    if (endTime - startTime > 0.001) {
-      ranges.push({
-        startTime,
-        endTime,
-        kind: event.type === 'keyboard' ? 'keyboard' : 'mouse',
-      });
-    }
-  }
-  return ranges;
-}
-
-function mergeRanges(ranges: TimeRange[]): TimeRange[] {
-  if (!ranges.length) return [];
-  const sorted = [...ranges].sort((a, b) => a.startTime - b.startTime);
-  const merged: TimeRange[] = [{ ...sorted[0] }];
-  for (let i = 1; i < sorted.length; i++) {
-    const previous = merged[merged.length - 1];
-    const current = sorted[i];
-    if (current.startTime <= previous.endTime + 0.001) {
-      previous.endTime = Math.max(previous.endTime, current.endTime);
-    } else {
-      merged.push({ ...current });
-    }
-  }
-  return merged;
-}
-
-function getVisualActivityRanges(rawRanges: TypedTimeRange[], duration: number): TimeRange[] {
-  const safeDuration = Math.max(duration, 0);
-  return mergeRanges(rawRanges.map((range) => ({
-    startTime: Math.max(0, range.startTime - KEYSTROKE_VISIBILITY_MARGIN_BEFORE),
-    endTime: Math.min(safeDuration, range.endTime + KEYSTROKE_VISIBILITY_MARGIN_AFTER),
-  })));
-}
-
-function intersectRangeWithRanges(
-  rangeStart: number,
-  rangeEnd: number,
-  ranges: TimeRange[]
-): TimeRange[] {
-  const intersections: TimeRange[] = [];
-  for (const range of ranges) {
-    const startTime = Math.max(rangeStart, range.startTime);
-    const endTime = Math.min(rangeEnd, range.endTime);
-    if (endTime - startTime > 0.001) intersections.push({ startTime, endTime });
-  }
-  return intersections;
-}
-
-function getEmptyRangesInsideSegment(
-  segmentStart: number,
-  segmentEnd: number,
-  indicatorRanges: TimeRange[]
-): TimeRange[] {
-  if (segmentEnd - segmentStart <= 0.001) return [];
-  if (!indicatorRanges.length) {
-    return [{ startTime: segmentStart, endTime: segmentEnd }];
-  }
-
-  const sorted = [...indicatorRanges].sort((a, b) => a.startTime - b.startTime);
-  const empties: TimeRange[] = [];
-  let cursor = segmentStart;
-  for (const range of sorted) {
-    if (range.startTime > cursor + 0.001) {
-      empties.push({
-        startTime: cursor,
-        endTime: Math.min(range.startTime, segmentEnd),
-      });
-    }
-    cursor = Math.max(cursor, range.endTime);
-    if (cursor >= segmentEnd) break;
-  }
-  if (cursor < segmentEnd - 0.001) {
-    empties.push({ startTime: cursor, endTime: segmentEnd });
-  }
-  return empties;
-}
-
-function getSegmentInputKinds(
-  segmentStart: number,
-  segmentEnd: number,
-  rawRanges: TypedTimeRange[]
-): { hasKeyboard: boolean; hasMouse: boolean } {
-  let hasKeyboard = false;
-  let hasMouse = false;
-  for (const range of rawRanges) {
-    const overlapStart = Math.max(segmentStart, range.startTime);
-    const overlapEnd = Math.min(segmentEnd, range.endTime);
-    if (overlapEnd - overlapStart <= 0.001) continue;
-    if (range.kind === 'keyboard') hasKeyboard = true;
-    else hasMouse = true;
-    if (hasKeyboard && hasMouse) break;
-  }
-  return { hasKeyboard, hasMouse };
-}
-
 export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   segment,
   duration,
   editingKeystrokeSegmentId,
   onKeystrokeClick,
   onHandleDragStart,
+  keyboardEdits,
   onAddKeystrokeSegment,
   onKeystrokeHover,
   onDeleteKeystrokeSegments,
@@ -182,11 +54,15 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
   >(null);
   const mode = segment.keystrokeMode ?? 'off';
   const safeDuration = Math.max(duration, 0.001);
-  const segments = clampVisibilitySegmentsToDuration(getSegmentsForMode(segment), safeDuration);
+  const modeSegments = getSegmentsForMode(segment);
+  const segments = useMemo(
+    () => clampVisibilitySegmentsToDuration(modeSegments, safeDuration),
+    [modeSegments, safeDuration],
+  );
 
   const {
     selectedIds, rangeSelect, trackRef, isDraggingRange,
-    onSegmentPointerDown,
+    onSegmentPointerDown, addSegmentSelection,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
   } = useTrackRangeSelect(
     segments,
@@ -205,6 +81,17 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
     () => getVisualActivityRanges(rawEventRanges, safeDuration),
     [rawEventRanges, safeDuration]
   );
+  // Per-segment overlap analysis is recomputed only when segments or events change.
+  const segmentAnalysis = useMemo(
+    () => analyzeKeystrokeSegments(segments, visualActivityRanges, buildRawEventIndex(rawEventRanges)),
+    [rawEventRanges, segments, visualActivityRanges],
+  );
+
+  const segmentKeys = rangeLaneKeys({
+    lane: 'keystroke', name: t.trackKeystrokes, startLabel: t.timelineSegmentStart, endLabel: t.timelineSegmentEnd,
+    duration: safeDuration, keyboardEdits, selectedIds, onSelect: (id) => addSegmentSelection(id),
+    onDelete: onDeleteKeystrokeSegments, onSplit: onKeystrokeClick, onAdd: onAddKeystrokeSegment,
+  });
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (mode === 'off' || isDraggingRange.current) {
@@ -255,13 +142,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
         />
       ))}
 
-      {segments.map((seg) => (
+      {segments.map((seg, segIndex) => (
         (() => {
-          const indicatorRanges = intersectRangeWithRanges(seg.startTime, seg.endTime, visualActivityRanges);
-          const emptyRanges = getEmptyRangesInsideSegment(seg.startTime, seg.endTime, indicatorRanges);
+          const { indicatorRanges, emptyRanges, kinds: segmentKinds } = segmentAnalysis[segIndex];
           const hasIndicators = indicatorRanges.length > 0;
           const segmentDuration = Math.max(seg.endTime - seg.startTime, 0.001);
-          const segmentKinds = getSegmentInputKinds(seg.startTime, seg.endTime, rawEventRanges);
           const segmentIcon = (() => {
             if (!hasIndicators) return 'none' as const;
             if (mode === 'keyboard') return 'keyboard' as const;
@@ -270,9 +155,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
             return 'keyboard' as const;
           })();
 
+          const keys = segmentKeys(seg, segIndex);
           return (
             <div
               key={seg.id}
+              {...keys.body}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 onSegmentPointerDown();
@@ -336,7 +223,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 </div>
               </div>
               <div
-                className="keystroke-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+                className="keystroke-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+                {...keys.start}
                 onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
               >
                 <div
@@ -344,7 +232,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 />
               </div>
               <div
-                className="keystroke-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+                className="keystroke-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+                {...keys.end}
                 onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
               >
                 <div

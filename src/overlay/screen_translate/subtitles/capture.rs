@@ -32,6 +32,7 @@ pub(super) struct Capture {
     staging: Option<ID3D11Texture2D>,
     size: (u32, u32),
     bounds: RECT,
+    monitor: windows::Win32::Graphics::Gdi::HMONITOR,
     _apartment: Apartment,
 }
 
@@ -97,12 +98,14 @@ impl Capture {
                 staging: None,
                 size: (0, 0),
                 bounds: info.rcMonitor,
+                monitor,
                 _apartment: apartment,
             })
         }
     }
 
     pub(super) fn frame(&mut self, rect: RECT) -> Result<Option<image::RgbaImage>> {
+        super::display_change::validate(self.monitor, self.bounds)?;
         unsafe {
             self.device.GetDeviceRemovedReason()?;
         }
@@ -218,5 +221,6 @@ impl Drop for Capture {
     fn drop(&mut self) {
         let _ = self.session.Close();
         let _ = self.pool.Close();
+        crate::log_info!("[Subtitles] native capture session and frame pool closed");
     }
 }

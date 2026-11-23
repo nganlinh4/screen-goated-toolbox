@@ -1,13 +1,14 @@
 use super::super::*;
-use super::drain::LiveTranslateOutputState;
+use super::drain::{DirectAudioGate, LiveTranslateOutputState};
 use super::lifecycle_adapter::{AdapterPoll, LiveTranslateLifecycleAdapter};
 
 pub(super) fn run_live_translate_continuous(
-    audio_buffer: Arc<Mutex<Vec<i16>>>,
+    capture: &mut super::capture_owner::S2sCapture,
     stop_signal: Arc<AtomicBool>,
     event_tx: mpsc::Sender<S2sEvent>,
     overlay_hwnd: HWND,
     session_id: u64,
+    engine_revision: u64,
     settings: S2sSettings,
 ) -> Result<()> {
     const MAX_PENDING_SAMPLES: usize = FRAME_SAMPLES * 10;
@@ -17,16 +18,26 @@ pub(super) fn run_live_translate_continuous(
     let mut dropped_samples = 0usize;
     let mut last_health_log = Instant::now();
     let mut output = LiveTranslateOutputState::default();
-    let playback = crate::api::tts::player::audio_player::AudioPlayer::new(
+    let playback = Arc::new(crate::api::tts::player::audio_player::AudioPlayer::new(
         crate::api::tts::types::PLAYBACK_SAMPLE_RATE,
-        crate::api::tts::TTS_MANAGER.clone(),
-    );
-    let mut lifecycle = LiveTranslateLifecycleAdapter::new(settings);
-    let mut cancelled = || live_translate_should_stop(&stop_signal, session_id);
+    ));
+    let direct_playback = DirectPlaybackOwner(playback.clone());
+    let mut lifecycle = LiveTranslateLifecycleAdapter::new(settings.clone());
+    let mut connection_epoch = capture.epoch();
+    let mut cancelled = || live_translate_should_stop(&stop_signal, session_id, engine_revision);
     lifecycle.start(&mut cancelled)?;
 
     while !cancelled() {
-        append_captured_audio(&audio_buffer, &mut pending);
+        if capture.needs_reopen() {
+            lifecycle.cancel()?;
+            pending.clear();
+            capture.reopen()?;
+            lifecycle = LiveTranslateLifecycleAdapter::new(settings.clone());
+            lifecycle.start(&mut cancelled)?;
+            connection_epoch = capture.epoch();
+            continue;
+        }
+        append_captured_audio(capture.buffer(), &mut pending);
         dropped_samples =
             dropped_samples.saturating_add(cap_pending_audio(&mut pending, MAX_PENDING_SAMPLES));
 
@@ -44,18 +55,33 @@ pub(super) fn run_live_translate_continuous(
 
         if lifecycle.is_active() && pending.len() >= FRAME_SAMPLES {
             let frame = pending[..FRAME_SAMPLES].to_vec();
-            update_live_translate_volume(&frame, overlay_hwnd);
+            update_live_translate_volume(
+                &frame,
+                overlay_hwnd,
+                session_id,
+                &stop_signal,
+                engine_revision,
+            );
             if lifecycle.send_audio(&frame, input_active, &mut cancelled)? {
                 pending.drain(..FRAME_SAMPLES);
                 sent_chunks = sent_chunks.saturating_add(1);
             }
         }
 
+        let audio_gate = DirectAudioGate {
+            playback: &direct_playback.0,
+            stop_signal: &stop_signal,
+            session_id,
+            engine_revision,
+            epoch: connection_epoch,
+            visible: capture.playback_epoch() == Some(connection_epoch),
+        };
         drain_ready_frames(
             &mut lifecycle,
             &mut output,
             &event_tx,
             &playback,
+            &audio_gate,
             &mut cancelled,
         )?;
         lifecycle.tick(
@@ -103,15 +129,30 @@ fn drain_ready_frames(
     output: &mut LiveTranslateOutputState,
     event_tx: &mpsc::Sender<S2sEvent>,
     playback: &crate::api::tts::player::audio_player::AudioPlayer,
+    audio_gate: &DirectAudioGate<'_>,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<()> {
     loop {
+        let audio_visible =
+            crate::overlay::realtime_webview::state::TRANS_VISIBLE.load(Ordering::SeqCst);
         match lifecycle.poll(cancelled)? {
             AdapterPoll::Frame { frame, effects } => {
-                output.apply_frame_effects(&frame, effects, event_tx, playback)?;
+                let audio_gate = DirectAudioGate {
+                    visible: audio_gate.visible && audio_visible,
+                    ..*audio_gate
+                };
+                output.apply_frame_effects(&frame, effects, event_tx, playback, &audio_gate)?;
             }
             AdapterPoll::Idle | AdapterPoll::StateChanged => return Ok(()),
         }
+    }
+}
+
+struct DirectPlaybackOwner(Arc<dyn crate::api::tts::manager::RealtimeAudioSink>);
+
+impl Drop for DirectPlaybackOwner {
+    fn drop(&mut self) {
+        TTS_MANAGER.release_direct_realtime(&self.0);
     }
 }
 
@@ -143,28 +184,45 @@ fn live_translate_frame_is_active(frame: &[i16]) -> bool {
     calculate_rms(frame) >= MIN_SPEECH_THRESHOLD * SPEECH_THRESHOLD_MULTIPLIER
 }
 
-fn live_translate_should_stop(stop_signal: &Arc<AtomicBool>, session_id: u64) -> bool {
+fn live_translate_should_stop(
+    stop_signal: &Arc<AtomicBool>,
+    session_id: u64,
+    engine_revision: u64,
+) -> bool {
     stop_signal.load(Ordering::SeqCst)
         || is_stale_session(session_id)
+        || !crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
         || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
         || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
         || LANGUAGE_CHANGE.load(Ordering::SeqCst)
 }
 
-fn update_live_translate_volume(frame: &[i16], overlay_hwnd: HWND) {
+fn update_live_translate_volume(
+    frame: &[i16],
+    overlay_hwnd: HWND,
+    session_id: u64,
+    stop: &AtomicBool,
+    engine_revision: u64,
+) {
     let rms = calculate_rms(frame);
-    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
-    if overlay_hwnd.is_invalid() {
-        return;
-    }
-    unsafe {
-        let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-            Some(overlay_hwnd),
-            WM_VOLUME_UPDATE,
-            windows::Win32::Foundation::WPARAM(0),
-            windows::Win32::Foundation::LPARAM(0),
-        );
-    }
+    crate::overlay::realtime_webview::state::publish_if_engine_current(
+        session_id,
+        stop,
+        engine_revision,
+        || {
+            REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+            if !overlay_hwnd.is_invalid() {
+                unsafe {
+                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                        Some(overlay_hwnd),
+                        WM_VOLUME_UPDATE,
+                        windows::Win32::Foundation::WPARAM(0),
+                        windows::Win32::Foundation::LPARAM(0),
+                    );
+                }
+            }
+        },
+    );
 }
 
 #[cfg(test)]

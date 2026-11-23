@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import { ZoomBlock } from '@/types/video';
 import { type AdjustableLineDragVisualMode } from './adjustableLineUtils';
 import { Link2 } from '@/components/ui/MaterialIcon';
+import { useSettings } from '@/hooks/useSettings';
+import { timelineEdgeHandleKeyProps, timelineRangeKeyProps } from './timelineKeyboard';
+import type { TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 
 interface ZoomBlockLayerProps {
   blocks: ZoomBlock[];
@@ -15,9 +18,10 @@ interface ZoomBlockLayerProps {
   onKeyframeClick: (time: number, index: number) => void;
   onKeyframeDragStart: (index: number) => void;
   onHoverBlock: (index: number | null) => void;
-  startResizeBlock: (index: number, edge: 'start' | 'end', rect: DOMRect) => void;
-  startResizeTransition: (index: number, side: 'in' | 'out', rect: DOMRect) => void;
+  startResizeBlock: (index: number, edge: 'start' | 'end', trackElement: HTMLElement) => void;
+  startResizeTransition: (index: number, side: 'in' | 'out', trackElement: HTMLElement) => void;
   onToggleDirectTransition: (index: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
 }
 
 export function ZoomBlockLayer({
@@ -34,7 +38,9 @@ export function ZoomBlockLayer({
   startResizeBlock,
   startResizeTransition,
   onToggleDirectTransition,
+  keyboardEdits,
 }: ZoomBlockLayerProps) {
+  const { t } = useSettings();
   const orderedEnabledBlocks = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => block.enabled !== false)
@@ -67,8 +73,8 @@ export function ZoomBlockLayer({
               className={`zoom-direct-transition-toggle ui-icon-button absolute left-1/2 top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--timeline-zoom-color)] bg-[var(--surface)] text-[var(--timeline-zoom-color)] shadow-sm transition-opacity ${
                 linked ? "opacity-90" : "opacity-0 group-hover/zoom-link:opacity-100 focus-visible:opacity-100"
               }`}
-              title={linked ? "Use auto zoom between blocks" : "Transition directly to next zoom"}
-              aria-label={linked ? "Unlink manual zoom transition" : "Link manual zoom transition"}
+              title={linked ? t.zoomTransitionUseAuto : t.zoomTransitionDirect}
+              aria-label={linked ? t.zoomTransitionUnlink : t.zoomTransitionLink}
               aria-pressed={linked}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
@@ -110,6 +116,24 @@ export function ZoomBlockLayer({
         const badgeLabel = `${Math.round((block.zoomFactor - 1) * 100)}%`;
         const badgeFits = solidPx >= 30 + badgeLabel.length * 2;
         const showFloatBadge = !badgeFits && showHandles;
+        const blockName = `${t.trackZoom} ${index + 1}, ${badgeLabel}`;
+        const keys = timelineRangeKeyProps({
+          name: blockName,
+          startLabel: t.timelineSegmentStart,
+          endLabel: t.timelineSegmentEnd,
+          range: block,
+          duration,
+          nudge: keyboardEdits && ((edge, deltaSec) => keyboardEdits.nudgeZoomBlock(index, edge, deltaSec)),
+          onActivate: () => onKeyframeClick(solidCenterTime, index),
+          onDelete: keyboardEdits && (() => keyboardEdits.deleteZoomBlock(index)),
+        });
+        const easeKeys = (side: 'in' | 'out') => keyboardEdits && timelineEdgeHandleKeyProps({
+          label: `${blockName} ${side === 'in' ? t.zoomEaseIn : t.zoomEaseOut}`,
+          timeSec: side === 'in' ? block.startTime + easeIn : block.endTime - easeOut,
+          minSec: block.startTime,
+          maxSec: block.endTime,
+          onNudge: (deltaSec) => keyboardEdits.nudgeZoomEase(index, side, deltaSec),
+        });
 
         return (
           <div
@@ -129,6 +153,12 @@ export function ZoomBlockLayer({
               if (globalDragVisualMode === null) onHoverBlock(index);
             }}
             onMouseLeave={() => onHoverBlock(null)}
+            {...keys.body}
+            // Keyboard focus shows the ease handles the same way hovering does.
+            onFocus={() => onHoverBlock(index)}
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onHoverBlock(null);
+            }}
             onClick={(e) => {
               e.stopPropagation();
               onKeyframeClick(solidCenterTime, index);
@@ -174,18 +204,20 @@ export function ZoomBlockLayer({
 
             <div
               className="zoom-block-handle-left absolute inset-y-0 left-0 w-2 -ml-1 cursor-col-resize z-10"
+              {...keys.start}
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                startResizeBlock(index, 'start', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                startResizeBlock(index, 'start', e.currentTarget.parentElement!.parentElement!);
               }}
             />
             <div
               className="zoom-block-handle-right absolute inset-y-0 right-0 w-2 -mr-1 cursor-col-resize z-10"
+              {...keys.end}
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                startResizeBlock(index, 'end', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                startResizeBlock(index, 'end', e.currentTarget.parentElement!.parentElement!);
               }}
             />
 
@@ -194,11 +226,12 @@ export function ZoomBlockLayer({
                 <div
                   className="zoom-block-transition-in absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize z-20"
                   style={{ left: `${holdStart}%` }}
-                  title="Ease in"
+                  title={t.zoomEaseIn}
+                  {...easeKeys('in')}
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => {
                     e.stopPropagation();
-                    startResizeTransition(index, 'in', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                    startResizeTransition(index, 'in', e.currentTarget.parentElement!.parentElement!);
                   }}
                 >
                   <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/80" />
@@ -206,11 +239,12 @@ export function ZoomBlockLayer({
                 <div
                   className="zoom-block-transition-out absolute inset-y-0 w-3 -translate-x-1/2 cursor-ew-resize z-20"
                   style={{ left: `${holdEnd}%` }}
-                  title="Ease out"
+                  title={t.zoomEaseOut}
+                  {...easeKeys('out')}
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => {
                     e.stopPropagation();
-                    startResizeTransition(index, 'out', e.currentTarget.parentElement!.parentElement!.getBoundingClientRect());
+                    startResizeTransition(index, 'out', e.currentTarget.parentElement!.parentElement!);
                   }}
                 >
                   <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-white/80" />

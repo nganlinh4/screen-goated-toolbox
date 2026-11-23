@@ -1,4 +1,5 @@
 use super::config::{BakedCameraFrame, ParsedBakedCursorFrame};
+use super::cursor_path::normalize_angle;
 
 pub fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f64) {
     if baked_path.is_empty() {
@@ -66,18 +67,7 @@ pub fn sample_parsed_baked_cursor(
     Some((x, y, scale, type_id, opacity, rotation))
 }
 
-fn normalize_angle_rad(a: f64) -> f64 {
-    let mut angle = a;
-    while angle > std::f64::consts::PI {
-        angle -= std::f64::consts::PI * 2.0;
-    }
-    while angle < -std::f64::consts::PI {
-        angle += std::f64::consts::PI * 2.0;
-    }
-    angle
-}
-
 fn lerp_angle_rad(from: f64, to: f64, t: f64) -> f64 {
-    let delta = normalize_angle_rad(to - from);
-    normalize_angle_rad(from + delta * t)
+    let delta = normalize_angle(to - from);
+    normalize_angle(from + delta * t)
 }

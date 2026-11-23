@@ -21,12 +21,6 @@ pub(super) fn get() -> String {
             if (settings.translationModel) {
                 const tlSel = document.getElementById('translation-model-select');
                 if (tlSel) tlSel.value = settings.translationModel;
-                // Legacy icons
-                if (modelIcons.length) {
-                    modelIcons.forEach(icon => {
-                        icon.classList.toggle('active', icon.getAttribute('data-value') === settings.translationModel);
-                    });
-                }
             }
 
             // Update transcription model dropdown + language badge
@@ -38,15 +32,9 @@ pub(super) fn get() -> String {
                     isS2sTranscriptionModel(settings.transcriptionModel),
                     settings.transcriptionModel
                 );
-                // Legacy icons
-                if (transModelIcons && transModelIcons.length) {
-                    transModelIcons.forEach(icon => {
-                        icon.classList.toggle('active', icon.getAttribute('data-value') === settings.transcriptionModel);
-                    });
-                }
             }
 
-            if (settings.transcriptionLanguage && transLangSelect && settings.transcriptionModel === 'zipformer') {
+            if (settings.transcriptionLanguage && transLangSelect && window.REALTIME_L10N.sourceLanguageModelIds.includes(settings.transcriptionModel)) {
                 transLangSelect.value = settings.transcriptionLanguage.toLowerCase();
             }
 

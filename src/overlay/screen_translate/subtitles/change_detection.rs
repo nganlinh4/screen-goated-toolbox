@@ -59,12 +59,14 @@ impl TextWatch {
 pub(super) fn same_edges(
     reference: &RgbaImage,
     current: &RgbaImage,
-    bounds: super::super::contract::NormalizedBounds,
+    bounds: super::super::source_bounds::SourceBounds,
 ) -> bool {
-    if reference.dimensions() != current.dimensions() {
+    if reference.dimensions() != current.dimensions()
+        || bounds.image_size() != reference.dimensions()
+    {
         return false;
     }
-    let r = super::super::geometry::normalized_region(bounds, current.width(), current.height());
+    let r = bounds.pixels();
     (r.y..(r.y + r.height).min(current.height().saturating_sub(1))).all(|y| {
         (r.x..(r.x + r.width).min(current.width().saturating_sub(1)))
             .all(|x| edges(reference, x, y) == edges(current, x, y))
@@ -75,12 +77,14 @@ pub(super) fn same_edges(
 pub(super) fn cleared(
     reference: &RgbaImage,
     current: &RgbaImage,
-    bounds: super::super::contract::NormalizedBounds,
+    bounds: super::super::source_bounds::SourceBounds,
 ) -> bool {
-    if reference.dimensions() != current.dimensions() {
+    if reference.dimensions() != current.dimensions()
+        || bounds.image_size() != reference.dimensions()
+    {
         return false;
     }
-    let r = super::super::geometry::normalized_region(bounds, current.width(), current.height());
+    let r = bounds.pixels();
     let mut original = 0;
     let mut remaining = 0;
     for y in r.y..(r.y + r.height).min(current.height().saturating_sub(1)) {
@@ -120,6 +124,32 @@ fn edges(image: &RgbaImage, x: u32, y: u32) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clearing_detects_glyphs_between_the_pixel_edge_and_rounded_prompt_edge() {
+        use super::super::super::{geometry::PixelRegion, source_bounds::SourceBounds};
+        let blank = RgbaImage::from_pixel(7680, 80, image::Rgba([255; 4]));
+        let mut text = blank.clone();
+        for y in 32..47 {
+            text.put_pixel(1004, y, image::Rgba([0, 0, 0, 255]));
+        }
+        let bounds = SourceBounds::from_pixels(
+            PixelRegion {
+                x: 1003,
+                y: 30,
+                width: 98,
+                height: 20,
+            },
+            7680,
+            80,
+        )
+        .unwrap();
+        assert!(cleared(&text, &blank, bounds));
+        assert!(!same_edges(&text, &blank, bounds));
+        let quantized = SourceBounds::from_normalized(bounds.prompt(), 7680, 80).unwrap();
+        assert!(!cleared(&text, &blank, quantized));
+        assert!(same_edges(&text, &blank, quantized));
+    }
     #[test]
     fn background_motion_is_bounded_but_glyph_changes_are_immediate() {
         let now = Instant::now();
@@ -150,7 +180,13 @@ mod tests {
         for y in 3..16 {
             text.put_pixel(10, y, image::Rgba([240, 240, 240, 255]));
         }
-        let bounds = [0, 0, 1000, 1000].into();
+        let bounds =
+            crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [0, 0, 1000, 1000].into(),
+                30,
+                20,
+            )
+            .unwrap();
         assert!(cleared(&text, &blank, bounds));
         assert!(!cleared(&text, &text, bounds));
         assert!(!same_edges(&text, &blank, bounds));
@@ -165,7 +201,25 @@ mod tests {
     fn uniform_brightness_changes_do_not_change_glyph_edges() {
         let first = RgbaImage::from_pixel(30, 20, image::Rgba([30, 30, 30, 255]));
         let second = RgbaImage::from_pixel(30, 20, image::Rgba([80, 80, 80, 255]));
-        assert!(same_edges(&first, &second, [0, 0, 1000, 1000].into()));
-        assert!(!cleared(&first, &second, [0, 0, 1000, 1000].into()));
+        assert!(same_edges(
+            &first,
+            &second,
+            crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [0, 0, 1000, 1000].into(),
+                30,
+                20
+            )
+            .unwrap()
+        ));
+        assert!(!cleared(
+            &first,
+            &second,
+            crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [0, 0, 1000, 1000].into(),
+                30,
+                20
+            )
+            .unwrap()
+        ));
     }
 }

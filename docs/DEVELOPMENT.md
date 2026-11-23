@@ -11,11 +11,20 @@ Required on Windows:
 - Node.js + npm for embedded frontends.
 - Microsoft Edge WebView2 Runtime.
 
-Fresh clones must build embedded frontends before Rust because packaged `dist/` assets are not tracked:
+Fresh clones must build frontends before Rust. The PromptDJ, Translation Gummy and
+Screen Record `dist/` outputs are not tracked. Three `dist/` trees are tracked
+(`.gitignore` re-includes them) and have separate delivery owners: Image to SVG is
+embedded in the host, TTS Playground is packaged by `scripts/package_web_assets.py`,
+and 3D Generator is packaged into the creation component by
+`scripts/package_creation_windows.py`. `run-dev.ps1` rebuilds all six and fails
+when a build does not refresh its `dist/`:
 
 ```powershell
 .\run-dev.ps1
 ```
+
+Tray and window PNGs under `assets/` are source inputs. Cargo reads these checked-in
+images without rewriting them;generated Windows icon resources belong in `OUT_DIR`.
 
 Useful options:
 
@@ -36,13 +45,30 @@ task; CI retains its independent clean-install checks.
 repository `target/` tree. Logs use the same external cache under
 `evidence/dev-run-logs`. The separate package-build lane is `cargo/package`, so
 routine host iteration does not invalidate expensive worker/package artifacts.
-The cache is capped at 28 GiB by default and prunes inactive evidence,
-candidate packages, legacy development lanes, and unprotected Cargo lanes. A
-protected Cargo lane may shed unused incremental compiler state when no rustc
-process is using it, while its current executable and other artifacts remain.
-The pruner never deletes a repository, source checkout, user output, staging
-contract, runtime installation, promotion record, or artifact used by the
-current command.
+
+Build output lives outside the checkout on purpose: the checkout holds only
+source, package-job worktrees reuse the one package lane instead of each
+growing a `target/` of their own, and everything generated sits in one bounded,
+disposable root. Nothing in
+the cache is ever a delivery source; deleting all of it costs only rebuild time.
+Machine-local state that is not a cache stays beside it, not inside it:
+`sgtp.json` (the phone endpoint) and `manual-tests/` (screen-translate lab
+inputs).
+
+Every `run-dev.ps1` launch prunes the cache with the dev lane protected:
+
+- Always: linked executables superseded by two newer ones of the same crate
+  (with their program databases), and codegen objects an interrupted build left
+  behind for over a day.
+- After 14 inactive days: evidence, candidate packages, legacy lanes and
+  unprotected Cargo lanes, and each isolated runtime state root under
+  `runtime/` (the `SGT_RUNTIME_STATE_ROOT` of a test run).
+- Above 28 GiB, oldest first: the same entries except runtime state roots, then
+  incremental compiler state, so the next build of that crate starts cold.
+
+The pruner keeps anything a running process names or holds open, and never
+touches a source checkout, user output, staging contract, promotion record, or
+an installed app's runtime components.
 
 ```powershell
 .\scripts\dev-cache.ps1 -Action Status
@@ -74,6 +100,82 @@ marker string or matching Cargo dependency line is not sufficient.
 separate checkout; the app never loads that local executable. Normal debug and
 release behavior uses only an exact external delivery contract.
 
+## Restart handoff
+
+Application restart and update handoff uses a direct native executable path.
+The replacement consumes the existing parent identity before crash-monitor or
+singleton startup and waits for that exact process to exit. Future update builds
+must retain this startup contract. Ordinary restart retains only `--restarted`;
+update and WebView recovery do not replay file activations or diagnostic flags.
+Update launch holds the verified canonical file and directory guards through
+process creation. A failed spawn leaves exit preparation available for retry;
+successful process creation still requires normal startup acceptance.
+
+## Windows startup registration
+
+Ordinary startup owns the application's exact current-user Run value and its
+StartupApproved value. It does not change machine-wide startup entries. Known
+failed provider switches restore the prior raw values and refuse to overwrite
+observed concurrent changes. A failed registration RPC remains uncertain even
+after an instantaneous read-back; that operation keeps ordinary startup suspended.
+There is no cross-service transaction or inferred server-quiescence guarantee.
+New commands quote the native executable path.
+Ordinary startup accepts absolute UNC paths without probing remote files.
+Known legacy UNC task targets can be retired by identity; elevated execution
+continues to require a verified fixed local volume. Automatic ownership takeover
+requires confirmed absence through a guarded local path; remote, reparse and
+inaccessible references are preserved for explicit user selection.
+New Run commands and task paths use a conservative limit of 260 UTF-16 units (excluding
+the Run value's terminating NUL), validated before mutation. Legacy raw values
+remain available for exact retirement and rollback; oversized Run entries are
+not reported as enabled.
+
+Elevated startup requires a fixed local volume with persistent ACLs, trusted
+file/directory ownership and protection against unprivileged replacement. The
+executable and ancestor guards remain held through registration and read-back.
+Reparse paths, ambiguous aliases and unsupported security descriptors are refused.
+Task permissions must preserve administrator control and give the user only
+read/execute access. A writable portable location cannot be used for elevated
+startup; install the application with administrator-protected permissions first.
+
+Native task inspection checks the exact action, arguments, logon trigger and
+current-user principal. Identified unsafe legacy registrations are disabled;
+unknown registrations and access failures are kept distinct from missing tasks.
+Stored startup paths authorize legacy retirement only, never elevated execution.
+Startup preferences advance only after the selected provider transition verifies.
+Isolated development state never changes system startup registration.
+
+Settings initialization, settings changes and the startup-disable step of App settings
+reset use a serialized background worker. Startup controls retain confirmed
+preferences while an operation is pending. Rendering polls owned completions;
+only matching startup preferences can accept a result, and unrelated edits are
+preserved through the normal configuration merge. Failed or uncertain changes
+do not commit the requested mode. Reset continues only after verified disable.
+A process-wide permit defers quit/restart through native work and completion
+persistence; hiding the settings window does not cancel an operation. Native RPC
+calls are not assumed cancelled or quiescent after a timeout or uncertain result.
+
+The explicit `--sgt-autostart` launch retains the 20-second stabilization delay.
+Legacy inference applies only to launches without arguments while uptime is below
+180 seconds. Unknown or later uptime skips registration inspection; unrelated
+arguments skip both inference and the delay. `cargo test startup_launch::tests`
+checks these boundaries with an injected registration predicate.
+
+`cargo test admin_startup` exercises injected scheduler/registry implementations,
+native security descriptors and owned filesystem fixtures. It does not connect to
+Task Scheduler or change the user's startup registry values. Actual logon and
+elevated-startup acceptance remains a separate application acceptance step.
+
+## Download Manager initialization
+
+Browser discovery starts on the first visible Download Manager render, in one
+read-only background worker. Rendering polls its completion without waiting;
+closing and reopening the window reuses the same scan. Discovery updates only the
+available cookie-browser choices, preserving the configured selection. Results
+are cached for that manager instance; failures are logged once without retrying
+on every frame. `cargo test browser_discovery::tests` exercises deferred execution,
+pending/completed reuse, failure and owner destruction with injected detectors.
+
 ## Optional-component candidate loop
 
 Production components are immutable, but development candidates do not belong
@@ -92,7 +194,7 @@ the frontend, `run-dev.ps1` compares every packaged web file with the local
 staging contract and rebuilds/stages Creation only when the bytes differ.
 
 Supported wrapper names are `creation`, `web-assets`, `recorder`, `computer-control`,
-`local-asr`, `vc-runtime`, `qwen-runtime`, and `external-tools`. `-Select <id>`
+`local-asr` (the ONNX/DirectML runtime), `vc-runtime`, and `external-tools`. `-Select <id>`
 may update one component in a multi-component contract; repeat it when several
 components changed. Android native runtimes and model packages use their
 subsystem packager, then call `scripts/component_release.py stage` with the
@@ -110,6 +212,19 @@ checkout or fall back to a local worker.
 `build.ps1` rejects staging environment variables before doing work, and the
 Rust build script independently rejects staging for any non-debug profile.
 Close the staging debug app before pruning its runtime cache.
+
+When `SGT_RUNTIME_STATE_ROOT` is set to an absolute path, the main configuration
+is read and saved under that root. A new root starts with default configuration;
+it does not import the user's existing settings or API keys. Provider credentials
+in inherited environment variables are ignored; configure synthetic or test
+credentials explicitly in the isolated settings when needed. At process entry,
+credential-named inherited variables are removed before child processes start;
+environment variables with unrelated names are not inspected for secret values.
+Isolated startup
+does not preconnect the speech service, even when credentials are configured;
+an explicit speech request initiates that connection. The recorder worker
+inherits the same root and reads that isolated configuration. User-selected
+exports and storage managed by external tools remain outside this boundary.
 
 ## Rust validation
 
@@ -130,6 +245,73 @@ cargo fmt -- --check
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
+
+The root package does not include native worker/protocol packages. Run their
+[shared checkpoint](../native/README.md) with `python -m scripts.check_native`.
+
+## Automated development checks
+
+The [Development workflow](../.github/workflows/development.yml) runs root Windows
+Rust and native-package checks, JavaScript unit and browser contracts, Python tooling tests, mini-app
+tests/builds and both Android JVM flavors. Its `Development gate` succeeds only
+when every selected job succeeds. The scope job can skip checks for changes only
+to the root README/agent guidance or this document and the release guide; it still
+reports the gate. Repository branch protection should require `Development gate`.
+These jobs do not publish components or run release wrappers.
+
+Install the locked recorder dependencies for shared DOM/browser test fixtures:
+
+```powershell
+npm --prefix screen-record ci
+node scripts/test-javascript.mjs --suite unit
+node scripts/test-javascript.mjs --list
+```
+
+The runner uses Node's [test CLI](https://nodejs.org/docs/latest-v24.x/api/test.html)
+and discovers `*.test.js`, `*.test.cjs`, `*.test.mjs` and corresponding
+TypeScript files below `src/`, `scripts/tests/` and `tests/`. Browser-backed suites
+must use `*.browser.test.*`; the unit profile runs Node/VM/JSDOM fixtures without
+launching Chromium. The default profile runs both kinds. To run browser contracts:
+
+```powershell
+Push-Location screen-record
+npx playwright install chromium
+Pop-Location
+node scripts/test-javascript.mjs --suite browser
+```
+
+These isolated browser fixtures supplement the native WebView2 acceptance checks
+below. They do not exercise the user's applications or browser profile.
+
+Run all Python tooling tests from the repository root:
+
+```powershell
+python -m pip install -r scripts/test-requirements.txt
+python -m unittest discover -s scripts/tests
+```
+
+Mini-app unit scripts stay in their owning `package.json`; CI reports explicitly
+when a package has no unit script and still runs its typecheck/build. Interactive
+desktop/provider Rust tests remain explicit opt-ins through `#[ignore]`, rather
+than silently succeeding when their external prerequisite is absent.
+
+The [Rust Advisories workflow](../.github/workflows/rust-advisories.yml) scans
+the host and every repository-owned native lockfile on dependency changes and
+weekly against the [RustSec database](https://rustsec.org/). To run it locally,
+install the pinned [cargo-audit](https://github.com/rustsec/rustsec/tree/main/cargo-audit)
+version and use:
+
+```powershell
+cargo install cargo-audit --version 0.22.2 --locked
+python -m scripts.check_rust_advisories --list
+python -m scripts.check_rust_advisories
+```
+
+The scanner fetches the database once and checks every lockfile against that
+snapshot. Vulnerabilities and incomplete/error results fail the check; known
+vulnerabilities are not suppressed. Yanked-version queries are disabled to keep
+this check focused on RustSec advisories. An optional `--report <file.json>`
+retains the full per-lockfile reports, including informational warnings.
 
 ## User diagnostic log
 
@@ -163,9 +345,9 @@ days. For routine support, request `session.log`.
 Process diagnostics live under `%LOCALAPPDATA%\SGT\crashes`. Each session has
 an executable SHA-256 and load address, version, architecture, profile, process
 role, PID, and creation time in `identity.json`. Rust panic summaries and forced stack traces
-are written synchronously before any dialog; the first origin is preserved and
-the other three report slots rotate. Renderer children use the same reporting
-without modal dialogs or diagnostic output on their protocol stdout.
+are written synchronously; the first origin is preserved and the other three
+report slots rotate. Panic reporting does not show a modal dialog. Renderer
+children use the same reporting without diagnostic output on their protocol stdout.
 
 A separate diagnostic observer captures native exception minidumps and records
 the actual Windows exit status in `exit.txt`. `exit-intent.txt` identifies a
@@ -196,6 +378,16 @@ transcription/paste updates require `SGT_VERBOSE_LOGS=1` at launch. This switch
 also restores detailed successful vision-call metrics and five-second capture
 health summaries. It does not enable transcript contents. Unit tests do not
 append to the user's session log or Computer Control JSONL logs.
+
+Computer Control's `SGT/logs/cc-events.jsonl` is a rolling global diagnostic log
+limited to 16 MiB. Compaction retains recent complete JSON records and adds a
+`telemetry_compacted` omission marker; it can lose global diagnostic records if
+the process crashes during compaction. Content marked sensitive remains only
+in the per-session `events.jsonl`, which is never rewritten: it keeps its first
+64 MiB and then records one `telemetry_session_capped` marker and omits later
+records.
+Both paths honor `SGT_RUNTIME_STATE_ROOT`. Factory reset closes telemetry handles
+while cleaning up, and subsequent events can open fresh logs.
 
 Microphone capture automatically writes `[AudioCapture]` records in development
 and release builds. Each stream has an ID and opening/configured/playing/released
@@ -435,7 +627,8 @@ other user-created output.
 
 ## Android
 
-Android uses JDK 17 and Android SDK platform/build tools configured by Gradle. Windows PowerShell is the reliable path on this workstation:
+Android toolchain prerequisites are owned by [`mobile/README.md`](../mobile/README.md).
+Windows PowerShell is the canonical development path:
 
 ```powershell
 cd mobile

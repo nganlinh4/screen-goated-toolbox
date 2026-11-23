@@ -41,13 +41,30 @@ pub fn init_tts() {
     }
 
     // Pre-connect Gemini TTS WebSocket for instant first use
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(2)); // let app settle first
-        if let Ok(app) = crate::APP.lock() {
-            let key = app.config.gemini_api_key.clone();
-            if !key.trim().is_empty() {
-                worker::start_warm_up_public(key);
+    if automatic_warmup_enabled(crate::paths::runtime_state_root().is_some()) {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(2)); // let app settle first
+            if let Ok(app) = crate::APP.lock() {
+                let key = app.config.gemini_api_key.clone();
+                if !key.trim().is_empty() {
+                    worker::start_warm_up_public(key);
+                }
             }
-        }
-    });
+        });
+    }
+}
+
+fn automatic_warmup_enabled(isolated: bool) -> bool {
+    !isolated
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::automatic_warmup_enabled;
+
+    #[test]
+    fn isolated_startup_does_not_preconnect_speech() {
+        assert!(!automatic_warmup_enabled(true));
+        assert!(automatic_warmup_enabled(false));
+    }
 }

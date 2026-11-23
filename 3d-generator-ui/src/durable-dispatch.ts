@@ -12,13 +12,18 @@ export function claimNextSubmission(items: QueueItem[]): QueueItem | undefined {
   return item;
 }
 
+/**
+ * Dispatches every claimable submission. The list is re-read on each claim
+ * because history refreshes replace it; a captured array would never see
+ * submissions made after such a replacement, leaving them queued forever.
+ */
 export async function dispatchAllSubmissions(
-  items: QueueItem[],
+  items: () => QueueItem[],
   dispatch: (item: QueueItem) => Promise<void>,
   shouldStop: () => boolean = () => false,
 ): Promise<void> {
   while (!shouldStop()) {
-    const item = claimNextSubmission(items);
+    const item = claimNextSubmission(items());
     if (!item) return;
     await dispatch(item);
   }

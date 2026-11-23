@@ -1,14 +1,20 @@
 //! Physical-pixel placement within the usable area of a Windows monitor.
 
+#[cfg(not(feature = "recorder-worker"))]
+use windows::Win32::Foundation::LPARAM;
 use windows::Win32::Foundation::{HWND, POINT, RECT};
+#[cfg(not(feature = "recorder-worker"))]
+use windows::Win32::Graphics::Gdi::MonitorFromRect;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITOR_FROM_FLAGS,
-    MONITORINFO, MonitorFromPoint, MonitorFromRect, MonitorFromWindow,
+    MONITORINFO, MonitorFromPoint, MonitorFromWindow,
 };
 #[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 #[cfg(not(feature = "recorder-worker"))]
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetCursorPos, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+};
 use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +58,15 @@ impl WorkArea {
             right: left + width,
             bottom: top + height,
         }
+    }
+
+    /// Physical size of a window authored in CSS pixels at `scale`, kept inside
+    /// this work area. Stays in `f64` so 125% and 150% are not truncated.
+    #[cfg(not(feature = "recorder-worker"))]
+    pub fn physical_size(self, css_width: f64, css_height: f64, scale: f64) -> (i32, i32) {
+        let width = (css_width * scale).round() as i32;
+        let height = (css_height * scale).round() as i32;
+        (width.clamp(1, self.width), height.clamp(1, self.height))
     }
 
     #[cfg(not(feature = "recorder-worker"))]
@@ -107,6 +122,28 @@ pub(crate) fn cursor_work_area() -> (POINT, WorkArea) {
     }
     let area = monitor_work_area(point, MONITOR_DEFAULTTONEAREST);
     (point, area)
+}
+
+/// Applies the rectangle Windows suggests in `WM_DPICHANGED`, kept inside the
+/// destination work area, so a window keeps its CSS size across monitors.
+///
+/// # Safety
+/// `lparam` must be the `WM_DPICHANGED` parameter, which points at a `RECT`.
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) unsafe fn apply_suggested_dpi_rect(hwnd: HWND, lparam: LPARAM) {
+    let suggested = unsafe { *(lparam.0 as *const RECT) };
+    let rect = fit_rect_to_work_area(suggested);
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
 
 pub(crate) fn window_work_area(hwnd: HWND) -> WorkArea {
@@ -207,6 +244,19 @@ mod tests {
                 bottom: 636
             }
         );
+    }
+
+    #[test]
+    fn css_sizes_scale_with_the_target_monitor_without_truncation() {
+        let area = WorkArea {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2100,
+        };
+        assert_eq!(area.physical_size(560.0, 253.0, 2.0), (1120, 506));
+        assert_eq!(area.physical_size(560.0, 253.0, 1.25), (700, 316));
+        assert_eq!(area.physical_size(5000.0, 253.0, 1.5), (3840, 380));
     }
 
     #[test]

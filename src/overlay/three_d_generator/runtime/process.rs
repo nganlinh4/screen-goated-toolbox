@@ -6,7 +6,9 @@ use super::{Continuation, JobStatus, RuntimeOperation, STATE};
 
 fn normalize_progress_stage(value: &str) -> &'static str {
     match value {
-        "queued" => "queued",
+        // The host owns its dispatch queue. Once dispatched, runtime-side
+        // queueing remains a busy preparation stage.
+        "queued" => "preparing",
         "preparing" => "preparing",
         "waiting_for_user" => "waiting_for_user",
         "generating" => "generating",
@@ -78,6 +80,17 @@ fn apply_progress(current: &mut JobStatus, value: &Value, runtime_status: &str) 
     current.runtime_status = runtime_status.to_string();
 }
 
+/// A continuation that will not be published releases its source retention,
+/// which recovery took on the job's behalf before delivery settled.
+pub(super) fn release_unpublished(job_id: &str, continuation: Option<Continuation>) {
+    if let Some(continuation) = continuation {
+        let _ = crate::overlay::creation_source_snapshot::release_continuation(
+            std::slice::from_ref(&continuation.source_descriptor),
+            job_id,
+        );
+    }
+}
+
 pub(super) fn finish_job(job_id: &str, status: JobStatus, continuation: Option<Continuation>) {
     finish_job_with_intent(job_id, status, continuation, true);
 }
@@ -101,6 +114,8 @@ pub(super) fn finish_job_pending(
             .get(job_id)
             .is_none_or(|item| super::status_is_non_publishable(&item.stage))
         {
+            drop(state);
+            release_unpublished(job_id, continuation);
             return;
         }
         let mut pending = completed.clone();
@@ -110,6 +125,8 @@ pub(super) fn finish_job_pending(
         pending.progress_ratio = pending.progress_ratio.map(|ratio| ratio.min(0.99));
         pending.output_path = None;
         pending.output_name = None;
+        pending.download_path = None;
+        pending.download_name = None;
         pending.can_segment = false;
         pending.can_refine = false;
         pending.supported_actions.clear();
@@ -131,15 +148,26 @@ fn finish_job_with_intent(
     clear_terminal: bool,
 ) {
     let terminal = matches!(status.stage.as_str(), "done" | "failed" | "cancelled");
+    let mut unpublished = None;
     if let Ok(mut state) = STATE.lock() {
         if state.jobs.get(job_id).is_none_or(|item| {
             item.stage == "cancelled" || (item.stage == "cancelling" && status.stage != "done")
         }) {
+            drop(state);
+            release_unpublished(job_id, continuation);
             return;
         }
         state.jobs.insert(job_id.to_string(), status);
-        if let Some(continuation) = continuation {
-            state.continuations.insert(job_id.to_string(), continuation);
+        let displaced = state
+            .pending_completions
+            .remove(job_id)
+            .and_then(|(_, pending)| pending);
+        // Both share the job's retention, so only an unreplaced one is released.
+        match continuation {
+            Some(continuation) => {
+                state.continuations.insert(job_id.to_string(), continuation);
+            }
+            None => unpublished = displaced,
         }
         state.pids.remove(job_id);
         state.operations.remove(job_id);
@@ -148,6 +176,7 @@ fn finish_job_with_intent(
         state.recovered_jobs.remove(job_id);
         state.prune_terminal_jobs();
     }
+    release_unpublished(job_id, unpublished);
     if terminal && clear_terminal {
         crate::overlay::creation_intent_journal::clear("3d", job_id);
     }
@@ -195,6 +224,7 @@ mod tests {
     #[test]
     fn inbound_runtime_state_is_reduced_to_the_public_contract() {
         assert_eq!(normalize_progress_stage("generating"), "generating");
+        assert_eq!(normalize_progress_stage("queued"), "preparing");
         assert_eq!(
             normalize_progress_stage("waiting_for_user"),
             "waiting_for_user"
@@ -272,5 +302,14 @@ mod tests {
         assert_eq!(status.output_name, None);
         assert!(!status.is_segmented);
         assert!(!status.can_segment);
+    }
+
+    #[test]
+    fn runtime_queue_progress_cannot_requeue_a_dispatched_job() {
+        let mut status = super::super::idle_status();
+        status.stage = "generating".to_string();
+        apply_progress(&mut status, &json!({"stage": "queued"}), "installed");
+        assert_eq!(status.stage, "preparing");
+        assert!(super::super::status_is_busy(&status.stage));
     }
 }

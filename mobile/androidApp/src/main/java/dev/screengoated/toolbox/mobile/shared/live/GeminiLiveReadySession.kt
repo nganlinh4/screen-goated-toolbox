@@ -87,6 +87,7 @@ internal interface GeminiLiveConnectedSession : Closeable {
     suspend fun activate(
         setupPayload: String,
         timeoutMs: Long = 15_000L,
+        dispatchSetup: ((() -> Boolean) -> Boolean)? = null,
     ): GeminiLiveReadySession
 
     override fun close()
@@ -97,6 +98,7 @@ internal interface GeminiLiveConnectedSession : Closeable {
  *
  * Reconnect, turn completion, interruption, and retry policy deliberately remain with the
  * feature adapter. This type owns only transport state and terminal cleanup.
+ * Only one receive may be in flight; overlapping receives are rejected.
  */
 internal interface GeminiLiveReadySession : Closeable {
     val phase: GeminiLiveSessionPhase
@@ -175,13 +177,14 @@ private class DefaultGeminiLiveConnectedSession(
     override suspend fun activate(
         setupPayload: String,
         timeoutMs: Long,
+        dispatchSetup: ((() -> Boolean) -> Boolean)?,
     ): GeminiLiveReadySession {
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
         check(activationStarted.compareAndSet(false, true)) {
             "Gemini Live connected session was already activated"
         }
         try {
-            if (!core.sendSetup(setupPayload)) {
+            if (!(dispatchSetup?.invoke { core.sendSetup(setupPayload) } ?: core.sendSetup(setupPayload))) {
                 throw GeminiLiveSessionException(
                     core.failureBeforeReady() ?: GeminiLiveSessionFailure.SetupSendRejected,
                 )
@@ -285,6 +288,7 @@ private class DefaultGeminiLiveReadySession(
     pendingResults: List<GeminiLiveReceiveResult>,
 ) : GeminiLiveReadySession {
     private val pendingResults = ArrayDeque(pendingResults)
+    private val receiving = AtomicBoolean(false)
 
     override val phase: GeminiLiveSessionPhase
         get() = core.phase
@@ -292,23 +296,36 @@ private class DefaultGeminiLiveReadySession(
     override fun trySend(payload: String): Boolean = core.sendActive(payload)
 
     override suspend fun receive(timeoutMs: Long?): GeminiLiveReceiveResult {
-        require(timeoutMs == null || timeoutMs >= 0L) { "timeoutMs must be non-negative" }
-        pendingResults.pollFirst()?.let { return it }
+        check(receiving.compareAndSet(false, true)) { "Gemini Live receive already in progress" }
         return try {
-            val event = if (timeoutMs == null) {
-                core.receiveEvent()
-            } else {
-                val received = withTimeoutOrNull(timeoutMs) {
-                    TimedCoreEvent(core.receiveEvent())
-                } ?: return GeminiLiveReceiveResult.TimedOut
-                received.event
+            receiveOnce(timeoutMs)
+        } finally {
+            receiving.set(false)
+        }
+    }
+
+    private suspend fun receiveOnce(timeoutMs: Long?): GeminiLiveReceiveResult {
+        require(timeoutMs == null || timeoutMs >= 0L) { "timeoutMs must be non-negative" }
+        val (overflow, pending) = core.pollPending { pendingResults.pollFirst() }
+        overflow?.let { failure ->
+            pendingResults.clear()
+            return GeminiLiveReceiveResult.Failed(failure)
+        }
+        pending?.let { return it }
+        return try {
+            var event = core.pollEvent()
+            if (event == null) {
+                val available = if (timeoutMs == null) core.awaitEvent() else withTimeoutOrNull(timeoutMs) { core.awaitEvent() }
+                // The wakeup may lose a timeout race; the payload remains in the deque.
+                event = core.pollEvent()
+                if (event == null && available == null) return GeminiLiveReceiveResult.TimedOut
             }
             when (event) {
                 is GeminiLiveCoreEvent.Frame -> GeminiLiveReceiveResult.Frame(event.frame, event.wireFormat)
                 is GeminiLiveCoreEvent.Unparsed -> GeminiLiveReceiveResult.Unparsed(event.payload, event.wireFormat)
                 is GeminiLiveCoreEvent.Closed -> GeminiLiveReceiveResult.Closed(event.code, event.reason)
                 is GeminiLiveCoreEvent.Failed -> GeminiLiveReceiveResult.Failed(event.failure)
-                GeminiLiveCoreEvent.Opened -> receive(timeoutMs)
+                GeminiLiveCoreEvent.Opened -> receiveOnce(timeoutMs)
                 null -> core.terminalReceiveResult()
             }
         } catch (cancelled: CancellationException) {
@@ -328,10 +345,6 @@ private fun GeminiLiveCoreEvent.toObservationResult(): GeminiLiveReceiveResult? 
     is GeminiLiveCoreEvent.Failed,
     -> null
 }
-
-private data class TimedCoreEvent(
-    val event: GeminiLiveCoreEvent?,
-)
 
 private fun GeminiLiveSessionFailure.describe(): String = when (this) {
     GeminiLiveSessionFailure.OpenTimedOut -> "Gemini Live websocket open timed out."

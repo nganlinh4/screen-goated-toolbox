@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {"generationLevel":"simple", "refinementKind":"add_materials", "requestedLevel":null},
+    {"generationLevel":"balanced", "refinementKind":"add_materials", "requestedLevel":null},
+    {"generationLevel":"detailed", "refinementKind":"add_materials", "requestedLevel":null},
+    {"generationLevel":"simple", "refinementKind":"separate_parts", "requestedLevel":"detailed"},
+    {"generationLevel":"balanced", "refinementKind":"separate_parts", "requestedLevel":"simple"}
+  ],
+  "legacyDefault":"detailed",
+  "invalidLevels":[null, "unsupported", 7]
+}

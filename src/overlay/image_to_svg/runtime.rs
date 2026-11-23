@@ -51,7 +51,7 @@ pub(super) struct StartJobRequest {
     dispatch_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct JobStatus {
     pub job_id: String,
@@ -131,13 +131,16 @@ impl RuntimeState {
 }
 
 static STATE: LazyLock<Mutex<RuntimeState>> = LazyLock::new(|| Mutex::new(RuntimeState::default()));
+static ADMISSION: crate::overlay::creation_lifecycle::AdmissionGate =
+    crate::overlay::creation_lifecycle::AdmissionGate::new();
 
 fn is_busy(stage: &str) -> bool {
     matches!(stage, "preparing" | "generating" | "finalizing")
 }
 
 fn runtime_command() -> Option<Command> {
-    crate::overlay::creation_runtime::shared_runtime_path().map(Command::new)
+    crate::overlay::creation_runtime::shared_runtime_path()
+        .and_then(|path| crate::overlay::creation_runtime::configured_command(path).ok())
 }
 
 pub(super) fn default_output_dir() -> Result<PathBuf, String> {
@@ -172,6 +175,7 @@ fn normalize_background_mode(value: &str) -> String {
 pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, String> {
     crate::overlay::creation_close::ensure_accepting("svg")?;
     ensure_recovery_started();
+    let _admission = ADMISSION.acquire();
     if request.image_path.trim().is_empty() {
         return Err("Pick an image first.".to_string());
     }
@@ -208,6 +212,7 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
         "svg",
     )?;
     crate::overlay::creation_output::require_unoccupied(&final_output_dir, &request.output_name)?;
+    let lifecycle = crate::overlay::creation_lifecycle::acquire()?;
     let staging = crate::overlay::creation_output::prepare_staging(
         &request.dispatch_id,
         &request.output_name,
@@ -215,13 +220,6 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
     request.output_dir = Some(staging.directory().to_string_lossy().to_string());
     request.final_output_dir = Some(final_output_dir.to_string_lossy().to_string());
 
-    let mut state = STATE
-        .lock()
-        .map_err(|_| "Vector job state is unavailable".to_string())?;
-    crate::overlay::creation_close::ensure_accepting("svg")?;
-    if state.pending_count() >= MAX_QUEUED_JOBS {
-        return Err("The vector queue is full.".to_string());
-    }
     let job_id = next_job_id()?;
     let status = JobStatus {
         job_id: job_id.clone(),
@@ -240,48 +238,96 @@ pub(super) fn start_job(mut request: StartJobRequest) -> Result<JobStatus, Strin
         background_mode: request.background_mode.clone(),
         error: None,
     };
-    let recorded = crate::overlay::generation_history::admit_and_record(
-        "svg",
-        &final_output_dir,
-        source_bytes,
-        1,
-        || {
-            let snapshot = crate::overlay::creation_source_snapshot::prepare(
+    crate::overlay::creation_lifecycle::register_admission(
+        &STATE,
+        |state| {
+            crate::overlay::creation_close::ensure_accepting("svg")?;
+            if state.pending_count() >= MAX_QUEUED_JOBS {
+                return Err("The vector queue is full.".to_string());
+            }
+            Ok(state
+                .jobs
+                .iter()
+                .filter(|(_, job)| job.stage == "queued" || is_busy(&job.stage))
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>())
+        },
+        |known| {
+            if crate::overlay::creation_lifecycle::count_pending("svg", known)? >= MAX_QUEUED_JOBS {
+                return Err("The vector queue is full.".to_string());
+            }
+            let mut publication_uncertain = false;
+            let admission = crate::overlay::generation_history::admit_and_record(
                 "svg",
-                &request.dispatch_id,
-                &[inspected],
-            )?;
-            request.image_path = snapshot.paths()[0].clone();
-            request.source_descriptors = snapshot.descriptors().to_vec();
-            let frozen = serde_json::to_value(&request)
-                .map_err(|_| "Vector request could not be saved.".to_string())?;
-            let recorded = crate::overlay::creation_intent_journal::record(
-                "svg",
-                &job_id,
-                &request.dispatch_id,
-                frozen,
-            )?;
-            snapshot.persist();
-            Ok(recorded)
+                &final_output_dir,
+                source_bytes,
+                1,
+                || {
+                    let snapshot = crate::overlay::creation_source_snapshot::prepare(
+                        "svg",
+                        &request.dispatch_id,
+                        &[inspected],
+                    )?;
+                    request.image_path = snapshot.paths()[0].clone();
+                    request.source_descriptors = snapshot.descriptors().to_vec();
+                    let frozen = serde_json::to_value(&request)
+                        .map_err(|_| "Vector request could not be saved.".to_string())?;
+                    let recorded = match crate::overlay::creation_intent_journal::record(
+                        "svg",
+                        &job_id,
+                        &request.dispatch_id,
+                        frozen,
+                    ) {
+                        Ok(recorded) => recorded,
+                        Err(error) => {
+                            if error.is_uncertain() {
+                                publication_uncertain = true;
+                                snapshot.persist();
+                            }
+                            return Err(error.to_string());
+                        }
+                    };
+                    snapshot.persist();
+                    Ok(recorded)
+                },
+            );
+            let recorded = match admission {
+                Ok(recorded) => recorded,
+                Err(error) => {
+                    if publication_uncertain {
+                        staging.persist();
+                    }
+                    return Err(error);
+                }
+            };
+            let staging_dir = staging.persist();
+
+            Ok((request, recorded, staging_dir))
+        },
+        |state, (request, recorded, staging_dir)| {
+            state.order.push(job_id.clone());
+            state.jobs.insert(job_id.clone(), status.clone());
+            state
+                .requests
+                .insert(job_id.clone(), (request, staging_dir));
+            state
+                .request_fingerprints
+                .insert(job_id.clone(), recorded.arguments_fingerprint);
+            state
+                .deadlines
+                .insert(job_id.clone(), recorded.deadline_at_ms);
         },
     )?;
-    let staging_dir = staging.persist();
-    state.order.push(job_id.clone());
-    state.jobs.insert(job_id.clone(), status.clone());
-    state
-        .requests
-        .insert(job_id.clone(), (request, staging_dir));
-    state
-        .request_fingerprints
-        .insert(job_id.clone(), recorded.arguments_fingerprint);
-    state
-        .deadlines
-        .insert(job_id.clone(), recorded.deadline_at_ms);
-    let active_demand = state.pending_count();
-    drop(state);
+    drop(lifecycle);
 
-    crate::overlay::creation_runtime::maintain_readiness_for_demand("svg", active_demand, false);
-    schedule_next();
+    #[cfg(test)]
+    if std::env::var_os("SGT_TEST_INTENT_PUBLICATION_UNCERTAIN").is_some() {
+        return Ok(status);
+    }
+    if !crate::overlay::creation_close::is_closing("svg") {
+        crate::overlay::creation_runtime::maintain_readiness("svg", false);
+        schedule_next();
+    }
     Ok(status)
 }
 
@@ -299,6 +345,11 @@ pub(super) fn job_statuses() -> Vec<JobStatus> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+pub(super) fn recovery_pending() -> bool {
+    ensure_recovery_started();
+    recovery::recovery_pending()
 }
 
 pub(super) fn remap_result_path(previous: &str, current: &str) {
@@ -355,6 +406,9 @@ pub(super) fn forget_result_path(path: &str) {
 
 fn schedule_next() {
     loop {
+        if crate::overlay::creation_close::is_closing("svg") {
+            return;
+        }
         let next = {
             let Ok(mut state) = STATE.lock() else {
                 return;
@@ -399,135 +453,8 @@ fn schedule_next() {
     }
 }
 
-pub(super) fn cancel_job(job_id: Option<&str>) -> Vec<JobStatus> {
-    cancel_jobs(job_id, false).1
-}
-
-pub(super) fn cancel_for_shutdown() -> bool {
-    cancel_jobs(None, true).0
-}
-
-fn cancel_jobs(job_id: Option<&str>, shutdown: bool) -> (bool, Vec<JobStatus>) {
-    struct Candidate {
-        job_id: String,
-        previous_status: JobStatus,
-        request: StartJobRequest,
-        request_fingerprint: String,
-        pid: Option<u32>,
-    }
-    let (candidates, mut durable) = {
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        let targets: Vec<String> = match job_id {
-            Some(id) => vec![id.to_string()],
-            None => state
-                .jobs
-                .iter()
-                .filter(|(_, job)| {
-                    job.stage == "queued"
-                        || is_busy(&job.stage)
-                        || shutdown && job.stage == "cancelling"
-                })
-                .map(|(id, _)| id.clone())
-                .collect(),
-        };
-        let target_count = targets.len();
-        let mut candidates = Vec::new();
-        for id in targets {
-            let Some(previous_status) = state.jobs.get(&id).cloned() else {
-                continue;
-            };
-            if previous_status.stage != "queued"
-                && !is_busy(&previous_status.stage)
-                && !(shutdown && previous_status.stage == "cancelling")
-            {
-                continue;
-            }
-            let Some((request, _)) = state.requests.get(&id).cloned() else {
-                continue;
-            };
-            let Some(request_fingerprint) = state.request_fingerprints.get(&id).cloned() else {
-                continue;
-            };
-            if previous_status.stage != "cancelling"
-                && let Some(job) = state.jobs.get_mut(&id)
-            {
-                job.stage = "cancelling".to_string();
-                job.progress_text = "Cancelling".to_string();
-            }
-            candidates.push(Candidate {
-                job_id: id.clone(),
-                previous_status,
-                request,
-                request_fingerprint,
-                pid: state.pids.get(&id).copied(),
-            });
-        }
-        let complete = candidates.len() == target_count;
-        (candidates, complete)
-    };
-    let mut pids_to_kill = std::collections::HashSet::new();
-    for candidate in candidates {
-        let cancelled = crate::overlay::creation_delivery::cancel_dispatch(
-            crate::overlay::creation_delivery::CancelledDelivery {
-                product: "svg",
-                job_id: candidate.job_id.clone(),
-                dispatch_id: candidate.request.dispatch_id.clone(),
-                request_fingerprint: candidate.request_fingerprint,
-                output_name: candidate.request.output_name.clone(),
-            },
-        )
-        .is_ok();
-        durable &= cancelled;
-        let mut kill = shutdown.then_some(candidate.pid).flatten();
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        if state
-            .jobs
-            .get(&candidate.job_id)
-            .is_some_and(|job| job.stage == "cancelling")
-        {
-            if cancelled {
-                if let Some(job) = state.jobs.get_mut(&candidate.job_id) {
-                    job.stage = "cancelled".to_string();
-                    job.progress_text = "Cancelled".to_string();
-                    // The queue renders the progress key in preference to the
-                    // text, so a cancelled job that keeps its last worker key
-                    // reads "Drawing vector paths" under a "Cancelled" heading.
-                    job.progress_key = None;
-                    job.phase = Some("cancelled".to_string());
-                }
-                state.requests.remove(&candidate.job_id);
-                state.request_fingerprints.remove(&candidate.job_id);
-                state.deadlines.remove(&candidate.job_id);
-                state.recovered_jobs.remove(&candidate.job_id);
-                state.pending_completions.remove(&candidate.job_id);
-                kill = state.pids.remove(&candidate.job_id).or(kill);
-            } else if shutdown {
-                kill = state.pids.remove(&candidate.job_id).or(kill);
-            } else {
-                state
-                    .jobs
-                    .insert(candidate.job_id.clone(), candidate.previous_status);
-            }
-        }
-        drop(state);
-        if let Some(pid) = kill {
-            pids_to_kill.insert(pid);
-        }
-        if cancelled {
-            cleanup_request_staging(&candidate.request);
-        }
-    }
-    if shutdown {
-        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
-        pids_to_kill.extend(state.pids.drain().map(|(_, pid)| pid));
-    } else {
-        schedule_next();
-    }
-    for pid in pids_to_kill {
-        crate::overlay::creation_recovery::terminate_process_tree(pid);
-    }
-    (durable, job_statuses())
-}
+mod cancellation;
+pub(super) use cancellation::{cancel_for_shutdown, cancel_job};
 
 pub(super) fn runtime_preparation_status() -> String {
     crate::overlay::creation_runtime::readiness("svg")

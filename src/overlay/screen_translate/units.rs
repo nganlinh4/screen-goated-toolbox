@@ -1,6 +1,7 @@
 //! One source partition shared by request ownership, readiness and rendering.
-use super::contract::{DetectedTextRegion, NormalizedBounds};
-use super::geometry::normalized_region;
+use super::contract::DetectedTextRegion;
+use super::source_bounds::SourceBounds;
+use anyhow::Result;
 use sgt_screen_text_detector_protocol::stream::LayoutRegion;
 
 mod boundaries;
@@ -54,12 +55,15 @@ impl Plan {
         image: &image::RgbaImage,
         sources: &mut [DetectedTextRegion],
         layout: &[LayoutRegion],
-    ) -> Self {
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            sources
+                .iter()
+                .all(|source| source.bounds.image_size() == image.dimensions()),
+            "source geometry image dimensions changed"
+        );
         for source in sources.iter_mut() {
-            source.appearance = super::appearance::analyze_region(
-                image,
-                normalized_region(source.bounds, image.width(), image.height()),
-            );
+            source.appearance = super::appearance::analyze_region(image, source.bounds.pixels());
         }
         let source_indices = boundaries::partition(image, sources, layout);
         let units = source_indices
@@ -73,18 +77,19 @@ impl Plan {
             .iter()
             .map(|members| {
                 let mut candidate = sources[members[0]].clone();
-                candidate.bounds = union(members.iter().map(|&index| sources[index].bounds));
+                candidate.bounds =
+                    SourceBounds::union(members.iter().map(|&index| sources[index].bounds))?;
                 candidate.source_text.clear();
                 candidate.source_alternatives.clear();
-                candidate
+                Ok(candidate)
             })
-            .collect();
-        Self {
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
             units,
             candidates,
             completed: vec![false; sources.len()],
             source_indices,
-        }
+        })
     }
 
     /// Returns a unit ID only when every source member has finished reading.
@@ -112,23 +117,6 @@ impl Plan {
         }
         Some(candidate.id)
     }
-}
-
-pub(super) fn union(bounds: impl Iterator<Item = NormalizedBounds>) -> NormalizedBounds {
-    bounds.fold(
-        NormalizedBounds {
-            left: 1000,
-            top: 1000,
-            right: 0,
-            bottom: 0,
-        },
-        |a, b| NormalizedBounds {
-            left: a.left.min(b.left),
-            top: a.top.min(b.top),
-            right: a.right.max(b.right),
-            bottom: a.bottom.max(b.bottom),
-        },
-    )
 }
 
 #[cfg(test)]
@@ -166,26 +154,32 @@ mod tests {
     fn source(id: u16, top: u16, right: u16) -> DetectedTextRegion {
         DetectedTextRegion {
             id,
-            bounds: [top, 10, top + 20, right].into(),
+            bounds: SourceBounds::from_normalized([top, 10, top + 20, right].into(), 1000, 1000)
+                .unwrap(),
             source_text: String::new(),
             source_alternatives: Vec::new(),
             recognition: Default::default(),
             appearance: None,
         }
     }
+    fn set_left(source: &mut DetectedTextRegion, left: u16) {
+        let mut bounds = source.bounds.prompt();
+        bounds.left = left;
+        source.bounds = SourceBounds::from_normalized(bounds, 1000, 1000).unwrap();
+    }
     #[test]
     fn shared_centered_paragraph_keeps_short_opening_and_closing_lines() {
         use sgt_screen_text_detector_protocol::stream::LayoutKind;
         let image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
         let mut sources = vec![source(1, 10, 120), source(2, 35, 180), source(3, 60, 130)];
-        sources[0].bounds.left = 100;
-        sources[1].bounds.left = 40;
-        sources[2].bounds.left = 90;
+        set_left(&mut sources[0], 100);
+        set_left(&mut sources[1], 40);
+        set_left(&mut sources[2], 90);
         let layout = [LayoutRegion {
             bounds: [30.0, 0.0, 190.0, 90.0],
             kind: LayoutKind::Text,
         }];
-        let plan = Plan::new(&image, &mut sources, &layout);
+        let plan = Plan::new(&image, &mut sources, &layout).unwrap();
         assert_eq!(plan.units[0].members, [1, 2, 3]);
     }
 
@@ -198,7 +192,7 @@ mod tests {
             source(3, 70, 70),
             source(4, 200, 400),
         ];
-        let mut plan = Plan::new(&image, &mut sources, &[]);
+        let mut plan = Plan::new(&image, &mut sources, &[]).unwrap();
         assert_eq!(
             plan.units
                 .iter()
@@ -217,13 +211,13 @@ mod tests {
             plan.candidates[0].source_text,
             "A complete sentence with a tail."
         );
-        assert_eq!(plan.candidates[0].bounds.bottom, 90);
+        assert_eq!(plan.candidates[0].bounds.prompt().bottom, 90);
     }
     #[test]
     fn unreadable_member_preserves_the_entire_unit_source() {
         let image = image::RgbaImage::from_pixel(1000, 1000, image::Rgba([255; 4]));
         let mut sources = vec![source(1, 10, 510), source(2, 40, 490)];
-        let mut plan = Plan::new(&image, &mut sources, &[]);
+        let mut plan = Plan::new(&image, &mut sources, &[]).unwrap();
         sources[0].source_text = "partial".into();
         assert_eq!(plan.complete(0, &sources), None);
         assert_eq!(plan.complete(1, &sources), Some(1));
@@ -240,7 +234,7 @@ mod tests {
             }
         }
         let mut sources = vec![source(1, 10, 510), source(2, 40, 190)];
-        let plan = Plan::new(&image, &mut sources, &[]);
+        let plan = Plan::new(&image, &mut sources, &[]).unwrap();
         assert_eq!(plan.units[0].members, [1, 2]);
     }
     #[test]
@@ -252,7 +246,7 @@ mod tests {
             bounds: [0.0, 0.0, 1000.0, 100.0],
             kind: LayoutKind::Text,
         }];
-        let plan = Plan::new(&image, &mut sources, &layout);
+        let plan = Plan::new(&image, &mut sources, &layout).unwrap();
         assert_eq!(plan.units[0].members, [1]);
         assert_eq!(plan.units[1].members, [2, 3]);
     }
@@ -263,7 +257,7 @@ mod tests {
             image.put_pixel(x, 35, image::Rgba([0, 0, 0, 255]));
         }
         let mut sources = vec![source(1, 10, 510), source(2, 40, 490)];
-        let plan = Plan::new(&image, &mut sources, &[]);
+        let plan = Plan::new(&image, &mut sources, &[]).unwrap();
         assert_eq!(plan.units.len(), 2);
     }
     #[test]
@@ -281,7 +275,7 @@ mod tests {
                 kind: LayoutKind::Text,
             },
         ];
-        let plan = Plan::new(&image, &mut sources, &layout);
+        let plan = Plan::new(&image, &mut sources, &layout).unwrap();
         assert_eq!(
             plan.units
                 .iter()
@@ -319,7 +313,10 @@ mod tests {
                     kind: LayoutKind::Text,
                 }];
                 assert_eq!(
-                    Plan::new(&image, &mut sources, &layout).units.len(),
+                    Plan::new(&image, &mut sources, &layout)
+                        .unwrap()
+                        .units
+                        .len(),
                     expected
                 );
             }
@@ -335,7 +332,7 @@ mod tests {
             bounds: [0.0, 0.0, 600.0, 100.0],
             kind: LayoutKind::Table,
         }];
-        let plan = Plan::new(&image, &mut sources, &layout);
+        let plan = Plan::new(&image, &mut sources, &layout).unwrap();
         assert_eq!(
             plan.units
                 .iter()
@@ -357,12 +354,12 @@ mod tests {
             let mut sources = Vec::new();
             for row in 0..3 {
                 let mut a = source(row * 2 + 1, 10 + row * 30, 70);
-                a.bounds.left = 20;
+                set_left(&mut a, 20);
                 let mut b = source(row * 2 + 2, 10 + row * 30, 250);
-                b.bounds.left = 200;
+                set_left(&mut b, 200);
                 sources.extend([a, b]);
             }
-            let plan = Plan::new(&image, &mut sources, &[]);
+            let plan = Plan::new(&image, &mut sources, &[]).unwrap();
             if stripe_width <= 2 {
                 assert_eq!(plan.units.len(), 6);
             } else {

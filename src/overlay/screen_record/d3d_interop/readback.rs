@@ -144,13 +144,27 @@ impl D3D11GpuFence {
     /// After a short spin budget it backs off with a tiny sleep so a slow frame doesn't
     /// pin a CPU core and starve the driver threads.
     pub fn signal_and_wait(&self) -> Result<(), String> {
+        self.signal_and_wait_inner(None)
+    }
+
+    pub fn signal_and_wait_cancellable(
+        &self,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), String> {
+        self.signal_and_wait_inner(Some(cancel))
+    }
+
+    fn signal_and_wait_inner(
+        &self,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<(), String> {
+        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err("GPU operation cancelled before D3D11 fence".to_string());
+        }
         unsafe {
             self.context.End(&self.query);
             self.context.Flush();
-            // Poll until the GPU retires all commands before the End().
-            // D3D11_QUERY_EVENT data is a BOOL (i32): TRUE when complete.
-            let mut spins = 0u32;
-            loop {
+            wait_for_query(cancel, std::time::Duration::from_secs(30), || {
                 let mut done: i32 = 0;
                 let hr = self.context.GetData(
                     &self.query,
@@ -158,21 +172,75 @@ impl D3D11GpuFence {
                     4,
                     0,
                 );
-                // S_FALSE just means "not ready yet"; a hard error (device removed)
-                // must abort rather than spin forever.
                 if hr.is_err() {
                     return Err(format!(
                         "D3D11 GetData failed waiting for GPU fence (device removed / TDR?): {hr:?}"
                     ));
                 }
-                if done != 0 {
-                    return Ok(());
-                }
-                spins += 1;
-                if spins > 1000 {
-                    std::thread::sleep(std::time::Duration::from_micros(200));
-                }
-            }
+                Ok(done != 0)
+            })
         }
+    }
+}
+
+fn wait_for_query(
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    timeout: std::time::Duration,
+    mut poll: impl FnMut() -> Result<bool, String>,
+) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    let mut spins = 0u32;
+    loop {
+        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err("GPU operation cancelled while waiting for D3D11 completion".to_string());
+        }
+        if poll()? {
+            return Ok(());
+        }
+        if start.elapsed() >= timeout {
+            return Err("Timed out waiting for D3D11 GPU completion".to_string());
+        }
+        spins = spins.saturating_add(1);
+        if spins > 1000 {
+            std::thread::sleep(std::time::Duration::from_micros(200));
+        }
+    }
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn query_wait_reports_timeout_cancel_and_driver_failure() {
+        let cancel = AtomicBool::new(false);
+        assert!(
+            wait_for_query(Some(&cancel), std::time::Duration::ZERO, || Ok(false))
+                .unwrap_err()
+                .contains("Timed out")
+        );
+        assert!(
+            wait_for_query(Some(&cancel), std::time::Duration::from_secs(1), || Err(
+                "device failed".to_string()
+            ))
+            .unwrap_err()
+            .contains("device failed")
+        );
+        cancel.store(true, Ordering::Release);
+        assert!(
+            wait_for_query(Some(&cancel), std::time::Duration::from_secs(1), || panic!(
+                "must not poll after cancellation"
+            ))
+            .unwrap_err()
+            .contains("cancel")
+        );
+        cancel.store(false, Ordering::Release);
+        assert!(
+            wait_for_query(Some(&cancel), std::time::Duration::from_secs(1), || Ok(
+                true
+            ))
+            .is_ok()
+        );
     }
 }

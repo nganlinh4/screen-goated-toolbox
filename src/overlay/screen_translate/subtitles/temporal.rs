@@ -23,6 +23,10 @@ pub(super) struct Update {
 }
 
 impl Tracker {
+    pub(super) fn needs_confirmation(&self) -> bool {
+        self.current.as_ref().map(|r| r.text.as_str()).unwrap_or("") != self.candidate
+    }
+
     #[cfg(test)]
     pub(super) fn current_id(&self) -> Option<u64> {
         self.current.as_ref().map(|r| r.id)

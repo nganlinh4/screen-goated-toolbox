@@ -3,6 +3,8 @@ type Loader = () => Promise<string>;
 export class AsyncAssetCache {
   private readonly values = new Map<string, string>();
   private readonly pending = new Map<string, Promise<string>>();
+  // Bumped by every set/delete so a load that started earlier cannot write back over it.
+  private readonly generations = new Map<string, number>();
   private readonly capacity: number;
   private readonly maxWeight: number;
   private weight = 0;
@@ -21,6 +23,11 @@ export class AsyncAssetCache {
   }
 
   set(key: string, value: string) {
+    this.bumpGeneration(key);
+    this.store(key, value);
+  }
+
+  private store(key: string, value: string) {
     const previous = this.values.get(key);
     if (previous !== undefined) this.weight -= previous.length;
     this.values.delete(key);
@@ -35,6 +42,7 @@ export class AsyncAssetCache {
   }
 
   delete(key: string) {
+    this.bumpGeneration(key);
     const previous = this.values.get(key);
     if (previous !== undefined) this.weight -= previous.length;
     this.values.delete(key);
@@ -46,13 +54,20 @@ export class AsyncAssetCache {
     if (cached !== undefined) return Promise.resolve(cached);
     const current = this.pending.get(key);
     if (current) return current;
+    const generation = this.generations.get(key) ?? 0;
     const request = loader()
       .then((value) => {
-        this.set(key, value);
+        if ((this.generations.get(key) ?? 0) === generation) this.store(key, value);
         return value;
       })
-      .finally(() => this.pending.delete(key));
+      .finally(() => {
+        if (this.pending.get(key) === request) this.pending.delete(key);
+      });
     this.pending.set(key, request);
     return request;
+  }
+
+  private bumpGeneration(key: string) {
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
   }
 }

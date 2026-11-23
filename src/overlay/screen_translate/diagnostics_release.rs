@@ -15,12 +15,7 @@ impl RunEvidence {
         Self
     }
 
-    pub(crate) fn detected(
-        &mut self,
-        _candidates: &[DetectedTextRegion],
-        _raw: &[sgt_screen_text_detector_protocol::DetectedRegion],
-    ) {
-    }
+    pub(crate) fn detected(&mut self, _candidates: &[DetectedTextRegion]) {}
 
     pub(crate) fn finish_with_warning(
         self,

@@ -18,7 +18,7 @@ Screen Record captures a display, window, or region and opens a project editor. 
 
 ## Mini apps
 
-PromptDJ provides a focused prompt and MIDI workflow. Translation Gummy provides continuous translation with its own compact controls. TTS Playground provides voice experimentation and export. Image Creator, Image to SVG, and Image to 3D use the shared Creation project history and explicit download behavior.
+PromptDJ provides a focused prompt and MIDI workflow. Translation Gummy provides continuous translation with its own compact controls. TTS Playground provides voice experimentation and export. Image to SVG and Image to 3D use the shared Creation project history and explicit download behavior.
 
 ## Storage and cleanup
 

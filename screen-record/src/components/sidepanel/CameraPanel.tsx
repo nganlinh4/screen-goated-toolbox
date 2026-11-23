@@ -146,8 +146,8 @@ export function CameraPanel({
             max={34}
             step={1}
             value={webcamConfig.maxSizePercent}
-            onPointerDown={beginBatch}
-            onPointerUp={commitBatch}
+            onGestureStart={beginBatch}
+            onGestureEnd={commitBatch}
             onChange={(value) =>
               updateConfig({
                 maxSizePercent: Math.max(
@@ -171,8 +171,8 @@ export function CameraPanel({
             max={28}
             step={1}
             value={webcamConfig.minSizePercent}
-            onPointerDown={beginBatch}
-            onPointerUp={commitBatch}
+            onGestureStart={beginBatch}
+            onGestureEnd={commitBatch}
             onChange={(value) =>
               updateConfig({
                 minSizePercent: Math.min(value, webcamConfig.maxSizePercent),
@@ -191,8 +191,8 @@ export function CameraPanel({
             max={80}
             step={1}
             value={webcamConfig.roundnessPx}
-            onPointerDown={beginBatch}
-            onPointerUp={commitBatch}
+            onGestureStart={beginBatch}
+            onGestureEnd={commitBatch}
             onChange={(value) => updateConfig({ roundnessPx: value })}
           />
         </SettingRow>
@@ -207,8 +207,8 @@ export function CameraPanel({
             max={48}
             step={1}
             value={webcamConfig.shadowPx}
-            onPointerDown={beginBatch}
-            onPointerUp={commitBatch}
+            onGestureStart={beginBatch}
+            onGestureEnd={commitBatch}
             onChange={(value) => updateConfig({ shadowPx: value })}
           />
         </SettingRow>

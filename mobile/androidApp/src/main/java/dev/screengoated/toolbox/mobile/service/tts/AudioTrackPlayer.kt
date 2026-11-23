@@ -48,9 +48,18 @@ internal class AudioTrackPlayer(
 
     private val audioTrack = createAudioTrack()
     private val stretcher = WsolaStretcher(24_000)
+
+    // Snapshots are read per audio frame; the AudioManager binder reads behind
+    // them are refreshed at most once per TTL instead of on every call.
+    private val routeCache = PlaybackRouteCache(ROUTE_SNAPSHOT_TTL_MS, ::readPlaybackRoute)
+
+    // Generation of the write in progress. The idle auto-stop in debugSnapshot()
+    // must not cut a writer that just started and has not written its first slice.
+    private var writerGeneration = NO_WRITER
     private var writtenFrames: Long = 0
     private var hasAudioFocus = false
     private var active = false
+    private var playbackGeneration = 0L
     private var lastPlayStartedAtMs: Long = 0L
     private var lastWriteCompletedAtMs: Long = 0L
     private var lastStopAtMs: Long = 0L
@@ -60,83 +69,130 @@ internal class AudioTrackPlayer(
     private var previousAudioMode: Int? = null
     private var previousSpeakerphoneOn: Boolean? = null
 
-    @Synchronized
-    fun playPcm24k(
+    fun playPcm24kInterruptibly(
         pcm24k: ByteArray,
         speedPercent: Int,
         volumePercent: Int,
-    ) {
-        if (pcm24k.isEmpty()) {
-            return
+        isCurrent: () -> Boolean,
+        dispatch: (() -> Unit) -> Boolean,
+    ): PlaybackWriteResult {
+        val output = synchronized(this) {
+            if (!isCurrent()) { stopInternal(); return PlaybackWriteResult.INTERRUPTED }
+            preparePcm24k(pcm24k, speedPercent, volumePercent)
         }
-        requestAudioFocus()
-        ensureStarted()
-
-        // Decode PCM bytes to 24kHz shorts
-        val samples24k = ShortArray(pcm24k.size / 2)
-        for (i in samples24k.indices) {
-            val byteIndex = i * 2
-            samples24k[i] = ((pcm24k[byteIndex + 1].toInt() shl 8) or
-                (pcm24k[byteIndex].toInt() and 0xFF)).toShort()
-        }
-
-        // Apply WSOLA time-stretching at 24kHz (pitch-preserving)
-        val speedRatio = speedPercent.coerceIn(50, 200) / 100.0
-        val stretched = stretcher.stretch(samples24k, speedRatio)
-
-        // Upsample stretched 24kHz to 48kHz and apply volume
-        val effectiveVolumePercent = effectiveVolumePercent(volumePercent)
-        val output = upsampleAndScale(stretched, effectiveVolumePercent)
-        val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
-        if (writtenBytes > 0) {
-            writtenFrames += writtenBytes / 2L
-            lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
-            Log.d(
-                TAG,
-                "playPcm24k wrote bytes=$writtenBytes frames=${writtenBytes / 2L} totalWrittenFrames=$writtenFrames speed=$speedPercent volume=$volumePercent effective_volume=$effectiveVolumePercent outputMode=$outputMode",
-            )
-        }
+        return writePreparedInterruptibly(output, isCurrent, dispatch)
     }
 
-    @Synchronized
+    fun finishPcm24kInterruptibly(
+        volumePercent: Int,
+        isCurrent: () -> Boolean,
+        dispatch: (() -> Unit) -> Boolean,
+    ): PlaybackWriteResult {
+        val output = synchronized(this) {
+            if (!isCurrent()) { stopInternal(); return PlaybackWriteResult.INTERRUPTED }
+            upsampleAndScale(stretcher.finish(), effectiveVolumePercent(volumePercent))
+        }
+        return writePreparedInterruptibly(output, isCurrent, dispatch)
+    }
+
+    fun playNativePcm24kInterruptibly(
+        pcm24k: ByteArray,
+        volumePercent: Int,
+        isCurrent: () -> Boolean,
+        dispatch: (() -> Unit) -> Boolean,
+    ): PlaybackWriteResult {
+        if (!isCurrent()) {
+            synchronized(this) { stopInternal() }
+            return PlaybackWriteResult.INTERRUPTED
+        }
+        val output = upsampleAndScale(decodePcm16Le(pcm24k), effectiveVolumePercent(volumePercent))
+        return writePreparedInterruptibly(output, isCurrent, dispatch)
+    }
+
+    /** Plays one native 24 kHz chunk for a single owner; a stop cuts it between bounded writes. */
     fun playNativePcm24k(
         pcm24k: ByteArray,
         volumePercent: Int,
     ) {
-        if (pcm24k.isEmpty()) {
-            return
+        if (pcm24k.isEmpty()) return
+        val result = playNativePcm24kInterruptibly(pcm24k, volumePercent, isCurrent = { true }) { effect ->
+            effect()
+            true
         }
-        requestAudioFocus()
-        ensureStarted()
+        if (result == PlaybackWriteResult.COMPLETE) logNativePlaybackHealth(pcm24k.size, volumePercent)
+    }
 
-        val samples24k = ShortArray(pcm24k.size / 2)
-        for (i in samples24k.indices) {
-            val byteIndex = i * 2
-            samples24k[i] = ((pcm24k[byteIndex + 1].toInt() shl 8) or
-                (pcm24k[byteIndex].toInt() and 0xFF)).toShort()
-        }
-
-        val effectiveVolumePercent = effectiveVolumePercent(volumePercent)
-        val output = upsampleAndScale(samples24k, effectiveVolumePercent)
-        val writtenBytes = audioTrack.write(output, 0, output.size, AudioTrack.WRITE_BLOCKING)
-        if (writtenBytes > 0) {
-            writtenFrames += writtenBytes / 2L
-            lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
-            nativePlaybackChunks++
-            val nowMs = lastWriteCompletedAtMs
-            if (nowMs - lastNativePlaybackLogAtMs >= 5_000L) {
-                lastNativePlaybackLogAtMs = nowMs
-                val playedFrames = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-                Log.d(
-                    TAG,
-                    "playNativePcm24k health chunks=$nativePlaybackChunks last_bytes=$writtenBytes totalWrittenFrames=$writtenFrames playedFrames=$playedFrames pendingFrames=${(writtenFrames - playedFrames).coerceAtLeast(0)} volume=$volumePercent effective_volume=$effectiveVolumePercent outputMode=$outputMode",
-                )
+    /**
+     * Writes in bounded nonblocking slices. The monitor is held only for each
+     * slice, never across a wait, so stopImmediate() and snapshots are never
+     * blocked behind a long chunk; a stop advances the generation and the
+     * writer notices before its next slice.
+     */
+    private fun writePreparedInterruptibly(
+        output: ByteArray,
+        isCurrent: () -> Boolean,
+        dispatch: (() -> Unit) -> Boolean,
+    ): PlaybackWriteResult {
+        if (output.isEmpty()) return PlaybackWriteResult.NO_OUTPUT
+        var ownedGeneration = -1L
+        if (!dispatch {
+            if (isCurrent()) {
+                synchronized(this) {
+                    requestAudioFocus()
+                    ensureStarted()
+                    playbackGeneration++
+                    ownedGeneration = playbackGeneration
+                    writerGeneration = ownedGeneration
+                }
             }
+        } || ownedGeneration < 0) {
+            synchronized(this) { stopInternal() }
+            return PlaybackWriteResult.INTERRUPTED
         }
+        val owned = { isCurrent() && synchronized(this) { playbackGeneration == ownedGeneration } }
+        val result = writeInterruptibly(output.size, owned, dispatch, { offset, count ->
+            synchronized(this) {
+                if (playbackGeneration != ownedGeneration) return@synchronized 0
+                val written = audioTrack.write(output, offset, count, AudioTrack.WRITE_NON_BLOCKING)
+                if (written > 0) {
+                    writtenFrames += written / 2L
+                    lastWriteCompletedAtMs = SystemClock.elapsedRealtime()
+                }
+                written
+            }
+        }, { Thread.sleep(WRITE_RETRY_MS) })
+        if (result != PlaybackWriteResult.COMPLETE) {
+            synchronized(this) { if (playbackGeneration == ownedGeneration) stopInternal() }
+        }
+        synchronized(this) { if (writerGeneration == ownedGeneration) writerGeneration = NO_WRITER }
+        return result
+    }
+
+    private fun preparePcm24k(pcm24k: ByteArray, speedPercent: Int, volumePercent: Int): ByteArray {
+        // Apply WSOLA time-stretching at 24kHz (pitch-preserving)
+        val speedRatio = speedPercent.coerceIn(50, 200) / 100.0
+        val stretched = stretcher.stretch(decodePcm16Le(pcm24k), speedRatio)
+
+        // Upsample stretched 24kHz to 48kHz and apply volume
+        return upsampleAndScale(stretched, effectiveVolumePercent(volumePercent))
+    }
+
+    @Synchronized
+    private fun logNativePlaybackHealth(lastBytes: Int, volumePercent: Int) {
+        nativePlaybackChunks++
+        val nowMs = SystemClock.elapsedRealtime()
+        if (nowMs - lastNativePlaybackLogAtMs < 5_000L) return
+        lastNativePlaybackLogAtMs = nowMs
+        val playedFrames = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+        Log.d(
+            TAG,
+            "playNativePcm24k health chunks=$nativePlaybackChunks last_bytes=${lastBytes * 2} totalWrittenFrames=$writtenFrames playedFrames=$playedFrames pendingFrames=${(writtenFrames - playedFrames).coerceAtLeast(0)} volume=$volumePercent effective_volume=${effectiveVolumePercent(volumePercent)} outputMode=$outputMode",
+        )
     }
 
     @Synchronized
     fun beginCommunicationSession() {
+        routeCache.invalidate()
         if (communicationSessionActive) {
             Log.d(TAG, "beginCommunicationSession ignored because communication session is already active")
             return
@@ -183,6 +239,7 @@ internal class AudioTrackPlayer(
 
     @Synchronized
     fun endCommunicationSession() {
+        routeCache.invalidate()
         if (!communicationSessionActive) {
             Log.d(TAG, "endCommunicationSession ignored because communication session is not active")
             return
@@ -214,7 +271,8 @@ internal class AudioTrackPlayer(
         val nowMs = SystemClock.elapsedRealtime()
         var played = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
         var pending = (writtenFrames - played).coerceAtLeast(0L)
-        if (active && pending == 0L && ageMs(lastWriteCompletedAtMs, nowMs) >= PLAYBACK_IDLE_STOP_MS) {
+        val writerOwnsPlayback = writerGeneration == playbackGeneration
+        if (active && !writerOwnsPlayback && pending == 0L && ageMs(lastWriteCompletedAtMs, nowMs) >= PLAYBACK_IDLE_STOP_MS) {
             Log.d(
                 TAG,
                 "AudioTrack playback auto-stopped after drain playState=${audioTrack.playState} trackState=${audioTrack.state} audioSessionId=${audioTrack.audioSessionId} mode=${audioManager?.mode?.debugAudioMode()} device=${audioManager?.currentCommunicationDeviceLabel()}",
@@ -223,7 +281,7 @@ internal class AudioTrackPlayer(
             played = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
             pending = (writtenFrames - played).coerceAtLeast(0L)
         }
-        val manager = audioManager
+        val route = routeCache.get(nowMs)
         return PlaybackDebugSnapshot(
             active = active,
             writtenFrames = writtenFrames,
@@ -235,8 +293,21 @@ internal class AudioTrackPlayer(
             playState = audioTrack.playState,
             trackState = audioTrack.state,
             audioSessionId = audioTrack.audioSessionId,
-            audioMode = manager?.mode,
+            audioMode = route.audioMode,
             outputMode = outputMode,
+            communicationDevice = route.communicationDevice,
+            routedDevice = route.routedDevice,
+            voiceCallVolume = route.voiceCallVolume,
+            voiceCallMaxVolume = route.voiceCallMaxVolume,
+            musicVolume = route.musicVolume,
+            musicMaxVolume = route.musicMaxVolume,
+        )
+    }
+
+    private fun readPlaybackRoute(): PlaybackRouteInfo {
+        val manager = audioManager
+        return PlaybackRouteInfo(
+            audioMode = manager?.mode,
             communicationDevice = manager?.currentCommunicationDeviceLabel(),
             routedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 audioTrack.routedDevice?.debugLabel()
@@ -250,21 +321,19 @@ internal class AudioTrackPlayer(
         )
     }
 
-    @Synchronized
-    fun drain(timeoutMs: Long = 30_000) {
-        if (!active) {
-            abandonAudioFocus()
-            return
-        }
-        val deadline = SystemClock.elapsedRealtime() + timeoutMs
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val played = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-            if (played >= writtenFrames) {
-                break
-            }
-            Thread.sleep(20)
-        }
-        stopInternal()
+    fun drain(timeoutMs: Long = 30_000, isCurrent: () -> Boolean = { true }): PlaybackDrainResult {
+        val generation = synchronized(this) { playbackGeneration }
+        val completed = waitForPlaybackDrain(
+            deadlineMs = SystemClock.elapsedRealtime() + timeoutMs,
+            now = SystemClock::elapsedRealtime,
+            isCurrent = { isCurrent() && synchronized(this) { playbackGeneration == generation } },
+            isDrained = { synchronized(this) {
+                !active || (audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL) >= writtenFrames
+            } },
+            wait = { Thread.sleep(20) },
+        )
+        synchronized(this) { if (playbackGeneration == generation) stopInternal() }
+        return if (isCurrent()) completed else PlaybackDrainResult.INTERRUPTED
     }
 
     @Synchronized
@@ -280,6 +349,7 @@ internal class AudioTrackPlayer(
 
     private fun ensureStarted() {
         if (!active) {
+            playbackGeneration++
             audioTrack.flush()
             audioTrack.play()
             writtenFrames = 0
@@ -317,6 +387,8 @@ internal class AudioTrackPlayer(
     }
 
     private fun stopInternal() {
+        playbackGeneration++
+        stretcher.reset()
         if (active) {
             val playedBeforeStop = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
             runCatching { audioTrack.pause() }
@@ -402,6 +474,9 @@ internal class AudioTrackPlayer(
         private const val PLAYBACK_IDLE_STOP_MS = 200L
         private const val MAX_INPUT_VOLUME_PERCENT = 200
         private const val MAX_OUTPUT_VOLUME_PERCENT = 360
+        private const val WRITE_RETRY_MS = 10L
+        private const val NO_WRITER = -1L
+        private const val ROUTE_SNAPSHOT_TTL_MS = 1_000L
     }
 }
 

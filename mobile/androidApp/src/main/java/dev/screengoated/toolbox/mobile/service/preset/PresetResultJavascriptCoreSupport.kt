@@ -183,15 +183,28 @@ internal fun presetResultJavascriptCore(): String {
         }
 
         function applyBodyHtml(html) {
-            document.body.innerHTML = html || '';
+            stopLoadingAnimation();
+            document.body.replaceChildren(window.__SGT_SAFE_FRAGMENT__(html || ''));
             wrapInteractiveWords(document.body);
+        }
+
+        function stopLoadingAnimation() {
+            if (window._sgtLoadingAnimation) window._sgtLoadingAnimation.stop();
+            window._sgtLoadingAnimation = null;
+        }
+
+        function applyLoadingHtml(html) {
+            stopLoadingAnimation();
+            document.body.innerHTML = html || '';
+            const canvas = document.getElementById('sgt-m3e-canvas');
+            if (canvas && window.sgtStartLoading) window._sgtLoadingAnimation = window.sgtStartLoading(canvas);
         }
 
         function applyFinalResultState(raw) {
             const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
             activeWindowId = data.windowId;
             if (data.loading) {
-                document.body.innerHTML = data.html || '';
+                applyLoadingHtml(data.html);
                 document.body.style.opacity = '1';
                 resetStreamCounters();
                 return;
@@ -237,7 +250,7 @@ internal fun presetResultJavascriptCore(): String {
             const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
             activeWindowId = data.windowId;
             if (data.loading) {
-                document.body.innerHTML = data.html || '';
+                applyLoadingHtml(data.html);
                 document.body.style.opacity = '1';
                 resetStreamCounters();
                 return;
@@ -245,8 +258,7 @@ internal fun presetResultJavascriptCore(): String {
             const prevWordCount = window._streamWordCount || 0;
             const prevRenderCount = window._streamRenderCount || 0;
 
-            document.body.innerHTML = data.html || '';
-            wrapInteractiveWords(document.body);
+            applyBodyHtml(data.html);
 
             if (document.fonts && !document.fonts.check('400 16px "Google Sans Flex"')) {
                 document.fonts.load('400 16px "Google Sans Flex"').then(

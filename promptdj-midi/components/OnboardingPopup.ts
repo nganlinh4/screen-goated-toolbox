@@ -1,6 +1,10 @@
 import { css, html, LitElement } from 'lit';
 import { customElement, state, property } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { materialSymbolSvg } from '../../ui-shared/material-symbols';
 import { LOCALES, Lang } from '../utils/Locales';
+
+const INFO_ICON = materialSymbolSvg('info', 24, 'icon');
 
 @customElement('onboarding-popup')
 export class OnboardingPopup extends LitElement {
@@ -115,7 +119,7 @@ export class OnboardingPopup extends LitElement {
       <div class="overlay" @click=${this.dismiss}>
         <div class="popup" @click=${(e: Event) => e.stopPropagation()}>
           <h2 class="title">
-            <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            ${unsafeHTML(INFO_ICON)}
             ${t.onboarding_title}
           </h2>
           <p class="message">

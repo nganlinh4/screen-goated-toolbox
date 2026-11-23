@@ -57,7 +57,10 @@ internal fun Creation3dSettings(
     availableModes: Set<String>?,
 ) {
     val mode = CreationGenerationMode.fromWireName(item.generationMode)
-    val route = CreationContract.route3dMode(mode, item.polycount, item.autoSegment)
+    val route = if (mode == CreationGenerationMode.FAST) {
+        CreationContract.frozen3dMode(mode, item.polycount, item.autoSegment)
+    } else CreationContract.route3dMode(mode, item.polycount, item.autoSegment)
+    val currentMode = mode == CreationGenerationMode.QUALITY
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         UtilityExpressiveCard(accent = accent) {
             UtilityHeaderRow(
@@ -71,22 +74,12 @@ internal fun Creation3dSettings(
                     ButtonGroupDefaults.ConnectedSpaceBetween,
                 ),
             ) {
-                ModeToggle(
-                    selected = mode == CreationGenerationMode.FAST,
-                    label = strings.fast,
-                    enabled = enabled && availableModes?.contains("fast") != false,
-                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes(),
-                    accent = accent,
-                    onClick = { onGenerationMode(CreationGenerationMode.FAST.wireName) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("creation-mode-fast"),
-                )
+                if (!currentMode) Text(strings.fast, modifier = Modifier.align(Alignment.CenterVertically))
                 ModeToggle(
                     selected = mode == CreationGenerationMode.QUALITY,
                     label = strings.quality,
                     enabled = enabled && availableModes?.contains("quality") != false,
-                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                    shapes = ToggleButtonDefaults.shapes(),
                     accent = accent,
                     onClick = { onGenerationMode(CreationGenerationMode.QUALITY.wireName) },
                     modifier = Modifier
@@ -105,7 +98,7 @@ internal fun Creation3dSettings(
                 OutlinedTextField(
                     value = item.instruction,
                     onValueChange = onInstruction,
-                    enabled = enabled,
+                    enabled = enabled && currentMode,
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 5,
@@ -134,13 +127,13 @@ internal fun Creation3dSettings(
                 onValueChange = { onPolycount((it / 100f).toInt() * 100) },
                 valueRange = when (mode) {
                     CreationGenerationMode.FAST ->
-                        CreationContract.MINIMUM_POLYCOUNT.toFloat()..
+                        CreationContract.FAST_MINIMUM_POLYCOUNT.toFloat()..
                             CreationContract.FAST_MAXIMUM_POLYCOUNT.toFloat()
                     CreationGenerationMode.QUALITY ->
                         CreationContract.QUALITY_MINIMUM_POLYCOUNT.toFloat()..
                             CreationContract.MAXIMUM_POLYCOUNT.toFloat()
                 },
-                enabled = enabled,
+                enabled = enabled && currentMode,
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(modifier = Modifier.fillMaxWidth()) {

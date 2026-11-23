@@ -9,7 +9,13 @@ pub(super) fn write_candidate_responses(
     request_id: u64,
     attempts: &[super::super::super::vision_reader::CandidateAttempt],
 ) -> std::io::Result<Vec<Value>> {
-    std::fs::create_dir_all(directory)?;
+    super::super::super::session_retention::persist(|| std::fs::create_dir_all(directory))
+        .unwrap_or_else(|| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "automatic session retention is disabled",
+            ))
+        })?;
     attempts
         .iter()
         .enumerate()

@@ -17,3 +17,9 @@ internal data class PresetAudioCaptureFailure(
     val detail: String? = null,
 )
 
+/** Snapshot the session's callback before teardown clears its ownership. */
+internal fun cancelAudioCaptureAndNotify(onCancelled: (() -> Unit)?, cancel: () -> Unit) {
+    cancel()
+    onCancelled?.invoke()
+}
+

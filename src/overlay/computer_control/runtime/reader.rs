@@ -113,7 +113,6 @@ pub(super) fn emit_turn_summary(state: &mut Reader, outcome: &str) {
             "duration_ms": duration_ms,
             "tool_count": state.turn_tools.len(),
             "tools": state.turn_tools.clone(),
-            "stall_count": state.turn_stall_count,
             "research_count": state.turn_research_count,
             "generation_count": state.model_generation_index,
             "usage_event_count": state.usage_event_index,
@@ -132,6 +131,17 @@ pub(super) fn handle_event(
     exec_tx: &mpsc::Sender<Job>,
     state: &mut Reader,
 ) {
+    if let ServerEvent::ToolCancellation(ids) = &ev {
+        state
+            .immediate_tool_responses
+            .retain(|(id, _, _)| !ids.contains(id));
+        state.cancelled_tool_ids.record(ids);
+    }
+    if let ServerEvent::ToolCall { id, name, .. } = &ev
+        && super::tool_call_ids::drop_cancelled_reuse(state, id, name)
+    {
+        return;
+    }
     if super::terminal_drain::handle(&ev, sink, state) {
         return;
     }
@@ -144,7 +154,7 @@ pub(super) fn handle_event(
             // Barge-in: stop TALKING so the agent listens, but let the in-flight
             // ACTION finish until the server identifies which pending call its
             // voice-activity barge-in cancelled.
-            state.input_transcript.begin_epoch();
+            super::input_activity::begin_epoch(state);
             super::speech_events::interrupted(state, sink);
         }
         ServerEvent::ToolCancellation(ids) => {
@@ -152,13 +162,14 @@ pub(super) fn handle_event(
             // action because the model is about to re-plan from the new input. This is
             // the server's voice-activity barge-in, which works in ANY language, so
             // language-independent and needs no spoken-keyword list.
-            super::speech_events::interrupted(state, sink);
             let owns_pending = state
                 .pending
                 .id
                 .as_ref()
                 .is_some_and(|pending| ids.iter().any(|id| id == pending));
             if owns_pending {
+                super::speech_events::interrupted(state, sink);
+                super::input_activity::begin_epoch(state);
                 state.pending.request_cancel(); // don't answer it; abort only that job
                 super::reader_policy::mark_pending_interruption(state);
                 state.awaiting = true;
@@ -179,6 +190,7 @@ pub(super) fn handle_event(
         ServerEvent::InputTranscript(t) => {
             if let Some(update) = state.input_transcript.merge(&t) {
                 let text = update.text;
+                super::input_activity::confirm_transcript(state, update.starts_turn);
                 if update.starts_turn {
                     let inherit_goal = state.carry_unfinished_goal
                         || (state.turn_mode == turn_policy::TurnMode::Action
@@ -190,7 +202,8 @@ pub(super) fn handle_event(
                         emit_turn_summary(state, "superseded");
                     }
                     flush_reply(state);
-                    telemetry::start_turn("user_transcript");
+                    let turn_id = telemetry::start_turn("user_transcript");
+                    state.memory.confirm_turn(turn_id);
                     telemetry::human(
                         "cc",
                         format!("user transcript received ({} chars)", text.chars().count()),
@@ -210,7 +223,6 @@ pub(super) fn handle_event(
                     );
                     state.assistant_utterance_id = None;
                     state.reasoning.clear();
-                    state.thinking.clear();
                     state.turn_started_at = Some(Instant::now());
                     state.turn_tools.clear();
                     state.turn_outcomes.clear();
@@ -219,7 +231,6 @@ pub(super) fn handle_event(
                     state.usage_event_index = 0;
                     state.turn_tool_response_bytes = 0;
                     state.turn_element_chars = 0;
-                    state.turn_stall_count = 0;
                     state.turn_summary_emitted = false;
                     state.generation_output_seen = false;
                     state.pending_tool_output_seen = false;
@@ -228,8 +239,7 @@ pub(super) fn handle_event(
                     if state.history.len() > MAX_HISTORY {
                         state.history.remove(0);
                     }
-                    let cancelled_pending =
-                        super::reader_policy::apply_user_turn_policy(state, &text);
+                    let cancelled_pending = super::reader_policy::apply_user_turn_policy(state);
                     telemetry::event(
                         "turn_policy_applied",
                         "turn_policy",
@@ -268,17 +278,9 @@ pub(super) fn handle_event(
             }
             overlay::set_listening(false);
         }
-        ServerEvent::OutputTranscript(t) => super::speech_events::transcript(state, &t, sink),
-        ServerEvent::ModelText(_) => {
-            // modelTurn text parts in AUDIO mode carry tool-call / internal text
-            // (e.g. "call:look{...}"), NOT spoken words — ignore so they don't
-            // pollute the spoken transcript or the vision intent context.
-        }
-        ServerEvent::Thought(t) => {
-            // The model's SILENT reasoning (thinking) — never spoken, never shown. Feed it to
-            // the intent buffer so the turn's task is captured even on a wordless turn.
-            state.thinking.push_str(&t);
-        }
+        ServerEvent::OutputTranscript(t) => super::speech_events::transcript(state, &t),
+        // Only provider output transcription belongs to the spoken transcript.
+        ServerEvent::ModelText(_) | ServerEvent::Thought(_) => {}
         ServerEvent::GenerationComplete => {
             super::speech_events::generation_complete(state, sink);
         }
@@ -427,34 +429,15 @@ pub(super) fn handle_event(
                 state.spoke_count += u32::from(spoke);
                 if state.tool_calls.is_multiple_of(12) {
                     overlay::push_log(format!(
-                        "[PROFILE] {} actions | avg think {}ms | {} spoke | {} stalls",
+                        "[PROFILE] {} actions | avg think {}ms | {} spoke",
                         state.tool_calls,
                         state.think_total_ms / u128::from(state.tool_calls),
                         state.spoke_count,
-                        state.stall_count,
                     ));
                 }
             }
-            // Intent = the model's SILENT thinking if present (preferred - it's the real
-            // reasoning and costs no speech), else its spoken words. Capped so a long thought
-            // summary can't bloat the vision context.
-            let from_think = !state.thinking.trim().is_empty();
-            let src = if from_think {
-                state.thinking.trim()
-            } else {
-                state.reasoning.trim()
-            };
-            let intent: String = src.chars().take(500).collect();
             state.reasoning.clear();
-            state.thinking.clear();
-            if !intent.is_empty() {
-                overlay::push_log(format!(
-                    "[intent/{}] {} chars",
-                    if from_think { "thought" } else { "spoken" },
-                    intent.chars().count(),
-                ));
-            }
-            super::reader_policy::refine_turn_mode(state, &intent, &name);
+            super::reader_policy::refine_turn_mode(state, &name);
             let action = telemetry::next_step(&name);
             let step_id = action.action_id;
             state.turn_tools.push(name.clone());
@@ -470,7 +453,6 @@ pub(super) fn handle_event(
                     "name": name.clone(),
                     "args_metadata": args_metadata,
                     "goal_char_count": state.last_cmd.chars().count(),
-                    "intent_char_count": intent.chars().count(),
                     "turn_mode": state.turn_mode.as_str(),
                     "source_frame_id": state.source_frame.as_ref().map(|frame| frame.frame_id),
                     "source_surface": state.source_frame.as_ref().map(|frame| &frame.surface),
@@ -488,7 +470,7 @@ pub(super) fn handle_event(
                 }),
             );
 
-            if super::reader_policy::guard_tool_call(state, &id, &name, &args, action) {
+            if super::reader_policy::guard_tool_call(state, &id, &name, action) {
                 return;
             }
             state.pending_tool_output_seen = tool_generation_output_seen;
@@ -521,9 +503,10 @@ pub(super) fn handle_event(
                 state.pending.request_cancel();
                 state.pending = Pending::default();
                 state.pending_tool_output_seen = false;
-                state.immediate_tool_responses.push_back((
-                    id.clone(),
-                    name.clone(),
+                super::tool_call_ids::enqueue(
+                    state,
+                    &id,
+                    &name,
                     serde_json::json!({
                         "ok": false,
                         "error": {
@@ -531,7 +514,7 @@ pub(super) fn handle_event(
                             "message": "The local action worker is unavailable; no action was performed."
                         }
                     }),
-                ));
+                );
                 state.awaiting = true;
                 state.recovery_owed = true;
                 state.think_start = Some(Instant::now());
@@ -576,6 +559,18 @@ pub(super) fn handle_event(
                 }),
             );
         }
+        ServerEvent::SessionResumption { handle, resumable } => telemetry::event(
+            "session_resumption_update",
+            "runtime",
+            Privacy::Safe,
+            serde_json::json!({"resumable": resumable, "handle_present": handle.is_some()}),
+        ),
+        ServerEvent::Other(summary) => telemetry::event(
+            "provider_unhandled_event",
+            "runtime",
+            Privacy::Sensitive,
+            serde_json::json!({"summary": summary}),
+        ),
         _ => {}
     }
 }

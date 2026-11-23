@@ -40,8 +40,10 @@ private class GeminiCompletion {
                 ?: invalidGemini("Malformed provider content")
             for (index in 0 until parts.length()) {
                 val part = parts.optJSONObject(index) ?: invalidGemini("Malformed provider part")
-                if (part.has("text")) {
-                    val value = part.opt("text") as? String ?: invalidGemini("Provider content is not text")
+                val transcription = part.optJSONObject("audioTranscription")
+                if (part.has("text") || transcription?.has("text") == true) {
+                    val value = (if (part.has("text")) part.opt("text") else transcription?.opt("text"))
+                        as? String ?: invalidGemini("Provider content is not text")
                     if (part.optBoolean("thought", false)) thought = thought || value.isNotEmpty()
                     else delta.append(value)
                 } else if (!part.has("thoughtSignature")) {

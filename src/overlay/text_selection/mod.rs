@@ -107,6 +107,9 @@ pub fn set_image_continuous_badge(visible: bool) {
         TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
     }
     IMAGE_CONTINUOUS_BADGE_VISIBLE.store(visible, Ordering::SeqCst);
+    if !visible {
+        IMAGE_CONTINUOUS_PENDING_SHOW.store(false, Ordering::SeqCst);
+    }
 
     if valid_tag_hwnd().is_none() && !IS_WARMED_UP.load(Ordering::SeqCst) {
         if visible {
@@ -195,10 +198,9 @@ pub fn show_text_selection_tag(preset_idx: usize) {
             HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
         }
         if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
+            TRIGGER_MODIFIERS.store(mods, Ordering::SeqCst);
+            TRIGGER_VK_CODE.store(vk, Ordering::SeqCst);
             unsafe {
-                TRIGGER_MODIFIERS = mods;
-                TRIGGER_VK_CODE = vk;
-
                 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
                 if !crate::overlay::continuous_mode::is_active() {
                     let is_physically_held = (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0;

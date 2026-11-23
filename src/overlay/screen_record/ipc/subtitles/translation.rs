@@ -69,10 +69,7 @@ pub fn handle_start_subtitle_translation(
     job_registry::prepare_for_insert(&mut jobs)?;
     jobs.insert(
         job_id.clone(),
-        JobHandle {
-            snapshot: snapshot.clone(),
-            cancelled: cancelled.clone(),
-        },
+        JobHandle::new(snapshot.clone(), cancelled.clone()),
     );
     drop(jobs);
 
@@ -417,7 +414,15 @@ fn translate_group_with_retry(request: TranslateGroupRequest<'_>) -> Result<(), 
         let model_label = localized_model_label(model, &config.ui_language);
         let mut model_fn = |group: &[SubtitleTranslationItemRequest],
                             history: &[TranslationConversationTurn]| {
-            translate_subtitle_chunk(config, model, target_language, instructions, group, history)
+            translate_subtitle_chunk(
+                config,
+                model,
+                target_language,
+                instructions,
+                group,
+                history,
+                cancelled,
+            )
         };
         match attempt_model(
             AttemptModelArgs {

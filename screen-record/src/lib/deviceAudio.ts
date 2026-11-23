@@ -1,5 +1,6 @@
 import type { DeviceAudioPoint } from "@/types/video";
 import { clamp } from "@/lib/mathUtils";
+import { getCurveVolumeAtTime } from "@/lib/volumeCurve";
 
 export const MIN_DEVICE_AUDIO_VOLUME = 0;
 export const MAX_DEVICE_AUDIO_VOLUME = 1;
@@ -30,47 +31,7 @@ export function getDeviceAudioVolumeAtTime(
   time: number,
   points: DeviceAudioPoint[] | undefined | null,
 ): number {
-  if (!points || points.length === 0) return DEFAULT_DEVICE_AUDIO_VOLUME;
-
-  const sorted = [...points].sort((a, b) => a.time - b.time);
-  const idx = sorted.findIndex((point) => point.time >= time);
-  if (idx === -1) {
-    return clampDeviceAudioVolume(sorted[sorted.length - 1].volume);
-  }
-  if (idx === 0) {
-    return clampDeviceAudioVolume(sorted[0].volume);
-  }
-
-  const left = sorted[idx - 1];
-  const right = sorted[idx];
-  const ratio = clamp(
-    (time - left.time) / Math.max(0.0001, right.time - left.time),
-    0,
-    1,
-  );
-  const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-  return clampDeviceAudioVolume(
-    left.volume + (right.volume - left.volume) * cosT,
-  );
-}
-
-export function getImplicitAudioEdgeFadeMultiplier(
-  localTime: number,
-  duration: number,
-  fadeSec: number = IMPLICIT_AUDIO_EDGE_FADE_SEC,
-): number {
-  if (!Number.isFinite(localTime) || !Number.isFinite(duration) || duration <= 0) return 0;
-  const fade = Math.max(0, Math.min(fadeSec, duration / 2));
-  if (fade <= 0) return 1;
-  if (localTime <= 0 || localTime >= duration) return 0;
-  const fadeIn = localTime < fade
-    ? (1 - Math.cos((localTime / fade) * Math.PI)) / 2
-    : 1;
-  const tailTime = duration - localTime;
-  const fadeOut = tailTime < fade
-    ? (1 - Math.cos((tailTime / fade) * Math.PI)) / 2
-    : 1;
-  return clamp(fadeIn * fadeOut, 0, 1);
+  return getCurveVolumeAtTime(time, points, DEFAULT_DEVICE_AUDIO_VOLUME, clampDeviceAudioVolume);
 }
 
 export function normalizeDeviceAudioPoints(

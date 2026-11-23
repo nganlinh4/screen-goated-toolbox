@@ -12,17 +12,15 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
-use crate::win_types::SendHwnd;
-
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 471;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 472;
 pub(super) const WM_APP_PREVIEW_REPLY: u32 = WM_USER + 473;
+pub(super) const WM_APP_IPC_REPLY: u32 = WM_USER + 474;
 pub(super) const WINDOW_SIZE_FILE: &str = "image-to-svg-window.json";
 
 pub(super) static REGISTER_CLASS: Once = Once::new();
-pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-pub(super) static mut IS_READY: bool = false;
-pub(super) static mut IS_INITIALIZING: bool = false;
+pub(super) static WINDOW: crate::overlay::window_slot::WindowSlot =
+    crate::overlay::window_slot::WindowSlot::new();
 
 thread_local! {
     pub(super) static WEBVIEW: std::cell::RefCell<Option<wry::WebView>> =
@@ -32,10 +30,10 @@ thread_local! {
 }
 
 fn admit_dropped_images(paths: Vec<std::path::PathBuf>) -> Result<Vec<std::path::PathBuf>, String> {
-    crate::overlay::three_d_generator::file_dialogs::admit_image_paths(
+    crate::overlay::creation_file_dialogs::admit_image_paths(
         paths,
-        crate::overlay::three_d_generator::file_dialogs::MAX_BATCH_IMAGES,
-        crate::overlay::three_d_generator::file_dialogs::MAX_BATCH_BYTES,
+        crate::overlay::creation_file_dialogs::MAX_BATCH_IMAGES,
+        crate::overlay::creation_file_dialogs::MAX_BATCH_BYTES,
     )
 }
 
@@ -43,7 +41,9 @@ pub fn show_image_to_svg() {
     if !crate::creation_feature_availability::request_image_to_svg_entry() {
         return;
     }
-    let capability = crate::runtime_support::require_webview2("Image to SVG");
+    let capability = crate::runtime_support::require_webview2(
+        crate::runtime_support::WebViewFeature::ImageToSvg,
+    );
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
@@ -74,13 +74,9 @@ pub(super) fn product_key() -> &'static str {
 }
 
 pub fn update_settings() {
-    unsafe {
-        if !IS_READY {
-            return;
-        }
-        let hwnd = std::ptr::addr_of!(WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = PostMessageW(Some(hwnd.0), WM_APP_SYNC, WPARAM(0), LPARAM(0));
+    if let Some(hwnd) = WINDOW.ready_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_APP_SYNC, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -88,6 +84,6 @@ pub fn update_settings() {
 pub fn shutdown() -> bool {
     crate::overlay::creation_close::begin_product(product_key());
     crate::overlay::creation_runtime::cancel_readiness("svg");
-    let _ = runtime::cancel_for_shutdown();
-    crate::overlay::creation_delivery::cancel_product_intents(product_key())
+    runtime::cancel_for_shutdown()
+        && crate::overlay::creation_delivery::cancel_product_intents(product_key())
 }

@@ -213,10 +213,7 @@ class PhoneControlActivationBehaviorTest {
             PhoneControlPowerChoice.entries.forEach { choice ->
                 val presentation = phoneControlPowerChoicePresentation(choice, selected)
                 assertEquals(choice == selected, presentation.selected)
-                assertEquals(
-                    choice == PhoneControlPowerChoice.SGT_ADB,
-                    presentation.recommended,
-                )
+                assertFalse(presentation.recommended)
             }
         }
         val unselectedRecommendation = phoneControlPowerChoicePresentation(
@@ -224,7 +221,7 @@ class PhoneControlActivationBehaviorTest {
             PhoneControlPowerChoice.STANDARD,
         )
         assertFalse(unselectedRecommendation.selected)
-        assertTrue(unselectedRecommendation.recommended)
+        assertFalse(unselectedRecommendation.recommended)
     }
 
     @Test

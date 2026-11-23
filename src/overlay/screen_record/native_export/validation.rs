@@ -426,6 +426,17 @@ fn validate_common(
     validate_path(output_dir, "output directory", false)
 }
 
+/// Extension of the file a single-clip export writes. "both" fans out into an
+/// MP4 and a GIF only through the composition export.
+pub(crate) fn single_export_extension(format: &str) -> Result<&'static str, String> {
+    match format {
+        "mp4" => Ok("mp4"),
+        "gif" => Ok("gif"),
+        "both" => Err("export format 'both' needs a composition export".to_string()),
+        _ => Err("unsupported export format".to_string()),
+    }
+}
+
 impl ExportConfig {
     pub(crate) fn validate(&self) -> Result<(), String> {
         validate_common(
@@ -437,6 +448,7 @@ impl ExportConfig {
             &self.format,
             &self.output_dir,
         )?;
+        single_export_extension(&self.format)?;
         validate_duration(self.duration, self.framerate, "export duration")?;
         finite(self.trim_start, "trim start")?;
         if self.trim_start < 0.0 {
@@ -553,34 +565,5 @@ impl AudioDownloadConfig {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{validate_background, validate_identifier};
-    use crate::overlay::screen_record::native_export::config::BackgroundConfig;
-
-    #[test]
-    fn identifiers_cannot_escape_owned_directories() {
-        for unsafe_id in ["", ".", "..", "../outside", r"..\outside", "C:temp"] {
-            assert!(validate_identifier(unsafe_id, "id").is_err());
-        }
-        assert!(validate_identifier("session_123-abc", "id").is_ok());
-    }
-
-    #[test]
-    fn legacy_bottom_crop_keeps_a_nonempty_source_rect() {
-        let background = |crop_bottom| -> BackgroundConfig {
-            serde_json::from_value(serde_json::json!({
-                "scale": 100.0,
-                "borderRadius": 0.0,
-                "cropBottom": crop_bottom,
-                "backgroundType": "solid",
-                "shadow": 0.0,
-                "cursorScale": 1.0
-            }))
-            .expect("background config parses")
-        };
-        assert!(validate_background(&background(0.0)).is_ok());
-        assert!(validate_background(&background(99.9)).is_ok());
-        assert!(validate_background(&background(-0.1)).is_err());
-        assert!(validate_background(&background(100.0)).is_err());
-    }
-}
+#[path = "validation_tests.rs"]
+mod tests;

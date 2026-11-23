@@ -64,6 +64,7 @@
       const scale = window.devicePixelRatio || 1;
       window.ipc.postMessage(JSON.stringify({
         action: 'result_resize_preview', hwnd: resize.entry.card.dataset.id,
+        topology_epoch: resize.topologyEpoch,
         gesture_id: resize.gestureId,
         dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
       }));
@@ -80,6 +81,7 @@
     const size = { width: rect.width, height: rect.height };
     active = {
       gestureId: gestureId,
+      topologyEpoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
       entry: entry, edge: edge, pointerId: event.pointerId,
       startX: event.clientX, startY: event.clientY, dx: 0, dy: 0, frame: 0,
       rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
@@ -90,6 +92,7 @@
     };
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_start', hwnd: entry.card.dataset.id, edge: edge,
+      topology_epoch: active.topologyEpoch,
       gesture_id: gestureId, pointer_type: event.pointerType,
       button: event.button, pointer_id: event.pointerId,
       origin_x: Math.round(event.clientX * (window.devicePixelRatio || 1)),
@@ -125,6 +128,7 @@
     if (finalSizeNeedsFit && typeof resize.requestFit === 'function') resize.requestFit();
     window.ipc.postMessage(JSON.stringify({
       action: 'result_resize_finish', hwnd: resize.entry.card.dataset.id, edge: resize.edge,
+      topology_epoch: resize.topologyEpoch,
       gesture_id: resize.gestureId,
       cancelled: !event || event.type !== 'pointerup',
       dx: Math.round(resize.dx * scale), dy: Math.round(resize.dy * scale)
@@ -159,6 +163,11 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) finish(null); });
   window.__SGT_CARD_RESIZE__ = {
     attach: attach,
+    resetTopology: function() {
+      if (active?.frame) cancelAnimationFrame(active.frame);
+      if (active?.fitTimer) clearTimeout(active.fitTimer);
+      active = null;
+    },
     settleGesture: function(gestureId) {
       if (!active || active.gestureId !== Number(gestureId)) return;
       if (active.frame) cancelAnimationFrame(active.frame);

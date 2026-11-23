@@ -3,7 +3,7 @@ use crate::api::client::{UREQ_RESPONSE_AGENT, record_usage_simple};
 pub(super) fn upload_audio_to_whisper(
     api_key: &str,
     model: &str,
-    audio_data: Vec<u8>,
+    audio_data: &[u8],
     language_hint: Option<&str>,
 ) -> anyhow::Result<String> {
     let boundary = format!(
@@ -22,7 +22,7 @@ pub(super) fn upload_audio_to_whisper(
         b"Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n",
     );
     body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
-    body.extend_from_slice(&audio_data);
+    body.extend_from_slice(audio_data);
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
@@ -40,7 +40,7 @@ pub(super) fn upload_audio_to_whisper(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         if matches!(status, 401 | 403) {
-            return Err(anyhow::anyhow!("INVALID_API_KEY"));
+            return Err(anyhow::anyhow!("INVALID_API_KEY:groq"));
         }
         let body = response.into_body().read_to_string().unwrap_or_default();
         return Err(anyhow::anyhow!("Groq transcription HTTP {status}: {body}"));

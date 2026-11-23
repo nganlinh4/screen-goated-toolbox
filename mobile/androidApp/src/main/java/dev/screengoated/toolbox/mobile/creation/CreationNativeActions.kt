@@ -37,12 +37,10 @@ internal fun CreationBottomActions(
     val generate = when (tool) {
         CreationTool.IMAGE_TO_3D -> locale.creationApps.model3d.generate
         CreationTool.IMAGE_TO_SVG -> locale.creationApps.svg.generate
-        CreationTool.IMAGE_CREATOR -> locale.creationApps.image.generate
     }
     val generateAgain = when (tool) {
         CreationTool.IMAGE_TO_3D -> locale.creationApps.model3d.generateAgain
         CreationTool.IMAGE_TO_SVG -> locale.creationApps.svg.generateAgain
-        CreationTool.IMAGE_CREATOR -> locale.creationApps.image.generateAgain
     }
     val label = when {
         item.stage == CreationNativeStage.FAILED || item.stage == CreationNativeStage.CANCELLED ->
@@ -68,10 +66,7 @@ internal fun CreationBottomActions(
                 label = label,
                 accent = accent,
                 onClick = action,
-                enabled = state.validatingItemId == null &&
-                    (tool != CreationTool.IMAGE_CREATOR ||
-                        item.prompt.isNotBlank() ||
-                        active),
+                enabled = state.validatingItemId == null,
                 cancel = active,
                 modifier = Modifier
                     .weight(1f)

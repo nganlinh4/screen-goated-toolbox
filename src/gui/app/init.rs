@@ -1,152 +1,44 @@
-use super::types::{RESTORE_SIGNAL, SettingsApp, UserEvent};
+use super::types::{SettingsApp, UserEvent};
 use crate::config::{Config, ThemeMode};
 use crate::gui::settings_ui::ViewMode;
 use crate::updater::{UpdateStatus, Updater};
-use auto_launch::{AutoLaunch, WindowsEnableMode};
 use eframe::egui;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use tray_icon::{
-    MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
-};
+use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 impl SettingsApp {
     pub fn new(init: SettingsAppInit) -> Self {
         let SettingsAppInit {
             mut config,
             app_state,
-            tray_menu,
-            tray_settings_item,
-            tray_quit_item,
-            tray_favorite_bubble_item,
             ctx,
             pending_file_path,
         } = init;
-        let pending_model_update_before = config.pending_preset_model_update.clone();
-        let show_preset_model_update_modal = match config
-            .prepare_preset_model_update_prompt(env!("CARGO_PKG_VERSION"))
-        {
-            Ok(show) => show,
-            Err(error) => {
-                crate::log_info!("[preset-models] discarded invalid staged update marker: {error}");
-                config.pending_preset_model_update = None;
-                false
-            }
-        };
-        if pending_model_update_before != config.pending_preset_model_update {
-            crate::config::save_config(&config);
+        if pending_file_path.is_some() {
+            super::settings_exit_gate::mark_file_activation();
+        }
+        // The initial snapshot may predate edits made while the window starts.
+        // Apply the marker transition to the current state under the same
+        // APP -> save-gate order as every other configuration writer.
+        let (config_baseline, show_preset_model_update_modal) =
             if let Ok(mut state) = app_state.lock() {
-                state.config.pending_preset_model_update =
-                    config.pending_preset_model_update.clone();
-            }
-        }
-
-        // Unified app name for both Debug and Release to share the same registry/task spot
-        let app_name = "ScreenGoatedToolbox";
-        let app_path = std::env::current_exe().unwrap();
-        let app_path_str = app_path.to_str().unwrap_or("");
-        let args: &[&str] = &[crate::startup_launch::AUTOSTART_ARG];
-
-        let auto = AutoLaunch::new(app_name, app_path_str, WindowsEnableMode::CurrentUser, args);
-
-        // Check for current admin state early
-        let current_admin_state = if cfg!(target_os = "windows") {
-            crate::gui::utils::is_running_as_admin()
-        } else {
-            false
-        };
-
-        // --- STARTUP LOGIC REVAMP v2 (ONLY ONE WINS) ---
-        let mut run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
-
-        // Ensure authorized path is set if startup is enabled
-        if run_at_startup_ui && config.authorized_startup_path.is_empty() {
-            config.authorized_startup_path = app_path_str.to_string();
-        }
-
-        // 1. Initial Sync: If system has it enabled but config doesn't, sync to true (Migration)
-        let mut registry_enabled_in_system = false;
-        #[cfg(target_os = "windows")]
-        {
-            use winreg::RegKey;
-            use winreg::enums::*;
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            if let Ok(key) = hkcu.open_subkey_with_flags(
-                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                KEY_READ,
-            ) && key.get_value::<String, &str>(app_name).is_ok()
-            {
-                registry_enabled_in_system = true;
-            }
-        }
-        if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
-            registry_enabled_in_system = true;
-        }
-
-        if registry_enabled_in_system && !config.run_at_startup && !config.run_as_admin_on_startup {
-            config.run_at_startup = true;
-            // Also authorize the path currently in registry if ours is empty
-            if config.authorized_startup_path.is_empty() {
-                config.authorized_startup_path = app_path_str.to_string();
-            }
-        }
-
-        let task_exists = crate::gui::utils::is_admin_startup_enabled();
-        if task_exists && !config.run_as_admin_on_startup {
-            config.run_as_admin_on_startup = true;
-            if config.authorized_startup_path.is_empty() {
-                config.authorized_startup_path = app_path_str.to_string();
-            }
-        }
-
-        // 2. Determine if WE are authorized to manage startup
-        let is_authorized = if config.authorized_startup_path.is_empty() {
-            // No one is authorized? We take it.
-            true
-        } else if config.authorized_startup_path == app_path_str {
-            // We are the chosen one.
-            true
-        } else {
-            // Someone else is authorized. Do they still exist?
-            let other_exists = std::path::Path::new(&config.authorized_startup_path).exists();
-            if !other_exists {
-                // The authorized version is gone (likely an update/rename). We take over.
-                true
+                let (snapshot, baseline, show) = capture_startup_snapshot(
+                    &mut state.config,
+                    env!("CARGO_PKG_VERSION"),
+                    crate::config::try_save_config,
+                );
+                config = snapshot;
+                (baseline, show)
             } else {
-                // The authorized version still exists (likely Debug vs Release co-existing).
-                // We stay quiet to avoid "Both starting" or "Hijacking".
-                false
-            }
-        };
+                crate::log_info!("[preset-models] application state unavailable at startup");
+                (config.clone(), false)
+            };
 
-        // 3. Apply intent & Auto-fix (ONLY if authorized)
-        if is_authorized {
-            // Update authorization if it was empty or changed due to "not exists"
-            if config.authorized_startup_path != app_path_str
-                && (config.run_at_startup || config.run_as_admin_on_startup)
-            {
-                config.authorized_startup_path = app_path_str.to_string();
-            }
-
-            if config.run_as_admin_on_startup {
-                run_at_startup_ui = true;
-                if !crate::gui::utils::is_admin_startup_pointing_to_current_exe()
-                    && current_admin_state
-                {
-                    crate::gui::utils::set_admin_startup(true);
-                }
-            } else if config.run_at_startup {
-                run_at_startup_ui = true;
-                let _ = auto.enable();
-            }
-        } else {
-            // If not authorized, UI state just reflects intent, but we don't repair/fix.
-            run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
-        }
-
-        let run_at_startup = run_at_startup_ui;
+        let current_admin_state = crate::gui::utils::is_running_as_admin();
+        let startup = crate::gui::startup::Startup::new(&config, current_admin_state, &ctx);
+        let run_at_startup =
+            startup.available() && (config.run_at_startup || config.run_as_admin_on_startup);
 
         let (tx, rx) = channel();
 
@@ -165,32 +57,11 @@ impl SettingsApp {
                         // not wake the settings root for tray-only interaction.
                         crate::overlay::tray_popup::show_tray_popup();
                     }
-                    _ => {
-                        // Other events go through the normal channel
+                    _ if tray_event_needs_settings_root(&event) => {
                         let _ = tx_tray.send(UserEvent::Tray(event));
                         ctx_tray.request_repaint();
                     }
-                }
-            }
-        });
-
-        // Menu thread
-        let tx_menu = tx.clone();
-        let ctx_menu = ctx.clone();
-        std::thread::spawn(move || {
-            while let Ok(event) = MenuEvent::receiver().recv() {
-                match event.id.0.as_str() {
-                    "1001" => crate::gui::app::exit_app(),
-                    "1002" => {
-                        super::utils::show_main_window_native();
-                        RESTORE_SIGNAL.store(true, Ordering::SeqCst);
-                        let _ = tx_menu.send(UserEvent::Menu(event.clone()));
-                        ctx_menu.request_repaint();
-                    }
-                    _ => {
-                        let _ = tx_menu.send(UserEvent::Menu(event));
-                        ctx_menu.request_repaint();
-                    }
+                    _ => {}
                 }
             }
         });
@@ -207,17 +78,6 @@ impl SettingsApp {
 
         let (up_tx, up_rx) = channel();
 
-        // --- Init Audio Device Cache ---
-        let cached_audio_devices = Arc::new(Mutex::new(Vec::new()));
-        let devices_clone = cached_audio_devices.clone();
-        // Fetch in background
-        std::thread::spawn(move || {
-            let devices = crate::api::tts::TtsManager::get_output_devices();
-            if let Ok(mut lock) = devices_clone.lock() {
-                *lock = devices;
-            }
-        });
-
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();
 
@@ -230,37 +90,37 @@ impl SettingsApp {
 
         let initial_ui_language = config.ui_language.clone(); // Extract before move
 
-        // Initialize tray item state
-        tray_favorite_bubble_item.set_checked(config.show_favorite_bubble);
-
         // Capture bubble state before config is moved
         let initial_bubble_enabled = config.show_favorite_bubble;
         let initial_has_favorites = config.presets.iter().any(|p| p.is_favorite);
 
         // Create tray icon immediately to avoid splash delay
-        let icon = crate::icon_gen::get_tray_icon(effective_dark);
+        let taskbar_dark = crate::gui::utils::is_taskbar_in_dark_mode();
+        let tray_dark = crate::gui::utils::tray_icon_dark(&config.theme_mode, taskbar_dark);
+        let icon = crate::icon_gen::get_tray_icon(tray_dark);
         let tray_icon = TrayIconBuilder::new()
             .with_tooltip("Screen Goated Toolbox (nganlinh4)")
             .with_icon(icon)
             .build()
             .ok();
+        if let Some(tray_icon) = &tray_icon {
+            super::exit_preparation::register_tray_icon(tray_icon);
+        }
 
         Self {
             config,
+            config_baseline,
+            config_conflict: None,
+            config_save: Default::default(),
             app_state_ref: app_state,
             search_query: String::new(),
             tray_icon, // Created immediately
-            _tray_menu: tray_menu,
-            tray_settings_item,
-            tray_quit_item,
-            tray_favorite_bubble_item,
             last_ui_language: initial_ui_language,
             tray_retry_timer: 0.0,
             tray_startup_wait_frames: 0,
             event_rx: rx,
-            is_quitting: false,
             run_at_startup,
-            auto_launcher: Some(auto),
+            startup,
             show_api_key: false,
             show_gemini_api_key: false,
             show_openrouter_api_key: false,
@@ -275,7 +135,6 @@ impl SettingsApp {
             detail_panes: Vec::new(),
             recording_hotkey_for_preset: None,
             hotkey_conflict_msg: None,
-            recording_sr_hotkey: false,
             recording_computer_control_hotkey: false,
             computer_control_hotkey_conflict_msg: None,
             recording_screen_translate_hotkey: false,
@@ -286,14 +145,12 @@ impl SettingsApp {
             recording_live_translate_hotkey: false,
             live_translate_hotkey_conflict_msg: None,
             splash: None, // DELAYED CREATION to stage 35 for perfect $t=0$ timing
-            fade_in_start: None,
             startup_stage: 0,
             custom_chrome_ready: false,
             custom_chrome_resize_pulse_stage: 0,
             last_window_geometry: None,
             window_geometry_changed_at: None,
             custom_chrome_restore_size: None,
-            cached_audio_devices,
             snarl: None,
             last_edited_preset_key: None,
             updater: Some(Updater::new(up_tx)),
@@ -304,6 +161,8 @@ impl SettingsApp {
             current_admin_state,
             last_effective_theme_dark: effective_dark,
             last_system_theme_dark: system_dark,
+            last_taskbar_dark: taskbar_dark,
+            last_tray_icon_dark: tray_dark,
             theme_check_timer: 0.0,
             // ----------------------
 
@@ -354,13 +213,100 @@ impl SettingsApp {
     }
 }
 
+fn capture_startup_snapshot(
+    current: &mut Config,
+    version: &str,
+    save: impl FnOnce(&Config) -> std::io::Result<()>,
+) -> (Config, Config, bool) {
+    let show = prepare_startup_model_update(current, version, save);
+    let baseline = current.clone();
+    (baseline.clone(), baseline, show)
+}
+
+fn prepare_startup_model_update(
+    current: &mut Config,
+    version: &str,
+    save: impl FnOnce(&Config) -> std::io::Result<()>,
+) -> bool {
+    let mut candidate = current.clone();
+    let before = candidate.pending_preset_model_update.clone();
+    let show = match candidate.prepare_preset_model_update_prompt(version) {
+        Ok(show) => show,
+        Err(error) => {
+            crate::log_info!("[preset-models] invalid staged update marker: {error}");
+            candidate.pending_preset_model_update = None;
+            false
+        }
+    };
+    if before != candidate.pending_preset_model_update {
+        if let Err(error) = save(&candidate) {
+            crate::log_info!("[preset-models] could not save staged update marker: {error}");
+            return false;
+        }
+        current.pending_preset_model_update = candidate.pending_preset_model_update;
+    }
+    show
+}
+
 pub struct SettingsAppInit {
     pub config: Config,
     pub app_state: Arc<Mutex<crate::AppState>>,
-    pub tray_menu: Menu,
-    pub tray_settings_item: MenuItem,
-    pub tray_quit_item: MenuItem,
-    pub tray_favorite_bubble_item: CheckMenuItem,
     pub ctx: egui::Context,
     pub pending_file_path: Option<std::path::PathBuf>,
+}
+
+/// Only a left double-click restores the window. Hover, move and plain clicks
+/// arrive continuously and must not wake the settings root.
+fn tray_event_needs_settings_root(event: &TrayIconEvent) -> bool {
+    matches!(
+        event,
+        TrayIconEvent::DoubleClick {
+            button: MouseButton::Left,
+            ..
+        }
+    )
+}
+
+#[cfg(test)]
+#[path = "init_marker_tests.rs"]
+mod init_marker_tests;
+
+#[cfg(test)]
+mod tray_event_tests {
+    use super::*;
+    use tray_icon::TrayIconId;
+
+    #[test]
+    fn only_a_left_double_click_wakes_the_settings_root() {
+        let id = TrayIconId::new("tray-test");
+        let double = |button| TrayIconEvent::DoubleClick {
+            id: id.clone(),
+            position: Default::default(),
+            rect: Default::default(),
+            button,
+        };
+        assert!(tray_event_needs_settings_root(&double(MouseButton::Left)));
+        assert!(!tray_event_needs_settings_root(&double(
+            MouseButton::Middle
+        )));
+        for event in [
+            TrayIconEvent::Move {
+                id: id.clone(),
+                position: Default::default(),
+                rect: Default::default(),
+            },
+            TrayIconEvent::Enter {
+                id: id.clone(),
+                position: Default::default(),
+                rect: Default::default(),
+            },
+            TrayIconEvent::Leave {
+                id: id.clone(),
+                position: Default::default(),
+                rect: Default::default(),
+            },
+        ] {
+            assert!(!tray_event_needs_settings_root(&event));
+        }
+    }
 }

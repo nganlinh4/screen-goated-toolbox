@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "identity": [
     "provider",
     "full_name"
@@ -64,17 +64,14 @@
     "openrouter"
   ],
   "local_runtime_providers": [
-    "ollama",
-    "parakeet",
-    "qwen3",
-    "moonshine"
+    "ollama"
   ],
   "presentation": {
     "desktop_preferred_columns": 2,
     "desktop_minimum_wide_width": 900,
     "desktop_maximum_dialog_width": 1000,
     "desktop_maximum_body_height": 570,
-    "desktop_wide_status_column_width": 104,
+    "desktop_wide_status_column_width": 128,
     "desktop_localized_name_column_width": 118,
     "desktop_provider_name_column_width": 110,
     "provider_endpoint_count_visibility": "hidden",
@@ -94,7 +91,24 @@
     "desktop_localized_name_font_size": 11.5,
     "desktop_model_id_font_size": 9.5,
     "missing_snapshot_marker": "none",
-    "android_touch_sections": true
+    "android_touch_sections": true,
+    "live_quota": {
+      "warning_at_or_below_ratio": 0.2,
+      "example_labels": {
+        "en": "TPM 9500/10000 left",
+        "vi": "TPM còn 9500/10000",
+        "ko": "TPM 9500/10000 남음"
+      },
+      "color_cases": [
+        { "remaining": "9500", "limit": "10000", "age_seconds": 0, "color": "green" },
+        { "remaining": "200", "limit": "1000", "age_seconds": 300, "color": "amber" },
+        { "remaining": "0", "limit": "1000", "age_seconds": 0, "color": "amber" },
+        { "remaining": "9500", "limit": "10000", "age_seconds": 301, "color": "neutral" },
+        { "remaining": "9500", "limit": "10000", "age_seconds": 901, "color": "neutral" },
+        { "remaining": null, "limit": "10000", "age_seconds": 0, "color": "neutral" },
+        { "remaining": "9500", "limit": null, "age_seconds": 0, "color": "neutral" }
+      ]
+    }
   },
   "presentation_cases": [
     {

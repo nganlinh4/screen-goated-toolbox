@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.shared.preset.DefaultPresets
-import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_AUDIO_TRANSCRIBE_MODEL_ID
@@ -18,30 +17,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-internal data class PresetRefineResult(
-    val text: String,
-    val modelId: String,
-    val modelProvider: PresetModelProvider,
-)
-
-internal fun initialRefineModel(
-    originalModelId: String,
-    settings: PresetRuntimeSettings,
-    apiKeys: ApiKeys,
-): PresetModelDescriptor? {
-    PresetModelCatalog.getById(originalModelId)
-        ?.takeIf { it.modelType == PresetModelType.TEXT && !it.isNonLlm }
-        ?.let { return it }
-    return PresetRetryChainKind.TEXT_TO_TEXT.effectiveChain(settings, apiKeys)
-        .firstNotNullOfOrNull { id ->
-            PresetModelCatalog.getById(id)?.takeIf {
-                it.modelType == PresetModelType.TEXT && !it.isNonLlm
-            }
-        }
-}
 
 class PresetRepository(
     private val textApiClient: TextApiClient,
@@ -54,7 +33,8 @@ class PresetRepository(
     private val toastBus: AppToastBus,
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
         dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
-    mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val newPresetId: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
     private val capabilityResolver = PresetExecutionCapabilityResolver()
@@ -66,11 +46,27 @@ class PresetRepository(
 
     private val _executionState = MutableStateFlow(PresetExecutionState())
     val executionState: StateFlow<PresetExecutionState> = _executionState.asStateFlow()
+    private val sessionOwnership = PresetSessionOwnership(_executionState)
 
-    private var storedOverrides = overrideStore.load()
+    private val initialOverrides = try {
+        Result.success(overrideStore.load())
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+    private var storedOverrides = initialOverrides.getOrDefault(StoredPresetOverrides())
+    private var persistenceFailure: PresetPersistenceFailure? =
+        if (initialOverrides.isFailure) PresetPersistenceFailure.READ else null
     private var executionJob: Job? = null
     private var nextSessionOrdinal = 1L
+    private val rowIncarnations = mutableMapOf<String, Long>()
+    private var nextRowIncarnation = 0L
+    private val rowEpoch = java.util.UUID.randomUUID().toString()
+    // Read per execution: the overlay controller that owns effects can be recreated.
     var postProcessActions: PresetPostProcessActions = NoOpPostProcessActions
+
+    fun releasePostProcessActions(owner: PresetPostProcessActions) {
+        if (postProcessActions === owner) postProcessActions = NoOpPostProcessActions
+    }
 
     private val graphExecutor by lazy {
         PresetGraphExecutor(
@@ -81,33 +77,56 @@ class PresetRepository(
             runtimeSettings = runtimeSettings,
             uiLanguage = uiLanguage,
             executionState = _executionState,
+            sessionOwnership = sessionOwnership,
             toastBus = toastBus,
-            postProcessActions = postProcessActions,
+            postProcessActions = { postProcessActions },
             historyRecorder = historyRecorder,
         )
     }
 
     init {
         publishCatalog()
+        scope.launch {
+            combine(PresetModelFeed.state, PresetCustomModelRegistry.revision) { _, _ -> Unit }
+                .collect { publishCatalog() }
+        }
     }
 
     fun getAllPresets(): List<Preset> = _catalogState.value.presets.map { it.preset }
 
-    fun getPresetsByType(type: PresetType): List<Preset> =
-        _catalogState.value.presetsFor(type).map { it.preset }
+    @Synchronized
+    fun getResolvedPreset(id: String): ResolvedPreset? = unambiguousVisibleRow(id)?.let {
+        val capability = resolveExecutionCapability(it.preset)
+        it.copy(
+            executionCapability = capability,
+            placeholderReasons = resolvePlaceholderReasons(it.preset, capability),
+        )
+    }
 
-    fun getResolvedPreset(id: String): ResolvedPreset? = _catalogState.value.findPreset(id)
+    private fun unambiguousVisibleRow(id: String): ResolvedPreset? {
+        val builtInCount = if (canonicalById.containsKey(id)) 1 else 0
+        if (builtInCount + storedOverrides.customPresets.values.count { it.id == id } != 1) return null
+        return _catalogState.value.findPreset(id)
+    }
 
+    @Synchronized
     fun toggleFavorite(id: String) {
         updateBuiltInOverride(id) { it.copy(isFavorite = !it.isFavorite) }
     }
 
+    @Synchronized
+    internal fun toggleFavoriteRow(rowKey: String) {
+        updatePresetRow(rowKey) { it.copy(isFavorite = !it.isFavorite) }
+    }
+
+    @Synchronized
     fun resetAllToDefaults() {
         persistAll(builtInOverrides = emptyMap(), customPresets = emptyMap())
     }
 
-    fun createCustomPreset(type: PresetType, lang: String): String {
-        val newId = System.currentTimeMillis().toString(16)
+    @Synchronized
+    fun createCustomPreset(type: PresetType, lang: String): String? {
+        val newId = allocatePresetId() ?: return null
         val count = _catalogState.value.presets.size + 1
         val typeName = when (type) {
             PresetType.IMAGE -> when (lang) { "vi" -> "Ảnh"; "ko" -> "이미지"; else -> "Image" }
@@ -134,7 +153,7 @@ class PresetRepository(
             PresetType.DEVICE_AUDIO -> dev.screengoated.toolbox.mobile.shared.preset.audioBlock(
                 PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
             )
-        }
+        }.copy(streamingEnabled = true) // A new Windows preset block uses the streaming default.
 
         val newPreset = dev.screengoated.toolbox.mobile.shared.preset.Preset(
             id = newId,
@@ -148,16 +167,23 @@ class PresetRepository(
         )
         val updatedCustom = storedOverrides.customPresets.toMutableMap()
         updatedCustom[newId] = newPreset
-        persistAll(
+        val saved = persistAll(
             builtInOverrides = storedOverrides.builtInOverrides,
             customPresets = updatedCustom,
         )
-        return newId
+        return newId.takeIf { saved }
     }
 
+    @Synchronized
     fun duplicatePreset(id: String, lang: String): String? {
-        val source = getResolvedPreset(id)?.preset ?: return null
-        val newId = System.currentTimeMillis().toString(16)
+        val row = unambiguousVisibleRow(id) ?: return null
+        return duplicatePresetRow(row.rowIdentity, lang)
+    }
+
+    @Synchronized
+    internal fun duplicatePresetRow(rowKey: String, lang: String): String? {
+        val source = _catalogState.value.findRow(rowKey)?.preset ?: return null
+        val newId = allocatePresetId() ?: return null
         val baseName = source.name(lang)
         var newName = "$baseName Copy"
         var counter = 1
@@ -176,15 +202,24 @@ class PresetRepository(
         // Store as a full custom preset (not a built-in override)
         val updatedCustom = storedOverrides.customPresets.toMutableMap()
         updatedCustom[newId] = newPreset
-        persistAll(
+        val saved = persistAll(
             builtInOverrides = storedOverrides.builtInOverrides,
             customPresets = updatedCustom,
         )
-        return newId
+        return newId.takeIf { saved }
     }
 
+    @Synchronized
     fun deletePreset(id: String) {
-        if (canonicalById.containsKey(id)) {
+        val row = unambiguousVisibleRow(id) ?: return
+        deletePresetRow(row.rowIdentity)
+    }
+
+    @Synchronized
+    internal fun deletePresetRow(rowKey: String): Boolean {
+        val row = _catalogState.value.findRow(rowKey) ?: return false
+        val id = row.preset.id
+        return if (row.isBuiltIn) {
             // Built-in: mark as hidden (will re-appear on reset)
             val updatedOverrides = storedOverrides.builtInOverrides.toMutableMap()
             val existing = updatedOverrides[id] ?: PresetOverride()
@@ -193,7 +228,8 @@ class PresetRepository(
         } else {
             // Custom: remove from custom presets
             val updatedCustom = storedOverrides.customPresets.toMutableMap()
-            updatedCustom.remove(id)
+            val storageKey = row.rowKey.removePrefix("custom:")
+            if (updatedCustom.remove(storageKey) == null) return false
             persistAll(
                 builtInOverrides = storedOverrides.builtInOverrides,
                 customPresets = updatedCustom,
@@ -201,6 +237,7 @@ class PresetRepository(
         }
     }
 
+    @Synchronized
     fun restoreBuiltInPreset(id: String) {
         if (!canonicalById.containsKey(id)) {
             return
@@ -209,15 +246,34 @@ class PresetRepository(
         persistOverrides(updated)
     }
 
+    @Synchronized
+    internal fun restorePresetRow(rowIdentity: String): Boolean {
+        val row = _catalogState.value.findRow(rowIdentity) ?: return false
+        if (!row.isBuiltIn || !canonicalById.containsKey(row.preset.id)) return false
+        val updated = storedOverrides.builtInOverrides.toMutableMap().also { it.remove(row.preset.id) }
+        return persistOverrides(updated)
+    }
+
+    @Synchronized
     fun updateBuiltInOverride(
         id: String,
         mutation: (Preset) -> Preset,
-    ) {
-        val canonical = canonicalById[id]
-        if (canonical != null) {
+    ): Boolean {
+        val row = unambiguousVisibleRow(id) ?: return false
+        return updatePresetRow(row.rowIdentity, mutation)
+    }
+
+    @Synchronized
+    internal fun updatePresetRow(rowKey: String, mutation: (Preset) -> Preset): Boolean {
+        val row = _catalogState.value.findRow(rowKey) ?: return false
+        val id = row.preset.id
+        if (row.isBuiltIn) {
+            val canonical = canonicalById[id] ?: return false
+            if (storedOverrides.builtInOverrides[id]?.isHidden == true) return false
             // Built-in preset: store as delta override
-            val current = getResolvedPreset(id)?.preset ?: canonical
+            val current = row.preset
             val updatedPreset = mutation(current)
+            if (updatedPreset.id != id) return false
             val override = updatedPreset.toOverrideComparedTo(canonical)
             val updatedOverrides = storedOverrides.builtInOverrides.toMutableMap()
             if (override.isEmpty()) {
@@ -225,40 +281,63 @@ class PresetRepository(
             } else {
                 updatedOverrides[id] = override
             }
-            persistOverrides(updatedOverrides)
+            return persistOverrides(updatedOverrides)
         } else {
             // Custom preset: update the full preset in customPresets
-            val existing = storedOverrides.customPresets[id] ?: return
+            val storageKey = row.rowKey.removePrefix("custom:")
+            val existing = storedOverrides.customPresets[storageKey] ?: return false
             val updatedPreset = mutation(existing)
+            if (updatedPreset.id != existing.id) return false
             val updatedCustom = storedOverrides.customPresets.toMutableMap()
-            updatedCustom[id] = updatedPreset
-            persistAll(
+            updatedCustom[storageKey] = updatedPreset
+            return persistAll(
                 builtInOverrides = storedOverrides.builtInOverrides,
                 customPresets = updatedCustom,
             )
         }
     }
 
+    private fun allocatePresetId(): String? {
+        repeat(32) {
+            val candidate = try {
+                newPresetId()
+            } catch (_: Exception) {
+                toastBus.show(presetPersistenceMessage(uiLanguage(), PresetPersistenceFailure.WRITE))
+                return null
+            }
+            if (candidate.isNotBlank() && !candidate.startsWith("preset_") &&
+                !canonicalById.containsKey(candidate) &&
+                !storedOverrides.builtInOverrides.containsKey(candidate) &&
+                !storedOverrides.customPresets.containsKey(candidate) &&
+                storedOverrides.customPresets.values.none { it.id == candidate }) return candidate
+        }
+        toastBus.show(presetPersistenceMessage(uiLanguage(), PresetPersistenceFailure.WRITE))
+        return null
+    }
+
     fun executePreset(
         preset: Preset,
         input: PresetInput,
-    ) {
+    ) = sessionOwnership.transition {
+        sessionOwnership.retireEffects()
+        executionJob?.cancel()
+        executionJob = null
         val capability = resolveExecutionCapability(preset)
         if (!capability.supported) {
             _executionState.value = PresetExecutionState(
                 activePresetId = preset.id,
                 error = capability.reason?.message() ?: "Preset execution is not ready on Android yet.",
             )
-            return
+            return@transition
         }
 
-        executionJob?.cancel()
         val sessionId = "preset-session-${nextSessionOrdinal++}"
         _executionState.value = PresetExecutionState(
             sessionId = sessionId,
             isExecuting = true,
             activePresetId = preset.id,
         )
+        sessionOwnership.activateEffects(sessionId)
 
         executionJob = scope.launch {
             try {
@@ -275,19 +354,11 @@ class PresetRepository(
                     input = input,
                 )
 
-                _executionState.update {
-                    it.copy(
-                        isExecuting = false,
-                        isComplete = true,
-                    )
-                }
+                _executionState.update { it.finishSession(sessionId) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _executionState.update {
-                    it.copy(
-                        isExecuting = false,
-                        error = e.message ?: "Execution failed",
-                    )
-                }
+                _executionState.update { it.finishSession(sessionId, e.message ?: "Execution failed") }
             }
         }
     }
@@ -306,22 +377,24 @@ class PresetRepository(
             ?: return scope.launch { onComplete(Result.failure(Exception("No text model configured"))) }
         val lang = uiLanguage()
 
-        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        // FIFO on the main dispatcher, like Handler.post; JVM tests inject a test dispatcher.
+        fun postMain(action: () -> Unit) { scope.launch { action() } }
         return scope.launch(Dispatchers.IO) {
-            val prompt = "Content:\n$previousText\n\nInstruction:\n$refinePrompt\n\nOutput ONLY the result."
+            val request = presetRefineTextRequest(previousText, refinePrompt)
             val failedModelIds = mutableListOf<String>()
             val blockedProviders = linkedSetOf<PresetModelProvider>()
             var currentModel = initialModel
             val result: Result<PresetRefineResult> = runCatching {
                 var completed: PresetRefineResult? = null
                 while (completed == null) {
+                    val modelAttempt = PresetModelAttempt(currentModel.id)
                     val preflight = preflightSkipReason(
                         modelId = currentModel.id,
                         provider = currentModel.provider,
                         apiKeys = keys,
                         blockedProviders = blockedProviders,
                         settings = settings,
-                    ) ?: claimPresetModelAttempt(currentModel.id)
+                    ) ?: claimPresetModelAttempt(modelAttempt)
                     if (preflight != null) {
                         if (shouldBlockRetryProvider(preflight)) {
                             blockedProviders += currentModel.provider
@@ -334,26 +407,29 @@ class PresetRepository(
                             chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
                             apiKeys = keys,
                             settings = settings,
+                            searchEnabled = false,
                         ) ?: error(preflight)
                         continue
                     }
 
                     val attemptedModel = currentModel
-                    mainHandler.post { onModelSelected(attemptedModel) }
-                    val attempt = textApiClient.executeStreaming(
+                    postMain { onModelSelected(attemptedModel) }
+                    val attempt = try { textApiClient.executeStreaming(
                         modelId = attemptedModel.id,
-                        prompt = prompt,
-                        inputText = previousText,
+                        prompt = request.prompt,
+                        inputText = request.inputText,
                         apiKeys = keys,
                         uiLanguage = lang,
                         searchLabel = null,
-                        onChunk = { chunk -> mainHandler.post { onChunk(chunk) } },
+                        onChunk = { chunk -> postMain { onChunk(chunk) } },
                         streamingEnabled = true,
-                        predictionContent = previousText,
-                    )
+                    ) } catch (error: Exception) {
+                        releasePresetModelProbe(modelAttempt)
+                        throw error
+                    }
                     val error = attempt.exceptionOrNull()
                     if (error == null) {
-                        recordPresetModelSuccess(attemptedModel.id)
+                        recordPresetModelSuccess(modelAttempt)
                         completed = PresetRefineResult(
                             text = attempt.getOrThrow(),
                             modelId = attemptedModel.id,
@@ -362,11 +438,11 @@ class PresetRepository(
                         continue
                     }
                     if (error is CancellationException) {
-                        releasePresetModelProbe(attemptedModel.id)
+                        releasePresetModelProbe(modelAttempt)
                         throw error
                     }
                     val message = error.message ?: "Refine failed"
-                    recordPresetModelFailure(attemptedModel.id, message)
+                    recordPresetModelFailure(modelAttempt, message)
                     if (!shouldAdvanceRetryChain(message)) throw error
                     if (shouldBlockRetryProvider(message)) {
                         blockedProviders += attemptedModel.provider
@@ -379,38 +455,57 @@ class PresetRepository(
                         chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
                         apiKeys = keys,
                         settings = settings,
+                        searchEnabled = false,
                     ) ?: throw error
-                    mainHandler.post { onChunk(TextApiClient.WIPE_SIGNAL) }
+                    postMain { onChunk(TextApiClient.WIPE_SIGNAL) }
                 }
                 requireNotNull(completed)
             }
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
+            kotlinx.coroutines.withContext(mainDispatcher) {
                 onComplete(result)
             }
         }
     }
 
-    fun cancelExecution() {
-        executionJob?.cancel()
+    fun cancelExecution() = sessionOwnership.transition {
+        sessionOwnership.retireEffects()
         _executionState.update {
             it.copy(isExecuting = false)
         }
+        executionJob?.cancel()
+        executionJob = null
     }
 
-    fun resetState() {
+    fun resetState() = sessionOwnership.transition {
+        sessionOwnership.retireEffects()
         _executionState.value = PresetExecutionState()
+        executionJob?.cancel()
+        executionJob = null
     }
 
+    @Synchronized
     private fun publishCatalog() {
+        val activeKeys = canonicalPresets.asSequence()
+            .filter { storedOverrides.builtInOverrides[it.id]?.isHidden != true }
+            .map { builtInPresetRowKey(it.id) }
+            .plus(storedOverrides.customPresets.keys.asSequence().map(::customPresetRowKey))
+            .toSet()
+        rowIncarnations.keys.retainAll(activeKeys)
+        fun incarnation(key: String): Long = rowIncarnations.getOrPut(key) {
+            nextRowIncarnation = Math.addExact(nextRowIncarnation, 1)
+            nextRowIncarnation
+        }
         val builtInResolved = canonicalPresets.mapNotNull { canonical ->
             val override = storedOverrides.builtInOverrides[canonical.id]
             if (override?.isHidden == true) return@mapNotNull null
-            val resolved = resolvePresetModelIds(override?.let { canonical.applyOverride(it) } ?: canonical)
+            val resolved = override?.let { canonical.applyOverride(it) } ?: canonical
             val executionCapability = resolveExecutionCapability(resolved)
             ResolvedPreset(
                 preset = resolved,
                 hasOverride = override != null,
                 isBuiltIn = true,
+                rowEpoch = rowEpoch,
+                rowIncarnation = incarnation(builtInPresetRowKey(canonical.id)),
                 executionCapability = executionCapability,
                 placeholderReasons = resolvePlaceholderReasons(
                     preset = resolved,
@@ -418,13 +513,16 @@ class PresetRepository(
                 ),
             )
         }
-        val customResolved = storedOverrides.customPresets.values.map { preset ->
-            val resolvedPreset = resolvePresetModelIds(preset)
+        val customResolved = storedOverrides.customPresets.map { (storageKey, preset) ->
+            val resolvedPreset = preset
             val executionCapability = resolveExecutionCapability(resolvedPreset)
             ResolvedPreset(
                 preset = resolvedPreset,
                 hasOverride = false,
                 isBuiltIn = false,
+                rowKey = customPresetRowKey(storageKey),
+                rowEpoch = rowEpoch,
+                rowIncarnation = incarnation(customPresetRowKey(storageKey)),
                 executionCapability = executionCapability,
                 placeholderReasons = resolvePlaceholderReasons(
                     preset = resolvedPreset,
@@ -434,50 +532,38 @@ class PresetRepository(
         }
         _catalogState.value = PresetCatalogState(
             presets = builtInResolved + customResolved,
+            persistenceFailure = persistenceFailure,
         )
     }
 
-    private fun resolvePresetModelIds(preset: Preset): Preset {
-        return preset.copy(
-            blocks = preset.blocks.map { block ->
-                val descriptor = PresetModelCatalog.getById(block.model)
-                val expectedType = when (block.blockType) {
-                    BlockType.IMAGE -> PresetModelType.VISION
-                    BlockType.TEXT -> PresetModelType.TEXT
-                    BlockType.AUDIO -> PresetModelType.AUDIO
-                    BlockType.INPUT_ADAPTER -> null
-                }
-                if (expectedType == null || descriptor?.modelType == expectedType) {
-                    block
-                } else {
-                    block.copy(model = defaultModelIdForBlock(block.blockType))
-                }
-            },
-        )
-    }
-
-    private fun defaultModelIdForBlock(blockType: BlockType): String = when (blockType) {
-        BlockType.IMAGE -> DEFAULT_IMAGE_MODEL_ID
-        BlockType.TEXT -> DEFAULT_TEXT_MODEL_ID
-        BlockType.AUDIO -> PRESET_AUDIO_TRANSCRIBE_MODEL_ID
-        BlockType.INPUT_ADAPTER -> ""
-    }
-
-    private fun persistOverrides(updatedOverrides: Map<String, PresetOverride>) {
+    private fun persistOverrides(updatedOverrides: Map<String, PresetOverride>): Boolean =
         persistAll(builtInOverrides = updatedOverrides, customPresets = storedOverrides.customPresets)
-    }
 
     private fun persistAll(
         builtInOverrides: Map<String, PresetOverride>,
         customPresets: Map<String, Preset>,
-    ) {
-        storedOverrides = StoredPresetOverrides(
+    ): Boolean {
+        val updated = StoredPresetOverrides(
             version = storedOverrides.version,
             builtInOverrides = builtInOverrides,
             customPresets = customPresets,
         )
-        overrideStore.save(storedOverrides)
+        if (persistenceFailure == PresetPersistenceFailure.READ) {
+            toastBus.show(presetPersistenceMessage(uiLanguage(), PresetPersistenceFailure.READ))
+            return false
+        }
+        try {
+            overrideStore.save(updated)
+        } catch (_: Exception) {
+            persistenceFailure = PresetPersistenceFailure.WRITE
+            publishCatalog()
+            toastBus.show(presetPersistenceMessage(uiLanguage(), PresetPersistenceFailure.WRITE))
+            return false
+        }
+        storedOverrides = updated
+        persistenceFailure = null
         publishCatalog()
+        return true
     }
 
     private fun resolveExecutionCapability(preset: Preset): PresetExecutionCapability {

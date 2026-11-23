@@ -18,7 +18,7 @@ pub(crate) fn run() -> i32 {
         height: 140,
     };
 
-    super::recording_prepare(recording, "Press Esc to stop".to_string());
+    super::recording_prepare(recording, "Press Esc to stop".to_string(), 1);
     super::recording_show(recording);
     super::recording_update("recording", 0.45);
     super::selection_show(selection, "Select text…".to_string());

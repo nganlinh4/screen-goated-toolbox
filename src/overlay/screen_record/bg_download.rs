@@ -10,13 +10,14 @@ use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 #[cfg(feature = "recorder-worker")]
 use std::collections::HashSet;
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 
+mod integrity;
 mod resolver;
 mod security;
 mod storage;
@@ -47,6 +48,10 @@ pub enum BgDownloadStatus {
 pub struct DownloadableBackground {
     pub id: String,
     pub download_url: String,
+    /// SHA-256 (lowercase hex) of the exact downloaded bytes.
+    pub sha256: String,
+    /// Byte length of the exact downloaded bytes.
+    pub bytes: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -443,6 +448,15 @@ mod uploaded_file_tests {
 
 fn download_background(id: &str, url: &str, cancelled: &AtomicBool) -> Result<(), String> {
     ensure_download_not_cancelled(cancelled)?;
+    let entry = downloadable_backgrounds()
+        .iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| "Unknown downloadable background".to_string())?;
+    let pin = integrity::PinnedAsset {
+        sha256: &entry.sha256,
+        bytes: entry.bytes,
+    };
+    integrity::validate_pin(&pin)?;
     let dir = backgrounds_dir();
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Failed to create backgrounds directory: {error}"))?;
@@ -467,15 +481,6 @@ fn download_background(id: &str, url: &str, cancelled: &AtomicBool) -> Result<()
         .unwrap_or("")
         .to_string();
     let ext = detect_download_ext(&content_type, &content_disposition, &image_url)?;
-    let total_size = response
-        .headers()
-        .get("Content-Length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-    if total_size > MAX_BACKGROUND_BYTES {
-        return Err("Background image exceeds the 64 MiB limit".to_string());
-    }
 
     let nonce = DOWNLOAD_NONCE.fetch_add(1, Ordering::Relaxed);
     let temp_path = dir.join(format!(
@@ -490,33 +495,16 @@ fn download_background(id: &str, url: &str, cancelled: &AtomicBool) -> Result<()
         .map_err(|error| format!("Temporary file create error: {error}"))?;
     let transfer = (|| -> Result<(), String> {
         let mut reader = response.into_body().into_reader();
-        let mut downloaded = 0u64;
-        let mut buffer = [0u8; 16_384];
-        loop {
-            ensure_download_not_cancelled(cancelled)?;
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|error| format!("Download read error: {error}"))?;
-            if count == 0 {
-                break;
-            }
-            downloaded = downloaded
-                .checked_add(count as u64)
-                .ok_or_else(|| "Background byte count overflowed".to_string())?;
-            if downloaded > MAX_BACKGROUND_BYTES {
-                return Err("Background image exceeds the 64 MiB limit".to_string());
-            }
-            file.write_all(&buffer[..count])
-                .map_err(|error| format!("Download write error: {error}"))?;
-            if total_size > 0 {
-                set_download_status(
-                    id,
-                    BgDownloadStatus::Downloading {
-                        progress: (downloaded as f32 / total_size as f32).min(1.0) * 100.0,
-                    },
-                );
-            }
-        }
+        integrity::copy_pinned(
+            &mut reader,
+            &mut file,
+            &pin,
+            || ensure_download_not_cancelled(cancelled),
+            |copied| {
+                let progress = (copied as f32 / pin.bytes as f32).min(1.0) * 100.0;
+                set_download_status(id, BgDownloadStatus::Downloading { progress });
+            },
+        )?;
         file.sync_all()
             .map_err(|error| format!("Sync downloaded background failed: {error}"))
     })();
@@ -577,24 +565,4 @@ fn ensure_download_not_cancelled(cancelled: &AtomicBool) -> Result<(), String> {
         return Err("Background download was cancelled".to_string());
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod security_tests {
-    use super::{validate_background_id, validate_download_request, validate_download_url};
-
-    #[test]
-    fn background_ids_are_single_safe_components() {
-        assert!(validate_background_id("warm-abstract").is_ok());
-        for value in ["../outside", r"..\outside", "C:outside", "a/b"] {
-            assert!(validate_background_id(value).is_err());
-        }
-    }
-
-    #[test]
-    fn download_urls_are_https_and_catalog_bound() {
-        assert!(validate_download_url("http://photos.google.com/a").is_err());
-        assert!(validate_download_url("https://127.0.0.1/a").is_err());
-        assert!(validate_download_request("warm-abstract", "https://example.com/a").is_err());
-    }
 }

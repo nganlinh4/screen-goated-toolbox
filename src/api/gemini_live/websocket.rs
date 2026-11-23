@@ -15,6 +15,11 @@ use super::types::LiveInputContent;
 const STILL_FRAME_STREAM_COUNT: usize = 4;
 const STILL_FRAME_INTERVAL_MS: u64 = 500;
 const STILL_FRAME_JPEG_QUALITY: u8 = 90;
+/// Longest edge of a still frame sent to a live model. Larger captures are
+/// scaled down to bound upload size; smaller ones keep every pixel, because a
+/// small text selection shrunk further becomes illegible. Shared with Android
+/// through `parity-fixtures/gemini-live-session/still-frame.json`.
+const STILL_FRAME_MAX_LONG_EDGE: u32 = 768;
 
 /// Build the text-first setup envelope without coupling setup construction to
 /// a raw socket. Setup-gated transports use this before promoting a connected
@@ -115,15 +120,28 @@ fn build_live_still_frame(image_data: &[u8], mime_type: &str) -> (Vec<u8>, Strin
 }
 
 fn downscale_live_frame(image: DynamicImage) -> DynamicImage {
+    let (target_width, target_height) = still_frame_size(image.width(), image.height());
+    if (target_width, target_height) == (image.width(), image.height()) {
+        return image;
+    }
     let image = image.to_rgba8();
-    let target_width = (image.width() / 4).max(1);
-    let target_height = (image.height() / 4).max(1);
     DynamicImage::ImageRgba8(image::imageops::resize(
         &image,
         target_width,
         target_height,
         image::imageops::FilterType::Triangle,
     ))
+}
+
+/// Scales a frame so its long edge fits the budget. Never enlarges.
+fn still_frame_size(width: u32, height: u32) -> (u32, u32) {
+    let long_edge = width.max(height);
+    if long_edge <= STILL_FRAME_MAX_LONG_EDGE {
+        return (width, height);
+    }
+    let scale = f64::from(STILL_FRAME_MAX_LONG_EDGE) / f64::from(long_edge);
+    let fit = |edge: u32| ((f64::from(edge) * scale).round() as u32).max(1);
+    (fit(width), fit(height))
 }
 
 /// Check if the message indicates setup is complete
@@ -138,4 +156,35 @@ pub fn is_setup_complete(msg: &str) -> bool {
 #[cfg(not(feature = "recorder-worker"))]
 pub fn parse_error(msg: &str) -> Option<String> {
     parse_server_frame(msg).ok()?.error
+}
+
+#[cfg(test)]
+mod still_frame_tests {
+    #[test]
+    fn still_frames_follow_the_shared_long_edge_budget() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/gemini-live-session/still-frame.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            fixture["maxLongEdge"].as_u64(),
+            Some(u64::from(super::STILL_FRAME_MAX_LONG_EDGE))
+        );
+        for case in fixture["cases"].as_array().unwrap() {
+            let edge = |key: &str, index: usize| case[key][index].as_u64().unwrap() as u32;
+            assert_eq!(
+                super::still_frame_size(edge("input", 0), edge("input", 1)),
+                (edge("output", 0), edge("output", 1)),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn a_small_selection_keeps_its_pixels() {
+        let image = image::DynamicImage::new_rgba8(320, 60);
+        let frame = super::downscale_live_frame(image);
+        assert_eq!((frame.width(), frame.height()), (320, 60));
+    }
 }

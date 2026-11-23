@@ -10,7 +10,7 @@ use windows::Win32::Media::Audio::{
 };
 #[cfg(windows)]
 use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoTaskMemFree,
 };
 #[cfg(windows)]
 use windows_core::Interface;
@@ -65,7 +65,9 @@ fn enumerate_audio_sessions(
         let current_pid = std::process::id();
         let mut warnings = Vec::new();
 
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // Scoped so the borrowed executor thread leaves in its original apartment;
+        // declared before the COM objects so it is released after them.
+        let _com = crate::com_scope::ComScope::enter(COINIT_APARTMENTTHREADED)?;
         let device_enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         let device = device_enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
@@ -205,4 +207,30 @@ fn sample_peak_value(meter: &IAudioMeterInformation) -> Option<f32> {
         }
     }
     Some(peak)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+    use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+
+    #[test]
+    fn audio_query_leaves_the_borrowed_thread_without_an_apartment() {
+        std::thread::spawn(|| {
+            // Success or failure (no audio endpoint), the query must release
+            // the STA it entered.
+            let result = active_sessions(&json!({"include_inactive": true}), 0);
+            assert!(result.get("ok").is_some(), "{result}");
+            let status = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            assert_ne!(
+                status, RPC_E_CHANGED_MODE,
+                "executor thread stayed in an STA"
+            );
+            assert!(status.is_ok());
+            unsafe { CoUninitialize() };
+        })
+        .join()
+        .unwrap();
+    }
 }

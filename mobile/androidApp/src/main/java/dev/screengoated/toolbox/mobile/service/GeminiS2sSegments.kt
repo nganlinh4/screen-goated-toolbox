@@ -5,6 +5,7 @@ import android.util.Log
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionException
+import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
 import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveReadySession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ internal suspend fun GeminiS2sClient.runSegmentWithRetry(
             generation = segment.generation,
             audioMs = segment.audioMs,
             queuedAtMs = SystemClock.elapsedRealtime(),
+            playbackEpoch = segment.playbackEpoch,
         ),
     )
     val first = runHedgedSegment(
@@ -108,6 +110,10 @@ private suspend fun GeminiS2sClient.runHedgedSegment(
                 if (error is CancellationException) {
                     throw error
                 }
+                if (terminalSegmentFailure(error)) {
+                    race.send(S2sRaceEvent.Fatal(segment.id, generation, attempt, error))
+                    return@launch
+                }
                 Log.w(
                     logTag,
                     "attempt-error segment=${segment.id} gen=$generation attempt=$attempt error=${error.message}",
@@ -121,6 +127,7 @@ private suspend fun GeminiS2sClient.runHedgedSegment(
     var winner: Int? = null
     var completed = 0
     var sawWinnerAudio = false
+    val fatal = HedgeTerminalFailures()
     var result = SegmentResult.RETRY_FRESH
     try {
         while (completed < HEDGE_ATTEMPTS && currentCoroutineContext().isActive) {
@@ -171,9 +178,14 @@ private suspend fun GeminiS2sClient.runHedgedSegment(
                         break
                     }
                 }
+                is S2sRaceEvent.Fatal -> {
+                    completed++
+                    fatal.record(winner, event.attempt, event.error)
+                }
             }
         }
         if (winner == null) {
+            fatal.finish(winner)
             Log.i(logTag, "hedge-empty segment=${segment.id} worker=$workerIndex gen=$baseGeneration attempts=$HEDGE_ATTEMPTS")
             result = if (finalAttempt) SegmentResult.EMPTY_FINAL else SegmentResult.RETRY_FRESH
         }
@@ -193,7 +205,8 @@ private suspend fun forwardWinnerEvent(
         is S2sRaceEvent.TargetText -> output.send(S2sEvent.TargetText(event.segmentId, event.generation, event.text))
         is S2sRaceEvent.Audio -> output.send(S2sEvent.Audio(event.segmentId, event.generation, event.bytes))
         is S2sRaceEvent.Done,
-        is S2sRaceEvent.Retry -> Unit
+        is S2sRaceEvent.Retry,
+        is S2sRaceEvent.Fatal -> Unit
     }
 }
 
@@ -217,6 +230,7 @@ private suspend fun GeminiS2sClient.runAttempt(
     val readySession = try {
         openGeminiLiveReadySession(httpClient, apiKey, setupPayload)
     } catch (error: GeminiLiveSessionException) {
+        if (terminalSegmentFailure(error)) throw error
         Log.w(
             logTag,
             "ready-failed segment=${segment.id} gen=${segment.generation} attempt=$attempt error=${error.message}",
@@ -356,8 +370,26 @@ private suspend fun GeminiS2sClient.runAttempt(
     }
 }
 
+internal fun terminalSegmentFailure(error: Throwable): Boolean {
+    val failure = (error as? GeminiLiveSessionException)?.failure
+    return failure is GeminiLiveSessionFailure.Server && !failure.retryable
+}
+
+internal class HedgeTerminalFailures {
+    private var pending: Throwable? = null
+
+    fun record(winner: Int?, attempt: Int, error: Throwable) {
+        if (winner == attempt) throw error
+        if (winner == null) pending = error
+    }
+
+    fun finish(winner: Int?) {
+        if (winner == null) pending?.let { throw it }
+    }
+}
+
 internal suspend fun collectSegments(
-    audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
+    audioChunks: kotlinx.coroutines.flow.Flow<S2sCapturedAudio>,
     adaptiveVad: AdaptiveS2sVadState,
     backlogMs: AtomicInteger,
     logTag: String,
@@ -367,8 +399,11 @@ internal suspend fun collectSegments(
     var generation = LongArray(SESSION_COUNT)
     val pending = ArrayList<Short>(TARGET_SEGMENT_SAMPLES + PREROLL_SAMPLES)
     val preroll = ArrayDeque<Short>(PREROLL_SAMPLES)
+    val prerollEpochs = ArrayDeque<Long?>(PREROLL_SAMPLES)
     val frame = ShortArray(FRAME_SAMPLES)
     var frameFill = 0
+    var frameEpoch: Long? = null
+    var pendingEpoch: Long? = null
     var active = false
     var activeMs = 0L
     var silenceFrames = 0
@@ -405,6 +440,7 @@ internal suspend fun collectSegments(
             energeticFrames = metrics.energeticFrames,
             speechLikeFrames = metrics.speechLikeFrames,
             activeMs = activeMs,
+            playbackEpoch = pendingEpoch,
         )
         val vadSnapshot = adaptiveVad.snapshot(backlogMs.get())
         val shouldEmit = isSegmentWorthSending(segment, vadSnapshot)
@@ -438,11 +474,13 @@ internal suspend fun collectSegments(
         peakRms = 0f
     }
 
-    fun addPreroll(sample: Short) {
+    fun addPreroll(sample: Short, epoch: Long?) {
         if (preroll.size >= PREROLL_SAMPLES) {
             preroll.removeFirst()
+            prerollEpochs.removeFirst()
         }
         preroll.addLast(sample)
+        prerollEpochs.addLast(epoch)
     }
 
     Log.i(
@@ -451,7 +489,9 @@ internal suspend fun collectSegments(
     )
     audioChunks.collect { chunk ->
         totalChunks++
-        for (sample in chunk) {
+        for (sample in chunk.samples) {
+            if (frameFill == 0) frameEpoch = chunk.epoch
+            else if (frameEpoch != chunk.epoch) frameEpoch = null
             frame[frameFill++] = sample
             if (frameFill < FRAME_SAMPLES) {
                 continue
@@ -473,8 +513,10 @@ internal suspend fun collectSegments(
             if (isSpeech) {
                 if (!active) {
                     active = true
+                    pendingEpoch = frameEpoch.takeIf { epoch -> prerollEpochs.all { it == epoch } }
                     pending.addAll(preroll)
                     preroll.clear()
+                    prerollEpochs.clear()
                 }
                 speechFrames++
                 activeMs += FRAME_MS
@@ -483,6 +525,7 @@ internal suspend fun collectSegments(
                 silenceFrames++
             }
             if (active) {
+                if (pendingEpoch != frameEpoch) pendingEpoch = null
                 for (value in frame) pending.add(value)
                 if (pending.size >= MAX_SEGMENT_SAMPLES) {
                     flush("max")
@@ -490,7 +533,7 @@ internal suspend fun collectSegments(
                     flush("silence")
                 }
             } else {
-                for (value in frame) addPreroll(value)
+                for (value in frame) addPreroll(value, frameEpoch)
             }
             frameFill = 0
             val nowMs = SystemClock.elapsedRealtime()

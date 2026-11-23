@@ -1,4 +1,5 @@
 use super::*;
+use crate::api::groq::{groq_rate_limit_retry_delay, retry_after_seconds};
 
 #[test]
 fn qwen_payload_uses_native_output_limit_and_disables_reasoning() {
@@ -108,11 +109,6 @@ fn groq_retry_headers_and_error_bodies_are_structural() {
     assert_eq!(groq_rate_limit_retry_delay(429, 0, Some(3)), None);
     assert_eq!(groq_rate_limit_retry_delay(429, 1, Some(1)), None);
     assert_eq!(groq_rate_limit_retry_delay(503, 0, Some(1)), None);
-    assert_eq!(
-        groq_error_message(429, r#"{"error":{"message":"TPM exhausted"}}"#),
-        "TPM exhausted"
-    );
-    assert_eq!(groq_error_message(500, "not json"), "HTTP 500");
 }
 
 #[test]

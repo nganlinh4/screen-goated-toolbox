@@ -1,28 +1,40 @@
+use crate::overlay::creation_error::{CreationError, ErrorCode};
+use crate::overlay::store_support::now_ms;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{LazyLock, Mutex, TryLockError};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod admission;
+pub(crate) mod commands;
 mod companion;
+mod configuration;
 mod deletion;
 mod delivery;
+mod locking;
+mod protected;
 mod refresh;
 mod rename;
 mod retention;
+mod snapshot;
 pub use refresh::refresh_artifact_proof;
 mod source_paths;
 pub(crate) use admission::admit_and_record;
+pub(crate) use companion::validated_companion_path;
+use configuration::results_per_tool_limit;
+#[cfg(test)]
 use deletion::{delete_all_at, delete_at};
+use deletion::{delete_all_at_protected, delete_at_protected};
 pub(crate) use delivery::*;
+pub(crate) use protected::ensure_output_unreserved;
 use rename::*;
 use retention::*;
+use snapshot::list_snapshot_at;
 pub(crate) use source_paths::live_source_paths;
 
+#[cfg(test)]
 const DEFAULT_RESULTS_PER_TOOL: usize = 50;
 const MAX_MANAGED_ARTIFACT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_HISTORY_ARTIFACT_BYTES: u64 = 100 * 1024 * 1024;
@@ -52,6 +64,8 @@ pub struct ResultHistoryEntry {
     pub artifact_sha256: String,
     #[serde(default)]
     pub managed_artifact: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    companion_origin_path: Option<String>,
     #[serde(default)]
     pub metadata: Value,
 }
@@ -88,22 +102,6 @@ pub fn public_entries(entries: &[ResultHistoryEntry]) -> Vec<ResultHistoryView> 
 
 pub fn public_entry(entry: &ResultHistoryEntry) -> ResultHistoryView {
     ResultHistoryView::from(entry)
-}
-
-pub(crate) fn validated_companion_path(
-    entry: &ResultHistoryEntry,
-) -> Result<Option<PathBuf>, String> {
-    let Some(companion) = companion::from_entry(entry) else {
-        return Ok(None);
-    };
-    let inspected = inspect_delivery_artifact(&companion.path)?;
-    if inspected.size_bytes != companion.size_bytes
-        || inspected.sha256 != companion.sha256
-        || inspected.file_identity != companion.file_identity
-    {
-        return Err("Result companion changed before export.".to_string());
-    }
-    Ok(Some(PathBuf::from(companion.path)))
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -170,23 +168,16 @@ struct ResultHistoryStore {
     delivery_identities: Vec<HistoryDeliveryIdentity>,
     #[serde(default)]
     pending_renames: Vec<PendingRename>,
+    #[serde(default)]
+    pending_deletes: Vec<deletion::PendingDelete>,
 }
 
-static HISTORY_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static HISTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static HISTORY_MAINTENANCE_RUNNING: AtomicBool = AtomicBool::new(false);
 static REQUESTED_RESULTS_PER_TOOL: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 fn history_path() -> PathBuf {
-    crate::paths::app_local_data_dir().join("creation-result-history.json")
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(u64::MAX as u128) as u64
+    crate::paths::app_runtime_local_data_dir().join("creation-result-history.json")
 }
 
 fn validate_tool(tool: &str) -> Result<(), String> {
@@ -195,13 +186,6 @@ fn validate_tool(tool: &str) -> Result<(), String> {
     } else {
         Err("Unknown result history tool.".to_string())
     }
-}
-
-fn results_per_tool_limit() -> usize {
-    crate::APP
-        .lock()
-        .map(|app| app.config.max_history_items.clamp(10, 200))
-        .unwrap_or(DEFAULT_RESULTS_PER_TOOL)
 }
 
 fn load_store(path: &Path) -> Result<ResultHistoryStore, String> {
@@ -237,7 +221,7 @@ fn save_store(path: &Path, store: &ResultHistoryStore) -> Result<(), String> {
 }
 
 fn same_path(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+    crate::overlay::creation_path::same(left, right).unwrap_or(false)
 }
 
 pub(crate) fn is_managed_creation_artifact(path: &Path) -> bool {
@@ -294,25 +278,15 @@ fn list_at_protected(
     validate_tool(tool)?;
     let mut store = load_store(path)?;
     reconcile_store_protected(path, &mut store, results_per_tool, protected_paths)?;
+    let pending = &store.pending_renames;
     let mut entries = store
-        .entries
-        .into_iter()
-        .filter(|entry| entry.tool == tool)
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|entry| std::cmp::Reverse(entry.created_at_ms));
-    Ok(entries)
-}
-
-fn list_snapshot_at(path: &Path, tool: &str) -> Result<Vec<ResultHistoryEntry>, String> {
-    validate_tool(tool)?;
-    let mut entries = load_store(path)?
         .entries
         .into_iter()
         .filter(|entry| {
             entry.tool == tool
-                && std::fs::symlink_metadata(&entry.output_path)
-                    .map(|metadata| metadata.file_type().is_file())
-                    .unwrap_or(false)
+                && !pending
+                    .iter()
+                    .any(|rename| rename.tool == entry.tool && rename.entry_id == entry.id)
         })
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.created_at_ms));
@@ -388,6 +362,9 @@ fn record_at_protected(
     }
     let mut store = load_store(path)?;
     reconcile_store_protected(path, &mut store, results_per_tool, protected_paths)?;
+    if deletion::pending_admission(&store, &output_path, &metadata) {
+        return Err("Result deletion is awaiting recovery.".to_string());
+    }
     let (artifact_size_bytes, artifact_sha256, managed_artifact) = match inspected_artifact {
         Some(details) => details,
         None => inspect_recorded_artifact(&output)?,
@@ -432,14 +409,12 @@ fn record_at_protected(
         existing.artifact_size_bytes = artifact_size_bytes;
         existing.artifact_sha256 = artifact_sha256;
         existing.managed_artifact = managed_artifact;
+        existing.companion_origin_path = None;
         existing.metadata = metadata;
         existing.clone()
     } else {
         let entry = ResultHistoryEntry {
-            id: format!(
-                "{tool}_{timestamp}_{}",
-                HISTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-            ),
+            id: crate::overlay::creation_identity::random_id(&format!("{tool}_"))?,
             tool: tool.to_string(),
             source_path: source_path.to_string(),
             output_path,
@@ -448,6 +423,7 @@ fn record_at_protected(
             artifact_size_bytes,
             artifact_sha256,
             managed_artifact,
+            companion_origin_path: None,
             metadata,
         };
         store.entries.push(entry.clone());
@@ -473,6 +449,12 @@ fn retain_live_delivery_identities(store: &mut ResultHistoryStore) -> bool {
         .entries
         .iter()
         .map(|entry| entry.id.as_str())
+        .chain(
+            store
+                .pending_deletes
+                .iter()
+                .map(|pending| pending.entry.id.as_str()),
+        )
         .collect::<std::collections::HashSet<_>>();
     let previous = store.delivery_identities.len();
     store
@@ -481,13 +463,24 @@ fn retain_live_delivery_identities(store: &mut ResultHistoryStore) -> bool {
     store.delivery_identities.len() != previous
 }
 
+#[cfg(test)]
 fn maintain_at(path: &Path) -> Result<(), String> {
+    maintain_at_protected(path, &protected::ProtectedPaths::default())
+}
+
+fn maintain_at_protected(path: &Path, protected: &protected::ProtectedPaths) -> Result<(), String> {
     let mut store = load_store(path)?;
-    if prepare_cleanup_quarantines(&mut store) {
+    // A migrated pair journal must be durable before its replay moves files.
+    if companion::migrate_cleanup(&mut store, protected) {
+        save_store(path, &store)?;
+    }
+    let changed = reconcile_pending_renames(&mut store, protected)
+        | deletion::reconcile_pending_deletes_protected(&mut store, protected);
+    if prepare_cleanup_quarantines(&mut store) || changed {
         // The exact original/quarantine mapping must be durable before a move.
         save_store(path, &store)?;
     }
-    if run_pending_cleanup_at(path, &mut store)? {
+    if run_pending_cleanup_at_protected(path, &mut store, protected)? {
         save_store(path, &store)?;
     }
     Ok(())
@@ -503,29 +496,22 @@ fn schedule_maintenance(path: PathBuf) {
     std::thread::spawn(move || {
         loop {
             let requested = REQUESTED_RESULTS_PER_TOOL.swap(usize::MAX, Ordering::AcqRel);
-            let protected = if requested == usize::MAX {
-                Ok(std::collections::HashSet::new())
-            } else {
-                crate::overlay::creation_delivery::pending_output_paths()
-                    .map(|paths| paths.into_iter().map(|path| path_identity(&path)).collect())
-            };
-            let result = protected.and_then(|protected| {
-                HISTORY_LOCK
-                    .lock()
-                    .map_err(|_| "Result history is unavailable.".to_string())
-                    .and_then(|_guard| {
-                        if requested != usize::MAX {
-                            let mut store = load_store(&path)?;
-                            reconcile_store_protected(
-                                &path,
-                                &mut store,
-                                requested.clamp(10, 200),
-                                &protected,
-                            )?;
-                        }
-                        maintain_at(&path)
-                    })
-            });
+            let result = (|| {
+                let _delivery = crate::overlay::creation_lifecycle::acquire_delivery()?;
+                let pending = protected::ProtectedPaths::pending()?;
+                let _guard = locking::acquire()?;
+                if requested != usize::MAX {
+                    let mut store = load_store(&path)?;
+                    let protected = pending.expanded(&store)?;
+                    reconcile_store_protected(
+                        &path,
+                        &mut store,
+                        requested.clamp(10, 200),
+                        &protected,
+                    )?;
+                }
+                maintain_at_protected(&path, &pending)
+            })();
             if let Err(error) = result {
                 crate::log_info!("[Creation history] Deferred cleanup could not finish: {error}");
             }
@@ -542,20 +528,21 @@ fn schedule_maintenance(path: PathBuf) {
 
 pub fn list(tool: &str) -> Result<Vec<ResultHistoryEntry>, String> {
     crate::overlay::creation_delivery::schedule_reconciliation(tool);
-    let protected_paths = crate::overlay::creation_delivery::pending_output_paths()?
-        .into_iter()
-        .map(|path| path_identity(&path))
-        .collect();
-    // Read app configuration before taking the history lock. Some UI paths hold
-    // the app lock while closing mini apps, so the reverse order could deadlock.
+    // Never wait for app configuration while holding delivery or history.
     let results_per_tool = results_per_tool_limit();
     let path = history_path();
-    let entries = match HISTORY_LOCK.try_lock() {
-        Ok(_guard) => list_at_protected(&path, tool, results_per_tool, &protected_paths)?,
-        Err(TryLockError::WouldBlock) => list_snapshot_at(&path, tool)?,
-        Err(TryLockError::Poisoned(_)) => {
-            return Err("Result history is unavailable.".to_string());
+    let Some(_delivery) = crate::overlay::creation_lifecycle::try_acquire_delivery()? else {
+        let entries = list_snapshot_at(&path, tool)?;
+        schedule_maintenance(path);
+        return Ok(entries);
+    };
+    let pending = protected::ProtectedPaths::pending()?;
+    let entries = match locking::try_acquire()? {
+        Some(_guard) => {
+            let protected_paths = pending.expanded(&load_store(&path)?)?;
+            list_at_protected(&path, tool, results_per_tool, &protected_paths)?
         }
+        None => list_snapshot_at(&path, tool)?,
     };
     schedule_maintenance(path);
     Ok(entries)
@@ -566,26 +553,37 @@ pub fn request_prune(results_per_tool: usize) {
     schedule_maintenance(history_path());
 }
 
-pub fn rename(tool: &str, id: &str, new_name: &str) -> Result<ResultHistoryEntry, String> {
+pub(crate) fn rename(
+    tool: &str,
+    id: &str,
+    new_name: &str,
+) -> Result<ResultHistoryEntry, CreationError> {
     let results_per_tool = results_per_tool_limit();
-    let _guard = HISTORY_LOCK
-        .lock()
-        .map_err(|_| "Result history is unavailable.".to_string())?;
-    rename_at(&history_path(), tool, id, new_name, results_per_tool)
+    let _delivery = crate::overlay::creation_lifecycle::acquire_delivery()?;
+    let pending = protected::ProtectedPaths::pending()?;
+    let _guard = locking::acquire()?;
+    rename_at_protected(
+        &history_path(),
+        tool,
+        id,
+        new_name,
+        results_per_tool,
+        &pending,
+    )
 }
 
-pub fn delete(tool: &str, id: &str) -> Result<(), String> {
-    let _guard = HISTORY_LOCK
-        .lock()
-        .map_err(|_| "Result history is unavailable.".to_string())?;
-    delete_at(&history_path(), tool, id)
+pub(crate) fn delete(tool: &str, id: &str) -> Result<(), CreationError> {
+    let _delivery = crate::overlay::creation_lifecycle::acquire_delivery()?;
+    let pending = protected::ProtectedPaths::pending()?;
+    let _guard = locking::acquire()?;
+    delete_at_protected(&history_path(), tool, id, &pending)
 }
 
-pub fn delete_all(tool: &str) -> Result<usize, String> {
-    let _guard = HISTORY_LOCK
-        .lock()
-        .map_err(|_| "Result history is unavailable.".to_string())?;
-    delete_all_at(&history_path(), tool)
+pub(crate) fn delete_all(tool: &str) -> Result<usize, CreationError> {
+    let _delivery = crate::overlay::creation_lifecycle::acquire_delivery()?;
+    let pending = protected::ProtectedPaths::pending()?;
+    let _guard = locking::acquire()?;
+    delete_all_at_protected(&history_path(), tool, &pending)
 }
 
 #[cfg(test)]

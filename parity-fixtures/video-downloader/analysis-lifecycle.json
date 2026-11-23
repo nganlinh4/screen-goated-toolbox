@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "maxConcurrentScans": 2,
+  "cases": [
+    {"name":"edited_url_rejects_old_success", "actions":["start:a", "edit:b", "success:a"], "expected":"ignore"},
+    {"name":"edited_url_rejects_old_error", "actions":["start:a", "edit:b", "error:a"], "expected":"ignore"},
+    {"name":"returning_to_url_does_not_revive_old_work", "actions":["start:a", "edit:b", "edit:a", "success:first-a"], "expected":"ignore"},
+    {"name":"closed_tab_rejects_old_work", "actions":["start:a", "close", "new-tab", "success:a"], "expected":"ignore"},
+    {"name":"empty_subtitles_preserve_preference", "actions":["enable-subtitles", "start:a", "success:no-subtitles"], "expected":"preference-enabled"},
+    {"name":"latest_scan_coalesces", "actions":["start:a", "edit:b", "edit:c", "settle:a"], "expected":"start:c"},
+    {"name":"scan_cancel_preserves_download", "actions":["start:download", "start:scan", "cancel:scan"], "expected":"download-active"}
+  ]
+}

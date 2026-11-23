@@ -56,10 +56,27 @@ pub struct OverlayAtlasMetadata {
     pub keyboard_slot_representative_widths: Vec<f64>,
     #[serde(default)]
     pub mouse_slot_representative_widths: Vec<f64>,
+    /// Output pixels per preview pixel (`resolveRenderScale` in
+    /// renderScale.ts). The fixed pixel floors, caps and animation offsets of
+    /// the keystroke and text layout are authored on the preview canvas, so
+    /// they multiply by it to keep their size relative to the frame.
+    #[serde(default = "default_overlay_scale")]
+    pub render_scale: f64,
 }
 
 fn default_overlay_scale() -> f64 {
     1.0
+}
+
+impl OverlayAtlasMetadata {
+    /// The render scale, or 1 when the payload carries no usable one.
+    pub(super) fn effective_render_scale(&self) -> f64 {
+        if self.render_scale.is_finite() && self.render_scale > 0.0 {
+            self.render_scale.clamp(0.05, 20.0)
+        } else {
+            1.0
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -147,13 +164,11 @@ pub(super) struct TextVisualState {
 
 pub(super) fn get_text_visual_state(
     current_time: f64,
-    start_time: f64,
-    end_time: f64,
-    animation_preset: &str,
-    animation_in_duration: f64,
-    animation_out_duration: f64,
-    rect_h: f64,
+    text: &TextAtlasEntry,
+    render_scale: f64,
 ) -> TextVisualState {
+    let animation_preset = text.animation_preset.as_str();
+    let rect_h = f64::from(text.rect_h);
     if animation_preset == "none" {
         return TextVisualState {
             alpha: 1.0,
@@ -162,10 +177,10 @@ pub(super) fn get_text_visual_state(
         };
     }
 
-    let elapsed = current_time - start_time;
-    let remaining = end_time - current_time;
-    let in_duration = animation_in_duration.max(0.001);
-    let out_duration = animation_out_duration.max(0.001);
+    let elapsed = current_time - text.start_time;
+    let remaining = text.end_time - current_time;
+    let in_duration = text.animation_in_duration.max(0.001);
+    let out_duration = text.animation_out_duration.max(0.001);
     let enter_t = clamp01(elapsed / in_duration);
     let exit_t = clamp01(remaining / out_duration);
 
@@ -179,8 +194,8 @@ pub(super) fn get_text_visual_state(
 
     match animation_preset {
         "slide-up" => {
-            let enter_offset = (rect_h * 0.35).max(18.0);
-            let exit_offset = (rect_h * 0.22).max(12.0);
+            let enter_offset = (rect_h * 0.35).max(18.0 * render_scale);
+            let exit_offset = (rect_h * 0.22).max(12.0 * render_scale);
             let mut translate_y = 0.0;
             if elapsed < in_duration {
                 translate_y = (1.0 - ease_out_cubic(enter_t)) * enter_offset;
@@ -232,12 +247,6 @@ pub(super) fn is_time_inside_segments(time: f64, segments: &[CursorVisibilitySeg
     time >= seg.start_time && time <= seg.end_time
 }
 
-// Single canonical speed sampler, re-exported so `types::get_speed` importers
-// (overlay_frames/mod) keep working. The previous LINEAR + `<=`-boundary copy here
-// diverged from the canonical COSINE + `<`-boundary sampler used by the video and
-// audio loops, sliding overlays off their video frame during speed ramps (WYSIWYG).
-pub(super) use super::super::config::get_speed;
-
 pub(super) fn compute_percentile(values: &mut [f64], percentile: f64) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -268,6 +277,7 @@ pub(super) fn get_keystroke_visual_state(
     event_end: f64,
     is_mouse: bool,
     is_hold: bool,
+    render_scale: f64,
 ) -> VisualState {
     let duration = (event_end - event_start).max(0.001);
     let enter_span = KEYSTROKE_ANIM_ENTER_SEC.min(duration * 0.36);
@@ -293,7 +303,7 @@ pub(super) fn get_keystroke_visual_state(
         state.scale = lerp(0.93, 1.01, eased);
         state.scale_x = lerp(1.1, 1.0, eased);
         state.scale_y = lerp(0.9, 1.0, eased);
-        state.translate_y = lerp(10.0, 0.0, eased);
+        state.translate_y = lerp(10.0 * render_scale, 0.0, eased);
         state.lane_weight = lane_lead;
         if t > 0.76 {
             let settle_t = (t - 0.76) / 0.24;
@@ -315,7 +325,7 @@ pub(super) fn get_keystroke_visual_state(
             state.scale *= lerp(1.0, 1.014, hold_mix);
             state.scale_x *= 1.0 + squish;
             state.scale_y *= 1.0 - squish * 0.72;
-            state.translate_y += lerp(0.0, -2.6, hold_mix);
+            state.translate_y += lerp(0.0, -2.6 * render_scale, hold_mix);
             state.lane_weight = state.lane_weight.max(lerp(0.84, 1.0, hold_mix));
         }
     }
@@ -328,7 +338,7 @@ pub(super) fn get_keystroke_visual_state(
         state.scale *= lerp(1.0, 0.93, eased);
         state.scale_x *= lerp(1.0, 1.04, eased);
         state.scale_y *= lerp(1.0, 0.89, eased);
-        state.translate_y += lerp(0.0, -9.0, eased);
+        state.translate_y += lerp(0.0, -9.0 * render_scale, eased);
         state.hold_mix *= lerp(1.0, 0.15, eased);
         state.lane_weight *= lerp(1.0, 0.76, eased);
     }
@@ -426,6 +436,6 @@ pub(super) fn find_active_events(
 }
 
 /// Bubble gap between bubbles in the same lane.
-pub(super) fn get_keystroke_lane_bubble_gap_px(font_size: f64) -> f64 {
-    (font_size * 0.22).max(8.0).round()
+pub(super) fn get_keystroke_lane_bubble_gap_px(font_size: f64, render_scale: f64) -> f64 {
+    (font_size * 0.22).max(8.0 * render_scale).round()
 }

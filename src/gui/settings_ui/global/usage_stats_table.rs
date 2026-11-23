@@ -3,10 +3,8 @@ use crate::gui::theme::{AppTheme, blend};
 use eframe::egui;
 
 pub(super) const CELL_GAP: f32 = 6.0;
-/// Quota / live-usage lane. Sized to the longest status string
-/// ("14400 lượt/ngày") rather than to a round number, so every spare pixel goes
-/// to the model id lane next to it.
-pub(super) const WIDE_STATUS_COLUMN_WIDTH: f32 = 104.0;
+/// Leaves room for the metric type, remaining balance, and localized qualifier.
+pub(super) const WIDE_STATUS_COLUMN_WIDTH: f32 = 128.0;
 pub(super) const WIDE_NAME_COLUMN_WIDTH: f32 = 118.0;
 pub(super) const PROVIDER_NAME_COLUMN_WIDTH: f32 = 110.0;
 
@@ -40,7 +38,7 @@ pub(super) fn endpoint_columns(row_width: f32) -> EndpointColumns {
     let status = if row_width >= 420.0 {
         WIDE_STATUS_COLUMN_WIDTH
     } else {
-        (row_width * 0.36).clamp(100.0, WIDE_STATUS_COLUMN_WIDTH)
+        (row_width * 0.36).clamp(116.0, WIDE_STATUS_COLUMN_WIDTH)
     };
     let identity_width = (row_width - PREFIX_WIDTH - status - CELL_GAP * 3.0).max(0.0);
     let maximum_name = (identity_width - MIN_ID_COLUMN_WIDTH).max(0.0);
@@ -96,12 +94,12 @@ pub(super) fn cell_ui(parent: &mut egui::Ui, rect: egui::Rect, layout: egui::Lay
 pub(super) fn render_status_strip(
     ui: &mut egui::Ui,
     label: &str,
-    status: String,
+    status: &str,
     accent: egui::Color32,
     theme: &AppTheme,
     row_height: f32,
     status_font_size: f32,
-) {
+) -> egui::Response {
     egui::Frame::new()
         .fill(blend(theme.dialog_surface(), accent, 0.08))
         .corner_radius(egui::CornerRadius::same(4))
@@ -136,14 +134,14 @@ pub(super) fn render_status_strip(
             );
             status_ui.add(
                 egui::Label::new(
-                    egui::RichText::new(&status)
-                        .monospace()
+                    egui::RichText::new(status)
                         .size(status_font_size)
                         .color(accent),
                 )
                 .truncate(),
-            );
-        });
+            )
+        })
+        .inner
 }
 
 fn column_rect(row: egui::Rect, x: f32, width: f32) -> egui::Rect {

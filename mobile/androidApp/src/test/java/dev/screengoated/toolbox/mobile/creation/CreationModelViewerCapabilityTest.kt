@@ -137,7 +137,8 @@ class CreationModelViewerCapabilityTest {
         assertTrue("default-src 'none'" in document)
         assertTrue("connect-src 'self'" in document)
         assertTrue("font-src 'self'" in document)
-        assertTrue("CreationArtifactValidator.validateGlb(session.modelFile)" in host)
+        // The private copy is validated once when materialized; requests serve only that length.
+        assertTrue("creationViewerModelLengthServable(length, session.modelBytes)" in host)
         assertTrue("val length = stream.channel.size()" in host)
         assertFalse("session.modelFile.length()" in host)
         assertFalse("addJavascriptInterface" in host)

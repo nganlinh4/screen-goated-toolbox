@@ -173,7 +173,7 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
             true
         }
         ServerEvent::Interrupted => {
-            state.input_transcript.begin_epoch();
+            super::input_activity::begin_epoch(state);
             super::speech_events::interrupted(state, sink);
             // Interrupted is progress metadata, not the old generation's final
             // boundary. A coalesced new transcript must still guard the late
@@ -183,9 +183,10 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
         }
         ServerEvent::ToolCall { id, name, .. } => {
             count_drop(state, "tool_call", true);
-            state.immediate_tool_responses.push_back((
-                id.clone(),
-                name.clone(),
+            super::tool_call_ids::enqueue(
+                state,
+                id,
+                name,
                 serde_json::json!({
                     "ok": false,
                     "status": "blocked_terminal_generation",
@@ -195,7 +196,7 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
                         "message": "The prior generation is closed. Wait for a new user turn."
                     }
                 }),
-            ));
+            );
             close_final_response(state, "tool_call_rejected", false, false);
             true
         }
@@ -209,15 +210,11 @@ pub(super) fn handle(event: &ServerEvent, sink: Option<&AudioSink>, state: &mut 
             true
         }
         // Connection metadata still belongs to the transport and remains live.
-        ServerEvent::SessionResumption { handle, resumable } => {
-            let _transport_can_resume = *resumable && handle.is_some();
-            false
-        }
-        ServerEvent::Other(summary) => {
-            let _bounded_summary_length = summary.len();
-            false
-        }
-        ServerEvent::SetupComplete | ServerEvent::GoAway { .. } | ServerEvent::Usage(_) => false,
+        ServerEvent::SessionResumption { .. }
+        | ServerEvent::Other(_)
+        | ServerEvent::SetupComplete
+        | ServerEvent::GoAway { .. }
+        | ServerEvent::Usage(_) => false,
     }
 }
 
@@ -424,7 +421,12 @@ pub(super) fn retire_for_connection_replacement(state: &mut Reader) -> bool {
     if !state.terminal_drain {
         return false;
     }
-    if state.terminal_accepted && state.terminal_final_response_delivered {
+    if state.terminal_accepted {
+        if !state.terminal_final_response_delivered {
+            overlay::push_log(
+                "(the final response was interrupted; waiting for a new user turn)".to_string(),
+            );
+        }
         state.terminal_response = FinalResponseState::Closed;
         state.terminal_prior_turn_boundary_pending = false;
         state.active = false;
@@ -438,7 +440,7 @@ pub(super) fn retire_for_connection_replacement(state: &mut Reader) -> bool {
             "runtime",
             Privacy::Safe,
             serde_json::json!({
-                "reason": "connection_replaced_after_final_delivery",
+                "reason": "connection_replaced_after_terminal_acceptance",
                 "accepted": true,
             }),
         );

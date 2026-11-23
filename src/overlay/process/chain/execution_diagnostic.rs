@@ -57,7 +57,7 @@ fn preset_image_chain_diagnostic() -> Result<()> {
                     execute_block(ExecuteBlockRequest {
                         block: &preset.blocks[0],
                         block_idx: 0,
-                        blocks: &preset.blocks,
+                        is_first_processing_block: true,
                         my_hwnd: None,
                         input_text: "",
                         context: &context,
@@ -74,6 +74,7 @@ fn preset_image_chain_diagnostic() -> Result<()> {
                 })
             })
         });
+        let response = response.context("Preset chain failed")?;
         ensure!(
             response.trim() == plan.reference.trim(),
             "Preset chain output did not match the reference"

@@ -218,23 +218,10 @@ fn cache_root() -> PathBuf {
     crate::paths::app_runtime_local_data_dir().join("help-assistant")
 }
 
+/// Concurrent help questions can download together; the shared writer gives
+/// each write a unique temporary sibling and replaces the target in one rename.
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temporary = path.with_extension("partial");
-    fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    if !path.exists() {
-        return fs::rename(&temporary, path).map_err(|error| error.to_string());
-    }
-    let backup = path.with_extension("previous");
-    if backup.exists() {
-        fs::remove_file(&backup).map_err(|error| error.to_string())?;
-    }
-    fs::rename(path, &backup).map_err(|error| error.to_string())?;
-    if let Err(error) = fs::rename(&temporary, path) {
-        let _ = fs::rename(&backup, path);
-        return Err(error.to_string());
-    }
-    let _ = fs::remove_file(backup);
-    Ok(())
+    crate::atomic_json::write_bytes_atomic(path, bytes).map_err(|error| error.to_string())
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -262,6 +249,39 @@ mod tests {
         let entries = parse_index(raw, Some(2)).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "shared");
+    }
+
+    #[test]
+    fn concurrent_cache_writes_keep_each_file_whole() {
+        let root = std::env::temp_dir().join(format!(
+            "sgt-help-cache-{}-{}",
+            std::process::id(),
+            std::time::UNIX_EPOCH.elapsed().unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let index = root.join("last-good.json");
+        let identity = root.join("last-good.sha256");
+        let barrier = std::sync::Barrier::new(4);
+        std::thread::scope(|scope| {
+            for writer in 0..4 {
+                let (path, bytes) = if writer % 2 == 0 {
+                    (&index, b"{\"schemaVersion\":1}".as_slice())
+                } else {
+                    (&identity, [b'a'; 64].as_slice())
+                };
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..64 {
+                        atomic_write(path, bytes).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(fs::read(&index).unwrap(), b"{\"schemaVersion\":1}");
+        assert_eq!(fs::read(&identity).unwrap(), [b'a'; 64]);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(sgt_staging_delivery)]

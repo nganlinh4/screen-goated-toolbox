@@ -43,16 +43,45 @@
   "comparison_examples": [
     {
       "current_version": "9.9.9",
+      "canonical_version": "9.9.9",
       "expected_status": "up_to_date"
     },
     {
       "current_version": "9.9.9-full-debug",
+      "canonical_version": "9.9.9",
       "expected_status": "up_to_date"
     },
     {
       "current_version": "9.9.8-play-debug",
+      "canonical_version": "9.9.8",
       "expected_status": "update_available"
     }
+  ],
+  "acceptance_cases": [
+    {"name":"valid_manifest","source":"manifest","mutations":[],"windows":true,"android_full":true},
+    {"name":"wrong_channel","source":"manifest","mutations":[{"pointer":"/channel","value":"staging"}],"windows":false,"android_full":false},
+    {"name":"fractional_schema","source":"manifest","mutations":[{"pointer":"/schemaVersion","value":1.5}],"windows":false,"android_full":false},
+    {"name":"text_schema","source":"manifest","mutations":[{"pointer":"/schemaVersion","value":"1"}],"windows":false,"android_full":false},
+    {"name":"wrong_installer_name","source":"manifest","mutations":[{"pointer":"/installer/name","value":"other.exe"}],"windows":false,"android_full":false},
+    {"name":"wrong_apk_name","source":"manifest","mutations":[{"pointer":"/androidFullApk/name","value":"other.apk"}],"windows":false,"android_full":false},
+    {"name":"fractional_installer_size","source":"manifest","mutations":[{"pointer":"/installer/sizeBytes","value":123.5}],"windows":false,"android_full":false},
+    {"name":"text_installer_size","source":"manifest","mutations":[{"pointer":"/installer/sizeBytes","value":"123"}],"windows":false,"android_full":false},
+    {"name":"fractional_apk_size","source":"manifest","mutations":[{"pointer":"/androidFullApk/sizeBytes","value":123.5}],"windows":false,"android_full":false},
+    {"name":"oversize_installer","source":"manifest","mutations":[{"pointer":"/installer/sizeBytes","value":1073741825}],"windows":false,"android_full":false},
+    {"name":"oversize_apk","source":"manifest","mutations":[{"pointer":"/androidFullApk/sizeBytes","value":2147483649}],"windows":false,"android_full":false},
+    {"name":"null_manifest_notes","source":"manifest","mutations":[{"pointer":"/releaseNotes","value":null}],"windows":false,"android_full":false},
+    {"name":"missing_manifest_notes","source":"manifest","mutations":[{"pointer":"/releaseNotes","operation":"remove"}],"windows":true,"android_full":true,"body":""},
+    {"name":"valid_fallback","source":"fallback","mutations":[],"windows":true,"android_full":true},
+    {"name":"draft_fallback","source":"fallback","mutations":[{"pointer":"/draft","value":true}],"windows":false,"android_full":false},
+    {"name":"missing_draft","source":"fallback","mutations":[{"pointer":"/draft","operation":"remove"}],"windows":false,"android_full":false},
+    {"name":"text_prerelease","source":"fallback","mutations":[{"pointer":"/prerelease","value":"false"}],"windows":false,"android_full":false},
+    {"name":"duplicate_installer","source":"fallback","mutations":[{"pointer":"/assets/0","operation":"duplicate"}],"windows":false,"android_full":true},
+    {"name":"duplicate_apk","source":"fallback","mutations":[{"pointer":"/assets/1","operation":"duplicate"}],"windows":true,"android_full":false},
+    {"name":"untyped_installer_digest","source":"fallback","mutations":[{"pointer":"/assets/0/digest","value":"1111111111111111111111111111111111111111111111111111111111111111"}],"windows":false,"android_full":true},
+    {"name":"untyped_apk_digest","source":"fallback","mutations":[{"pointer":"/assets/1/digest","value":"2222222222222222222222222222222222222222222222222222222222222222"}],"windows":true,"android_full":false},
+    {"name":"fractional_apk_fallback_size","source":"fallback","mutations":[{"pointer":"/assets/1/size","value":123.5}],"windows":false,"android_full":false},
+    {"name":"text_fallback_body","source":"fallback","mutations":[{"pointer":"/body","value":123}],"windows":false,"android_full":false},
+    {"name":"null_fallback_body","source":"fallback","mutations":[{"pointer":"/body","value":null}],"windows":true,"android_full":true,"body":""}
   ],
   "asset_selection": {
     "exact_full_apk_name": "ScreenGoatedToolbox_v9.9.9.apk",

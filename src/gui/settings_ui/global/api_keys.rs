@@ -3,6 +3,9 @@ use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 
+#[cfg(test)]
+mod tests;
+
 /// A key row: the field claims every point left after the row's trailing
 /// control, so the eye stays pinned to the right edge at any card width.
 ///
@@ -212,7 +215,7 @@ pub(super) fn render_api_keys_card(
 
             if config.use_ollama {
                 ui.horizontal(|ui| {
-                    ui.label("Ollama URL:");
+                    ui.label(text.global_settings.ollama_url_label);
                     if ui.link(text.global_settings.ollama_url_guide).clicked() {
                         let _ = open::that("https://docs.ollama.com/api/introduction#base-url");
                     }

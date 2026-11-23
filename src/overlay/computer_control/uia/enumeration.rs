@@ -8,13 +8,26 @@ const OPTIONAL_TIMEOUT_SECS: u64 = 1;
 pub(in crate::overlay::computer_control) fn enumerate(
     target: Option<&str>,
 ) -> Result<Vec<UiElement>> {
-    enumerate_with(target, EnumerationKind::Authoritative)
+    enumerate_with(target, EnumerationKind::Authoritative, Detail::Values)
 }
 
 pub(in crate::overlay::computer_control) fn enumerate_best_effort(
     target: Option<&str>,
 ) -> Result<Vec<UiElement>> {
-    enumerate_with(target, EnumerationKind::Optional)
+    enumerate_with(target, EnumerationKind::Optional, Detail::Values)
+}
+
+/// Grid selection uses control labels and geometry, never text contents.
+pub(in crate::overlay::computer_control) fn enumerate_for_snapshot(
+    target: Option<&str>,
+) -> Result<Vec<UiElement>> {
+    enumerate_with(target, EnumerationKind::Optional, Detail::Controls)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Detail {
+    Controls,
+    Values,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,22 +36,48 @@ enum EnumerationKind {
     Optional,
 }
 
-fn enumerate_with(target: Option<&str>, kind: EnumerationKind) -> Result<Vec<UiElement>> {
-    let authoritative_key = circuit::surface_key(target);
-    let circuit_key = circuit_key(&authoritative_key, kind);
-    if let Some(retry_after) = circuit::remaining(&circuit_key) {
-        report_unavailable(
-            kind,
-            &circuit_key,
-            Some(retry_after.as_millis()),
-            "enumeration is cooling down after a timeout",
-        );
-        return Err(anyhow!(
-            "UIA enumeration cooling down for {} ms after a timeout",
-            retry_after.as_millis()
-        ));
-    }
-    let owned = target.map(str::to_string);
+fn enumerate_with(
+    target: Option<&str>,
+    kind: EnumerationKind,
+    detail: Detail,
+) -> Result<Vec<UiElement>> {
+    let surface = match circuit::resolve_surface(target) {
+        Ok(surface) => surface,
+        Err(error) => {
+            report_unavailable(kind, "unresolved", None, &error.to_string());
+            return Err(error);
+        }
+    };
+    let circuit_key = circuit_key(&surface.key(), kind);
+    let (permit, lease) = match circuit::admit(&surface, kind.circuit_kind()) {
+        Ok(admitted) => admitted,
+        Err(circuit::AdmissionError::CoolingDown(retry_after)) => {
+            report_unavailable(
+                kind,
+                &circuit_key,
+                Some(retry_after.as_millis()),
+                "enumeration is cooling down after a timeout",
+            );
+            return Err(anyhow!(
+                "UIA enumeration cooling down for {} ms after a timeout",
+                retry_after.as_millis()
+            ));
+        }
+        Err(circuit::AdmissionError::Capacity) => {
+            report_unavailable(
+                kind,
+                &circuit_key,
+                None,
+                "enumeration circuit capacity reached",
+            );
+            return Err(anyhow!("UIA enumeration circuit capacity reached"));
+        }
+        Err(circuit::AdmissionError::InFlight) => {
+            report_unavailable(kind, &circuit_key, None, "enumeration is already in flight");
+            return Err(anyhow!("UIA enumeration is already in flight"));
+        }
+    };
+    let hwnd = surface.hwnd;
     let timeout_secs = match kind {
         EnumerationKind::Authoritative => AUTHORITATIVE_TIMEOUT_SECS,
         EnumerationKind::Optional => OPTIONAL_TIMEOUT_SECS,
@@ -51,18 +90,30 @@ fn enumerate_with(target: Option<&str>, kind: EnumerationKind) -> Result<Vec<UiE
         label,
         timeout_secs,
         Err(circuit::timeout_error()),
-        move || enumerate_inner(owned.as_deref()),
+        move || {
+            // Held until this worker exits, even after its caller times out.
+            let _lease = lease;
+            enumerate_inner(hwnd, detail)
+        },
     );
     if result.is_ok() {
-        circuit::record_success(&authoritative_key);
-        circuit::record_success(&optional_key(&authoritative_key));
+        permit.success();
     } else if result.as_ref().is_err_and(circuit::is_timeout) {
-        circuit::record_timeout(&circuit_key);
+        permit.timeout();
     }
     if let Err(error) = &result {
         report_unavailable(kind, &circuit_key, None, &error.to_string());
     }
     result
+}
+
+impl EnumerationKind {
+    fn circuit_kind(self) -> circuit::Kind {
+        match self {
+            Self::Authoritative => circuit::Kind::Authoritative,
+            Self::Optional => circuit::Kind::Optional,
+        }
+    }
 }
 
 fn circuit_key(authoritative_key: &str, kind: EnumerationKind) -> String {
@@ -103,29 +154,29 @@ fn report_unavailable(
     }
 }
 
-fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
+pub(super) fn enumerate_inner(hwnd: usize, detail: Detail) -> Result<Vec<UiElement>> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
-        let (root, selected_hwnd) = pick_window(&uia, target)?;
+        let selected_hwnd = HWND(hwnd as *mut _);
+        let root = uia.ElementFromHandle(selected_hwnd)?;
         ensure_native_accessibility_authority(selected_hwnd)?;
         let point_hit_test_is_authoritative =
             target::point_hit_test_is_authoritative(selected_hwnd);
-        let cond = uia.CreateTrueCondition()?;
-        let arr = root.FindAll(TreeScope_Descendants, &cond)?;
+        let with_values = detail == Detail::Values;
+        let arr = cached_element::find_visible_descendants(&uia, &root, with_values)?;
         let n = arr.Length()?;
         let mut out = Vec::new();
         for i in 0..n {
             let Ok(el) = arr.GetElement(i) else { continue };
-            let rect = el.CurrentBoundingRectangle().unwrap_or_default();
+            let Some(node) = cached_element::read(&el, with_values) else {
+                continue;
+            };
+            let rect = node.rect;
             if rect.right <= rect.left || rect.bottom <= rect.top {
                 continue;
             }
-            if el.CurrentIsOffscreen().map(|b| b.as_bool()).unwrap_or(true) {
-                continue;
-            }
-            let name = el.CurrentName().map(|b| b.to_string()).unwrap_or_default();
-            let ct = el.CurrentControlType().map(|c| c.0).unwrap_or(0);
+            let ct = node.control_type;
             let actionable = target::is_interactive_control_type(ct);
             if point_hit_test_is_authoritative
                 && target::is_grounding_control_type(ct)
@@ -140,9 +191,7 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
             }
             let (automation_id, runtime_id) = if actionable {
                 (
-                    el.CurrentAutomationId()
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
+                    node.automation_id,
                     target::runtime_id(&el).unwrap_or_default(),
                 )
             } else {
@@ -151,17 +200,23 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
             if actionable && runtime_id.is_empty() {
                 continue;
             }
-            let enabled = el.CurrentIsEnabled().map(|b| b.as_bool()).unwrap_or(false);
-            let state = (!name.trim().is_empty()).then(|| read_state(&el)).flatten();
-            let value = matches!(ct, 50004 | 50030 | 50003)
-                .then(|| read_value(&el))
+            let state = (with_values && !node.name.trim().is_empty())
+                .then_some(node.state)
                 .flatten();
-            let required = el
-                .CurrentIsRequiredForForm()
-                .map(|b| b.as_bool())
-                .unwrap_or(false);
+            let value = if with_values && control_types::has_text_value(ct) {
+                value_preview::read(
+                    &el,
+                    node.password == Some(false),
+                    value_preview::Capability {
+                        value_supported: node.value_supported,
+                        value_writable: node.value_writable,
+                    },
+                )
+            } else {
+                value_preview::ValuePreview::default()
+            };
             out.push(UiElement {
-                name,
+                name: node.name,
                 automation_id,
                 runtime_id,
                 control_type: target::control_type_name(ct),
@@ -169,10 +224,11 @@ fn enumerate_inner(target: Option<&str>) -> Result<Vec<UiElement>> {
                 top: rect.top,
                 right: rect.right,
                 bottom: rect.bottom,
-                enabled,
+                enabled: node.enabled,
+                protected: node.password == Some(true),
                 state,
                 value,
-                required,
+                required: node.required,
             });
         }
         Ok(out)

@@ -24,6 +24,15 @@
     "second_launch_same_preset": "stop_and_submit",
     "third_launch_while_processing": "abort_and_close"
   },
+  "recording_resource_contract": {
+    "finite_max_seconds": 600,
+    "finite_limit_action": "stop_notify_and_submit_accepted_audio",
+    "continuous_attachment_overflow": "omit_complete_attachment_and_continue_transcription",
+    "continuous_stream_failure": "fallback_with_complete_recording_or_fail_after_omission",
+    "continuous_setup_backlog_overflow": "fallback_without_dropping_audio",
+    "android_capture_storage": "session_owned_temporary_file",
+    "android_preview": "per_window_revocable_audio_capability_with_range_support"
+  },
   "auto_stop_thresholds": {
     "activity_policy": "microphone-activity.json",
     "warmup_rms": 0.001,
@@ -56,7 +65,6 @@
     "google-gemini-3-1-live-transcribe-audio": "partial_transcript_during_capture",
     "google-gemini-3-5-transcribe-live-audio": "replaceable_interim_and_authoritative_final_during_capture",
     "google-gemini-3-5-transcribe-audio": "unary_smart_audio_file_transcription",
-    "local-parakeet-120m-v1-audio": "android_unsupported_until_mobile_runtime_exists",
     "final_transcript_handoff": "first_audio_block_uses_precomputed_transcript",
     "streaming_auto_paste": "revise_verified_owned_provisional_tail_commit_finals_and_suppress_final_result_paste",
     "gemini_transcribe_setup": {

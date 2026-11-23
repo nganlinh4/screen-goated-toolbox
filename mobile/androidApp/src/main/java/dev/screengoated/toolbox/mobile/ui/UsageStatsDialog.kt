@@ -24,6 +24,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -43,6 +44,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.PresetProviderSettings
 import dev.screengoated.toolbox.mobile.preset.ui.providerIconRes
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 import kotlinx.coroutines.delay
 
 internal data class ProviderSection(
@@ -83,6 +85,7 @@ internal fun UsageStatsDialog(
 
     ExpressiveDialogSurface(
         title = locale.usageStatsTitle,
+        closeLabel = locale.closeLabel,
         icon = R.drawable.ms_auto_awesome,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Oval, MaterialShapes.Gem),
@@ -144,7 +147,6 @@ internal fun UsageStatsDialog(
                                         snapshot = snapshot,
                                         nowSeconds = nowSeconds,
                                         locale = locale,
-                                        accent = accent,
                                     )
                                 }
                         }
@@ -280,7 +282,6 @@ private fun EndpointRow(
                         snapshot = snapshot,
                         nowSeconds = nowSeconds,
                         locale = locale,
-                        accent = accent,
                     )
                 }
             } else if (!providerQuotaIsShared && staticQuota != null) {
@@ -300,28 +301,56 @@ private fun SnapshotChips(
     snapshot: ModelUsageStats.UsageSnapshot,
     nowSeconds: Long,
     locale: MobileLocaleText,
-    accent: Color,
 ) {
+    val freshness = ModelUsageStats.freshnessAt(snapshot.observedAtUnixSeconds, nowSeconds)
+    val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+    val statusColors = MaterialTheme.sgtColors
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val green = lerp(statusColors.statusSuccess, onSurface, 0.55f)
+    val amber = lerp(statusColors.statusWarning, onSurface, 0.55f)
     snapshot.metrics.forEach { metric ->
-        val remaining = metric.remaining ?: "—"
-        val limit = metric.limit ?: "—"
         val reset = metric.reset?.let { " · ${locale.usageStatsReset} $it" }.orEmpty()
-        UsageMetricChip("${metric.kind.label} $remaining/$limit$reset", accent)
+        val color = when (usageQuotaTone(metric, freshness)) {
+            UsageQuotaTone.GREEN -> green
+            UsageQuotaTone.AMBER -> amber
+            UsageQuotaTone.NEUTRAL -> neutral
+        }
+        UsageMetricChip(usageQuotaLabel(metric, locale) + reset, color)
     }
 
     val ageSeconds = (nowSeconds - snapshot.observedAtUnixSeconds).coerceAtLeast(0)
     val minutes = (ageSeconds + 59) / 60
-    val freshness = ModelUsageStats.freshnessAt(snapshot.observedAtUnixSeconds, nowSeconds)
-    val (label, color) = when (freshness) {
-        ModelUsageStats.Freshness.FRESH ->
-            locale.usageStatsUpdatedNow to MaterialTheme.colorScheme.primary
-        ModelUsageStats.Freshness.AGING ->
-            "$minutes ${locale.usageStatsMinutesAgo}" to MaterialTheme.colorScheme.tertiary
+    val label = when (freshness) {
+        ModelUsageStats.Freshness.FRESH -> locale.usageStatsUpdatedNow
+        ModelUsageStats.Freshness.AGING -> "$minutes ${locale.usageStatsMinutesAgo}"
         ModelUsageStats.Freshness.STALE ->
-            "${locale.usageStatsStale} · $minutes ${locale.usageStatsMinutesAgo}" to
-                MaterialTheme.colorScheme.error
+            "${locale.usageStatsStale} · $minutes ${locale.usageStatsMinutesAgo}"
     }
-    UsageMetricChip(label, color)
+    UsageMetricChip(label, neutral)
+}
+
+internal fun usageQuotaLabel(
+    metric: ModelUsageStats.UsageMetric,
+    locale: MobileLocaleText,
+): String {
+    val ratio = "${metric.remaining ?: "—"}/${metric.limit ?: "—"}"
+    return "${metric.kind.label} ${locale.usageStatsQuotaLeft.replace("{quota}", ratio)}"
+}
+
+internal enum class UsageQuotaTone { GREEN, AMBER, NEUTRAL }
+
+internal const val LOW_QUOTA_RATIO = 0.2
+
+internal fun usageQuotaTone(
+    metric: ModelUsageStats.UsageMetric,
+    freshness: ModelUsageStats.Freshness,
+): UsageQuotaTone {
+    if (freshness != ModelUsageStats.Freshness.FRESH) return UsageQuotaTone.NEUTRAL
+    val limit = metric.limit?.replace(",", "")?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 }
+        ?: return UsageQuotaTone.NEUTRAL
+    val remaining = metric.remaining?.replace(",", "")?.toDoubleOrNull()?.takeIf { it in 0.0..limit }
+        ?: return UsageQuotaTone.NEUTRAL
+    return if (remaining / limit <= LOW_QUOTA_RATIO) UsageQuotaTone.AMBER else UsageQuotaTone.GREEN
 }
 
 @Composable

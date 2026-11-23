@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AudioGainPoint } from "@/types/video";
 import { getAudioWaveform, type AudioWaveformResponse } from "@/lib/audioWaveform";
+import { getTimelineCanvasSize } from "./timelineCanvasSize";
 
 interface AudioWaveformLayerProps {
   sourcePath?: string | null;
@@ -167,9 +168,11 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
 
     const cssWidth = Math.max(0, size.width);
     const cssHeight = Math.max(0, size.height);
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(cssWidth * dpr));
-    const height = Math.max(1, Math.round(cssHeight * dpr));
+    const { width, height, scaleX, scaleY } = getTimelineCanvasSize(
+      cssWidth,
+      cssHeight,
+      window.devicePixelRatio || 1,
+    );
 
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
@@ -193,7 +196,7 @@ export const AudioWaveformLayer: React.FC<AudioWaveformLayerProps> = ({
       return;
     }
 
-    ctx.scale(dpr, dpr);
+    ctx.scale(scaleX, scaleY);
     const computedStyle = getComputedStyle(canvas);
     const color = computedStyle.getPropertyValue(colorVariable).trim() || "#5ca8ff";
     const centerY = (topPx + bottomPx) * 0.5;

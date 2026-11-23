@@ -4,23 +4,22 @@ import android.content.Context
 import android.content.Intent
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
-import androidx.core.content.FileProvider
+import android.net.Uri
 import androidx.core.net.toUri
 import java.io.File
 
 internal object HistoryExternalActions {
     fun openItem(
         context: Context,
-        file: File,
+        item: HistoryItem,
+        proof: HistoryMediaProof,
     ): Boolean {
         return runCatching {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file,
-            )
+            val uri = Uri.Builder().scheme("content").authority("${context.packageName}.history-media")
+                .appendPath(item.id.toString()).appendPath(item.mediaPath).appendPath(proof.identity)
+                .appendPath(proof.size.toString()).appendPath(proof.sha256).appendPath(historyItemDigest(item)).build()
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeTypeFor(file))
+                setDataAndType(uri, mimeTypeFor(File(item.mediaPath)))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(intent)

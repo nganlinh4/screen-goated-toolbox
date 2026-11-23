@@ -1,109 +1,76 @@
 use super::{
     CleanNarrationItem, NarrationRequestGroup, SubtitleNarrationGroupingRequest, TtsProfileWire,
     build_narration_groups, handle_get_narration_tts_metadata, normalize_group_sentence,
-    normalize_narration_input_text, prepare_narration_tts_text, split_group_audio_ranges,
+    normalize_narration_input_text, split_group_audio_ranges,
 };
 use crate::api::tts::types::TtsCollectedAudio;
 use crate::config::TtsMethod;
 
 #[test]
-fn step_audio_profile_wire_preserves_reference_id_and_prompt() {
-    let wire: TtsProfileWire = serde_json::from_value(serde_json::json!({
-        "method": "StepAudioEditX",
-        "stepAudioVoice": "",
-        "stepAudioReferenceVoiceId": "ref-demo",
-        "stepAudioPromptText": "Use a calm narration delivery."
-    }))
-    .expect("deserialize Step Audio narration profile");
+fn retired_offline_profile_wire_falls_back_to_the_default_provider() {
+    for (method, retired_field) in [
+        ("StepAudioEditX", "stepAudioReferenceVoiceId"),
+        ("Supertonic", "supertonicNumSteps"),
+    ] {
+        let wire: TtsProfileWire = serde_json::from_value(serde_json::json!({
+            "method": method,
+            retired_field: 5,
+            "supertonicVoiceConfigs": [{ "languageCode": "en", "languageName": "English", "voiceId": "M1" }]
+        }))
+        .expect("deserialize a narration profile saved before the offline engines were removed");
 
-    let profile = wire.into_request_profile(Some("cmn".to_string()));
+        let profile = wire.into_request_profile(Some("cmn".to_string()));
 
-    assert_eq!(profile.method, TtsMethod::StepAudioEditX);
-    assert_eq!(profile.language_code_override.as_deref(), Some("cmn"));
-    assert_eq!(
-        profile.step_audio_settings.style_prompt,
-        "Use a calm narration delivery."
-    );
-    assert_eq!(profile.step_audio_settings.reference_voice_id, "ref-demo");
+        assert_eq!(profile.method, TtsMethod::GeminiLive, "{method}");
+        assert_eq!(profile.language_code_override.as_deref(), Some("cmn"));
+    }
 }
 
 #[test]
-fn narration_tts_metadata_exposes_step_audio_options() {
+fn narration_tts_metadata_lists_only_available_providers() {
     let metadata = handle_get_narration_tts_metadata(&serde_json::Value::Null)
         .expect("get narration TTS metadata");
+    let methods = metadata["providers"]
+        .as_array()
+        .expect("providers array")
+        .iter()
+        .map(|provider| provider["method"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
 
-    assert!(
-        metadata["providers"]
-            .as_array()
-            .expect("providers array")
-            .iter()
-            .any(|provider| provider["method"] == "StepAudioEditX")
-    );
-    assert!(metadata["stepAudioReferenceVoices"].is_array());
-    assert!(metadata["defaults"]["stepAudioReferenceVoiceId"].is_string());
-}
-
-#[test]
-fn magpie_narration_adds_terminal_punctuation_to_fragments() {
-    assert_eq!(
-        prepare_narration_tts_text("Đêm giông bão", &TtsMethod::MagpieMultilingual),
-        "Đêm giông bão."
-    );
-    assert_eq!(
-        prepare_narration_tts_text("Đêm giông bão!", &TtsMethod::MagpieMultilingual),
-        "Đêm giông bão!"
-    );
-    assert_eq!(
-        prepare_narration_tts_text("Đêm giông bão", &TtsMethod::GeminiLive),
-        "Đêm giông bão"
-    );
+    assert_eq!(methods, ["GeminiLive", "EdgeTTS", "GoogleTranslate"]);
+    assert!(metadata.get("stepAudioReferenceVoices").is_none());
+    assert!(metadata.get("supertonicVoices").is_none());
 }
 
 #[test]
 fn narration_normalization_repairs_cp949_mojibake() {
     assert_eq!(
-        normalize_narration_input_text("휂챗m gi척ng b찾o", &TtsMethod::VieneuTts).as_deref(),
+        normalize_narration_input_text("휂챗m gi척ng b찾o").as_deref(),
         Some("Đêm giông bão")
     );
     assert_eq!(
-        normalize_narration_input_text("??R梳캮G CH횣NG T횚I C횙 CH梳짽??", &TtsMethod::VieneuTts)
-            .as_deref(),
+        normalize_narration_input_text("??R梳캮G CH횣NG T횚I C횙 CH梳짽??").as_deref(),
         Some("RẰNG CHÚNG TÔI CÓ CHẤT")
     );
 }
 
 #[test]
-fn narration_normalization_skips_unrecoverable_mojibake_placeholders() {
-    assert_eq!(
-        normalize_narration_input_text(
-            "??V? NH梳줪 THEO NH沼둗 휂I沼괣- ??",
-            &TtsMethod::VieneuTts
-        ),
-        None
-    );
-    assert_eq!(
-        normalize_narration_input_text("[V?O 휂칩A]", &TtsMethod::VieneuTts),
-        None
-    );
-}
-
-#[test]
 fn narration_normalization_skips_unspeakable_fragments() {
-    assert_eq!(
-        normalize_narration_input_text("????", &TtsMethod::VieneuTts),
-        None
-    );
+    assert_eq!(normalize_narration_input_text("????"), None);
 }
 
 #[test]
 fn narration_normalization_strips_music_wrappers_per_line() {
     assert_eq!(
         normalize_narration_input_text(
-            "♪♪TÔI VÀ CÔ GÁI CỦA TÔI♪♪\n♪♪MỐI QUAN HỆ NÀY♪♪",
-            &TtsMethod::VieneuTts
+            "♪♪TÔI VÀ CÔ GÁI CỦA TÔI♪♪
+♪♪MỐI QUAN HỆ NÀY♪♪"
         )
         .as_deref(),
-        Some("TÔI VÀ CÔ GÁI CỦA TÔI\nMỐI QUAN HỆ NÀY")
+        Some(
+            "TÔI VÀ CÔ GÁI CỦA TÔI
+MỐI QUAN HỆ NÀY"
+        )
     );
 }
 
@@ -112,7 +79,6 @@ fn clean_item(id: &str, text: &str, start_time: f64, end_time: f64) -> CleanNarr
         id: id.to_string(),
         text: text.to_string(),
         tts_text: text.to_string(),
-        aligner_text: super::normalize_alignment_text(text),
         start_time,
         end_time,
         text_units: super::estimate_narration_speech_units(text),
@@ -165,7 +131,6 @@ fn narration_group_split_ranges_are_monotonic() {
             clean_item("b", "tạm biệt mọi người", 0.6, 1.4),
         ],
         text: "xin chào. tạm biệt mọi người.".to_string(),
-        spans: Vec::new(),
     };
     let audio = TtsCollectedAudio {
         pcm_samples: vec![0; 24_000],

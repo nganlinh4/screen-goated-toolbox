@@ -72,3 +72,19 @@ test("loop off clamps at the clip end and stops playback; loop on wraps", () => 
   assert.ok(Math.abs(once.playback.state().time - 1) < 0.001);
   once.playback.dispose();
 });
+
+test("play after a loop-off clip finished replays it from the start", () => {
+  const { bone, playback } = fixture();
+  playback.setLoop(false);
+  playback.setPlaying(true);
+  for (let tick = 0; tick < 12; tick += 1) playback.update(0.1);
+  assert.equal(playback.state().playing, false);
+
+  playback.setPlaying(true);
+  assert.equal(playback.state().playing, true);
+  assert.equal(playback.update(0.1), true);
+  assert.ok(Math.abs(playback.state().time - 0.1) < 0.001);
+  assert.ok(Math.abs(bone.position.x - 0.1) < 0.001);
+  assert.equal(playback.state().playing, true);
+  playback.dispose();
+});

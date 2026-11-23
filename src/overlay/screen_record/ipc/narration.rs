@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
@@ -10,14 +8,10 @@ use crate::api::tts::TTS_MANAGER;
 use crate::api::tts::types::TtsCollectedAudio;
 use crate::api::tts::types::TtsRequestProfile;
 use crate::config::tts_catalog::{
-    GEMINI_VOICES, KOKORO_VOICES, MAGPIE_VOICE_LANGUAGES, MAGPIE_VOICES, SUPERTONIC_LANGUAGES,
-    SUPERTONIC_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES, narration_tts_providers,
-    normalize_kokoro_lang, normalize_magpie_voice, tts_method_id,
+    GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES, narration_tts_providers, tts_method_id,
 };
 use crate::config::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioVoiceConfig, SupertonicSettings, SupertonicVoiceConfig,
-    TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
 };
 use crate::model_config::tts_gemini_model_options;
 
@@ -34,7 +28,6 @@ const NARRATION_GROUP_MAX_ITEMS: usize = 10;
 const NARRATION_GROUP_MAX_CHARS: usize = 650;
 const NARRATION_GROUP_GAP_BREAK_SEC: f64 = 1.2;
 const NARRATION_GROUP_DEFAULT_VAD_RADIUS_SEC: f64 = 0.35;
-const NARRATION_ALIGNER_ENV: &str = "SGT_NARRATION_ALIGNER_CMD";
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -247,6 +240,10 @@ pub fn handle_start_subtitle_narration(
     let mut jobs = subtitle_narration_jobs()
         .lock()
         .map_err(|_| "Subtitle narration jobs lock poisoned".to_string())?;
+    let job_id = job_registry::start_id(args, "subtitle-narration")?;
+    if jobs.contains_key(&job_id) {
+        return Ok(serde_json::json!({ "jobId": job_id }));
+    }
     if let Some(active_job_id) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Subtitle narration already running (job={active_job_id})"
@@ -254,7 +251,12 @@ pub fn handle_start_subtitle_narration(
     }
     job_registry::prepare_for_insert(&mut jobs)?;
 
-    let job_id = job_registry::uuid("subtitle-narration");
+    let mut requests = job_registry::client_requests()?;
+    job_registry::claim_client_start(
+        &mut requests,
+        &job_id,
+        job_registry::NarrationKind::Subtitle,
+    )?;
     let snapshot = Arc::new(Mutex::new(SubtitleNarrationJobSnapshot {
         state: "queued".to_string(),
         message: "Queued subtitle narration".to_string(),
@@ -264,11 +266,9 @@ pub fn handle_start_subtitle_narration(
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        JobHandle {
-            snapshot: snapshot.clone(),
-            cancelled: cancelled.clone(),
-        },
+        JobHandle::new(snapshot.clone(), cancelled.clone()),
     );
+    drop(requests);
     drop(jobs);
 
     let thread_job_id = job_id.clone();
@@ -427,16 +427,16 @@ pub fn handle_cancel_subtitle_narration(
     let jobs = subtitle_narration_jobs()
         .lock()
         .map_err(|_| "Subtitle narration jobs lock poisoned".to_string())?;
-    let handle = jobs
-        .get(job_id)
-        .ok_or_else(|| format!("Unknown subtitle narration job: {job_id}"))?;
-    handle.cancelled.store(true, Ordering::SeqCst);
-    if let Ok(mut snapshot) = handle.snapshot.lock() {
-        snapshot.state = "cancelled".to_string();
-        snapshot.message = "Subtitle narration cancelled".to_string();
-        snapshot.active_subtitle_id = None;
-    }
-    Ok(serde_json::Value::Null)
+    job_registry::cancel_job(
+        &jobs,
+        job_id,
+        job_registry::NarrationKind::Subtitle,
+        |snapshot| {
+            snapshot.state = "cancelled".to_string();
+            snapshot.message = "Subtitle narration cancelled".to_string();
+            snapshot.active_subtitle_id = None;
+        },
+    )
 }
 
 pub(super) fn cancel_all_jobs() {

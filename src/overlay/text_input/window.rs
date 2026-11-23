@@ -15,10 +15,18 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
-use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 use wry::{Rect, WebViewBuilder};
+
+/// The editor's physical size on a monitor: its authored CSS size at that
+/// monitor's scale, kept inside the work area.
+pub(super) fn editor_size(
+    area: crate::overlay::display_placement::WorkArea,
+    scale: f64,
+) -> (i32, i32) {
+    area.physical_size(560.0, 253.0, scale)
+}
 
 pub fn internal_create_window_loop() {
     unsafe {
@@ -42,15 +50,12 @@ pub fn internal_create_window_loop() {
         });
         crate::log_info!("[TextInput] Class Registered");
 
-        crate::log_info!("[TextInput] Calculating scale...");
-        let area = crate::overlay::display_placement::primary_work_area();
-        let scale = {
-            let dpi = GetDpiForSystem();
-            crate::log_info!("[TextInput] System DPI: {}", dpi);
-            dpi as f64 / 96.0
-        };
-        let win_w = ((560.0 * scale).round() as i32).min(area.width);
-        let win_h = ((253.0 * scale).round() as i32).min(area.height);
+        // Warm-up size only: every show resizes for the cursor's monitor.
+        let scale = crate::overlay::display_placement::primary_scale();
+        let (win_w, win_h) = editor_size(
+            crate::overlay::display_placement::primary_work_area(),
+            scale,
+        );
 
         crate::log_info!(
             "[TextInput] Creating window: scale={:.2}, width={}, height={}",
@@ -148,18 +153,17 @@ pub fn internal_create_window_loop() {
             return;
         }
 
-        // Mark as warmed up and ready
-        IS_WARMED_UP.store(true, Ordering::SeqCst);
-        IS_WARMING_UP.store(false, Ordering::SeqCst); // Done warming up
-
         if let Ok(hook) = SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(passive::keyboard_hook_proc),
             Some(instance.into()),
             0,
         ) {
+            passive::seed_hook_keys();
             *INPUT_HOOK.lock().unwrap() = SendHhook(hook);
         }
+        IS_WARMED_UP.store(true, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
 
         // Message Loop
         let mut msg = MSG::default();
@@ -173,18 +177,29 @@ pub fn internal_create_window_loop() {
             *wv.borrow_mut() = None;
         });
         INPUT_HWND.store(0, Ordering::SeqCst);
-        IS_WARMED_UP.store(false, Ordering::SeqCst);
-        IS_WARMING_UP.store(false, Ordering::SeqCst);
         let hook = *INPUT_HOOK.lock().unwrap();
         if !hook.0.is_invalid() {
             let _ = UnhookWindowsHookEx(hook.0);
             *INPUT_HOOK.lock().unwrap() = SendHhook::default();
         }
+        passive::retire_hook_keys();
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
         CoUninitialize();
     }
 }
 
 pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<(), ()> {
+    let mut nonce_bytes = [0u8; 16];
+    getrandom::fill(&mut nonce_bytes).map_err(|_| ())?;
+    let document_nonce = nonce_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let initialization_script = format!(
+        "if (window.top === window) {{ window.__sgtDocumentNonce = '{}'; window.__sgtCancelledThrough = '0'; }}",
+        document_nonce
+    );
     // Use exact window dimensions for the webview, no insets.
     // The CSS .editor-container handles the padding/border-radius/shadow.
     let webview_x = 0;
@@ -199,7 +214,8 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
     };
 
     let placeholder = "Ready...";
-    let html = get_editor_html(placeholder, is_dark);
+    let initial_title = CFG_TITLE.lock().unwrap().clone();
+    let html = get_editor_html(placeholder, is_dark, &initial_title);
     let wrapper = HwndWrapper(hwnd);
 
     // Initialize shared WebContext if needed
@@ -214,6 +230,9 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
 
     crate::log_info!("[TextInput] Starting WebView build phase...");
 
+    let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
+        .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+    let page = crate::overlay::trusted_page::TrustedPage::new(&page_url).ok_or(())?;
     let result = {
         // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
         let init = crate::overlay::webview_init::acquire("text-input");
@@ -227,12 +246,10 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
                 WebViewBuilder::new()
             };
             let builder = builder.with_transparent(true);
-            let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             crate::log_info!("[TextInput] Builder configured. Preparing build...");
 
-            let page_url =
-                crate::overlay::html_components::font_manager::store_html_page(html.clone())
-                    .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+            let ipc_page = page.clone();
+            let navigation_page = page.clone();
 
             crate::log_info!("[TextInput] URL prepared. Invoking build...");
 
@@ -249,10 +266,14 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
                     )),
                 })
                 .with_url(&page_url)
+                .with_initialization_script(&initialization_script)
                 .with_transparent(true)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                    handle_ipc_message(msg.body());
+                    if ipc_page.allow_ipc(&msg.uri().to_string()) {
+                        handle_ipc_message(msg.body());
+                    }
                 })
+                .with_navigation_handler(move |url| navigation_page.allow_navigation(&url))
                 .build_as_child(&wrapper)
         });
         crate::log_info!(
@@ -264,12 +285,12 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
     };
 
     if let Ok(webview) = result {
+        *DOCUMENT_NONCE.lock().unwrap() = Some(document_nonce);
         crate::overlay::webview_diagnostics::attach_webview2_close_on_failure(
             "text-input",
             hwnd,
             &webview,
         );
-        println!("[TextInput] WebView initialization SUCCESSFUL");
         TEXT_INPUT_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);
         });
@@ -281,12 +302,35 @@ pub unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<()
 
 /// Handle IPC messages from WebView
 fn handle_ipc_message(body: &str) {
+    let Some((session, body)) = body.split_once(':') else {
+        return;
+    };
+    let Ok(session) = session.parse::<u64>() else {
+        return;
+    };
+    if !EDITOR_SESSIONS.is_current(session) {
+        return;
+    }
     if body.starts_with("submit:") {
-        let text = body.strip_prefix("submit:").unwrap_or("").to_string();
+        let Some((revision, text)) = body
+            .strip_prefix("submit:")
+            .and_then(|value| value.split_once(':'))
+        else {
+            return;
+        };
+        if revision.parse::<u64>().is_err() {
+            return;
+        }
+        let text = text.to_string();
         if !text.trim().is_empty() {
             // Save to history before submitting
             crate::overlay::input_history::add_to_history(&text);
-            *SUBMITTED_TEXT.lock().unwrap() = Some(text);
+            *SUBMITTED_TEXT.lock().unwrap() = Some(SubmittedText {
+                snapshot: text.clone(),
+                text,
+                revision: revision.to_string(),
+                passive: false,
+            });
             *SHOULD_CLOSE.lock().unwrap() = true;
         }
     } else if body == "cancel" {
@@ -295,34 +339,12 @@ fn handle_ipc_message(body: &str) {
     } else if body.starts_with("history_up:") {
         let current = body.strip_prefix("history_up:").unwrap_or("");
         if let Some(text) = crate::overlay::input_history::navigate_history_up(current) {
-            *PENDING_TEXT.lock().unwrap() = Some(format!("__REPLACE_ALL__{}", text));
-            let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
-            if hwnd_val != 0 {
-                unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                        Some(HWND(hwnd_val as *mut std::ffi::c_void)),
-                        WM_APP_SET_TEXT,
-                        windows::Win32::Foundation::WPARAM(0),
-                        windows::Win32::Foundation::LPARAM(0),
-                    );
-                }
-            }
+            super::queue_editor_text(session, text);
         }
     } else if body.starts_with("history_down:") {
         let current = body.strip_prefix("history_down:").unwrap_or("");
         if let Some(text) = crate::overlay::input_history::navigate_history_down(current) {
-            *PENDING_TEXT.lock().unwrap() = Some(format!("__REPLACE_ALL__{}", text));
-            let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
-            if hwnd_val != 0 {
-                unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                        Some(HWND(hwnd_val as *mut std::ffi::c_void)),
-                        WM_APP_SET_TEXT,
-                        windows::Win32::Foundation::WPARAM(0),
-                        windows::Win32::Foundation::LPARAM(0),
-                    );
-                }
-            }
+            super::queue_editor_text(session, text);
         }
     } else if body == "mic" {
         // Trigger transcription preset

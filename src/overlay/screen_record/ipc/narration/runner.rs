@@ -49,8 +49,7 @@ pub(super) fn run_subtitle_narration(
             continue;
         }
 
-        let Some(narration_text) = normalize_narration_input_text(clean_text, &profile.method)
-        else {
+        let Some(narration_text) = normalize_narration_input_text(clean_text) else {
             eprintln!(
                 "[Narration][job={}] skip invalid narration text item {}/{} subtitle_id={} text_json={}",
                 job_id,
@@ -67,13 +66,11 @@ pub(super) fn run_subtitle_narration(
             continue;
         };
 
-        let tts_text = prepare_narration_tts_text(&narration_text, &profile.method);
         clean_items.push(CleanNarrationItem {
             id: item.id.clone(),
             text: clean_text.to_string(),
             text_units: estimate_narration_speech_units(&narration_text),
-            aligner_text: normalize_alignment_text(&narration_text),
-            tts_text,
+            tts_text: narration_text,
             start_time: item.start_time,
             end_time: item.end_time,
         });
@@ -179,19 +176,19 @@ pub(super) fn run_subtitle_narration(
             ),
         }
 
+        // Silence snapping scans the whole take; do it before taking the
+        // snapshot lock that status polls wait on.
+        let result = result.map(|(path, audio, _attempts)| {
+            let split =
+                split_group_audio_ranges(group, &audio, request.grouping.vad_search_radius_sec);
+            (path, audio, split)
+        });
         let _ = update_snapshot(&snapshot, |state| {
             state.completed_items += group.items.len();
             state.progress = state.completed_items as f64 / total.max(1) as f64;
             match result {
-                Ok((path, audio, _attempts)) => {
+                Ok((path, audio, split)) => {
                     let duration = audio.duration_ms as f64 / 1000.0;
-                    let split = align_group_audio_ranges(
-                        group,
-                        &path,
-                        &audio,
-                        profile.language_code_override.as_deref(),
-                        request.grouping.vad_search_radius_sec,
-                    );
                     let alignment_mode = split.mode.to_string();
                     let take_id = format!("{job_id}-{}", group.id);
                     for (item, range) in group.items.iter().zip(split.ranges) {
@@ -233,6 +230,13 @@ pub(super) fn run_subtitle_narration(
 
     let _ = update_snapshot(&snapshot, |state| {
         state.active_subtitle_id = None;
+        // Checked under the snapshot lock, which cancel_job also holds while it
+        // raises the flag, so a cancel can never be overwritten by "completed".
+        if cancelled.load(Ordering::SeqCst) {
+            state.state = "cancelled".to_string();
+            state.message = "Subtitle narration cancelled".to_string();
+            return;
+        }
         state.progress = 1.0;
         if state.results.is_empty() && !state.errors.is_empty() {
             state.state = "error".to_string();

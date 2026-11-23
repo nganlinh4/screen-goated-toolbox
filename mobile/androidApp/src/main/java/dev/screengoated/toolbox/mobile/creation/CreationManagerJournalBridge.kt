@@ -35,33 +35,42 @@ internal fun loadCreationManagerState(
     nowMs: Long,
     continuationLifetimeMs: Long,
 ): List<RestoredCreationRecord> {
-    val loaded = journal.load()
+    return restoreCreationManagerRecords(journal.load(), nowMs, continuationLifetimeMs,
+        files::restoredRequestIsValid, files::exists)
+}
+
+internal fun restoreCreationManagerRecords(
+    loaded: List<CreationJournalRecord>,
+    nowMs: Long,
+    continuationLifetimeMs: Long,
+    requestIsValid: (CreationWorkerRequest) -> Boolean,
+    exists: (String) -> Boolean,
+): List<RestoredCreationRecord> {
     val records = boundedRestorableCreationRecords(
         loaded,
         CreationContract.MAXIMUM_PARALLEL_JOBS + 50,
     ) { record ->
         restoredCreationRecordIsBounded(record, nowMs) &&
-            files.restoredRequestIsValid(record.request)
+            requestIsValid(record.request)
     }
     return records.mapNotNull { original ->
-        val record = if (
+        val expired =
             creationStageIsBusy(original.status.stage) &&
             nowMs >= original.request.deadlineAtMs
-        ) {
+        val record = if (expired) {
             original.copy(
                 status = original.status.copy(
                     stage = "failed",
                     progressText = "Creation timed out.",
                     phase = "failed",
-                    error = CreationTool.fromWireName(original.request.tool)
-                        ?.let(::publicCreationFailure),
+                    error = publicCreationFailure(),
                 ),
             )
         } else {
             original
         }
         val busy = creationStageIsBusy(record.status.stage)
-        if (!busy && record.status.outputPath?.let(files::exists) != true) {
+        if (!busy && !expired && record.status.outputPath?.let(exists) != true) {
             return@mapNotNull null
         }
         RestoredCreationRecord(
@@ -74,8 +83,8 @@ internal fun loadCreationManagerState(
             continuation = record.continuation
                 ?.takeIf {
                     nowMs - it.createdAtMs <= continuationLifetimeMs &&
-                        it.sourcePath in record.request.imagePaths &&
-                        files.exists(it.sourcePath)
+                        it.sourcePath == record.request.imagePath &&
+                        exists(it.sourcePath)
                 }
                 ?.let { saved ->
                     CreationContinuation(
@@ -90,7 +99,7 @@ internal fun loadCreationManagerState(
                         revisionId = saved.revisionId,
                         supportedActions = saved.supportedActions,
                         availableActions = saved.availableActions,
-                    )
+                    ).withGeneration(record.request, record.status)
                 },
         )
     }

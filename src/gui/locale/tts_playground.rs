@@ -4,7 +4,6 @@ pub struct TtsPlaygroundLocaleText {
     pub tts_playground_btn: &'static str,
     pub tts_playground_title: &'static str,
     pub tts_playground_tab_tts_clone: &'static str,
-    pub tts_playground_tab_audio_edit: &'static str,
     pub tts_playground_text_label: &'static str,
     pub tts_playground_text_hint: &'static str,
     pub tts_playground_play: &'static str,

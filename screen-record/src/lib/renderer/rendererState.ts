@@ -44,5 +44,7 @@ export interface RendererState {
     srcCropH?: number,
     videoScale?: number,
   ) => ZoomKeyframe;
+  /** Records the camera state of the frame actually presented in the preview. */
+  recordPresentedZoomState: (state: ZoomKeyframe) => void;
   requestRedraw: () => void;
 }

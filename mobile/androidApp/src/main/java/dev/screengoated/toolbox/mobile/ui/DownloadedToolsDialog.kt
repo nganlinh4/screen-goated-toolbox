@@ -40,10 +40,6 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.creation.CreationJobManager
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeManager
 import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
-import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineLanguage
-import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager
-import dev.screengoated.toolbox.mobile.service.moonshine.ZipformerLanguage
-import dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 @Composable
@@ -53,18 +49,8 @@ internal fun DownloadedToolsDialog(
 ) {
     val context = LocalContext.current
 
-    // Moonshine + Zipformer
-    val moonshineManager = remember { MoonshineModelManager.get(context) }
-    val moonshineStatuses by moonshineManager.moonshineStatuses.collectAsState()
-    val zipformerStatuses by moonshineManager.zipformerStatuses.collectAsState()
     val creationRuntimeManager = remember { CreationRuntimeManager.get(context) }
     val creationRuntimeStatus by creationRuntimeManager.status.collectAsState()
-
-    // Per-engine native runtimes
-    val nativeLibManager = remember { NativeLibManager.get(context) }
-    val ortStatus by nativeLibManager.status(NativeLibManager.Engine.ORT).collectAsState()
-    val moonshineRtStatus by nativeLibManager.status(NativeLibManager.Engine.MOONSHINE).collectAsState()
-    val sherpaRtStatus by nativeLibManager.status(NativeLibManager.Engine.SHERPA).collectAsState()
 
     var helpDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
@@ -83,6 +69,7 @@ internal fun DownloadedToolsDialog(
 
     ExpressiveDialogSurface(
         title = locale.shellDownloadedToolsLabel,
+        closeLabel = locale.closeLabel,
         icon = R.drawable.ms_download,
         accent = MaterialTheme.colorScheme.tertiary,
         morphPair = DialogCloseMorphPair,
@@ -97,174 +84,6 @@ internal fun DownloadedToolsDialog(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Card 1: Moonshine Voice
-            ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
-                Text(
-                    text = "Moonshine Voice",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                NativeRuntimeRow(
-                    name = locale.downloader.toolRuntimeMoonshine,
-                    status = moonshineRtStatus,
-                    locale = locale,
-                    helpDesc = locale.downloader.toolRuntimeMoonshineDesc,
-                    onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.MOONSHINE) },
-                    onDelete = { nativeLibManager.delete(NativeLibManager.Engine.MOONSHINE) },
-                    onHelp = { helpDialog = it },
-                )
-                NativeRuntimeRow(
-                    name = locale.downloader.toolRuntimeOrt,
-                    status = ortStatus,
-                    locale = locale,
-                    helpDesc = locale.downloader.toolRuntimeOrtDesc,
-                    onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.ORT) },
-                    onDelete = { nativeLibManager.delete(NativeLibManager.Engine.ORT) },
-                    onHelp = { helpDialog = it },
-                )
-                Text(
-                    text = moonshineLanguageSummary(locale),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                for (lang in MoonshineLanguage.entries) {
-                    val status = moonshineStatuses[lang] ?: MoonshineModelManager.MoonshineLangStatus.Missing
-                    DownloadedToolRow(
-                        name = lang.displayName,
-                        icon = R.drawable.ms_mic,
-                        statusText = when (status) {
-                            is MoonshineModelManager.MoonshineLangStatus.Missing ->
-                                locale.dlDepsNotInstalled
-                            is MoonshineModelManager.MoonshineLangStatus.Downloading ->
-                                downloadingStatus(locale, status.progress)
-                            is MoonshineModelManager.MoonshineLangStatus.Installed ->
-                                installedStatus(locale, status.sizeBytes)
-                            is MoonshineModelManager.MoonshineLangStatus.RemovalPending ->
-                                status.message
-                            is MoonshineModelManager.MoonshineLangStatus.Error ->
-                                status.message
-                        },
-                        statusColor = when (status) {
-                            is MoonshineModelManager.MoonshineLangStatus.Installed ->
-                                MaterialTheme.colorScheme.tertiary
-                            is MoonshineModelManager.MoonshineLangStatus.Error ->
-                                MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        accent = MaterialTheme.colorScheme.secondary,
-                        onHelpClick = {
-                            helpDialog = lang.displayName to moonshineHelpText(locale)
-                        },
-                        progressFraction = if (status is MoonshineModelManager.MoonshineLangStatus.Downloading) {
-                            status.progress
-                        } else {
-                            null
-                        },
-                        action = when (status) {
-                            is MoonshineModelManager.MoonshineLangStatus.Missing,
-                            is MoonshineModelManager.MoonshineLangStatus.Error -> ToolAction(
-                                text = locale.dlDepsInstall,
-                                role = ToolActionRole.TONAL,
-                                onClick = { moonshineManager.startDownloadMoonshine(lang) },
-                            )
-                            is MoonshineModelManager.MoonshineLangStatus.Installed -> ToolAction(
-                                text = locale.downloader.toolDelete,
-                                role = ToolActionRole.DESTRUCTIVE,
-                                onClick = { moonshineManager.deleteMoonshine(lang) },
-                            )
-                            is MoonshineModelManager.MoonshineLangStatus.RemovalPending ->
-                                status.takeIf { it.retryable }?.let {
-                                    ToolAction(
-                                        text = locale.downloader.toolDelete,
-                                        role = ToolActionRole.DESTRUCTIVE,
-                                        onClick = { moonshineManager.deleteMoonshine(lang) },
-                                    )
-                                }
-                            else -> null
-                        },
-                    )
-                }
-            }
-
-            // Card 2: Zipformer ASR
-            ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
-                Text(
-                    text = "Zipformer ASR",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                NativeRuntimeRow(
-                    name = locale.downloader.toolRuntimeSherpa,
-                    status = sherpaRtStatus,
-                    locale = locale,
-                    helpDesc = locale.downloader.toolRuntimeSherpaDesc,
-                    onDownload = { nativeLibManager.startDownload(NativeLibManager.Engine.SHERPA) },
-                    onDelete = { nativeLibManager.delete(NativeLibManager.Engine.SHERPA) },
-                    onHelp = { helpDialog = it },
-                )
-                Text(
-                    text = zipformerLanguageSummary(locale),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                for (lang in ZipformerLanguage.entries) {
-                    val status = zipformerStatuses[lang] ?: MoonshineModelManager.ZipformerLangStatus.Missing
-                    DownloadedToolRow(
-                        name = lang.displayName,
-                        icon = R.drawable.ms_translate,
-                        statusText = when (status) {
-                            is MoonshineModelManager.ZipformerLangStatus.Missing ->
-                                locale.dlDepsNotInstalled
-                            is MoonshineModelManager.ZipformerLangStatus.Downloading ->
-                                downloadingStatus(locale, status.progress)
-                            is MoonshineModelManager.ZipformerLangStatus.Installed ->
-                                installedStatus(locale, status.sizeBytes)
-                            is MoonshineModelManager.ZipformerLangStatus.RemovalPending ->
-                                status.message
-                            is MoonshineModelManager.ZipformerLangStatus.Error ->
-                                status.message
-                        },
-                        statusColor = when (status) {
-                            is MoonshineModelManager.ZipformerLangStatus.Installed ->
-                                MaterialTheme.colorScheme.tertiary
-                            is MoonshineModelManager.ZipformerLangStatus.Error ->
-                                MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        accent = MaterialTheme.colorScheme.secondary,
-                        onHelpClick = {
-                            helpDialog = lang.displayName to zipformerHelpText(locale)
-                        },
-                        progressFraction = if (status is MoonshineModelManager.ZipformerLangStatus.Downloading) {
-                            status.progress
-                        } else {
-                            null
-                        },
-                        action = when (status) {
-                            is MoonshineModelManager.ZipformerLangStatus.Missing,
-                            is MoonshineModelManager.ZipformerLangStatus.Error -> ToolAction(
-                                text = locale.dlDepsInstall,
-                                role = ToolActionRole.TONAL,
-                                onClick = { moonshineManager.startDownloadZipformer(lang) },
-                            )
-                            is MoonshineModelManager.ZipformerLangStatus.Installed -> ToolAction(
-                                text = locale.downloader.toolDelete,
-                                role = ToolActionRole.DESTRUCTIVE,
-                                onClick = { moonshineManager.deleteZipformer(lang) },
-                            )
-                            is MoonshineModelManager.ZipformerLangStatus.RemovalPending ->
-                                status.takeIf { it.retryable }?.let {
-                                    ToolAction(
-                                        text = locale.downloader.toolDelete,
-                                        role = ToolActionRole.DESTRUCTIVE,
-                                        onClick = { moonshineManager.deleteZipformer(lang) },
-                                    )
-                                }
-                            else -> null
-                        },
-                    )
-                }
-            }
 
             ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.tertiary) {
                 Text(
@@ -323,6 +142,9 @@ internal fun DownloadedToolsDialog(
 
             // Video downloader tools — sideload-only; stubbed out on the Play flavor.
             DownloaderToolsCard(locale = locale, onHelp = { helpDialog = it })
+
+            // Shown only while files from removed offline engines remain on this device.
+            LegacyOfflineModelsCard(locale = locale, onHelp = { helpDialog = it })
         }
     }
 }
@@ -431,79 +253,13 @@ internal fun DownloadedToolRow(
     }
 }
 
-@Composable
-private fun NativeRuntimeRow(
-    name: String,
-    status: NativeLibManager.Status,
-    locale: MobileLocaleText,
-    helpDesc: String,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
-    onHelp: (Pair<String, String>) -> Unit,
-) {
-    DownloadedToolRow(
-        name = name,
-        icon = R.drawable.ms_display_settings,
-        statusText = when (status) {
-            is NativeLibManager.Status.Missing -> locale.dlDepsNotInstalled
-            is NativeLibManager.Status.Downloading ->
-                downloadingStatus(locale, status.progress)
-            is NativeLibManager.Status.Installed ->
-                installedStatus(locale, status.sizeBytes)
-            is NativeLibManager.Status.RemovalPending -> status.message
-            is NativeLibManager.Status.Error -> status.message
-        },
-        statusColor = when (status) {
-            is NativeLibManager.Status.Installed -> MaterialTheme.colorScheme.tertiary
-            is NativeLibManager.Status.Error -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        accent = MaterialTheme.colorScheme.secondary,
-        onHelpClick = { onHelp(name to helpDesc) },
-        progressFraction = if (status is NativeLibManager.Status.Downloading) {
-            status.progress
-        } else {
-            null
-        },
-        action = when (status) {
-            is NativeLibManager.Status.Missing,
-            is NativeLibManager.Status.Error -> ToolAction(
-                text = locale.dlDepsInstall,
-                role = ToolActionRole.TONAL,
-                onClick = onDownload,
-            )
-            is NativeLibManager.Status.Installed -> ToolAction(
-                text = locale.downloader.toolDelete,
-                role = ToolActionRole.DESTRUCTIVE,
-                onClick = onDelete,
-            )
-            is NativeLibManager.Status.RemovalPending -> status.takeIf { it.retryable }?.let {
-                ToolAction(
-                    text = locale.downloader.toolDelete,
-                    role = ToolActionRole.DESTRUCTIVE,
-                    onClick = onDelete,
-                )
-            }
-            else -> null
-        },
-    )
-}
-
 private fun downloadingStatus(locale: MobileLocaleText, progress: Float): String =
     "${locale.dlDepsDownloading} (${(progress * 100).toInt()}%)"
 
 private fun installedStatus(locale: MobileLocaleText, sizeBytes: Long): String =
     "${locale.dlDepsReady} (${formatMb(sizeBytes)} MB)"
 
-private fun moonshineLanguageSummary(locale: MobileLocaleText): String = locale.downloader.moonshineLanguageSummary
-
-private fun zipformerLanguageSummary(locale: MobileLocaleText): String = locale.downloader.zipformerLanguageSummary
-
-private fun moonshineHelpText(locale: MobileLocaleText): String = locale.downloader.moonshineHelpText
-
-private fun zipformerHelpText(locale: MobileLocaleText): String = locale.downloader.zipformerHelpText
-
-private fun formatMb(bytes: Long): String = "%.1f".format(bytes / (1024.0 * 1024.0))
+internal fun formatMb(bytes: Long): String = "%.1f".format(bytes / (1024.0 * 1024.0))
 
 internal data class ToolAction(
     val text: String,

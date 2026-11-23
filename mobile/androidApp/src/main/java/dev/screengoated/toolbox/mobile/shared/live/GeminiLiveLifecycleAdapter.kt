@@ -142,11 +142,12 @@ internal class GeminiLiveLifecycleAdapter(
         generation: Long,
         error: GeminiLiveSessionException,
     ) {
-        val server = error.failure as? GeminiLiveSessionFailure.Server
-        if (server != null) {
-            serverError(generation, retryable = server.retryable)
-        } else {
-            transportFailed(generation)
+        when (val failure = error.failure) {
+            is GeminiLiveSessionFailure.Server ->
+                serverError(generation, retryable = failure.retryable)
+            is GeminiLiveSessionFailure.ClosedBeforeReady ->
+                transportFailed(generation, retryable = geminiLiveCloseRetryable(failure.code))
+            else -> transportFailed(generation)
         }
     }
 
@@ -198,6 +199,8 @@ internal class GeminiLiveLifecycleAdapter(
             }
             is GeminiLiveSessionFailure.Server ->
                 serverError(generation, retryable = failure.retryable)
+            is GeminiLiveSessionFailure.ClosedBeforeReady ->
+                transportFailed(generation, retryable = geminiLiveCloseRetryable(failure.code))
             else -> transportFailed(generation)
         }
     }
@@ -212,4 +215,14 @@ internal class GeminiLiveLifecycleAdapter(
             connection = null
         }
     }
+}
+
+/**
+ * A setup close a reconnect cannot fix: protocol, unsupported or invalid data
+ * (Gemini reports a rejected or expired API key as 1007/1008), policy, size and
+ * extension failures. Mirrors Windows `fatal_setup_error` for key rejection.
+ */
+internal fun geminiLiveCloseRetryable(code: Int?): Boolean = when (code) {
+    1002, 1003, 1007, 1008, 1009, 1010 -> false
+    else -> true
 }

@@ -46,6 +46,7 @@ impl<'de> Deserialize<'de> for Config {
         field!(active_preset_idx);
         field!(preset_profiles);
         field!(active_preset_profile_idx);
+        field!(offered_builtin_preset_ids);
         field!(theme_mode);
         field!(ui_language);
         field!(max_history_items);
@@ -88,13 +89,6 @@ impl<'de> Deserialize<'de> for Config {
         field!(tts_output_device);
         field!(tts_language_conditions);
         field!(edge_tts_settings);
-        field!(step_audio_settings);
-        field!(step_audio_reference_voices);
-        field!(magpie_settings);
-        field!(kokoro_settings);
-        field!(supertonic_settings);
-        field!(vieneu_settings);
-        field!(voxtral_settings);
         field!(tts_playground);
         field!(show_favorite_bubble);
         field!(favorite_bubble_position);

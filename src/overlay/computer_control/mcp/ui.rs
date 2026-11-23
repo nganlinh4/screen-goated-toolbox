@@ -9,6 +9,7 @@ pub(crate) struct UiIntegration {
     pub addon_hint: Option<&'static str>,
     pub installed: bool,
     pub connected: bool,
+    pub catalog_error: Option<String>,
     pub installing: bool,
     pub removing: bool,
 }
@@ -25,7 +26,8 @@ pub(crate) fn ui_list() -> Vec<UiIntegration> {
             addon_hint: integration.addon_hint,
             installed: registry::is_installed(integration.id),
             connected: super::is_connected(integration.id),
-            installing: installing.contains(integration.id),
+            catalog_error: runtime::catalog_error(integration.id),
+            installing: installing.contains_key(integration.id),
             removing: removing.contains(integration.id),
         })
         .collect()
@@ -49,6 +51,7 @@ pub(crate) fn ui_remove(id: &str) {
         .to_string();
     std::thread::spawn(move || {
         notify_removal(&name, None, true);
+        install::cancel(&id);
         runtime::disconnect(&id);
         let result = registry::try_remove(&id);
         notify_removal(&name, result.as_ref().err(), false);
@@ -56,11 +59,28 @@ pub(crate) fn ui_remove(id: &str) {
     });
 }
 
-/// Uninstall + forget everything (the panel's "Clean all").
-pub(crate) fn ui_remove_all() {
-    for id in registry::installed_ids() {
-        runtime::disconnect(&id);
-        registry::remove(&id);
+/// Uninstall + forget everything (the panel's "Clean all"). Every integration
+/// is attempted; those that could not be forgotten are reported together.
+pub(crate) fn ui_remove_all() -> anyhow::Result<()> {
+    install::cancel_all();
+    remove_each(registry::installed_ids(), |id| {
+        runtime::disconnect(id);
+        registry::try_remove(id)
+    })
+}
+
+fn remove_each(
+    ids: Vec<String>,
+    mut remove: impl FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let failed: Vec<String> = ids
+        .iter()
+        .filter_map(|id| remove(id).err().map(|error| format!("{id}: {error:#}")))
+        .collect();
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("could not remove MCP integrations: {}", failed.join("; "))
     }
 }
 
@@ -93,4 +113,27 @@ fn notify_removal(name: &str, error: Option<&anyhow::Error>, started: bool) {
     };
     let title = crate::overlay::auto_copy_badge::format_locale(template, &[("name", name)]);
     crate::overlay::auto_copy_badge::show_detailed_notification(&title, &detail, kind);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remove_each;
+
+    #[test]
+    fn clean_all_attempts_every_integration_and_reports_each_failure() {
+        let ids = ["a", "b", "c"].map(String::from).to_vec();
+        let mut attempted = Vec::new();
+        let result = remove_each(ids, |id| {
+            attempted.push(id.to_string());
+            if id == "b" {
+                anyhow::bail!("registry locked")
+            }
+            Ok(())
+        });
+        assert_eq!(attempted, ["a", "b", "c"]);
+        let error = format!("{:#}", result.unwrap_err());
+        assert!(error.contains("b: registry locked"), "{error}");
+        assert!(!error.contains("a:") && !error.contains("c:"), "{error}");
+        assert!(remove_each(Vec::new(), |_| anyhow::bail!("unused")).is_ok());
+    }
 }

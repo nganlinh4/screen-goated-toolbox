@@ -13,7 +13,6 @@ mod debug {
 
     use super::super::contract::{DetectedTextRegion, SemanticRole, TranslationDocument};
     use super::super::evidence_capture::capture_stable_selection;
-    use super::super::geometry::normalized_region;
     use crate::overlay::selection::CapturedRegion;
     const MAX_RUNS: usize = 24;
     const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
@@ -146,24 +145,18 @@ mod debug {
             }
         }
 
-        pub(crate) fn detected(
-            &mut self,
-            candidates: &[DetectedTextRegion],
-            raw: &[sgt_screen_text_detector_protocol::DetectedRegion],
-        ) {
+        pub(crate) fn detected(&mut self, candidates: &[DetectedTextRegion]) {
             let Some(state) = self.state.as_mut() else {
                 return;
             };
             state.candidates = candidates.to_vec();
-            super::super::diagnostic_raw::save(&state.directory, &state.source_image, raw);
             let source = state.source_image.clone();
             let candidates = state.candidates.clone();
-            let size = (state.selection.width, state.selection.height);
             let path = state.directory.join("detector.jpg");
             std::thread::Builder::new()
                 .name("sgt-screen-translate-evidence-detector".to_string())
                 .spawn(move || {
-                    if let Err(error) = save_detector_preview(&path, &source, &candidates, size) {
+                    if let Err(error) = save_detector_preview(&path, &source, &candidates) {
                         crate::log_info!("[Screen Translate] detector evidence failed: {error:#}");
                     }
                 })
@@ -344,15 +337,11 @@ mod debug {
             .candidates
             .iter()
             .map(|candidate| {
-                let pixels = normalized_region(
-                    candidate.bounds,
-                    state.selection.width,
-                    state.selection.height,
-                );
+                let pixels = candidate.bounds.pixels();
                 let translated = translations.get(&candidate.id).copied();
                 RegionRecord {
                     id: candidate.id,
-                    normalized_box_2d: candidate.bounds.into(),
+                    normalized_box_2d: candidate.bounds.prompt().into(),
                     pixel_box: [pixels.x, pixels.y, pixels.width, pixels.height],
                     ocr_candidates: candidate.source_alternatives.clone(),
                     locator_confidence: candidate.recognition.locator_confidence,
@@ -530,18 +519,25 @@ mod debug {
                 .unwrap();
             let candidates = [DetectedTextRegion {
                 id: 1,
-                bounds: NormalizedBounds {
-                    left: 250,
-                    top: 250,
-                    right: 750,
-                    bottom: 750,
-                },
+                bounds:
+                    crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                        NormalizedBounds {
+                            left: 250,
+                            top: 250,
+                            right: 750,
+                            bottom: 750,
+                        },
+                        160,
+                        120,
+                    )
+                    .unwrap(),
                 source_text: "text".to_string(),
                 source_alternatives: vec!["text".to_string()],
                 recognition: Default::default(),
                 appearance: None,
             }];
-            save_detector_preview(&path, &jpeg, &candidates, (80, 60)).unwrap();
+            // The captured source can be larger than the bounded detector payload.
+            save_detector_preview(&path, &jpeg, &candidates).unwrap();
             let preview = image::open(&path).unwrap().to_rgb8();
             let edge = preview.get_pixel(20, 15).0;
             assert!(edge[0] > 180 && edge[1] < 100 && edge[2] < 130);

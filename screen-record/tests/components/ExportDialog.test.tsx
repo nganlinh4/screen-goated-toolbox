@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportDialog } from "@/components/dialogs/ExportDialog";
@@ -121,6 +121,24 @@ describe("ExportDialog format-safe defaults", () => {
       });
     });
     expect(screen.getByRole("button", { name: /50 fps/i })).toHaveClass("ui-chip-button-active");
+  });
+
+  it("labels each choice group and exposes the selected tile as pressed", async () => {
+    render(<Harness initial={{ ...baseOptions, format: "mp4", fps: 50 }} />);
+
+    const formats = await screen.findByRole("group", { name: "Format" });
+    expect(within(formats).getByRole("button", { name: "MP4" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(formats).getByRole("button", { name: "GIF" })).toHaveAttribute("aria-pressed", "false");
+
+    const rates = screen.getByRole("group", { name: "Frame Rate" });
+    await waitFor(() => {
+      expect(within(rates).getByRole("button", { name: /50 fps/i })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    const resolutions = screen.getByRole("group", { name: "Resolution" });
+    const pressed = within(resolutions).getAllByRole("button", { pressed: true });
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0]).toHaveClass("ui-choice-tile-active");
   });
 
   it("resets legacy combined export format to MP4 on dialog open", async () => {

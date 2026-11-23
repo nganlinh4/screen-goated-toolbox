@@ -217,3 +217,14 @@ fn failed_cleanup_is_reported_instead_of_claiming_release() {
     assert_eq!(value["release_attempted"], true);
     assert_eq!(value["release_succeeded"], false);
 }
+
+#[test]
+fn pointer_effects_use_the_active_tab_guard_whenever_it_is_advertised() {
+    use super::super::capabilities::{CDP, CDP_REQUIRE_ACTIVE, test_scope};
+    {
+        let _scope = test_scope::advertise(&[CDP, CDP_REQUIRE_ACTIVE]);
+        assert_eq!(normal_route(), NormalRoute::ActiveTab);
+    }
+    let _scope = test_scope::advertise(&[CDP]);
+    assert_eq!(normal_route(), NormalRoute::ExplicitTab);
+}

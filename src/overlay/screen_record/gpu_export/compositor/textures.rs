@@ -1,22 +1,32 @@
 use super::GpuCompositor;
 use crate::overlay::screen_record::gpu_export::cursors::{
-    CURSOR_ATLAS_COLS, CURSOR_TILE_SIZE, dedupe_valid_slots, get_or_render_cursor_tile,
+    CURSOR_ATLAS_COLS, CURSOR_TILE_SIZE, cursor_tile_mip_levels, dedupe_valid_slots,
+    get_or_render_cursor_tile, is_uploadable_cursor_tile,
 };
-use crate::overlay::screen_record::gpu_export::setup::shared_gpu_context;
 
 /// Texture upload, GPU-to-GPU copy, and readback methods for `GpuCompositor`.
 impl GpuCompositor {
     pub fn upload_cursor_slot_rgba(&self, slot: u32, rgba: &[u8]) {
+        if !is_uploadable_cursor_tile(slot, rgba.len()) {
+            return;
+        }
         let col = slot % CURSOR_ATLAS_COLS;
         let row = slot / CURSOR_ATLAS_COLS;
+        self.write_cursor_tile_level(col, row, 0, rgba);
+        for (level, pixels) in (1..).zip(cursor_tile_mip_levels(rgba)) {
+            self.write_cursor_tile_level(col, row, level, &pixels);
+        }
+    }
 
+    fn write_cursor_tile_level(&self, col: u32, row: u32, level: u32, rgba: &[u8]) {
+        let side = CURSOR_TILE_SIZE >> level;
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.cursor_texture,
-                mip_level: 0,
+                mip_level: level,
                 origin: wgpu::Origin3d {
-                    x: col * CURSOR_TILE_SIZE,
-                    y: row * CURSOR_TILE_SIZE,
+                    x: col * side,
+                    y: row * side,
                     z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
@@ -24,12 +34,12 @@ impl GpuCompositor {
             rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(CURSOR_TILE_SIZE * 4),
-                rows_per_image: Some(CURSOR_TILE_SIZE),
+                bytes_per_row: Some(side * 4),
+                rows_per_image: Some(side),
             },
             wgpu::Extent3d {
-                width: CURSOR_TILE_SIZE,
-                height: CURSOR_TILE_SIZE,
+                width: side,
+                height: side,
                 depth_or_array_layers: 1,
             },
         );
@@ -66,14 +76,21 @@ impl GpuCompositor {
         );
     }
 
-    pub fn upload_background(&mut self, rgba_data: &[u8], width: u32, height: u32) {
-        if width == 0 || height == 0 || rgba_data.is_empty() {
-            return;
-        }
-        let shared = match shared_gpu_context() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+    pub fn upload_background(
+        &mut self,
+        rgba_data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
+        super::super::limits::validate_rgba(
+            &self.device.limits(),
+            width,
+            height,
+            rgba_data,
+            "Background",
+        )?;
+        let shared = &self.shared;
+        let scopes = super::super::limits::ResourceErrorScopes::new(&self.device);
 
         // Recreate texture at native image dimensions (no CPU pre-scaling needed).
         self.background_texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -127,20 +144,29 @@ impl GpuCompositor {
                 },
             ],
         });
+        scopes.finish("GPU background upload failed")?;
         self.background_width = width;
         self.background_height = height;
+        Ok(())
     }
 
     /// Upload the sprite atlas RGBA pixels and rebuild the bind group.
     /// Call once before the pipeline starts.
-    pub fn upload_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {
-        if width == 0 || height == 0 || rgba_data.is_empty() {
-            return;
-        }
-        let shared = match shared_gpu_context() {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+    pub fn upload_atlas(
+        &mut self,
+        rgba_data: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
+        super::super::limits::validate_rgba(
+            &self.device.limits(),
+            width,
+            height,
+            rgba_data,
+            "Overlay atlas",
+        )?;
+        let shared = &self.shared;
+        let scopes = super::super::limits::ResourceErrorScopes::new(&self.device);
         self.atlas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Loaded"),
             size: wgpu::Extent3d {
@@ -192,6 +218,7 @@ impl GpuCompositor {
                 },
             ],
         });
+        scopes.finish("GPU overlay atlas upload failed")
     }
 
     /// Copy a shared decode texture into the video input texture (GPU-to-GPU).
@@ -277,10 +304,7 @@ impl GpuCompositor {
         width: u32,
         height: u32,
     ) {
-        let shared = match shared_gpu_context() {
-            Ok(shared) => shared,
-            Err(_) => return,
-        };
+        let shared = &self.shared;
         self.webcam_overlay
             .ensure_size(&self.device, shared, width, height);
 
@@ -334,6 +358,46 @@ impl GpuCompositor {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         self.webcam_overlay.mark_has_frame();
+    }
+
+    /// Upload one CPU-decoded BGRA webcam frame (fallback when the shared
+    /// decode ring is unavailable).
+    pub fn upload_webcam_frame(
+        &mut self,
+        bgra: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
+        let expected = width as usize * height as usize * 4;
+        if width == 0 || height == 0 || bgra.len() != expected {
+            return Err(format!(
+                "Webcam frame is {} bytes, expected {expected} for {width}x{height}",
+                bgra.len()
+            ));
+        }
+        self.webcam_overlay
+            .ensure_size(&self.device, &self.shared, width, height);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.webcam_overlay.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bgra,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.webcam_overlay.mark_has_frame();
+        Ok(())
     }
 
     /// Copy the output texture to a shared wgpu texture (GPU-to-GPU, no PCIe bus).
@@ -469,41 +533,31 @@ impl GpuCompositor {
         Ok(())
     }
 
-    fn drain_next_readback(&mut self, out: &mut Vec<u8>, blocking: bool) -> Result<bool, String> {
-        let _ = self.device.poll(if blocking {
-            wgpu::PollType::wait_indefinitely()
-        } else {
-            wgpu::PollType::Poll
-        });
-
+    fn drain_next_readback(
+        &mut self,
+        out: &mut Vec<u8>,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<bool, String> {
         let Some(&slot) = self.pending_readbacks.front() else {
             return Ok(false);
         };
-
-        let map_status = {
+        let result = {
             let rx = self.readback_receivers[slot]
                 .as_ref()
                 .ok_or_else(|| "Missing readback receiver".to_string())?;
-            if blocking {
-                match rx.recv() {
-                    Ok(result) => Some(result),
-                    Err(err) => return Err(format!("GPU readback channel failed: {}", err)),
-                }
-            } else {
-                match rx.try_recv() {
-                    Ok(result) => Some(result),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => None,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        return Err("GPU readback channel disconnected".to_string());
-                    }
-                }
+            super::super::wait::wait_for_callback(&self.device, rx, cancel, || self.check_health())
+        };
+        let status = match result {
+            Ok(status) => status,
+            Err(error) => {
+                self.mark_unusable();
+                return Err(error);
             }
         };
-
-        let Some(status) = map_status else {
-            return Ok(false);
-        };
-        status.map_err(|e| format!("GPU buffer map failed: {}", e))?;
+        if let Err(error) = status {
+            self.mark_unusable();
+            return Err(format!("GPU buffer map failed: {error}"));
+        }
 
         self.readback_receivers[slot] = None;
         let _ = self.pending_readbacks.pop_front();
@@ -511,8 +565,12 @@ impl GpuCompositor {
         Ok(true)
     }
 
-    pub fn readback_output(&mut self, out: &mut Vec<u8>) -> Result<(), String> {
-        let _ = self.drain_next_readback(out, true)?;
+    pub fn readback_output(
+        &mut self,
+        out: &mut Vec<u8>,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), String> {
+        let _ = self.drain_next_readback(out, cancel)?;
         Ok(())
     }
 }

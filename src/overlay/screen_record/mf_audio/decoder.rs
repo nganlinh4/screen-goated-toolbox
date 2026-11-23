@@ -1,9 +1,10 @@
 use super::super::mf_decode;
 #[cfg(feature = "recorder-worker")]
-use parking_lot::Mutex;
-#[cfg(feature = "recorder-worker")]
 use super::mf_audio_symphonia::SymphoniaAudioDecoder;
 use super::pcm::pcm_integer_bytes_to_f32le_bytes;
+#[cfg(feature = "recorder-worker")]
+use parking_lot::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Win32::Media::MediaFoundation::*;
 
 /// MF-based audio decoder that outputs PCM float samples.
@@ -22,13 +23,69 @@ enum AudioDecoderBackend {
 struct MfBackend {
     reader: IMFSourceReader,
     audio_stream_index: u32,
-    output_format: AudioOutputFormat,
+    /// The rate and channel count callers were told at open.
+    declared_layout: (u32, u32),
+    /// [`AudioOutputFormat::to_code`] of the current output type; it can
+    /// change when the reader reports a new output media type.
+    output_format: AtomicU32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum AudioOutputFormat {
     Float32,
     PcmInteger { bits_per_sample: u32 },
+}
+
+impl AudioOutputFormat {
+    fn to_code(self) -> u32 {
+        match self {
+            Self::Float32 => 0,
+            Self::PcmInteger { bits_per_sample } => bits_per_sample,
+        }
+    }
+
+    fn from_code(code: u32) -> Self {
+        match code {
+            0 => Self::Float32,
+            bits_per_sample => Self::PcmInteger { bits_per_sample },
+        }
+    }
+}
+
+/// Output format, sample rate and channel count of the reader's current type.
+fn current_output_layout(
+    reader: &IMFSourceReader,
+    audio_idx: u32,
+) -> Result<(AudioOutputFormat, u32, u32), String> {
+    let current_type = unsafe {
+        reader
+            .GetCurrentMediaType(audio_idx)
+            .map_err(|e| format!("GetCurrentMediaType: {e}"))?
+    };
+    let output_format = detect_output_format(&current_type)?;
+    let sample_rate = unsafe {
+        current_type
+            .GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
+            .map_err(|e| format!("GetUINT32 SAMPLE_RATE: {e}"))?
+    };
+    let channels = unsafe {
+        current_type
+            .GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
+            .map_err(|e| format!("GetUINT32 NUM_CHANNELS: {e}"))?
+    };
+    Ok((output_format, sample_rate, channels))
+}
+
+/// A mid-stream output type change can switch the sample encoding, which the
+/// decoder follows, but not the rate or channel count callers already use.
+fn check_layout_change(declared: (u32, u32), current: (u32, u32)) -> Result<(), String> {
+    if declared == current {
+        return Ok(());
+    }
+    Err(format!(
+        "audio output changed mid-stream from {} Hz x {} ch to {} Hz x {} ch",
+        declared.0, declared.1, current.0, current.1
+    ))
 }
 
 impl MfAudioDecoder {
@@ -46,17 +103,6 @@ impl MfAudioDecoder {
         target_channels: Option<u32>,
     ) -> Result<Self, String> {
         Self::new_with_options(file_path, target_sample_rate, target_channels, false)
-    }
-
-    /// Open an audio file with a preferred output format but allow falling back
-    /// to a native PCM shape if the exact transform is unavailable.
-    #[cfg(feature = "recorder-worker")]
-    pub fn new_with_preferred_output_format(
-        file_path: &str,
-        target_sample_rate: Option<u32>,
-        target_channels: Option<u32>,
-    ) -> Result<Self, String> {
-        Self::new_with_options(file_path, target_sample_rate, target_channels, true)
     }
 
     fn new_with_options(
@@ -143,26 +189,13 @@ impl MfAudioDecoder {
             allow_fallback_to_native_pcm,
         )?;
 
-        let current_type = unsafe {
-            reader
-                .GetCurrentMediaType(audio_idx)
-                .map_err(|e| format!("GetCurrentMediaType: {e}"))?
-        };
-        let output_format = detect_output_format(&current_type)?;
-        let sample_rate = unsafe {
-            current_type
-                .GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
-                .map_err(|e| format!("GetUINT32 SAMPLE_RATE: {e}"))?
-        };
-        let channels = unsafe {
-            current_type
-                .GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
-                .map_err(|e| format!("GetUINT32 NUM_CHANNELS: {e}"))?
-        };
+        let (output_format, sample_rate, channels) = current_output_layout(&reader, audio_idx)?;
 
         crate::log_info!(
             "[MfAudioDecoder] Opened: {}Hz, {} channels, {:?}",
-            sample_rate, channels, output_format
+            sample_rate,
+            channels,
+            output_format
         );
 
         Ok(Self {
@@ -171,7 +204,8 @@ impl MfAudioDecoder {
             backend: AudioDecoderBackend::Mf(MfBackend {
                 reader,
                 audio_stream_index: audio_idx,
-                output_format,
+                declared_layout: (sample_rate, channels),
+                output_format: AtomicU32::new(output_format.to_code()),
             }),
         })
     }
@@ -207,31 +241,23 @@ impl MfAudioDecoder {
 }
 
 fn read_samples_mf(backend: &MfBackend) -> Result<Option<(Vec<u8>, i64)>, String> {
-    let mut stream_flags: u32 = 0;
-    let mut timestamp: i64 = 0;
-    let mut sample: Option<IMFSample> = None;
-
-    unsafe {
+    let follow_type_change = || {
+        let (format, sample_rate, channels) =
+            current_output_layout(&backend.reader, backend.audio_stream_index)?;
+        check_layout_change(backend.declared_layout, (sample_rate, channels))?;
         backend
-            .reader
-            .ReadSample(
-                backend.audio_stream_index,
-                0,
-                None,
-                Some(&mut stream_flags),
-                Some(&mut timestamp),
-                Some(&mut sample),
-            )
-            .map_err(|e| format!("ReadSample audio: {e}"))?;
-    }
-
-    if (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+            .output_format
+            .store(format.to_code(), Ordering::Relaxed);
+        Ok(())
+    };
+    let Some((sample, timestamp)) = super::source_read::read_stream_sample(
+        &backend.reader,
+        backend.audio_stream_index,
+        follow_type_change,
+    )
+    .map_err(|e| format!("Audio {e}"))?
+    else {
         return Ok(None);
-    }
-
-    let sample = match sample {
-        Some(s) => s,
-        None => return Ok(None),
     };
 
     // Convert to contiguous buffer and copy out
@@ -255,7 +281,8 @@ fn read_samples_mf(backend: &MfBackend) -> Result<Option<(Vec<u8>, i64)>, String
         let _ = buffer.Unlock();
     }
 
-    let normalized = match backend.output_format {
+    let output_format = AudioOutputFormat::from_code(backend.output_format.load(Ordering::Relaxed));
+    let normalized = match output_format {
         AudioOutputFormat::Float32 => data,
         AudioOutputFormat::PcmInteger { bits_per_sample } => {
             pcm_integer_bytes_to_f32le_bytes(&data, bits_per_sample)
@@ -423,4 +450,27 @@ fn try_set_output_type_partial(
             .map_err(|e| format!("SetCurrentMediaType {label}: {e}"))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod type_change_tests {
+    use super::*;
+
+    #[test]
+    fn a_new_output_type_may_change_encoding_but_not_rate_or_channels() {
+        assert_eq!(check_layout_change((48_000, 2), (48_000, 2)), Ok(()));
+        assert!(check_layout_change((48_000, 2), (44_100, 2)).is_err());
+        assert!(check_layout_change((48_000, 2), (48_000, 6)).is_err());
+        for format in [
+            AudioOutputFormat::Float32,
+            AudioOutputFormat::PcmInteger {
+                bits_per_sample: 16,
+            },
+            AudioOutputFormat::PcmInteger {
+                bits_per_sample: 24,
+            },
+        ] {
+            assert_eq!(AudioOutputFormat::from_code(format.to_code()), format);
+        }
+    }
 }

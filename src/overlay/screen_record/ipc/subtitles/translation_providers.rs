@@ -1,11 +1,22 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
 use crate::api::client::UREQ_AGENT;
 use crate::api::gemini_live::{GeminiLiveGenerateRequest, gemini_live_generate};
-use crate::api::ollama::ollama_generate_text;
+use crate::api::ollama::ollama_generate_text_cancellable;
 use crate::config::Config;
 use crate::model_config::ModelConfig;
 
-use super::translation_openai::post_openai_compat_chat;
+use super::translation_openai::{post_groq_chat, post_openai_compat_chat};
 use super::types::{SubtitleTranslationItemRequest, SubtitleTranslationResultItem};
+
+/// Error returned when the job was cancelled before or during a request.
+pub const SUBTITLE_TRANSLATION_CANCELLED: &str = "Subtitle translation cancelled";
+
+/// Upper bound for one Gemini Live chunk, matching the 120 s HTTP agent bound
+/// the other providers already have.
+const LIVE_TRANSLATION_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug)]
 pub struct TranslationConversationTurn {
@@ -39,7 +50,11 @@ pub fn translate_subtitle_chunk(
     instructions: Option<&str>,
     items: &[SubtitleTranslationItemRequest],
     history: &[TranslationConversationTurn],
+    cancelled: &Arc<AtomicBool>,
 ) -> Result<ValidatedSubtitleTranslationResponse, String> {
+    if cancelled.load(Ordering::SeqCst) {
+        return Err(SUBTITLE_TRANSLATION_CANCELLED.to_string());
+    }
     let user_payload = build_user_payload(target_language, items);
     let assistant_payload = match model.provider.as_str() {
         "google" => translate_with_google(
@@ -57,6 +72,7 @@ pub fn translate_subtitle_chunk(
             instructions,
             &user_payload,
             history,
+            cancelled,
         )?,
         "openrouter" => translate_with_openrouter(
             config,
@@ -73,6 +89,7 @@ pub fn translate_subtitle_chunk(
             instructions,
             &user_payload,
             history,
+            cancelled,
         )?,
         "groq" => translate_with_groq(
             config,
@@ -81,6 +98,7 @@ pub fn translate_subtitle_chunk(
             instructions,
             &user_payload,
             history,
+            cancelled,
         )?,
         provider => {
             return Err(format!(
@@ -347,6 +365,7 @@ fn translate_with_groq(
     instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
+    cancelled: &Arc<AtomicBool>,
 ) -> Result<String, String> {
     if config.api_key.trim().is_empty() {
         return Err("NO_API_KEY:groq".to_string());
@@ -363,13 +382,11 @@ fn translate_with_groq(
         ),
     });
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "groq", &model.full_name);
-    post_openai_compat_chat(
-        "https://api.groq.com/openai/v1/chat/completions",
+    post_groq_chat(
+        crate::api::groq::CHAT_COMPLETIONS_URL,
         &config.api_key,
-        "Groq",
         payload,
-        &[],
-        Some(("groq", &model.full_name)),
+        cancelled,
     )
 }
 
@@ -448,6 +465,7 @@ fn translate_with_gemini_live(
     instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
+    cancelled: &Arc<AtomicBool>,
 ) -> Result<String, String> {
     if config.gemini_api_key.trim().is_empty() {
         return Err("NO_API_KEY:gemini-live".to_string());
@@ -481,12 +499,18 @@ fn translate_with_gemini_live(
             audio_data: None,
             streaming_enabled: false,
             ui_language: &config.ui_language,
-            cancel_token: None,
-            request_timeout: None,
+            cancel_token: Some(cancelled.clone()),
+            request_timeout: Some(LIVE_TRANSLATION_TIMEOUT),
         },
         |_| {},
     )
-    .map_err(|error| format!("Gemini Live subtitle translation failed: {error}"))
+    .map_err(|error| {
+        if cancelled.load(Ordering::SeqCst) {
+            SUBTITLE_TRANSLATION_CANCELLED.to_string()
+        } else {
+            format!("Gemini Live subtitle translation failed: {error}")
+        }
+    })
 }
 
 fn translate_with_ollama(
@@ -496,6 +520,7 @@ fn translate_with_ollama(
     instructions: Option<&str>,
     user_payload: &str,
     history: &[TranslationConversationTurn],
+    cancelled: &AtomicBool,
 ) -> Result<String, String> {
     let prompt = if history.is_empty() {
         format!(
@@ -525,13 +550,20 @@ fn translate_with_ollama(
             user_payload
         )
     };
-    ollama_generate_text(
+    ollama_generate_text_cancellable(
         &config.ollama_base_url,
         &model.full_name,
         &prompt,
         false,
         &config.ui_language,
+        Some(cancelled),
         |_| {},
     )
-    .map_err(|error| format!("Ollama subtitle translation failed: {error}"))
+    .map_err(|error| {
+        if cancelled.load(Ordering::SeqCst) {
+            SUBTITLE_TRANSLATION_CANCELLED.to_string()
+        } else {
+            format!("Ollama subtitle translation failed: {error}")
+        }
+    })
 }

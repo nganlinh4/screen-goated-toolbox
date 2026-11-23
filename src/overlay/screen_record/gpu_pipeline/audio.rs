@@ -77,3 +77,45 @@ pub(super) fn apply_audio_volume_envelope(
         }
     }
 }
+
+/// Sample frames of a decoded chunk that fall inside the kept segment
+/// `[seg_start, seg_end)`. Decoder chunks do not start on trim boundaries, so
+/// the chunk is cut on whole sample frames rather than kept or dropped whole.
+pub(super) fn frames_inside_segment(
+    frames: usize,
+    sample_rate: u32,
+    chunk_time: f64,
+    seg_start: f64,
+    seg_end: f64,
+) -> std::ops::Range<usize> {
+    let rate = f64::from(sample_rate);
+    let frame_at = |time: f64| {
+        ((time - chunk_time) * rate)
+            .round()
+            .clamp(0.0, frames as f64)
+    };
+    let first = frame_at(seg_start) as usize;
+    let end = frame_at(seg_end) as usize;
+    if end > first { first..end } else { 0..0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frames_inside_segment;
+
+    #[test]
+    fn chunks_are_cut_on_sample_frames_at_trim_boundaries() {
+        // 1024 frames at 48 kHz from t=0.99 s against a segment ending at 1 s:
+        // only the 480 frames before the cut belong to the export.
+        assert_eq!(frames_inside_segment(1024, 48_000, 0.99, 0.0, 1.0), 0..480);
+        // After a seek the decoder resumes 5 ms before the next segment; the
+        // frames from the segment start on are kept, not the whole chunk dropped.
+        assert_eq!(
+            frames_inside_segment(1024, 48_000, 1.995, 2.0, 3.0),
+            240..1024
+        );
+        assert_eq!(frames_inside_segment(1024, 48_000, 2.5, 2.0, 3.0), 0..1024);
+        assert_eq!(frames_inside_segment(1024, 48_000, 3.0, 2.0, 3.0), 0..0);
+        assert_eq!(frames_inside_segment(1024, 48_000, 1.0, 2.0, 3.0), 0..0);
+    }
+}

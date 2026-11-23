@@ -1,20 +1,19 @@
 //! Verified PaddleOCR detector worker/model delivery and active-use ownership.
 
 use std::collections::HashSet;
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
-use sha2::{Digest as _, Sha256};
 
 use super::receipt::{
     ComponentReceipt, OwnedComponentFile, RECEIPT_NAME, file_matches, file_size_matches,
-    is_reparse_point, resolve_owned_path,
+    resolve_owned_path,
 };
 use super::{ComponentLease, RemovalOutcome};
 
 mod install;
+mod protocol;
 mod update;
 
 pub(crate) const ID: &str = "screen-text-detector";
@@ -22,6 +21,7 @@ const ARCHITECTURE: &str = "x64";
 const RUNTIME_ID: &str = "onnx-directml-runtime";
 const EXECUTABLE_PATH: &str = "bin/x64/sgt-screen-text-detector-worker.exe";
 const MODEL_DIR: &str = "models/pp-ocr-screen-text";
+const READER_CATALOG_PATH: &str = "models/pp-ocr-screen-text/readers.json";
 const MAX_COMPONENT_FILES: usize = 64;
 const MAX_COMPONENT_ENTRIES: usize = 128;
 
@@ -71,9 +71,14 @@ pub(crate) fn ensure(
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
 ) -> Result<DetectorUse> {
+    if cancelled.load(Ordering::Acquire) {
+        bail!("detector preparation cancelled");
+    }
     super::update_catalog::refresh_for_use(ID, "before-session");
-    let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
+    // The transfer holds only this component's transfer guard.
+    install::prefetch(delivery, cancelled, &on_progress)?;
+    let _mutation = super::acquire_mutation_guard_cancellable(cancelled)?;
     // Inventory checks are cheap. Content is verified once, through handles
     // that deny writes/deletion and remain held for the entire worker lease.
     if validate_status(delivery).is_err() {
@@ -100,12 +105,6 @@ pub(crate) fn is_installed() -> bool {
 
 pub(crate) fn delivery_available() -> bool {
     delivery().is_ok()
-}
-
-pub(crate) fn incremental_delivery() -> bool {
-    delivery().is_ok_and(|delivery| {
-        delivery.version == sgt_screen_text_detector_protocol::stream::WORKER_VERSION
-    })
 }
 
 pub(crate) fn localized_name() -> String {
@@ -233,43 +232,18 @@ fn same_file(left: &OwnedComponentFile, right: &OwnedComponentFile) -> bool {
 }
 
 fn lock_component_files(root: &Path, files: &[DetectorFile]) -> Result<Vec<std::fs::File>> {
-    let mut locked = Vec::with_capacity(files.len());
-    for expected in files {
-        let path = resolve_owned_path(root, Path::new(expected.path))?;
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("Screen Translate detector changed while acquiring its lease");
-        }
-        let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 128 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("Screen Translate detector changed while acquiring its lease");
-        }
-        locked.push(file);
-    }
-    Ok(locked)
-}
-
-fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("Screen Translate detector launch file is unsafe");
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    use std::os::windows::fs::OpenOptionsExt as _;
-    use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
-    options
-        .share_mode(FILE_SHARE_READ.0)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
-    Ok(options.open(path)?)
+    files
+        .iter()
+        .map(|expected| {
+            super::native_file::lock_verified(
+                root,
+                expected.path,
+                expected.size_bytes,
+                expected.sha256,
+                "Screen Translate detector changed while acquiring its lease",
+            )
+        })
+        .collect()
 }
 
 fn receipt(delivery: &DetectorDelivery) -> ComponentReceipt {

@@ -7,6 +7,7 @@ import type {
   VideoSegment,
 } from "@/types/video";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 
 function maxSegmentEnd(segments: readonly TextSegment[] | readonly SubtitleSegment[] | undefined) {
   return Math.max(
@@ -41,7 +42,7 @@ export function getImportedAudioEnd(audioSegments: readonly ImportedAudioSegment
 }
 
 export function getNarrationEnd(narrationSegments: readonly NarrationSegment[] | undefined) {
-  return audioLikeEnd(narrationSegments);
+  return audioLikeEnd(materializeNarrationGroupTakes(narrationSegments));
 }
 
 export function getTimelineContentEnd(

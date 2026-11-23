@@ -144,7 +144,6 @@
                 vocabularyInput.placeholder = overlayLocale.customVocabularyPrompt;
             }
             updateTitleById('custom-vocabulary-add', overlayLocale.customVocabularyTitle);
-            updateTitleById('trans-lang-badge', overlayLocale.transcriptionLanguageTitle);
             // Refresh the displayed picker label too, since its source switched to overlayLocale.
             const currentTranslationModelBtn = document.getElementById('translation-model-btn');
             if (currentTranslationModelBtn && window.setTranslationModel) {
@@ -160,17 +159,12 @@
             updateTextNode('tts-modal-title-text', overlayLocale.ttsTitle);
             updateTextNode('tts-speed-label', overlayLocale.ttsSpeed);
             updateTextNode('tts-volume-label', overlayLocale.ttsVolume);
-            updateTextNode('download-title', overlayLocale.downloadingModelTitle);
-            updateTextNode('download-msg', overlayLocale.pleaseWaitText);
-            updateTextNode('download-footnote', '');
-            updateTextNode('download-cancel-text', overlayLocale.cancelText);
             applyS2sMode(s2sMode);
             const autoToggle = document.getElementById('auto-speed-toggle');
             if (autoToggle) {
                 autoToggle.textContent = overlayLocale.ttsAuto;
                 autoToggle.title = overlayLocale.ttsAuto;
             }
-            updateTitleById('download-cancel-btn', overlayLocale.cancelText);
             if (langSelect) {
                 langSelect.dataset.baseTitle = s2sMode
                     ? (overlayLocale.s2sTargetLanguageTitle || overlayLocale.targetLanguageTitle)
@@ -401,42 +395,6 @@
             window.ipc.postMessage('overlayReady');
         }
 
-        // Download Modal Functions
-        window.showDownloadModal = function(title, msg, progress) {
-            const modal = document.getElementById('download-modal');
-            const overlay = document.getElementById('download-modal-overlay');
-            const titleEl = document.getElementById('download-title');
-            const msgEl = document.getElementById('download-msg');
-            const fillEl = document.getElementById('download-fill');
-
-            if (modal && overlay) {
-                modal.classList.add('show');
-                overlay.classList.add('show');
-                if (titleEl) titleEl.textContent = title;
-                if (msgEl) msgEl.textContent = msg;
-                if (fillEl) fillEl.style.width = progress + '%';
-            }
-        };
-
-        window.hideDownloadModal = function() {
-            const modal = document.getElementById('download-modal');
-            const overlay = document.getElementById('download-modal-overlay');
-            if (modal && overlay) {
-                modal.classList.remove('show');
-                overlay.classList.remove('show');
-            }
-        };
-
-        // Cancel download button handler
-        const downloadCancelBtn = document.getElementById('download-cancel-btn');
-        if (downloadCancelBtn) {
-            downloadCancelBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                // Send cancel message to native side
-                window.ipc.postMessage('cancelDownload');
-            });
-        }
-
         // Update settings from native side (used when overlay is shown with saved config)
         window.updateSettings = function(settings) {
             const pinnedControlsScroll = controls ? controls.scrollLeft : controlsScrollLeft;
@@ -453,10 +411,6 @@
             if (settings.translationModel) setTranslationModel(settings.translationModel);
 
             if (settings.transcriptionModel) setTranscriptionModel(settings.transcriptionModel);
-
-            if (settings.transcriptionLanguage && window.setTranscriptionLanguage) {
-                window.setTranscriptionLanguage(settings.transcriptionLanguage, settings.transcriptionLanguageName);
-            }
 
             if (settings.fontSize) setFontSize(settings.fontSize);
             restoreControlsScroll(pinnedControlsScroll);

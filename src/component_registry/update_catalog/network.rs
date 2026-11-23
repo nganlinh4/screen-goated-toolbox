@@ -105,7 +105,7 @@ fn catalog_assets(mut fetch: impl FnMut(u32) -> Result<Vec<Asset>>) -> Result<Ve
     unreachable!("bounded enumeration deadline stops before page-number exhaustion")
 }
 
-fn parse_catalog_name(name: &str) -> Option<(u64, String)> {
+pub(super) fn parse_catalog_name(name: &str) -> Option<(u64, String)> {
     let body = name.strip_prefix(PREFIX)?.strip_suffix(".json")?;
     let (sequence, digest) = body.split_once('-')?;
     if sequence.len() != 6

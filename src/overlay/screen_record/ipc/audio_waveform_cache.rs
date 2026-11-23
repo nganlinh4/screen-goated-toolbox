@@ -1,64 +1,47 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+//! Admission bound for cache files; existing entries are never deleted here.
+use std::fs::{self, File, OpenOptions};
+use std::os::windows::fs::OpenOptionsExt;
+use std::path::Path;
+
+use anyhow::{Result, bail};
+use windows::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_DELETE_ON_CLOSE, FILE_GENERIC_WRITE};
 
 const MAX_FILES: usize = 512;
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-struct Entry {
-    path: PathBuf,
-    bytes: u64,
-    modified: SystemTime,
-}
-
-pub fn maintain(root: &Path, current: &Path) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    let mut managed = entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("bin") {
-                return None;
-            }
-            let metadata = fs::symlink_metadata(&path).ok()?;
-            if !metadata.is_file() || metadata_is_reparse(&metadata) {
-                return None;
-            }
-            Some(Entry {
-                path,
-                bytes: metadata.len(),
-                modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-            })
-        })
-        .collect::<Vec<_>>();
-    managed.sort_by_key(|entry| entry.modified);
-    let mut files = managed.len();
-    let mut bytes = managed.iter().map(|entry| entry.bytes).sum::<u64>();
-    for entry in managed {
-        if files <= MAX_FILES && bytes <= MAX_BYTES {
-            break;
-        }
-        if entry.path == current {
+/// Hold the exclusive lease through publication so cooperating writers cannot
+/// simultaneously spend the same remaining capacity. Failure is a cache miss,
+/// not a failure of waveform analysis.
+pub fn admit(root: &Path, incoming_bytes: u64) -> Result<File> {
+    let lock_path = root.join("waveform-admission.lock");
+    let lock = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .access_mode(FILE_GENERIC_WRITE.0 | DELETE.0)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE.0)
+        .open(&lock_path)?;
+    let mut files = 0_usize;
+    let mut bytes = 0_u64;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.path() == lock_path {
             continue;
         }
-        if fs::remove_file(&entry.path).is_ok() {
-            files = files.saturating_sub(1);
-            bytes = bytes.saturating_sub(entry.bytes);
+        files = files
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("waveform cache entry count overflow"))?;
+        bytes = bytes
+            .checked_add(fs::symlink_metadata(entry.path())?.len())
+            .ok_or_else(|| anyhow::anyhow!("waveform cache size overflow"))?;
+        if files >= MAX_FILES || bytes.saturating_add(incoming_bytes) > MAX_BYTES {
+            bail!("waveform cache capacity reached");
         }
     }
-}
-
-#[cfg(windows)]
-fn metadata_is_reparse(metadata: &fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn metadata_is_reparse(metadata: &fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
+    if incoming_bytes > MAX_BYTES {
+        bail!("waveform cache capacity reached");
+    }
+    Ok(lock)
 }
 
 #[cfg(test)]
@@ -66,31 +49,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retention_removes_only_old_managed_waveforms() {
-        let root = std::env::temp_dir().join(format!("sgt-waveforms-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        let unknown = root.join("keep.txt");
-        fs::write(&unknown, b"user").unwrap();
-        for index in 0..=MAX_FILES {
-            fs::write(root.join(format!("{index:04}.bin")), b"cache").unwrap();
+    fn capacity_preserves_unowned_entries_and_serializes_admission() {
+        let mut nonce = [0_u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "sgt-waveform-capacity-{:016x}",
+            u64::from_le_bytes(nonce)
+        ));
+        fs::create_dir(&root).unwrap();
+        let sentinel = root.join("unowned.bin");
+        fs::write(&sentinel, b"keep").unwrap();
+        let lease = admit(&root, 1).unwrap();
+        assert!(admit(&root, 1).is_err());
+        drop(lease);
+        for index in 1..MAX_FILES {
+            fs::write(root.join(format!("{index:04}.bin")), b"data").unwrap();
         }
-        let current = root.join(format!("{MAX_FILES:04}.bin"));
-
-        maintain(&root, &current);
-
-        assert_eq!(
-            fs::read_dir(&root)
-                .unwrap()
-                .flatten()
-                .filter(
-                    |entry| entry.path().extension().and_then(|value| value.to_str())
-                        == Some("bin")
-                )
-                .count(),
-            MAX_FILES
-        );
-        assert!(current.exists());
-        assert!(unknown.exists());
+        assert!(admit(&root, 1).is_err());
+        assert_eq!(fs::read(&sentinel).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), MAX_FILES);
         fs::remove_dir_all(root).unwrap();
     }
 }

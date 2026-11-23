@@ -6,6 +6,8 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.phonecontrol.runtime.PhoneControlRuntime
 import dev.screengoated.toolbox.mobile.service.tts.TtsConsumer
+import dev.screengoated.toolbox.mobile.service.tts.TtsEventSelector
+import dev.screengoated.toolbox.mobile.service.tts.TTS_REQUEST_REJECTED
 import dev.screengoated.toolbox.mobile.service.tts.TtsPriority
 import dev.screengoated.toolbox.mobile.service.tts.TtsRequest
 import dev.screengoated.toolbox.mobile.service.tts.TtsRequestMode
@@ -36,7 +38,7 @@ internal class PhoneControlAuthoritySetupAnnouncer(
 
     init {
         scope.launch {
-            tts.playbackEvents.collect { event ->
+            tts.playbackEventsFor(TtsEventSelector(TtsConsumer.AUTO_SPEAK, SUCCESS_OWNER_PREFIX)).collect { event ->
                 if (event.ownerToken == successOwner) {
                     completeSuccessSpeech(event.completionStatus.name.lowercase())
                 }
@@ -109,7 +111,7 @@ internal class PhoneControlAuthoritySetupAnnouncer(
             PhoneControlLog.i(TAG, "setup_voice_result phase=$phase result=requested")
         }.onFailure {
             PhoneControlLog.e(TAG, "setup_voice_result phase=$phase result=request_failed", it)
-        }.getOrNull()
+        }.getOrNull()?.takeUnless { it == TTS_REQUEST_REJECTED }
 
     private fun completeSuccessSpeech(result: String) {
         if (successOwner == null) return

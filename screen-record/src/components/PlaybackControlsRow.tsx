@@ -1,6 +1,6 @@
 import { MousePointer2 } from '@/components/ui/MaterialIcon';
 import { Button } from "@/components/ui/button";
-import { PlaybackControls } from "@/components/VideoPreview";
+import { PlaybackControls } from "@/components/PlaybackControls";
 import { CanvasModeToggle } from "@/components/CanvasModeToggle";
 import { KeystrokeToggleControl } from "@/components/KeystrokeToggleControl";
 import { AutoZoomControl } from "@/components/AutoZoomControl";
@@ -40,6 +40,8 @@ export interface PlaybackControlsRowProps {
   setSegment: KeystrokeToggleControlProps["setSegment"];
   handleToggleKeystrokeMode: () => void;
   handleKeystrokeDelayChange: (delay: number) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
   // Auto zoom button props
   currentVideo: string | null;
   mousePositionsLength: number;
@@ -82,6 +84,8 @@ export function PlaybackControlsRow({
   setSegment,
   handleToggleKeystrokeMode,
   handleKeystrokeDelayChange,
+  beginBatch,
+  commitBatch,
   currentVideo,
   mousePositionsLength,
   handleAutoZoom,
@@ -161,6 +165,8 @@ export function PlaybackControlsRow({
               setSegment={setSegment}
               handleToggleKeystrokeMode={handleToggleKeystrokeMode}
               handleKeystrokeDelayChange={handleKeystrokeDelayChange}
+              beginBatch={beginBatch}
+              commitBatch={commitBatch}
             />
           ) : undefined}
           autoZoomButton={hasMouseData ? (

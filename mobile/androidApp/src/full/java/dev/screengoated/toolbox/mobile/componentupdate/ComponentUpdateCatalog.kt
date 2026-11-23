@@ -2,7 +2,6 @@ package dev.screengoated.toolbox.mobile.componentupdate
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.BuildConfig
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,16 +23,16 @@ internal data class ComponentCatalogCandidate(
 
 internal object ComponentUpdateCatalog {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val initialized = AtomicBoolean(false)
+    private var initialized = false
     private val lock = Any()
     @Volatile private var active: VerifiedComponentCatalog? = null
 
-    fun loadCached(context: Context) {
-        if (!initialized.compareAndSet(false, true)) return
-        val application = context.applicationContext
-        runCatching { ComponentUpdateCache.loadHighest(application) }
-            .getOrNull()
-            ?.let(::activate)
+    fun loadCached(context: Context) = synchronized(lock) {
+        if (initialized) return@synchronized
+        val application = requireNotNull(context.applicationContext)
+        val cached = runCatching { ComponentUpdateCache.loadHighest(application) }
+        cached.getOrNull()?.let(::activate)
+        initialized = cached.isSuccess
     }
 
     fun refreshInBackground(context: Context) {
@@ -46,7 +45,9 @@ internal object ComponentUpdateCatalog {
     }
 
     fun refreshNow(context: Context): Boolean = synchronized(lock) {
+        loadCached(context)
         val candidate = ComponentUpdateNetwork.fetchHighest(
+            context = requireNotNull(context.applicationContext),
             minimumSequence = active?.sequence ?: 0L,
             hostVersion = BuildConfig.VERSION_NAME,
         ) ?: return@synchronized false

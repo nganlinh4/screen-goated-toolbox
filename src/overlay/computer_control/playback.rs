@@ -82,7 +82,7 @@ impl AudioSink {
                         },
                         move |e| {
                             stream_failed.store(true, Ordering::SeqCst);
-                            eprintln!("[cc] audio output error: {e}");
+                            cc_diagnostic!("[cc] audio output error: {e}");
                             super::telemetry::typed_error(
                                 "ERR_AUDIO_OUTPUT_STREAM",
                                 "speech",
@@ -115,7 +115,7 @@ impl AudioSink {
                         },
                         move |e| {
                             stream_failed.store(true, Ordering::SeqCst);
-                            eprintln!("[cc] audio output error: {e}");
+                            cc_diagnostic!("[cc] audio output error: {e}");
                             super::telemetry::typed_error(
                                 "ERR_AUDIO_OUTPUT_STREAM",
                                 "speech",

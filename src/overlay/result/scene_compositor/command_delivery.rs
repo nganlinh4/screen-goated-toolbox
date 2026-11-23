@@ -1,6 +1,8 @@
 //! Browser application, not native receipt, completes a scene revision.
 use super::super::{button_input, child_commands, input_surface, processing, visual_region};
 use super::{CARDS, COMMANDS, ChildEvent, HostCommand, INPUT_SURFACE_HWND, RENDERER_READY};
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -8,6 +10,47 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 static FIRST_PAINT_REQUESTED: AtomicBool = AtomicBool::new(false);
 static FIRST_PAINT_TOKEN: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static BATCHES: RefCell<(u64, HashSet<u64>)> = RefCell::new((0, HashSet::new()));
+    static DRAINING: Cell<bool> = const { Cell::new(false) };
+    static DRAIN_AGAIN: Cell<bool> = const { Cell::new(false) };
+}
+
+struct DrainGuard;
+impl Drop for DrainGuard {
+    fn drop(&mut self) {
+        DRAINING.with(|value| value.set(false));
+        if DRAIN_AGAIN.with(|value| value.replace(false)) {
+            super::post_host(super::WM_DRAIN_COMMANDS);
+        }
+    }
+}
+
+fn register_batch() -> u64 {
+    BATCHES.with(|batches| {
+        let mut batches = batches.borrow_mut();
+        if batches.1.len() >= 1024 {
+            crate::crash_report::exit(1, "renderer-batch-backlog");
+        }
+        batches.0 = batches
+            .0
+            .checked_add(1)
+            .unwrap_or_else(|| crate::crash_report::exit(1, "renderer-batch-overflow"));
+        let id = batches.0;
+        batches.1.insert(id);
+        id
+    })
+}
+
+pub(super) fn complete_batch(id: u64) {
+    BATCHES.with(|batches| {
+        batches.borrow_mut().1.remove(&id);
+    });
+}
+
+pub(super) fn is_idle() -> bool {
+    !DRAINING.with(Cell::get) && BATCHES.with(|batches| batches.borrow().1.is_empty())
+}
 
 pub(super) fn current_paint_token(token: u64) -> bool {
     token == FIRST_PAINT_TOKEN.load(Ordering::SeqCst)
@@ -26,9 +69,18 @@ fn first_paint_token(visible: bool) -> u64 {
 }
 
 pub(super) fn drain(hwnd: HWND) {
-    if !RENDERER_READY.load(Ordering::SeqCst) {
+    if !RENDERER_READY.load(Ordering::SeqCst) || super::topology_transition::active() {
         return;
     }
+    if !super::topology::matches_display(hwnd) {
+        super::topology_transition::begin(hwnd);
+        return;
+    }
+    if DRAINING.with(|value| value.replace(true)) {
+        DRAIN_AGAIN.with(|value| value.set(true));
+        return;
+    }
+    let _drain_guard = DrainGuard;
     let commands = COMMANDS.lock().unwrap().drain();
     if commands.is_empty() {
         return;
@@ -56,6 +108,9 @@ pub(super) fn drain(hwnd: HWND) {
             revision = revision.max(next);
             continue;
         }
+        let Some(command) = super::topology::localize(command, super::topology::origin()) else {
+            crate::crash_report::exit(1, "renderer-coordinate-overflow");
+        };
         if !child_commands::apply(&command) {
             continue;
         }
@@ -77,7 +132,14 @@ pub(super) fn drain(hwnd: HWND) {
     } else {
         hwnd
     };
-    let cards = CARDS.lock().unwrap();
+    let cards = CARDS.lock().unwrap().clone();
+    if input_surface::is_refine_text_active()
+        && !cards
+            .values()
+            .any(|card| button_input::keeps_refine_focus(card.visible, &card.controls))
+    {
+        input_surface::restore_nonactivating(input_hwnd);
+    }
     let paint_token =
         first_paint_token(cards.values().any(|card| card.visible) || processing::is_visible());
     let buttons = button_input::interactive_regions();
@@ -94,14 +156,16 @@ pub(super) fn drain(hwnd: HWND) {
     if !visual_region::first_scene_painted() {
         visual_region::hide(input_hwnd);
     }
-    if applied.blocks_visuals(&cards) && !processing::is_visible() {
+    if visual_region::first_scene_painted()
+        && applied.blocks_visuals(&cards)
+        && !processing::is_visible()
+    {
         visual_region::hide(hwnd);
     } else if !visual_region::stack_below_input(hwnd, input_hwnd) {
         visual_region::hide(hwnd);
         visual_region::hide(input_hwnd);
         crate::crash_report::exit(1, "renderer-window-stack-failed");
     }
-    drop(cards);
     let acknowledgement = if revision > 0 {
         serde_json::to_string(&ChildEvent::StateAcknowledged {
             revision,
@@ -112,7 +176,54 @@ pub(super) fn drain(hwnd: HWND) {
     } else {
         "null".to_string()
     };
+    let batch_id = register_batch();
     super::evaluate_script(&format!(
-        "window.__SGT_APPLY_SCENE_BATCH__(function(){{{scripts}}},{acknowledgement},{paint_token});"
+        "window.__SGT_APPLY_SCENE_BATCH__(function(){{{scripts}}},{acknowledgement},{paint_token},'{batch_id}');"
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_visible_current_editor_keeps_native_refine_focus() {
+        let mut controls = super::super::super::protocol::SceneControls {
+            is_editing: true,
+            edit_session: Some("1".into()),
+            ..Default::default()
+        };
+        assert!(button_input::keeps_refine_focus(true, &controls));
+        assert!(!button_input::keeps_refine_focus(false, &controls));
+        controls.hidden = true;
+        assert!(!button_input::keeps_refine_focus(true, &controls));
+        controls.hidden = false;
+        controls.edit_session = None;
+        assert!(!button_input::keeps_refine_focus(true, &controls));
+        controls.edit_session = Some("0".into());
+        assert!(!button_input::keeps_refine_focus(true, &controls));
+    }
+
+    #[test]
+    fn batch_barrier_waits_for_every_out_of_order_completion() {
+        assert!(is_idle());
+        let first = register_batch();
+        let second = register_batch();
+        assert_ne!(first, second);
+        complete_batch(second);
+        assert!(!is_idle());
+        complete_batch(second);
+        assert!(!is_idle());
+        complete_batch(first);
+        assert!(is_idle());
+    }
+
+    #[test]
+    fn native_drain_blocks_barrier_even_before_a_batch_is_registered() {
+        DRAINING.with(|value| value.set(true));
+        let guard = DrainGuard;
+        assert!(!is_idle());
+        drop(guard);
+        assert!(is_idle());
+    }
 }

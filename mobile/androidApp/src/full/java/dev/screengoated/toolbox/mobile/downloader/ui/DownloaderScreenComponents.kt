@@ -41,11 +41,13 @@ internal fun DropdownSelector(
     selected: String,
     onSelect: (String) -> Unit,
     header: String? = null,
+    optionLabel: (String) -> String = { it },
+    extraAction: Pair<String, () -> Unit>? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
-            Text("$label $selected", style = MaterialTheme.typography.bodySmall)
+            Text("$label ${optionLabel(selected)}", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.width(4.dp))
             Icon(
                 painterResource(if (expanded) R.drawable.ms_expand_less else R.drawable.ms_expand_more),
@@ -70,8 +72,15 @@ internal fun DropdownSelector(
             }
             options.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(opt) },
+                    text = { Text(optionLabel(opt)) },
                     onClick = { onSelect(opt); expanded = false },
+                )
+            }
+            extraAction?.let { (actionLabel, action) ->
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(actionLabel) },
+                    onClick = { expanded = false; action() },
                 )
             }
         }

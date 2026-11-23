@@ -103,22 +103,6 @@ fn is_mutating_tool_with_integration_metadata(
     )
 }
 
-/// Whether a successful result gives the replacement session fresh external
-/// state after an interrupted mutation. Pure delay, connection health, and the
-/// terminal claim are intentionally not reconciliation evidence.
-pub(super) fn provides_reconciliation_evidence(tool: &str) -> bool {
-    !is_mutating_tool(tool)
-        && !matches!(
-            tool,
-            "wait"
-                | "browser_status"
-                | "list_app_integrations"
-                | "app_integration_status"
-                | "read_app_integration_docs"
-                | "done"
-        )
-}
-
 pub(super) fn task_class_from_tools(tools: &[String]) -> &'static str {
     if tools.iter().any(|tool| is_mutating_tool(tool)) {
         "action"

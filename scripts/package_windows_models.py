@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build deterministic, content-addressed Windows model ZIPs.
 
-This script never uploads. It converts the two upstream tar.bz2 model releases
+This script never uploads. It converts pinned upstream tar.bz2 model releases
 that the host cannot safely unpack into exact ZIP inventories for the
 append-only sgt-runtime-bundles release.
 """
@@ -49,36 +49,9 @@ class PackageSpec:
     top_directory: str
 
 
-PACKAGES = (
-    PackageSpec(
-        component_id="kokoro-82m-v1-model",
-        version="1.0.0-sherpa-tts-models",
-        source_filename="kokoro-multi-lang-v1_0.tar.bz2",
-        source_url=(
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
-            "kokoro-multi-lang-v1_0.tar.bz2"
-        ),
-        source_size=349_418_188,
-        source_sha256=(
-            "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046"
-        ),
-        top_directory="kokoro-multi-lang-v1_0",
-    ),
-    PackageSpec(
-        component_id="supertonic-3-model",
-        version="2026.05.11-int8",
-        source_filename="sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
-        source_url=(
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
-            "sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2"
-        ),
-        source_size=128_774_318,
-        source_sha256=(
-            "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427"
-        ),
-        top_directory="sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
-    ),
-)
+# No Windows model ships today. A future offline engine adds its pinned
+# upstream archive here (see docs/OFFLINE-ENGINES.md).
+PACKAGES: tuple[PackageSpec, ...] = ()
 
 
 def sha256_file(path: Path) -> tuple[int, str]:
@@ -114,12 +87,14 @@ def zip_info(path: str, _size: int) -> zipfile.ZipInfo:
     return info
 
 
-def cleanup_stale_staging(output_dir: Path) -> None:
+def cleanup_stale_staging(
+    output_dir: Path, packages: tuple[PackageSpec, ...] = PACKAGES
+) -> None:
     """Remove only temp directories created by an interrupted invocation."""
     if not output_dir.exists():
         return
     resolved_output = output_dir.resolve(strict=True)
-    prefixes = tuple(f"{spec.component_id}-" for spec in PACKAGES)
+    prefixes = tuple(f"{spec.component_id}-" for spec in packages)
     for candidate in output_dir.iterdir():
         matching = next((prefix for prefix in prefixes if candidate.name.startswith(prefix)), None)
         if matching is None:

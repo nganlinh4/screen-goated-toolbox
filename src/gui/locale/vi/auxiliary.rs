@@ -5,6 +5,8 @@ pub(super) fn get() -> AuxiliaryLocaleText {
         download: super::download::get(),
         managed_tools: super::managed_tools::get(),
         continuous_mode_activated: "Hoạt động liên tục, bấm {hotkey} để thoát",
+        continuous_mode_title_suffix: "Chế độ liên tục",
+        continuous_mode_right_mouse_hint: ", DÙNG CHUỘT PHẢI.",
         win_select_title: "Chọn Cửa Sổ để Quay",
         win_select_subtitle: "Nhấn Escape hoặc click bên ngoài để hủy",
         win_select_count: "{} cửa sổ",

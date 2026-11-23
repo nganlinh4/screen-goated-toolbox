@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"row_removed_before_delayed_action","result":"target_preserved"},
+    {"event":"row_replaced_before_delayed_action","result":"replacement_preserved"},
+    {"event":"other_field_changed_before_delayed_edit","result":"newer_field_preserved"},
+    {"event":"duplicate_id_before_action","result":"ambiguous_action_rejected"},
+    {"event":"delete_and_recreate_same_id","result":"replacement_preserved"},
+    {"event":"row_shift_before_action","result":"original_target_updated"},
+    {"event":"reopen_after_row_replacement","result":"old_action_rejected"},
+    {"event":"dialog_closed_before_callback","result":"old_action_rejected"},
+    {"event":"editor_retired_before_retry","result":"old_action_rejected"}
+  ]
+}

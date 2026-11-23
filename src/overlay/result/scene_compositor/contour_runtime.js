@@ -96,7 +96,7 @@ window.__SGT_PROCESSING_CONTOURS__ = (function() {
     element.style.cssText = 'position:absolute;pointer-events:none;overflow:hidden;z-index:2147480001';
     canvas.style.cssText = 'display:block;width:100%;height:100%;pointer-events:none';
     element.appendChild(canvas); document.body.appendChild(element);
-    const entry = { id: effect.id, element, canvas, rect: effect.rect, revision: -1,
+    const entry = { id: effect.id, element, canvas, rect: { ...effect.rect }, revision: -1,
       startedAt: performance.now() - effect.elapsed_ms, morphAt: null, pendingAt: null,
       appliedRevision: -1, padding: null, emptyAt: null, closedAt: null, finish: false, done: false };
     position(entry);
@@ -177,6 +177,11 @@ window.__SGT_PROCESSING_CONTOURS__ = (function() {
         let entry = effects.get(id);
         if (!entry) { entry = create(effect); effects.set(id, entry); }
         if (entry.done) continue;
+        if (entry.rect.x !== effect.rect.x || entry.rect.y !== effect.rect.y ||
+            entry.rect.width !== effect.rect.width || entry.rect.height !== effect.rect.height) {
+          entry.rect = { ...effect.rect };
+          position(entry);
+        }
         entry.controlId = effect.control_id;
         if (effect.revision > entry.revision) {
           entry.revision = effect.revision;

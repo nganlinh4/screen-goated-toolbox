@@ -17,8 +17,9 @@ internal class PresetGraphExecutor(
     private val runtimeSettings: () -> PresetRuntimeSettings,
     private val uiLanguage: () -> String,
     private val executionState: MutableStateFlow<PresetExecutionState>,
+    private val sessionOwnership: PresetSessionOwnership = PresetSessionOwnership(executionState),
     private val toastBus: AppToastBus,
-    private val postProcessActions: PresetPostProcessActions = NoOpPostProcessActions,
+    private val postProcessActions: () -> PresetPostProcessActions = { NoOpPostProcessActions },
     private val historyRecorder: dev.screengoated.toolbox.mobile.history.PresetHistoryRecorder =
         dev.screengoated.toolbox.mobile.history.NoOpPresetHistoryRecorder,
 ) {
@@ -31,6 +32,7 @@ internal class PresetGraphExecutor(
             runtimeSettings = runtimeSettings,
             uiLanguage = uiLanguage,
             executionState = executionState,
+            sessionOwnership = sessionOwnership,
             historyRecorder = historyRecorder,
         )
     }
@@ -40,6 +42,7 @@ internal class PresetGraphExecutor(
         preset: Preset,
         input: PresetInput,
     ) {
+        sessionOwnership.ensureActive(sessionId)
         val inputText = when (input) {
             is PresetInput.Text -> input.text
             else -> ""
@@ -50,11 +53,9 @@ internal class PresetGraphExecutor(
             incoming[to].add(from)
         }
 
-        val executionOrder = topologicalOrder(
-            blockCount = preset.blocks.size,
-            edges = normalizedEdges,
-        )
-        val outputs = mutableMapOf<Int, String>()
+        val executionOrder = preset.reachableExecutionOrder(normalizedEdges)
+        val outputs: MutableMap<Int, String> = java.util.concurrent.ConcurrentHashMap()
+        val running = executionOrder.toSet()
         val overlayIndexes = executionOrder.filter { index ->
             val block = preset.blocks[index]
             if (!block.showOverlay) {
@@ -89,20 +90,28 @@ internal class PresetGraphExecutor(
                         title = preset.nameEn,
                         markdownText = initialText,
                         isLoading = initialLoading,
-                        loadingStatusText = if (initialLoading) loadingStatusText() else null,
+                        loadingStatusText = null,
                         isStreaming = false,
                         renderMode = if (block.blockType == BlockType.INPUT_ADAPTER) "markdown" else block.renderMode,
                         overlayOrder = overlayOrder.getOrElse(index) { 0 },
                         modelId = initialModel?.id.orEmpty(),
                         modelProvider = initialModel?.provider,
-                    ),
+                    ).let { state ->
+                        if (block.blockType == BlockType.INPUT_ADAPTER) state.withInputAdapterMedia(input, initialText) else state
+                    },
                 )
             }
         }
 
-        executionOrder.forEach { index ->
+        runPresetDataflow(executionOrder, incoming) { index ->
+            sessionOwnership.ensureActive(sessionId)
             val block = preset.blocks[index]
             val shouldSurfaceOverlay = index in overlayOrder
+            if (shouldSkipDownstreamBlock(incoming[index], running, outputs) { preset.blocks[it].blockType == BlockType.INPUT_ADAPTER }) {
+                outputs[index] = ""
+                executionState.update { it.withoutWindowState(PresetResultWindowId(sessionId = sessionId, blockIdx = index)) }
+                return@runPresetDataflow
+            }
             // Isolate per-block errors so one failure doesn't kill all sibling overlays.
             // (Matches Windows: each block's error renders in its own window via per-HWND state.)
             try {
@@ -156,11 +165,12 @@ internal class PresetGraphExecutor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e // Don't swallow coroutine cancellation
             } catch (e: Exception) {
+                sessionOwnership.ensureActive(sessionId)
                 val rawError = e.message ?: e.toString()
                 val apiKeyNotice = apiKeyErrorToastText(rawError, uiLanguage())
                 val visibleError = apiKeyNotice ?: hiddenBlockErrorText(rawError, uiLanguage())
                 if (!shouldSurfaceOverlay || apiKeyNotice != null) {
-                    toastBus.show(visibleError)
+                    sessionOwnership.owned(sessionId) { toastBus.show(visibleError) }
                 }
                 // Emit per-window error state; other overlays continue unaffected
                 outputs[index] = ""
@@ -186,19 +196,22 @@ internal class PresetGraphExecutor(
             }
 
             // ── Centralized per-block post-processing (matches Windows step.rs) ──
-            val blockOutput = outputs[index] ?: ""
-            if (block.autoCopy) {
-                when {
-                    block.blockType == BlockType.INPUT_ADAPTER && input is PresetInput.Image ->
-                        postProcessActions.handleAutoCopyImage(block, input.pngBytes)
+            sessionOwnership.ensureActive(sessionId)
+            sessionOwnership.owned(sessionId) {
+                val blockOutput = outputs[index] ?: ""
+                if (block.autoCopy) {
+                    when {
+                        block.blockType == BlockType.INPUT_ADAPTER && input is PresetInput.Image ->
+                            postProcessActions().handleAutoCopyImage(block, input.pngBytes, sessionOwnership.effectLease(sessionId))
 
-                    blockOutput.isNotBlank() ->
-                        postProcessActions.handleAutoCopy(block, blockOutput)
+                        blockOutput.isNotBlank() ->
+                            postProcessActions().handleAutoCopy(block, blockOutput, sessionOwnership.effectLease(sessionId))
+                    }
                 }
-            }
-            if (blockOutput.isNotBlank()) {
-                if (block.autoSpeak) {
-                    postProcessActions.handleAutoSpeak(block, blockOutput, index)
+                if (blockOutput.isNotBlank()) {
+                    if (block.autoSpeak) {
+                        postProcessActions().handleAutoSpeak(block, blockOutput, index, sessionOwnership.effectLease(sessionId))
+                    }
                 }
             }
         }
@@ -206,7 +219,7 @@ internal class PresetGraphExecutor(
         // Auto-paste after ALL blocks complete (matches Windows post_process.rs)
         val shouldSkipFinalAutoPaste = (input as? PresetInput.Audio)?.isStreamingResult == true
         if (preset.autoPaste && !shouldSkipFinalAutoPaste) {
-            postProcessActions.handleAutoPaste()
+            sessionOwnership.owned(sessionId) { postProcessActions().handleAutoPaste(sessionOwnership.effectLease(sessionId)) }
         }
     }
 
@@ -222,11 +235,11 @@ internal class PresetGraphExecutor(
     ) {
         outputs[index] = inputText
         if (input is PresetInput.Audio) {
-            historyRecorder.recordAudioResult(
+            sessionOwnership.owned(sessionId) { historyRecorder.recordAudioResult(
                 block = preset.blocks[index],
                 wavBytes = input.wavBytes,
                 resultText = preset.name(uiLanguage()),
-            )
+            ) }
         }
         if (!shouldSurfaceOverlay) {
             return
@@ -245,7 +258,7 @@ internal class PresetGraphExecutor(
                     isStreaming = false,
                     renderMode = "markdown",
                     overlayOrder = overlayOrder.getOrElse(index) { 0 },
-                ),
+                ).withInputAdapterMedia(input, content),
             )
         }
     }
@@ -266,39 +279,43 @@ internal class PresetGraphExecutor(
         val shouldSurfaceStreaming =
             shouldSurfaceOverlay &&
                 block.surfaceStreamingEnabled()
-        val retryChainKind = retryChainKindForBlockType(block.blockType)
-            ?.takeUnless { PresetModelCatalog.isNonLlm(block.model) }
-        var currentModelId = block.model
         val failedModelIds = mutableListOf<String>()
         val blockedProviders = linkedSetOf<PresetModelProvider>()
         val currentApiKeys = apiKeys()
         val currentRuntimeSettings = runtimeSettings()
+        val retryOrder = retryChainKindForBlockType(block.blockType)
+            ?.takeUnless { PresetModelCatalog.isNonLlm(block.model) }
+            ?.let { PresetAttemptOrder(it, block.model, block.searchEnabled, currentApiKeys, currentRuntimeSettings) }
+        var currentModelId = retryOrder?.initialId() ?: block.model
         var result: String? = null
 
         while (result == null) {
+            sessionOwnership.ensureActive(sessionId)
             val descriptor = PresetModelCatalog.getById(currentModelId)
                 ?: error("Unknown model config: $currentModelId")
+            val expectedType = when (block.blockType) {
+                BlockType.IMAGE -> PresetModelType.VISION
+                BlockType.TEXT -> PresetModelType.TEXT
+                else -> error("Unsupported block type: ${block.blockType}")
+            }
+            require(descriptor.modelType == expectedType) { "Incompatible model: $currentModelId" }
+            requireExplicitSearchOptIn(descriptor, block.searchEnabled)
 
-            val preflight = preflightSkipReason(
+            val modelAttempt = PresetModelAttempt(currentModelId)
+            val preflight = sessionOwnership.owned(sessionId) { preflightSkipReason(
                 modelId = currentModelId,
                 provider = descriptor.provider,
                 apiKeys = currentApiKeys,
                 blockedProviders = blockedProviders,
                 settings = currentRuntimeSettings,
-            ) ?: claimPresetModelAttempt(currentModelId)
+            ) ?: claimPresetModelAttempt(modelAttempt) }
             if (preflight != null) {
                 if (shouldBlockRetryProvider(preflight)) {
                     blockedProviders += descriptor.provider
                 }
                 failedModelIds += currentModelId
-                val next = resolveNextRetryModel(
-                    currentModelId = currentModelId,
-                    failedModelIds = failedModelIds,
-                    blockedProviders = blockedProviders,
-                    chainKind = retryChainKind ?: throw IllegalStateException(preflight),
-                    apiKeys = currentApiKeys,
-                    settings = currentRuntimeSettings,
-                ) ?: throw IllegalStateException(preflight)
+                val next = retryOrder?.next(currentModelId, failedModelIds, blockedProviders)
+                    ?: throw IllegalStateException(preflight)
                 currentModelId = next.id
                 if (shouldSurfaceOverlay) {
                     emitRetryingWindowState(
@@ -313,7 +330,15 @@ internal class PresetGraphExecutor(
                 continue
             }
 
-            val attemptResult = attempt(currentModelId, currentApiKeys) { chunk ->
+            if (failedModelIds.isEmpty() && currentModelId != block.model && shouldSurfaceOverlay) {
+                executionState.update { state ->
+                    val window = state.resultWindows.firstOrNull { it.id == resultWindowId }
+                    window?.let {
+                        state.withWindowState(it.copy(modelId = descriptor.id, modelProvider = descriptor.provider))
+                    } ?: state
+                }
+            }
+            val attemptResult = try { attempt(currentModelId, currentApiKeys) { chunk ->
                 if (chunk.startsWith(TextApiClient.WIPE_SIGNAL)) {
                     blockBuffer.clear()
                     blockBuffer.append(chunk.removePrefix(TextApiClient.WIPE_SIGNAL))
@@ -339,6 +364,11 @@ internal class PresetGraphExecutor(
                         )
                     }
                 }
+            } } catch (e: Exception) { releasePresetModelProbe(modelAttempt); throw e }
+
+            try { sessionOwnership.ensureActive(sessionId) } catch (e: CancellationException) {
+                releasePresetModelProbe(modelAttempt)
+                throw e
             }
 
             val completedAttempt = attemptResult.fold(
@@ -355,11 +385,11 @@ internal class PresetGraphExecutor(
             val error = completedAttempt.exceptionOrNull()
             if (error != null) {
                 if (error is CancellationException) {
-                    releasePresetModelProbe(currentModelId)
+                    releasePresetModelProbe(modelAttempt)
                     throw error
                 }
                 val message = error.message ?: "Execution failed"
-                recordPresetModelFailure(currentModelId, message)
+                sessionOwnership.ownedProbe(sessionId, modelAttempt) { recordPresetModelFailure(modelAttempt, message) }
                 if (!shouldAdvanceRetryChain(message)) {
                     throw error
                 }
@@ -367,14 +397,7 @@ internal class PresetGraphExecutor(
                     blockedProviders += descriptor.provider
                 }
                 failedModelIds += currentModelId
-                val next = resolveNextRetryModel(
-                    currentModelId = currentModelId,
-                    failedModelIds = failedModelIds,
-                    blockedProviders = blockedProviders,
-                    chainKind = retryChainKind ?: throw error,
-                    apiKeys = currentApiKeys,
-                    settings = currentRuntimeSettings,
-                ) ?: throw error
+                val next = retryOrder?.next(currentModelId, failedModelIds, blockedProviders) ?: throw error
                 currentModelId = next.id
                 blockBuffer.clear()
                 if (shouldSurfaceOverlay) {
@@ -390,13 +413,13 @@ internal class PresetGraphExecutor(
                 continue
             }
 
-            recordPresetModelSuccess(currentModelId)
+            sessionOwnership.ownedProbe(sessionId, modelAttempt) { recordPresetModelSuccess(modelAttempt) }
             result = completedAttempt.getOrThrow()
         }
 
         val finalResult = requireNotNull(result)
         outputs[index] = finalResult
-        recordResult(finalResult)
+        sessionOwnership.owned(sessionId) { recordResult(finalResult) }
 
         if (!shouldSurfaceOverlay) {
             return
@@ -480,6 +503,7 @@ internal class PresetGraphExecutor(
         sessionId: String,
     ) {
         val block = preset.blocks[index]
+        require(!block.searchEnabled) { "SEARCH_UNSUPPORTED:image" }
         // For chained blocks, previous text output can augment the prompt
         val priorText = incoming[index]
             .mapNotNull(outputs::get)
@@ -546,12 +570,6 @@ internal class PresetGraphExecutor(
                 ),
             )
         }
-    }
-
-    private fun loadingStatusText(): String = when (uiLanguage()) {
-        "vi" -> "Đang tải"
-        "ko" -> "로딩"
-        else -> "Loading"
     }
 
     private fun retryStatusText(modelName: String): String = when (uiLanguage()) {

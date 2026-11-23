@@ -23,6 +23,7 @@ interface UseTimelineScrollbarDragOptions {
   setProgrammaticScrollLeft: (scrollLeft: number) => void;
   scrollFromTrackClientX: (clientX: number) => void;
   suppressFollow: () => void;
+  onUserScroll: () => void;
 }
 
 export function useTimelineScrollbarDrag({
@@ -35,6 +36,7 @@ export function useTimelineScrollbarDrag({
   setProgrammaticScrollLeft,
   scrollFromTrackClientX,
   suppressFollow,
+  onUserScroll,
 }: UseTimelineScrollbarDragOptions) {
   const handleScrollbarTrackPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -69,6 +71,7 @@ export function useTimelineScrollbarDrag({
       event.preventDefault();
       event.stopPropagation();
       suppressFollow();
+      onUserScroll();
 
       const startClientX = event.clientX;
       const startScrollLeft = viewport.scrollLeft;
@@ -89,6 +92,7 @@ export function useTimelineScrollbarDrag({
             ? startScrollLeft + (deltaX / maxThumbTravel) * maxScroll
             : startScrollLeft;
         setProgrammaticScrollLeft(nextScrollLeft);
+        onUserScroll();
         followSpringRef.current.set(clamp(nextScrollLeft, 0, maxScroll));
       };
       const handleUp = () => {
@@ -103,6 +107,7 @@ export function useTimelineScrollbarDrag({
     },
     [
       followSpringRef,
+      onUserScroll,
       scrollbarTrackRef,
       setProgrammaticScrollLeft,
       showScrollbarRef,

@@ -163,12 +163,12 @@ pub(crate) fn record_mic_audio_sidecar(
             Ok(writer) => writer,
             Err(error) => {
                 eprintln!("[MicCapture] failed to create WAV writer: {}", error);
+                drop(stream);
                 finished_signal.store(true, Ordering::SeqCst);
                 return;
             }
         };
 
-        let _stream = stream;
         let mut chunk = vec![0i16; 8192];
         let mut write_failed = false;
 
@@ -213,6 +213,7 @@ pub(crate) fn record_mic_audio_sidecar(
             eprintln!("[MicCapture] finalize failed: {}", error);
             let _ = std::fs::remove_file(&output_path);
         }
+        drop(stream);
         finished_signal.store(true, Ordering::SeqCst);
     });
 

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "earlier_input_grows_while_output_is_unchanged",
+      "snapshots": [
+        {
+          "items": [
+            { "id": 1, "role": "input", "text": "a", "isFinal": false, "lang": "" },
+            { "id": 2, "role": "output", "text": "b", "isFinal": false, "lang": "" }
+          ],
+          "expectedPairs": [{ "id": 1, "input": "a", "output": "b" }]
+        },
+        {
+          "items": [
+            { "id": 1, "role": "input", "text": "a c", "isFinal": false, "lang": "" },
+            { "id": 2, "role": "output", "text": "b", "isFinal": false, "lang": "" }
+          ],
+          "expectedPairs": [{ "id": 1, "input": "a c", "output": "b" }]
+        }
+      ]
+    },
+    {
+      "name": "same_length_text_is_still_authoritative",
+      "snapshots": [
+        {
+          "items": [{ "id": 3, "role": "output", "text": "abc", "isFinal": false, "lang": "" }],
+          "expectedPairs": [{ "id": 3, "input": "", "output": "abc" }]
+        },
+        {
+          "items": [{ "id": 3, "role": "output", "text": "xyz", "isFinal": false, "lang": "" }],
+          "expectedPairs": [{ "id": 3, "input": "", "output": "xyz" }]
+        }
+      ]
+    },
+    {
+      "name": "literal_markup_and_empty_history",
+      "snapshots": [
+        {
+          "items": [{ "id": 4, "role": "output", "text": "<tag>&text", "isFinal": true, "lang": "" }],
+          "expectedPairs": [{ "id": 4, "input": "", "output": "<tag>&text" }]
+        },
+        { "items": [], "expectedPairs": [] }
+      ]
+    }
+  ]
+}

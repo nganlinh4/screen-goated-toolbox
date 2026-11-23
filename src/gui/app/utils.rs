@@ -1,16 +1,13 @@
 use super::types::{REQUEST_OPEN_DOWNLOADED_TOOLS, RESTORE_SIGNAL, SettingsApp};
-use crate::config::save_config;
 use eframe::egui;
 use std::sync::atomic::Ordering;
-use windows::Win32::Foundation::{LPARAM, RECT};
+use windows::Win32::Foundation::RECT;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowW, GetClassNameW, GetWindowRect, GetWindowThreadProcessId, SW_RESTORE,
-    SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SetForegroundWindow, SetWindowPos, ShowWindow,
+    GetWindowRect, IsIconic, SHOW_WINDOW_CMD, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetWindowPos,
+    ShowWindow,
 };
-use windows::core::*;
-use windows_core::BOOL;
 
 /// Public function to signal the main window to restore (called from tray popup)
 pub fn signal_restore_window() {
@@ -95,6 +92,7 @@ impl SettingsApp {
                 force_main_window_frame_changed();
                 self.custom_chrome_resize_pulse_stage = 0;
                 self.custom_chrome_restore_size = None;
+                crate::gui::window_state::complete_chrome_restore();
             }
         }
         ctx.request_repaint();
@@ -131,15 +129,18 @@ impl SettingsApp {
         if moved {
             self.last_window_geometry = Some(geometry);
             self.window_geometry_changed_at = Some(std::time::Instant::now());
+            ctx.request_repaint_after(GEOMETRY_SETTLE_DELAY);
             return;
         }
 
         let Some(changed_at) = self.window_geometry_changed_at else {
             return;
         };
-        if crate::gui::resize_subclass::is_live_resize()
-            || changed_at.elapsed() < GEOMETRY_SETTLE_DELAY
-        {
+        if !geometry_save_ready(
+            ctx,
+            changed_at.elapsed(),
+            crate::gui::resize_subclass::is_live_resize(),
+        ) {
             return;
         }
 
@@ -170,6 +171,9 @@ impl SettingsApp {
     }
 
     pub(crate) fn save_and_sync(&mut self) {
+        if self.config_conflict.is_some() {
+            return;
+        }
         if let crate::gui::settings_ui::ViewMode::Preset(idx) = self.view_mode {
             self.config.active_preset_idx = idx;
         }
@@ -177,21 +181,48 @@ impl SettingsApp {
 
         let realtime_active = crate::overlay::is_realtime_overlay_active();
         let mut state = self.app_state_ref.lock().unwrap();
+        let registered = crate::hotkey::RegisteredBindings::of(&state.config);
 
-        // Pull fields that can be modified by external modules (tray popup, bubble panel)
-        // before overwriting the global state, to avoid clobbering their changes.
-        self.config.show_favorite_bubble = state.config.show_favorite_bubble;
-        self.config.favorite_bubble_position = state.config.favorite_bubble_position;
-        self.config.favorite_bubble_size = state.config.favorite_bubble_size;
-        self.config.favorites_keep_open = state.config.favorites_keep_open;
         if realtime_active {
             self.config
                 .sync_live_translate_overlay_controls_from(&state.config);
         }
-        state.hotkeys_updated = true;
-        state.config = self.config.clone();
+        let merged = match super::config_merge::merge_settings_edits(
+            &self.config_baseline,
+            &self.config,
+            &state.config,
+        ) {
+            Ok(merged) => merged,
+            Err(error) => {
+                crate::log_info!("[config] failed to merge settings edits: {error}");
+                self.config_conflict = Some(super::config_merge::ConfigConflict {
+                    base: self.config_baseline.clone(),
+                    edited: self.config.clone(),
+                });
+                return;
+            }
+        };
+        if let Err(error) = self
+            .config_save
+            .absorb_shared_changes(&self.config_baseline, &state.config)
+        {
+            crate::log_info!("[config] could not rebase pending save: {error}");
+            return;
+        }
+        // The disk write is coalesced: a slider drag or typing commits every
+        // frame, and one write follows once the edits go idle.
+        self.config_save
+            .record_edit(&state.config, std::time::Instant::now());
+        state.config = merged.clone();
+        // Slider drags and typing commit every frame; only a binding change needs
+        // the listener to unregister and re-register everything.
+        let bindings_changed = crate::hotkey::RegisteredBindings::of(&merged) != registered;
+        if bindings_changed {
+            state.hotkeys_updated = true;
+        }
+        self.config = merged.clone();
+        self.config_baseline = merged;
         drop(state);
-        save_config(&self.config);
 
         // Sync PromptDJ and ScreenRecord settings if windows are active
         crate::overlay::prompt_dj::update_settings();
@@ -199,21 +230,9 @@ impl SettingsApp {
         crate::overlay::screen_record::update_settings();
         crate::overlay::three_d_generator::update_settings();
         crate::overlay::image_to_svg::update_settings();
-        crate::overlay::image_creator::update_settings();
 
-        unsafe {
-            let class = w!("HotkeyListenerClass");
-            let title = w!("Listener");
-            let hwnd = windows::Win32::UI::WindowsAndMessaging::FindWindowW(class, title)
-                .unwrap_or_default();
-            if !hwnd.is_invalid() {
-                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                    Some(hwnd),
-                    0x0400 + 101,
-                    windows::Win32::Foundation::WPARAM(0),
-                    windows::Win32::Foundation::LPARAM(0),
-                );
-            }
+        if bindings_changed {
+            crate::hotkey::reload_registrations();
         }
     }
 
@@ -247,12 +266,17 @@ pub(crate) fn show_main_window_native() {
     unsafe {
         let hwnd = main_window_hwnd();
         if !hwnd.is_invalid() {
-            let _ = ShowWindow(hwnd, SW_RESTORE);
+            let _ = ShowWindow(hwnd, main_window_show_command(IsIconic(hwnd).as_bool()));
             let _ = ShowWindow(hwnd, SW_SHOW);
+            crate::gui::window_state::apply_restored_maximized();
             let _ = SetForegroundWindow(hwnd);
             let _ = SetFocus(Some(hwnd));
         }
     }
+}
+
+fn main_window_show_command(minimized: bool) -> SHOW_WINDOW_CMD {
+    if minimized { SW_RESTORE } else { SW_SHOW }
 }
 
 fn force_main_window_frame_changed() {
@@ -276,6 +300,23 @@ fn force_main_window_frame_changed() {
 
 /// How long the window must hold still before its geometry is written.
 const GEOMETRY_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
+
+fn geometry_save_ready(
+    ctx: &egui::Context,
+    elapsed: std::time::Duration,
+    live_resize: bool,
+) -> bool {
+    if live_resize {
+        return false;
+    }
+    if let Some(remaining) = GEOMETRY_SETTLE_DELAY.checked_sub(elapsed)
+        && !remaining.is_zero()
+    {
+        ctx.request_repaint_after(remaining);
+        return false;
+    }
+    true
+}
 
 /// Whether two geometries differ by enough to be a real move, not jitter.
 fn geometry_differs(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)) -> bool {
@@ -349,118 +390,104 @@ fn restore_main_window_resize_pulse(width: i32, height: i32) {
     }
 }
 
-/// Title of the eframe main window.
-pub(crate) const MAIN_WINDOW_TITLE: PCWSTR = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+/// The main window, captured from eframe's own window handle when the app is
+/// created; zero until then.
+static MAIN_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
-struct MainWindowSearch {
-    process_id: u32,
-    hwnd: windows::Win32::Foundation::HWND,
+/// Records the main window from eframe's raw handle. Called with the creation
+/// context before anything asks for the window, and again per frame as a
+/// no-op; later lookups only read an atomic.
+pub(crate) fn remember_main_window(window: &impl raw_window_handle::HasWindowHandle) {
+    remember_window(&MAIN_HWND, window);
 }
 
-extern "system" fn find_process_eframe_window(
-    hwnd: windows::Win32::Foundation::HWND,
-    lparam: LPARAM,
-) -> BOOL {
-    unsafe {
-        let search = &mut *(lparam.0 as *mut MainWindowSearch);
-        let mut process_id = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-        if process_id != search.process_id {
-            return BOOL(1);
-        }
-
-        const EFRAME_CLASS: &[u16] = &[
-            b'e' as u16,
-            b'f' as u16,
-            b'r' as u16,
-            b'a' as u16,
-            b'm' as u16,
-            b'e' as u16,
-        ];
-        let mut class_name = [0u16; 32];
-        let length = GetClassNameW(hwnd, &mut class_name);
-        if length > 0 && &class_name[..length as usize] == EFRAME_CLASS {
-            search.hwnd = hwnd;
-            return BOOL(0);
-        }
-        BOOL(1)
-    }
-}
-
-/// Locate this process's eframe window without selecting a normal/smoke sibling.
+/// This process's main window, or a null handle before it has been created.
 pub(crate) unsafe fn main_window_hwnd() -> windows::Win32::Foundation::HWND {
-    let mut search = MainWindowSearch {
-        process_id: std::process::id(),
-        hwnd: windows::Win32::Foundation::HWND::default(),
-    };
-    unsafe {
-        let _ = EnumWindows(
-            Some(find_process_eframe_window),
-            LPARAM(&mut search as *mut _ as isize),
-        );
-    }
-    if !search.hwnd.is_invalid() {
-        return search.hwnd;
-    }
+    remembered_window(&MAIN_HWND)
+}
 
-    // Preserve the title fallback, but never return another process's window.
-    let hwnd = unsafe { FindWindowW(None, MAIN_WINDOW_TITLE).unwrap_or_default() };
-    let mut process_id = 0;
-    if !hwnd.is_invalid() {
-        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
+fn remember_window(
+    slot: &std::sync::atomic::AtomicIsize,
+    window: &impl raw_window_handle::HasWindowHandle,
+) {
+    use raw_window_handle::RawWindowHandle;
+    if slot.load(Ordering::Acquire) != 0 {
+        return;
     }
-    if process_id == std::process::id() {
-        hwnd
-    } else {
-        windows::Win32::Foundation::HWND::default()
+    if let Ok(handle) = window.window_handle()
+        && let RawWindowHandle::Win32(window) = handle.as_raw()
+    {
+        slot.store(window.hwnd.get(), Ordering::Release);
     }
 }
 
-/// Robustly restart the application on Windows.
-/// Uses a temporary batch file with a small delay to ensure the current process exits
-/// and releases its single-instance mutex before the new instance starts.
-pub fn restart_app() {
-    if let Ok(exe_path) = std::env::current_exe() {
-        // Create a temporary batch file to handle the delayed restart reliably
-        let kill_mutex_cmd = "timeout /t 1 /nobreak > NUL".to_string();
-        // Pass --restarted flag to show notification on next start
-        let start_cmd = format!("start \"\" \"{}\" --restarted", exe_path.to_string_lossy());
-        let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
+fn remembered_window(slot: &std::sync::atomic::AtomicIsize) -> windows::Win32::Foundation::HWND {
+    windows::Win32::Foundation::HWND(slot.load(Ordering::Acquire) as *mut std::ffi::c_void)
+}
 
-        let batch_content = format!(
-            "@echo off\r\n{}\r\n{}\r\n{}",
-            kill_mutex_cmd, start_cmd, self_del_cmd
+#[cfg(test)]
+mod main_window_tests {
+    use super::{remember_window, remembered_window};
+    use raw_window_handle::{
+        HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
+    };
+    use std::num::NonZeroIsize;
+    use std::sync::atomic::AtomicIsize;
+
+    #[test]
+    fn window_geometry_show_preserves_maximized_state() {
+        assert_eq!(super::main_window_show_command(false), super::SW_SHOW);
+        assert_eq!(super::main_window_show_command(true), super::SW_RESTORE);
+    }
+
+    #[test]
+    fn idle_geometry_save_schedules_its_own_wake() {
+        let ctx = eframe::egui::Context::default();
+        for _ in 0..4 {
+            let mut output = ctx.run_ui(Default::default(), |_| {});
+            output.textures_delta.clear();
+        }
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            assert!(!super::geometry_save_ready(
+                ui.ctx(),
+                std::time::Duration::from_millis(125),
+                false,
+            ));
+        });
+        let delay = output.viewport_output[&eframe::egui::ViewportId::ROOT].repaint_delay;
+        output.textures_delta.clear();
+        assert!(
+            !delay.is_zero() && delay <= std::time::Duration::from_millis(275),
+            "an idle window must wake to save without another user event",
         );
+        assert!(super::geometry_save_ready(
+            &ctx,
+            super::GEOMETRY_SETTLE_DELAY,
+            false,
+        ));
+        assert!(!super::geometry_save_ready(
+            &ctx,
+            super::GEOMETRY_SETTLE_DELAY,
+            true,
+        ));
+    }
 
-        let temp_dir = std::env::temp_dir();
-        let bat_path = temp_dir.join(format!("sgt_restart_{}.bat", std::process::id()));
-
-        if std::fs::write(&bat_path, batch_content).is_ok() {
-            // Spawn the batch file hidden via cmd /C with CREATE_NO_WINDOW
-            use std::os::windows::process::CommandExt;
-            let _ = std::process::Command::new("cmd")
-                .args(["/C", &bat_path.to_string_lossy()])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .spawn();
-            exit_app();
-        } else {
-            // Fallback: Just try to spawn directly if batch fails
-            let _ = std::process::Command::new(exe_path)
-                .arg("--restarted")
-                .spawn();
-            exit_app();
+    struct Window(isize);
+    impl HasWindowHandle for Window {
+        fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+            let raw =
+                RawWindowHandle::Win32(Win32WindowHandle::new(NonZeroIsize::new(self.0).unwrap()));
+            Ok(unsafe { WindowHandle::borrow_raw(raw) })
         }
     }
-}
 
-/// Cleanly exit the process after best-effort recorder cleanup.
-///
-/// Flushes the window geometry first. `persist_geometry_when_settled` has
-/// normally written it already; this catches a quit within the settle delay of
-/// a resize. It cannot live in `App::on_exit` — `process::exit` never unwinds,
-/// so eframe never sees the shutdown.
-pub fn exit_app() -> ! {
-    crate::gui::window_state::save_main_window();
-    crate::overlay::screen_record::cleanup_on_app_exit();
-    crate::crash_report::exit(0, "quit")
+    #[test]
+    fn the_window_eframe_created_is_the_only_one_ever_returned() {
+        let slot = AtomicIsize::new(0);
+        assert!(remembered_window(&slot).is_invalid());
+        remember_window(&slot, &Window(0x1234));
+        // The per-frame call cannot replace the window recorded at creation.
+        remember_window(&slot, &Window(0x5678));
+        assert_eq!(remembered_window(&slot).0 as isize, 0x1234);
+    }
 }

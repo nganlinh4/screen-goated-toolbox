@@ -5,15 +5,15 @@
 !/native/recorder_worker/Cargo.lock
 /native/recorder_worker/target/
 /native/recorder_protocol/target/
-!/native/local_asr_worker/Cargo.lock
-/native/local_asr_protocol/target/
-/native/local_asr_worker/target/
 !/native/computer_control_engine/Cargo.lock
 !/native/computer_control_protocol/Cargo.lock
+!/native/language_catalog/Cargo.lock
+!/native/recorder_protocol/Cargo.lock
+!/native/screen_text_detector_protocol/Cargo.lock
+!/native/screen_translate_worker/Cargo.lock
 /native/computer_control_engine/target/
 /native/computer_control_protocol/target/
 /native/screen_text_detector_protocol/target/
-/native/screen_text_detector_worker/target/
 /native/language_catalog/target/
 .env
 .DS_Store
@@ -43,7 +43,7 @@ cursor_data.txt
 broom.cur
 screen-goated-toolbox-*.exe
 
-# Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
+# Disposable dependency trees reproduced by the tracked setup scripts.
 libs/egui-snarl/
 libs/egui-scale/
 libs/epaint/
@@ -68,13 +68,11 @@ dist/
 !src/overlay/three_d_generator/dist/**
 !src/overlay/image_to_svg/dist/
 !src/overlay/image_to_svg/dist/**
-!src/overlay/image_creator/dist/
-!src/overlay/image_creator/dist/**
 !native/qwen3_reference_sidecar/
 !native/qwen3_reference_sidecar/README.md
 !native/qwen3_reference_sidecar/dist/
+native/qwen3_reference_sidecar/dist/*
 !native/qwen3_reference_sidecar/dist/.gitkeep
-!native/qwen3_reference_sidecar/dist/asr-server.exe
 
 # Screen Record artifacts
 src/overlay/screen_record/dist/
@@ -90,41 +88,6 @@ mobile/**/build/
 mobile/**/.cxx/
 mobile/scripts/phone-control-diagnostics-*/
 
-# Vendored Qwen reference backend build/cache artifacts
-third_party/qwen3-asr-rs/target_stream_check/
-
-# Native Qwen3 runtime crate artifacts
-native/qwen3_runtime/target/
-native/qwen3_runtime/Cargo.lock
-
-# Native TTS runtime build artifacts
-native/sgt_tts_runtime/target/
-native/magpie_runtime/build/
-!native/magpie_runtime/dist/
-native/magpie_runtime/dist/*.zip
-native/magpie_runtime/dist/*.part*
-native/magpie_runtime/dist/*.sha256
-!native/magpie_runtime/dist/.gitkeep
-!native/magpie_runtime/dist/sgt_magpie_runtime.manifest.json
-native/step_audio_runtime/build/
-!native/step_audio_runtime/dist/
-native/step_audio_runtime/dist/*.zip
-native/step_audio_runtime/dist/*.part*
-native/step_audio_runtime/dist/*.sha256
-!native/step_audio_runtime/dist/.gitkeep
-!native/step_audio_runtime/dist/sgt_step_audio_runtime.manifest.json
-native/vieneu_runtime/build/
-!native/vieneu_runtime/dist/
-native/vieneu_runtime/dist/*.zip
-native/vieneu_runtime/dist/*.part*
-native/vieneu_runtime/dist/*.sha256
-!native/vieneu_runtime/dist/.gitkeep
-!native/vieneu_runtime/dist/sgt_vieneu_runtime.manifest.json
-!native/voxtral_runtime/dist/
-!native/voxtral_runtime/dist/.gitkeep
-*-sidecar.spec
-third_party/moonshine-voice/
-third_party/sherpa-onnx-win/
 docs/index.bleve/
 __pycache__/
 /mobile/.kotlin/

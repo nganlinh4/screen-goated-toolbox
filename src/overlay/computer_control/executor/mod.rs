@@ -20,22 +20,36 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC, MOUSE_EVENT_FLAGS,
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
     MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MapVirtualKeyW, VIRTUAL_KEY, VK_DELETE, VK_DOWN, VK_END,
-    VK_HOME, VK_INSERT, VK_LEFT, VK_NEXT, VK_PRIOR, VK_RIGHT, VK_UP,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MapVirtualKeyW, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN,
+    GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_SWAPBUTTON,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
 use super::human_input::{self, HumanProfile, Outcome};
 
 mod input;
+mod job_cancellation;
 mod keyboard;
 mod mouse;
 mod shell;
 mod target;
 mod text_file;
+pub(super) use shell::scope_context as command_scope_context;
+pub(super) use text_file::transaction as file_transaction;
+pub(super) use text_file::with_stable_file;
+
+pub(super) fn request_job_cancel(cancel: &AtomicBool) {
+    job_cancellation::request_cancel(cancel);
+}
+
+pub(super) fn with_job_admission<T>(
+    cancel: Option<&AtomicBool>,
+    finish: impl FnOnce() -> T,
+) -> Option<T> {
+    job_cancellation::admit_unless_cancelled(cancel, finish)
+}
 
 /// Whether THIS process is running elevated (full administrator). The agent is told its privilege
 /// level each session so it knows what it can do directly vs. when to relaunch a command via UAC.
@@ -90,7 +104,7 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "key_combination" => keyboard::key_combination(args, cancel),
         "open_url" => shell::open_url(args),
         "launch_app" => shell::launch_app(args),
-        "run_command" => shell::run_command(args),
+        "run_command" => shell::run_command(args, cancel),
         "read_text_file" => Ok(text_file::read_text_file(args)),
         "edit_text_file" => Ok(text_file::edit_text_file(args)),
         "edit_text_file_structure" => Ok(text_file::edit_text_file_structure(args)),
@@ -98,10 +112,14 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
         "point" => mouse::point(args, profile, cancel),
         other => Err(anyhow!("unknown action: {other}")),
     };
+    action_receipt(result, input::finish_action())
+}
+
+fn action_receipt(result: Result<Value>, telemetry: Option<Value>) -> Value {
     let mut value = match result {
         Ok(v) => v,
         Err(e) => {
-            if let Some(error) = e.downcast_ref::<input::SendInputError>() {
+            let mut value = if let Some(error) = e.downcast_ref::<input::SendInputError>() {
                 json!({
                     "ok": false,
                     "status": error.status(),
@@ -111,13 +129,39 @@ pub fn execute_ex(name: &str, args: &Value, profile: &HumanProfile, cancel: &Ato
                     "retryable": false,
                 })
             } else {
-                json!({"ok": false, "error": e.to_string()})
+                json!({"ok": false, "error": format!("{e:#}")})
+            };
+            if let Some(progress) = e.downcast_ref::<keyboard::TypingProgress>() {
+                value["started_utf16_units"] = json!(progress.started_units);
+                value["typed_partial"] = json!(
+                    progress.started_units > 0 && progress.started_units < progress.total_units
+                );
             }
+            value
         }
     };
-    if let Some(telemetry) = input::finish_action()
+    if let Some(telemetry) = telemetry
         && let Some(object) = value.as_object_mut()
     {
+        let inserted = telemetry
+            .get("inserted")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let cleanup_inserted = telemetry
+            .pointer("/cleanup/inserted")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        if object.get("ok").and_then(Value::as_bool) == Some(false)
+            && (inserted > 0 || cleanup_inserted > 0)
+        {
+            object.insert("effect_may_have_occurred".to_string(), json!(true));
+            object.insert("retryable".to_string(), json!(false));
+            if inserted > 0
+                && object.get("status").and_then(Value::as_str) == Some("input_injection_failed")
+            {
+                object.insert("status".to_string(), json!("input_injection_partial"));
+            }
+        }
         object.insert("input_injection".to_string(), telemetry);
     }
     value
@@ -131,11 +175,11 @@ fn verify_expected_input_target(args: &Value) -> Result<()> {
     target::verify_window(args)
 }
 
-fn verify_expected_pointer_target(args: &Value) -> Result<()> {
-    target::verify_pointer(args)
+fn verify_expected_pointer_target(args: &Value, point: (i32, i32)) -> Result<()> {
+    target::verify_pointer(args, point)
 }
 
-fn verify_expected_keyboard_target(args: &Value) -> Result<()> {
+pub(super) fn verify_expected_keyboard_target(args: &Value) -> Result<()> {
     target::verify_keyboard(args)
 }
 
@@ -156,6 +200,50 @@ pub(super) fn input_injection(value: &Value) -> Option<&Value> {
 #[cfg(test)]
 mod receipt_tests {
     use super::*;
+
+    #[test]
+    fn cumulative_input_failure_and_target_drift_report_prior_effects() {
+        let telemetry = json!({"requested": 5, "inserted": 4, "fully_inserted": false});
+        let error = anyhow::Error::new(input::SendInputError {
+            requested: 1,
+            inserted: 0,
+            last_error: 5,
+        })
+        .context(keyboard::TypingProgress {
+            started_units: 2,
+            total_units: 5,
+        });
+        let failed = action_receipt(Err(error), Some(telemetry.clone()));
+        assert_eq!(failed["status"], "input_injection_partial");
+        assert_eq!(failed["effect_may_have_occurred"], true);
+        assert_eq!(failed["typed_partial"], true);
+        assert_eq!(failed["started_utf16_units"], 2);
+        assert_eq!(failed["retryable"], false);
+
+        let drift = anyhow!("focus changed").context(keyboard::TypingProgress {
+            started_units: 2,
+            total_units: 5,
+        });
+        let failed = action_receipt(Err(drift), Some(telemetry));
+        assert_eq!(failed["effect_may_have_occurred"], true);
+        assert_eq!(failed["typed_partial"], true);
+        assert!(failed["error"].as_str().unwrap().contains("focus changed"));
+    }
+
+    #[test]
+    fn no_insertions_do_not_claim_an_input_effect() {
+        let error = anyhow::Error::new(input::SendInputError {
+            requested: 1,
+            inserted: 0,
+            last_error: 5,
+        });
+        let result = action_receipt(
+            Err(error),
+            Some(json!({"requested": 1, "inserted": 0, "fully_inserted": false})),
+        );
+        assert_eq!(result["status"], "input_injection_failed");
+        assert!(result.get("effect_may_have_occurred").is_none());
+    }
 
     #[test]
     fn finds_direct_and_wrapped_input_receipts() {
@@ -295,10 +383,17 @@ fn xy(args: &Value) -> Result<(f64, f64)> {
     Ok((x, y))
 }
 
-fn button_flags(args: &Value) -> (MOUSE_EVENT_FLAGS, MOUSE_EVENT_FLAGS) {
-    match args.get("button").and_then(Value::as_str).unwrap_or("left") {
-        "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+fn button_flags(button: Option<&str>) -> (MOUSE_EVENT_FLAGS, MOUSE_EVENT_FLAGS) {
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) != 0 };
+    button_flags_for(button, swapped)
+}
+
+fn button_flags_for(button: Option<&str>, swapped: bool) -> (MOUSE_EVENT_FLAGS, MOUSE_EVENT_FLAGS) {
+    match button.unwrap_or("left") {
         "middle" => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        "right" if !swapped => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        "right" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+        _ if swapped => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
         _ => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
     }
 }
@@ -360,28 +455,10 @@ fn key_vk(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     } else {
         KEYBD_EVENT_FLAGS(0)
     };
-    if is_extended_key(vk) {
+    if keyboard::key_tokens::is_extended_key(vk) {
         flags |= KEYEVENTF_EXTENDEDKEY;
     }
     keybd(vk, scan, flags)
-}
-
-/// Keys in the "extended" set send an extra 0xE0 prefix on real hardware; the
-/// EXTENDEDKEY flag reproduces that so `KeyboardEvent.code` resolves correctly.
-fn is_extended_key(vk: VIRTUAL_KEY) -> bool {
-    matches!(
-        vk,
-        VK_LEFT
-            | VK_UP
-            | VK_RIGHT
-            | VK_DOWN
-            | VK_HOME
-            | VK_END
-            | VK_PRIOR
-            | VK_NEXT
-            | VK_INSERT
-            | VK_DELETE
-    )
 }
 
 fn keybd(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
@@ -402,6 +479,21 @@ fn keybd(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logical_mouse_buttons_follow_swapped_system_setting() {
+        let left = (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP);
+        let right = (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
+        let middle = (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP);
+
+        for (swapped, primary, secondary) in [(false, left, right), (true, right, left)] {
+            assert_eq!(button_flags_for(None, swapped), primary);
+            assert_eq!(button_flags_for(Some("left"), swapped), primary);
+            assert_eq!(button_flags_for(Some("right"), swapped), secondary);
+            assert_eq!(button_flags_for(Some("middle"), swapped), middle);
+            assert_eq!(button_flags_for(Some("unknown"), swapped), primary);
+        }
+    }
 
     #[test]
     fn maps_0_1000_to_normalized_absolute() {

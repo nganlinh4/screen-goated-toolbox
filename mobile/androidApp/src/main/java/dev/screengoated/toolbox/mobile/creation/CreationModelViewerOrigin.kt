@@ -29,6 +29,8 @@ internal data class CreationModelViewerSession(
     val segmented: Boolean,
     val darkTheme: Boolean,
     val labels: CreationModelViewerLabels,
+    /** Size of the private copy validated when it was materialized. */
+    val modelBytes: Long = modelFile.length(),
 ) {
     val documentUrl: String =
         "$CREATION_MODEL_VIEWER_ORIGIN/v$CREATION_MODEL_VIEWER_DOCUMENT_VERSION/$token/index.html"
@@ -187,12 +189,13 @@ internal class CreationModelViewerClient(
         stream = assets.open(requireNotNull(resource.assetPath), AssetManager.ACCESS_STREAMING),
     )
 
+    // session.modelFile is the viewer's app-private copy, validated once when it was
+    // materialized; a reload streams that handle without re-parsing the whole GLB.
     private fun modelResponse(): WebResourceResponse {
-        CreationArtifactValidator.validateGlb(session.modelFile)
         val stream = FileInputStream(session.modelFile)
         return try {
             val length = stream.channel.size()
-            require(length in 20..CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES)
+            require(creationViewerModelLengthServable(length, session.modelBytes))
             successfulResponse(
                 mimeType = "model/gltf-binary",
                 encoding = null,
@@ -233,3 +236,6 @@ private fun blockedResponse() = WebResourceResponse(
     mapOf("Cache-Control" to "no-store"),
     ByteArrayInputStream(ByteArray(0)),
 )
+
+internal fun creationViewerModelLengthServable(observed: Long, validated: Long): Boolean =
+    observed == validated && observed in 20..CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES

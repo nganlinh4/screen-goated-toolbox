@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
 
-use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, CURSOR_TILE_SIZE};
-use super::setup::{OUTPUT_TEXTURE_FORMAT, shared_gpu_context};
+use super::cursors::{CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, CURSOR_MIP_LEVELS, CURSOR_TILE_SIZE};
+use super::setup::{OUTPUT_TEXTURE_FORMAT, SharedGpuContext, shared_gpu_context};
 use super::webcam::WebcamOverlayState;
 use dx12_copy::{Dx12SharedCopyContext, READBACK_RING_SIZE};
 
@@ -52,6 +52,7 @@ pub struct CompositorUniforms {
 }
 
 pub struct GpuCompositor {
+    pub(super) shared: Arc<SharedGpuContext>,
     pub(super) device: Arc<wgpu::Device>,
     pub(super) queue: Arc<wgpu::Queue>,
     pub(super) pipeline: wgpu::RenderPipeline,
@@ -106,10 +107,29 @@ impl GpuCompositor {
         video_height: u32,
         background_width: u32,
         background_height: u32,
+        cancel: &std::sync::atomic::AtomicBool,
     ) -> Result<Self, String> {
-        let shared = shared_gpu_context()?;
+        let shared = shared_gpu_context(Some(cancel))?;
         let device = Arc::clone(&shared.device);
         let queue = Arc::clone(&shared.queue);
+        let limits = device.limits();
+        super::limits::validate_texture(&limits, output_width, output_height, "Export output")?;
+        super::limits::validate_texture(&limits, video_width, video_height, "Source video")?;
+        super::limits::validate_texture(
+            &limits,
+            background_width.max(1),
+            background_height.max(1),
+            "Background",
+        )?;
+        super::limits::validate_texture(
+            &limits,
+            CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS,
+            CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS,
+            "Cursor atlas",
+        )?;
+        let (padded_bytes_per_row, output_buffer_size) =
+            super::limits::validate_readback(&limits, output_width, output_height)?;
+        let scopes = super::limits::ResourceErrorScopes::new(&device);
         let pipeline = shared.pipeline.clone();
         let accumulate_pipeline = shared.accumulate_pipeline.clone();
         let vertex_buffer = shared.vertex_buffer.clone();
@@ -160,7 +180,7 @@ impl GpuCompositor {
                 height: CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: CURSOR_MIP_LEVELS,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -237,10 +257,6 @@ impl GpuCompositor {
             view_formats: &[],
         });
 
-        let unpadded_bytes_per_row = output_width * 4;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
-        let output_buffer_size = (padded_bytes_per_row * output_height) as u64;
         let mut output_buffers = Vec::with_capacity(READBACK_RING_SIZE);
         for idx in 0..READBACK_RING_SIZE {
             output_buffers.push(device.create_buffer(&wgpu::BufferDescriptor {
@@ -394,9 +410,12 @@ impl GpuCompositor {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let webcam_overlay = WebcamOverlayState::new(&device, shared);
+        let webcam_overlay = WebcamOverlayState::new(&device, &shared);
+
+        scopes.finish("GPU compositor allocation failed")?;
 
         Ok(Self {
+            shared,
             device,
             queue,
             pipeline,
@@ -443,5 +462,31 @@ impl GpuCompositor {
     /// Get a reference to the wgpu queue.
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    pub fn validate_webcam_dimensions(&self, width: u32, height: u32) -> Result<(), String> {
+        super::limits::validate_texture(&self.device.limits(), width, height, "Webcam")
+    }
+
+    pub fn check_health(&self) -> Result<(), String> {
+        if self
+            .shared
+            .failed
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            Err("GPU device failed during export; retry the export".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn mark_unusable(&self) {
+        self.shared
+            .failed
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn failure_marker(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        Arc::clone(&self.shared.failed)
     }
 }

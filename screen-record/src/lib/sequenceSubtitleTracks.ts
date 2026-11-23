@@ -1,4 +1,4 @@
-import type { SubtitleTrack, VideoSegment } from '@/types/video';
+import type { SubtitleSegment, SubtitleTrack, VideoSegment } from '@/types/video';
 import {
   createSubtitleTrackStateFromSegments,
   getActiveSubtitleView,
@@ -57,28 +57,6 @@ export function projectSubtitleTrackState(
   });
 }
 
-export function filterSubtitleTrackState(
-  segment: VideoSegment,
-  overlapsClip: (startTime: number, endTime: number) => boolean,
-  toClipTime: (time: number) => number,
-): SubtitleTrackState {
-  const normalized = normalizeSubtitleTrackState(segment);
-  return normalizeTrackState({
-    subtitleTracks: getSubtitleTracks(normalized).map((track) => ({
-      ...track,
-      segments: track.segments
-        .filter((subtitle) => overlapsClip(subtitle.startTime, subtitle.endTime))
-        .map((subtitle) => ({
-          ...subtitle,
-          startTime: toClipTime(subtitle.startTime),
-          endTime: toClipTime(subtitle.endTime),
-        })),
-    })),
-    activeSubtitleView: getActiveSubtitleView(normalized),
-    subtitleCustomChain: normalized.subtitleCustomChain ?? createSubtitleTrackStateFromSegments([]).subtitleCustomChain,
-  });
-}
-
 function mergeTrackLists(
   baseTracks: readonly SubtitleTrack[],
   incomingTracks: readonly SubtitleTrack[],
@@ -130,20 +108,24 @@ export function replaceProjectedSubtitleTrackState(
   baseState: SubtitleTrackState,
   incomingState: SubtitleTrackState,
   overlapsClip: (startTime: number, endTime: number) => boolean,
+  isSequenceOwned: (subtitle: SubtitleSegment) => boolean = () => false,
 ): SubtitleTrackState {
   const baseTracks = baseState.subtitleTracks ?? [];
   const incomingTracks = incomingState.subtitleTracks ?? [];
   return normalizeTrackState({
-    subtitleTracks: mergeTrackLists(baseTracks, incomingTracks, (baseTrack, incomingTrack) => ({
-      ...(baseTrack ?? incomingTrack),
-      ...incomingTrack,
-      segments: [
-        ...((baseTrack?.segments ?? []).filter(
-          (subtitle) => !overlapsClip(subtitle.startTime, subtitle.endTime),
-        )),
-        ...cloneSubtitleTrack(incomingTrack).segments,
-      ].sort((left, right) => left.startTime - right.startTime),
-    })),
+    subtitleTracks: mergeTrackLists(baseTracks, incomingTracks, (baseTrack, incomingTrack) => {
+      const globalIds = new Set((baseTrack?.segments ?? []).filter(isSequenceOwned).map((subtitle) => subtitle.id));
+      return {
+        ...(baseTrack ?? incomingTrack),
+        ...incomingTrack,
+        segments: [
+          ...((baseTrack?.segments ?? []).filter(
+            (subtitle) => isSequenceOwned(subtitle) || !overlapsClip(subtitle.startTime, subtitle.endTime),
+          )),
+          ...cloneSubtitleTrack(incomingTrack).segments.filter((subtitle) => !globalIds.has(subtitle.id)),
+        ].sort((left, right) => left.startTime - right.startTime),
+      };
+    }),
     activeSubtitleView: incomingState.activeSubtitleView ?? baseState.activeSubtitleView,
     subtitleCustomChain: incomingState.subtitleCustomChain ?? baseState.subtitleCustomChain,
   });

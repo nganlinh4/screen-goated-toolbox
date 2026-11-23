@@ -59,6 +59,38 @@ describe("shared control accessibility contract", () => {
     expect(screen.getByRole("textbox", { name: "Hex color" })).toBeInTheDocument();
   });
 
+  it.each(["Enter", "Escape"])("commits color editing once on %s", (key) => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <ColorPicker label="Text color" value="#ffffff" onChange={onChange} onOpen={onOpen} onClose={onClose} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Text color" }));
+    const input = screen.getByRole("textbox", { name: "Hex color" });
+    fireEvent.change(input, { target: { value: "#123456" } });
+    fireEvent.keyDown(input, { key });
+    expect(onChange).toHaveBeenCalledWith("#123456");
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("commits color editing once when dismissed outside", async () => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <>
+        <ColorPicker label="Text color" value="#ffffff" onChange={() => undefined} onOpen={onOpen} onClose={onClose} />
+        <button>Outside</button>
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Text color" }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }), { button: 0 });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("announces recoverable async failures and provides a named dismiss action", () => {
     render(<UserNotificationRegion />);
 
@@ -67,6 +99,13 @@ describe("shared control accessibility contract", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Could not copy this media file.");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("reports an uncertain settings outcome without claiming it failed", () => {
+    render(<UserNotificationRegion />);
+    act(() => notifyUserError("hotkeySetFailed", "SGT_SETTINGS_OUTCOME_UNKNOWN"));
+    expect(screen.getByRole("alert")).toHaveTextContent("The settings result is unknown");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Could not save that hotkey");
   });
 
   it("uses roving tab semantics and arrow-key panel navigation", () => {

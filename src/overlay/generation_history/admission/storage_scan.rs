@@ -1,3 +1,4 @@
+use crate::component_registry::is_reparse_point;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
@@ -102,15 +103,4 @@ fn path_key(path: &std::path::Path) -> String {
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .to_ascii_lowercase()
-}
-
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
 }

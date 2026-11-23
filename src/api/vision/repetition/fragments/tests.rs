@@ -1,5 +1,4 @@
-use super::FragmentEvidence;
-use crate::api::vision::repetition::squeeze;
+use super::{FragmentEvidence, rejoin};
 
 fn oracle(text: &str, onset: usize) -> bool {
     let (before, after): (Vec<_>, Vec<_>) = text
@@ -11,17 +10,11 @@ fn oracle(text: &str, onset: usize) -> bool {
             )
         })
         .partition(|(offset, _)| *offset < onset);
-    let haystack = squeeze(
-        &before
-            .iter()
-            .map(|(_, word)| word.as_str())
-            .collect::<String>(),
-    );
     after.windows(2).any(|pair| {
-        let joined = squeeze(&format!("{}{}", pair[0].1, pair[1].1));
+        let joined = rejoin(&pair[0].1, &pair[1].1);
         joined.chars().count() > pair[0].1.chars().count()
             && !before.iter().any(|(_, word)| word == &pair[0].1)
-            && haystack.contains(&joined)
+            && before.iter().any(|(_, word)| word.contains(&joined))
     })
 }
 

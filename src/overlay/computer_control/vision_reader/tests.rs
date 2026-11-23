@@ -155,3 +155,57 @@ fn named_drag_records_require_every_exact_endpoint() {
         None
     );
 }
+
+#[test]
+fn cancelled_grounding_stops_before_any_provider_request() {
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::RgbImage::new(4, 4)
+        .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+        .unwrap();
+    let config = Config::default();
+    assert!(!chain_ids(&config, &[], VisionTask::Grounding).is_empty());
+    let mut accepted = 0;
+
+    let result = super::run_grounding_chain_with(
+        &config,
+        jpeg.get_ref(),
+        "locate",
+        None,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        |_| {
+            accepted += 1;
+            true
+        },
+    );
+
+    assert_eq!(result.unwrap_err().to_string(), "cancelled");
+    assert_eq!(accepted, 0, "no provider answer may be evaluated");
+}
+
+#[test]
+fn every_chain_admits_providers_by_the_shared_credential_rule() {
+    use crate::api::provider_credentials::with_override;
+    let nvidia = "nvidia-gpt-oss-20b-text";
+    let mut config = Config {
+        use_nvidia: true,
+        ..Config::default()
+    };
+
+    with_override("NVIDIA_API_KEY", "fixture-key", || {
+        let model = super::usable_model(nvidia, &config).expect("keyed NVIDIA model is usable");
+        assert_eq!(model.provider, "nvidia");
+        config.use_nvidia = false;
+        assert!(
+            super::usable_model(nvidia, &config).is_none(),
+            "disabled provider"
+        );
+        config.use_nvidia = true;
+    });
+    with_override("NVIDIA_API_KEY", "", || {
+        assert!(
+            super::usable_model(nvidia, &config).is_none(),
+            "missing key"
+        );
+    });
+    assert!(super::usable_model("not-a-catalog-model", &config).is_none());
+}

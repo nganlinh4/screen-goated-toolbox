@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"search_without_listing","directory_read":false,"directory_search":true,"directory_write":true,"file_read":true,"file_write":true,"expected_directory_open":true,"expected_file_open":true,"expected_create":true,"expected_directory_sync":false,"expected_writable":true},
+    {"name":"listing_without_search","directory_read":true,"directory_search":false,"directory_write":true,"file_read":true,"file_write":true,"expected_directory_open":true,"expected_file_open":false,"expected_create":false,"expected_directory_sync":false,"expected_writable":false},
+    {"name":"search_without_write","directory_read":false,"directory_search":true,"directory_write":false,"file_read":true,"file_write":true,"expected_directory_open":true,"expected_file_open":true,"expected_create":false,"expected_directory_sync":false,"expected_writable":true},
+    {"name":"unreadable_child","directory_read":false,"directory_search":true,"directory_write":true,"file_read":false,"file_write":true,"expected_directory_open":true,"expected_file_open":false,"expected_create":true,"expected_directory_sync":false,"expected_writable":false},
+    {"name":"no_child_access","directory_read":false,"directory_search":false,"directory_write":false,"file_read":false,"file_write":false,"expected_directory_open":true,"expected_file_open":false,"expected_create":false,"expected_directory_sync":false,"expected_writable":false},
+    {"name":"ordinary_directory","directory_read":true,"directory_search":true,"directory_write":true,"file_read":true,"file_write":true,"expected_directory_open":true,"expected_file_open":true,"expected_create":true,"expected_directory_sync":true,"expected_writable":true},
+    {"name":"directory_sync_without_write","directory_read":true,"directory_search":true,"directory_write":false,"file_read":true,"file_write":true,"expected_directory_open":true,"expected_file_open":true,"expected_create":false,"expected_directory_sync":true,"expected_writable":true},
+    {"name":"directory_sync_without_child_read","directory_read":true,"directory_search":true,"directory_write":false,"file_read":false,"file_write":true,"expected_directory_open":true,"expected_file_open":false,"expected_create":false,"expected_directory_sync":true,"expected_writable":false},
+    {"name":"read_only_data_file","directory_read":true,"directory_search":true,"directory_write":true,"file_read":true,"file_write":false,"expected_directory_open":true,"expected_file_open":true,"expected_create":true,"expected_directory_sync":true,"expected_writable":false}
+  ]
+}

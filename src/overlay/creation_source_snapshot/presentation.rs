@@ -1,5 +1,4 @@
 use std::io::{Cursor, Write as _};
-use std::sync::{LazyLock, Mutex};
 
 use image::ImageReader;
 use sha2::{Digest as _, Sha256};
@@ -8,7 +7,6 @@ use super::{SourceDescriptor, file_sha256, preview_root, record_presentations, v
 
 const MAX_PREVIEW_EDGE: u32 = 512;
 const MAX_PREVIEW_BYTES: usize = 2 * 1024 * 1024;
-pub(super) static PRESENTATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub(crate) fn presentation_path(descriptors: &[SourceDescriptor]) -> Result<String, String> {
     Ok(presentation_paths(descriptors)?
@@ -22,9 +20,7 @@ pub(crate) fn presentation_paths(descriptors: &[SourceDescriptor]) -> Result<Vec
         return Ok(Vec::new());
     }
     validate_sources(descriptors)?;
-    let _guard = PRESENTATION_LOCK
-        .lock()
-        .map_err(|_| "Creation preview is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_presentation()?;
     let mut paths = Vec::with_capacity(descriptors.len());
     for descriptor in descriptors {
         paths.push(prepare_one(descriptor)?);

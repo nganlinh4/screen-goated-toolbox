@@ -14,34 +14,25 @@ const MAX_STORED_ENTRY_CHARS: usize = 65_536;
 pub static INPUT_HISTORY: LazyLock<Mutex<InputHistory>> =
     LazyLock::new(|| Mutex::new(InputHistory::load()));
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InputHistory {
-    /// List of previous inputs (newest first)
+    /// List of previous inputs (oldest first, newest last)
     entries: Vec<String>,
 
-    /// Current navigation index (-1 means not navigating)
+    /// Navigation position; `None` when not navigating. `entries.len()` is the
+    /// draft slot. Never persisted, so a loaded history starts with no position.
     #[serde(skip)]
-    nav_index: i32,
+    cursor: Option<usize>,
 
     /// Temporary storage for current input when navigating
     #[serde(skip)]
     current_draft: String,
 }
 
-impl Default for InputHistory {
-    fn default() -> Self {
-        Self {
-            entries: Vec::new(),
-            nav_index: -1,
-            current_draft: String::new(),
-        }
-    }
-}
-
 impl InputHistory {
     /// Get the path to the history file
     fn history_path() -> PathBuf {
-        let config_dir = crate::paths::app_config_dir();
+        let config_dir = crate::paths::app_runtime_config_dir();
         let _ = fs::create_dir_all(&config_dir);
         config_dir.join("input_history.json")
     }
@@ -95,52 +86,39 @@ impl InputHistory {
             return None;
         }
 
-        // If not currently navigating, start at the end (Newest + 1)
-        if self.nav_index == -1 {
-            self.current_draft = current_text.to_string();
-            self.nav_index = self.entries.len() as i32;
-        }
+        // If not currently navigating, save the draft and start past the newest entry.
+        let index = match self.cursor {
+            Some(index) => index.min(self.entries.len()),
+            None => {
+                self.current_draft = current_text.to_string();
+                self.entries.len()
+            }
+        };
 
         // Move up (towards older entries / index 0)
-        if self.nav_index > 0 {
-            self.nav_index -= 1;
-        }
-
-        // Return entry at current index
-        if (self.nav_index as usize) < self.entries.len() {
-            self.entries.get(self.nav_index as usize).cloned()
-        } else {
-            None
-        }
+        let index = index.saturating_sub(1);
+        self.cursor = Some(index);
+        self.entries.get(index).cloned()
     }
 
     /// Navigate down (towards newer entries or back to draft)
     /// Returns the text to show
     pub fn navigate_down(&mut self, _current_text: &str) -> Option<String> {
-        if self.nav_index == -1 {
-            return None;
-        }
-
-        // If we haven't started (at -1), we can't go down.
-        // Logic handles nav_index = len() as "Draft".
-
-        if (self.nav_index as usize) < self.entries.len() {
-            self.nav_index += 1;
-        }
-
-        if (self.nav_index as usize) >= self.entries.len() {
+        let index = self.cursor?.saturating_add(1);
+        if index >= self.entries.len() {
             // Returned to draft
             let draft = self.current_draft.clone();
             self.reset_navigation();
             Some(draft)
         } else {
-            self.entries.get(self.nav_index as usize).cloned()
+            self.cursor = Some(index);
+            self.entries.get(index).cloned()
         }
     }
 
     /// Reset navigation state (called when input is hidden or submitted)
     pub fn reset_navigation(&mut self) {
-        self.nav_index = -1;
+        self.cursor = None;
         self.current_draft.clear();
     }
 
@@ -239,5 +217,19 @@ mod tests {
                 .count(),
             MAX_STORED_ENTRY_CHARS
         );
+    }
+
+    #[test]
+    fn loaded_history_starts_at_the_newest_entry_and_keeps_the_draft() {
+        let mut history: InputHistory =
+            serde_json::from_str(r#"{"entries":["oldest","middle","newest"]}"#).unwrap();
+        assert_eq!(history.navigate_up("draft").as_deref(), Some("newest"));
+        assert_eq!(history.navigate_up("ignored").as_deref(), Some("middle"));
+        assert_eq!(history.navigate_up("ignored").as_deref(), Some("oldest"));
+        assert_eq!(history.navigate_up("ignored").as_deref(), Some("oldest"));
+        assert_eq!(history.navigate_down("").as_deref(), Some("middle"));
+        assert_eq!(history.navigate_down("").as_deref(), Some("newest"));
+        assert_eq!(history.navigate_down("").as_deref(), Some("draft"));
+        assert_eq!(history.navigate_down(""), None);
     }
 }

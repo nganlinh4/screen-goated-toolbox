@@ -38,35 +38,37 @@ export interface UseKeystrokeDragParams {
   commitBatch: () => void;
 }
 
-export function useKeystrokeDrag({
-  segment,
-  setSegment,
-  canvasRef,
-  segmentRef,
-  isDraggingKeystrokeOverlayRef,
-  isResizingKeystrokeOverlayRef,
-  keystrokeOverlayDragStartRef,
-  currentTime,
-  getKeystrokeTimelineDuration,
-  setIsPreviewDragging,
-  setIsKeystrokeResizeDragging,
-  setIsKeystrokeResizeHandleHover,
-  setIsKeystrokeOverlaySelected,
-  setEditingTextId,
-  setEditingSubtitleId,
-  setActivePanel,
-  handleOverlayDragMove,
-  selectedTextIdsRef,
-  selectedSubtitleIdsRef,
-  beginBatch,
-  commitBatch,
-}: UseKeystrokeDragParams) {
+export function useKeystrokeDrag(params: UseKeystrokeDragParams) {
+  // Listeners are bound once per canvas; handlers read the latest playback
+  // time, segment and callbacks here instead of rebinding every frame.
+  const latestRef = useRef(params);
+  latestRef.current = params;
+  const { canvasRef } = params;
+  const hasSegment = params.segment !== null;
   const isDraggingOverlayRef = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !segment) return;
+    if (!canvas || !hasSegment) return;
     const onDown = (e: MouseEvent) => {
+      const {
+        segmentRef,
+        currentTime,
+        getKeystrokeTimelineDuration,
+        keystrokeOverlayDragStartRef,
+        isDraggingKeystrokeOverlayRef,
+        isResizingKeystrokeOverlayRef,
+        setIsPreviewDragging,
+        setIsKeystrokeResizeDragging,
+        setIsKeystrokeResizeHandleHover,
+        setIsKeystrokeOverlaySelected,
+        beginBatch,
+        selectedTextIdsRef,
+        selectedSubtitleIdsRef,
+        setEditingSubtitleId,
+        setEditingTextId,
+        setActivePanel,
+      } = latestRef.current;
       const liveSegment = segmentRef.current;
       if (!liveSegment) return;
       const rect = canvas.getBoundingClientRect();
@@ -150,6 +152,17 @@ export function useKeystrokeDrag({
       }
     };
     const onMove = (e: MouseEvent) => {
+      const {
+        segmentRef,
+        currentTime,
+        getKeystrokeTimelineDuration,
+        keystrokeOverlayDragStartRef,
+        isDraggingKeystrokeOverlayRef,
+        isResizingKeystrokeOverlayRef,
+        setIsKeystrokeResizeHandleHover,
+        setSegment,
+        handleOverlayDragMove,
+      } = latestRef.current;
       const liveSegment = segmentRef.current;
       if (!liveSegment) return;
       const mode = liveSegment.keystrokeMode ?? 'off';
@@ -210,9 +223,18 @@ export function useKeystrokeDrag({
         }
         return;
       }
-      videoRenderer.handleMouseMove(e, segment, canvas, handleOverlayDragMove);
+      videoRenderer.handleMouseMove(e, liveSegment, canvas, handleOverlayDragMove);
     };
     const onUp = () => {
+      const {
+        keystrokeOverlayDragStartRef,
+        isDraggingKeystrokeOverlayRef,
+        isResizingKeystrokeOverlayRef,
+        setIsPreviewDragging,
+        setIsKeystrokeResizeDragging,
+        setIsKeystrokeResizeHandleHover,
+        commitBatch,
+      } = latestRef.current;
       const wasOverlayEditing = isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current;
       const wasDraggingOverlay = isDraggingOverlayRef.current;
       isDraggingKeystrokeOverlayRef.current = false;
@@ -233,5 +255,5 @@ export function useKeystrokeDrag({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [segment, handleOverlayDragMove, canvasRef, setEditingTextId, setEditingSubtitleId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment, segmentRef, isDraggingKeystrokeOverlayRef, isResizingKeystrokeOverlayRef, keystrokeOverlayDragStartRef, setIsPreviewDragging, setIsKeystrokeResizeDragging, setIsKeystrokeResizeHandleHover, setIsKeystrokeOverlaySelected, selectedTextIdsRef, selectedSubtitleIdsRef]);
+  }, [canvasRef, hasSegment]);
 }

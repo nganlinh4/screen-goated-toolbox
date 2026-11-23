@@ -10,6 +10,7 @@ import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
 import type { KeystrokeEditFrame } from "@/components/PreviewCanvas";
 import type { ActivePanel } from "@/components/sidepanel/index";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
+import type { SubtitleSourceSnapshot } from "@/hooks/subtitleSourceOwnership";
 import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import type { SubtitleGenerationIndicator } from "@/lib/subtitleGenerationPlan";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
@@ -26,6 +27,10 @@ import type {
 } from "@/types/video";
 
 export interface EditorMainProps {
+  onPopulateS2sSubtitles?: import('@/hooks/useCompositionSubtitleEditor').S2sSubtitleWriter;
+  getNarrationSourceSnapshot: () => SubtitleSourceSnapshot;
+  renderedProjectEpoch: number;
+  loadedClipId: string | null;
   error: string | null;
   isOverlayMode: boolean;
   previewContainerRef: MutableRefObject<HTMLDivElement | null>;
@@ -79,7 +84,7 @@ export interface EditorMainProps {
   handleApplyCanvasRatioPreset: (ratioWidth: number, ratioHeight: number) => void;
   isAutoCanvasDisabled?: boolean;
   segment: VideoSegment | null;
-  setSegment: (s: VideoSegment | null) => void;
+  setSegment: Dispatch<SetStateAction<VideoSegment | null>>;
   setSegmentSilently?: (s: VideoSegment | null) => void;
   composition: ProjectComposition | null;
   setComposition: (
@@ -101,7 +106,7 @@ export interface EditorMainProps {
   zoomFactor: number;
   setZoomFactor: (factor: number) => void;
   handleDeleteKeyframe: () => void;
-  throttledUpdateZoom: (updates: { zoomFactor?: number; positionX?: number; positionY?: number }) => void;
+  updateZoom: (updates: { zoomFactor?: number; positionX?: number; positionY?: number }) => void;
   webcamConfig: WebcamConfig;
   setWebcamConfig: Dispatch<SetStateAction<WebcamConfig>>;
   recentUploads: string[];
@@ -140,6 +145,7 @@ export interface EditorMainProps {
   onSelectedTextIdsChange?: (ids: string[]) => void;
   onSelectedSubtitleIdsChange?: (ids: string[]) => void;
   projectResetKey?: string | null;
+  currentProjectIdRef: MutableRefObject<string | null>;
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   currentProjectName?: string | null;

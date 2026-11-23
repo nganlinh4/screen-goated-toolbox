@@ -7,22 +7,15 @@ import dev.screengoated.toolbox.mobile.model.MobileThemeMode
  * room for Kotlin's generated `copy$default` masks under the JVM's 255-slot method limit.
  */
 data class MobileShellLocale(
-    override val appTitle: String,
     override val appHeaderTitle: String,
-    override val appSubtitle: String,
-    override val shellUtilitiesTitle: String,
     override val shellAppsLabel: String,
     override val shellToolsLabel: String,
     override val shellSettingsLabel: String,
     override val shellHistoryLabel: String,
     override val shellDownloadedToolsLabel: String,
-    override val shellDownloadedToolsDescription: String,
     override val shellHelpLabel: String,
-    override val shellHelpDescription: String,
     override val shellCredentialsTitle: String,
-    override val shellCredentialsDescription: String,
     override val shellLiveTitle: String,
-    override val shellLiveDescription: String,
     override val appVideoDownloaderTitle: String,
     override val appFeatureUnsupportedTitle: String,
     override val appFeatureUnsupportedMessage: String,
@@ -34,21 +27,20 @@ data class MobileShellLocale(
     override val toolsCategoryTextInput: String,
     override val toolsCategoryMicRecording: String,
     override val toolsCategoryDeviceAudio: String,
-    override val comingSoonLabel: String,
+    override val toolsToolbar: MobileToolsToolbarCopy,
     override val donateHeader: String,
     override val donateBody: String,
     override val donateNote: String,
     override val donateVietnamese: Boolean,
+    override val donateActions: MobileDonateActionsCopy,
 ) : MobileShellText
 
 data class MobileCreationAppsLocale(
     override val appImageTo3dTitle: String,
     override val appImageToSvgTitle: String,
-    override val appImageCreatorTitle: String,
     val common: CreationCommonLocale,
     val model3d: Creation3dLocale,
     val svg: CreationSvgLocale,
-    val image: CreationImageLocale,
 ) : MobileCreationAppsText
 
 data class CreationCommonLocale(
@@ -82,6 +74,7 @@ data class CreationCommonLocale(
     val interrupted: String,
     val sourceUnavailable: String,
     val storageUnavailable: String,
+    val svgOriginalsUnavailable: String,
     val tools: CreationToolsLocale,
 )
 
@@ -182,25 +175,7 @@ data class CreationSvgLocale(
     val redo: String,
     val editPaths: String,
     val saveEdits: String,
-)
-
-data class CreationImageLocale(
-    val newImage: String,
-    val references: String,
-    val addReferences: String,
-    val noReferences: String,
-    val referenceCount: String,
-    val removeReference: String,
-    val textOnlyTitle: String,
-    val textOnlyHint: String,
-    val instruction: String,
-    val instructionHint: String,
-    val generate: String,
-    val generateAgain: String,
-    val imageReady: String,
-    val before: String,
-    val after: String,
-    val promptRequired: String,
+    val editRecoveryPending: String,
 )
 
 data class MobileHistoryLocale(
@@ -214,6 +189,9 @@ data class MobileHistoryLocale(
     override val historyOpenFolder: String,
     override val historyClearAll: String,
     override val historyEmpty: String,
+    override val historyWriteFailed: String,
+    override val historyLoadFailed: String,
+    override val historyStorageChanged: String,
     override val historyCopiedText: String,
     override val historyOpenFailed: String,
     override val historyCopyText: String,
@@ -228,16 +206,7 @@ data class MobileHelpLocale(
     override val helpAssistantQuestionLabel: String,
     override val helpAssistantAskButton: String,
     override val helpAssistantHint: String,
-    override val helpAssistantQuickOption: String,
-    override val helpAssistantDetailedOption: String,
-    override val helpAssistantScreenRecordOption: String,
-    override val helpAssistantAndroidOption: String,
-    override val helpAssistantRestOption: String,
-    override val helpAssistantScreenRecordPlaceholder: String,
-    override val helpAssistantAndroidPlaceholder: String,
     override val helpAssistantRestPlaceholder: String,
-    override val helpAssistantScreenRecordLoading: String,
-    override val helpAssistantAndroidLoading: String,
     override val helpAssistantRestLoading: String,
     override val toolsHelpCopy: MobileToolsHelpCopy,
 ) : MobileHelpText
@@ -252,7 +221,6 @@ data class MobileTranslationGummyLocale(
     override val translationGummyApply: String,
     override val translationGummyStart: String,
     override val translationGummyStop: String,
-    override val translationGummyTranscriptTitle: String,
     override val translationGummyInputChip: String,
     override val translationGummyOutputChip: String,
     override val translationGummyNoTranscriptYet: String,
@@ -272,12 +240,6 @@ data class MobileTranslationGummyLocale(
 ) : MobileTranslationGummyText
 
 data class MobileProviderLocale(
-    override val shellVoiceTitle: String,
-    override val shellVoiceDescription: String,
-    override val shellStatusIdle: String,
-    override val shellStatusActive: String,
-    override val shellStatusStarting: String,
-    override val shellStatusTranslating: String,
     override val geminiKeyLabel: String,
     override val groqKeyLabel: String,
     override val openRouterKeyLabel: String,
@@ -285,6 +247,8 @@ data class MobileProviderLocale(
     override val ollamaUrlLabel: String,
     override val geminiGetKeyLink: String,
     override val groqGetKeyLink: String,
+    override val apiKeyShow: String,
+    override val apiKeyHide: String,
     override val openRouterGetKeyLink: String,
     override val nvidiaGetKeyLink: String,
     override val ollamaLearnMoreLink: String,
@@ -298,7 +262,6 @@ data class MobilePresetRuntimeLocale(
     override val presetRuntimeLive: String,
     override val presetRuntimeDescription: String,
     override val presetRuntimeButton: String,
-    override val presetRuntimeSettingsAction: String,
     val usageStats: MobileUsageStatsLocale,
     override val usageTipsTitle: String,
     override val usageTipsClickHint: String,
@@ -311,23 +274,18 @@ data class MobilePresetRuntimeLocale(
     override val presetRuntimeProvidersLabel: String,
     override val presetRuntimeImageChainLabel: String,
     override val presetRuntimeTextChainLabel: String,
-    override val presetRuntimeChainHint: String,
-    override val presetRuntimeSave: String,
-    override val presetRuntimeCancel: String,
     override val presetRuntimeAddModel: String,
     override val presetRuntimeRestoreDefault: String,
     override val presetRuntimeChosenModel: String,
-    override val presetRuntimeChosenHint: String,
     override val presetRuntimeAuto: String,
     override val presetRuntimeAutoHint: String,
 ) : MobilePresetRuntimeText {
     override val usageStatsButton: String get() = usageStats.button
     override val usageStatsTitle: String get() = usageStats.title
     override val usageStatsNoData: String get() = usageStats.noData
-    override val usageStatsSettingsAction: String get() = usageStats.settingsAction
     override val usageStatsSessionHint: String get() = usageStats.sessionHint
-    override val usageStatsEndpointCount: String get() = usageStats.endpointCount
     override val usageStatsSharedQuota: String get() = usageStats.sharedQuota
+    override val usageStatsQuotaLeft: String get() = usageStats.quotaLeft
     override val usageStatsUpdatedNow: String get() = usageStats.updatedNow
     override val usageStatsMinutesAgo: String get() = usageStats.minutesAgo
     override val usageStatsStale: String get() = usageStats.stale
@@ -339,10 +297,9 @@ data class MobileUsageStatsLocale(
     val button: String,
     val title: String,
     val noData: String,
-    val settingsAction: String,
     val sessionHint: String,
-    val endpointCount: String,
     val sharedQuota: String,
+    val quotaLeft: String,
     val updatedNow: String,
     val minutesAgo: String,
     val stale: String,
@@ -365,6 +322,7 @@ data class MobileUpdateLocale(
     override val updateAvailableNotification: String,
     override val checkingPlayUpdates: String,
     override val updateDownloadingLabel: String,
+    override val updateInstallingLabel: String,
     override val updateDownloadedLabel: String,
     override val restartToUpdateButton: String,
     override val updateNowButton: String,
@@ -374,13 +332,15 @@ data class MobileCustomModelsLocale(
     override val customModelsButton: String,
     override val customModelsTitle: String,
     override val customModelsDescription: String,
+    override val customModelsUnavailable: String,
+    override val customModelsSaveUncertain: String,
+    override val customModelsChangedElsewhere: String,
+    override val customModelsRetry: String,
+    override val customModelsSaving: String,
     override val customModelsBuiltinLocked: String,
     override val customModelsUserModels: String,
     override val customModelsDiscoveredModels: String,
-    override val customModelsAddOpenRouter: String,
     override val customModelsAdd: String,
-    override val customModelsImportOpenRouter: String,
-    override val customModelsScanOllama: String,
     override val customModelsScan: String,
     override val customModelsNoModels: String,
     override val customModelsDisplayName: String,
@@ -389,8 +349,8 @@ data class MobileCustomModelsLocale(
     override val customModelsTextType: String,
     override val customModelsVisionType: String,
     override val customModelsSearch: String,
+    override val customModelsImportSearch: String,
     override val customModelsEnabled: String,
-    override val customModelsSave: String,
     override val customModelsDelete: String,
 ) : MobileCustomModelsText
 
@@ -406,7 +366,6 @@ data class MobileAppearanceLocale(
 
 data class MobileTtsSettingsLocale(
     override val ttsSettingsTitle: String,
-    override val ttsMethodLabel: String,
     override val ttsMethodStandard: String,
     override val ttsMethodFast: String,
     override val ttsMethodEdge: String,
@@ -419,12 +378,9 @@ data class MobileTtsSettingsLocale(
     override val ttsRateLabel: String,
     override val ttsVolumeLabel: String,
     override val ttsVoicePerLanguageLabel: String,
-    override val ttsLoadingVoices: String,
     override val ttsFailedLoadVoicesTemplate: String,
     override val ttsRetryLabel: String,
-    override val ttsInitializingVoices: String,
     override val ttsAddLanguageLabel: String,
-    override val ttsResetToDefaultsLabel: String,
     override val instructionLabel: String,
     override val removeLabel: String,
     override val closeLabel: String,
@@ -436,23 +392,19 @@ data class MobileTtsVoiceLocale(
     override val ttsSpeedSlow: String,
     override val ttsSpeedFast: String,
     override val ttsVoiceLabel: String,
+    override val ttsPreviewEnglishFallback: String,
     override val ttsPreviewAction: String,
     val previewTexts: List<String>,
     override val ttsMale: String,
     override val ttsFemale: String,
     override val ttsInstructionsLabel: String,
-    override val ttsInstructionsHint: String,
     override val ttsAddCondition: String,
     override val noLanguageConditionsYet: String,
 ) : MobileTtsVoiceText {
-    override val ttsPreviewTexts: List<String>
-        get() = previewTexts
 }
 
 data class MobileDownloadLocale(
-    override val dlTitle: String,
     override val dlUrlLabel: String,
-    override val dlFormatLabel: String,
     override val dlStartBtn: String,
     override val dlStartNowBtn: String,
     override val dlOpenFile: String,
@@ -485,10 +437,8 @@ data class MobileDownloadOptionsLocale(
     override val dlBest: String,
     override val dlAuto: String,
     override val dlScanning: String,
-    override val dlSubsFoundHeader: String,
     override val dlSubsNoneFound: String,
     override val dlRetry: String,
     override val dlShowLog: String,
     override val dlHideLog: String,
-    override val dlReset: String,
 ) : MobileDownloadOptionsText

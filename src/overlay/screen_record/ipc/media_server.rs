@@ -1,45 +1,48 @@
+//! Process-wide loopback media server for the recorder WebView: range-served
+//! playback of local files plus upload/import endpoints, behind a token gate.
+
 mod audio_import;
 mod body_io;
 mod gate;
-mod import_normalize;
+mod media_probe;
+mod routes;
 mod streaming;
+mod video_import;
 
-use super::super::native_export;
 use super::super::{MEDIA_SERVER_TOKEN, SERVER_PORT};
 
-use self::gate::{check_request_gate, mint_media_server_token, query_param};
+use self::gate::{check_request_gate, mint_media_server_token};
 
 pub use self::audio_import::{
     create_audio_placeholder_video, import_audio_path_to_managed_media_file,
 };
-use self::audio_import::{managed_import_audio_path, normalized_audio_extension};
-use self::body_io::{
-    MAX_ATLAS_BODY_BYTES, MAX_IMPORTED_AUDIO_BYTES, MAX_IMPORTED_VIDEO_BYTES,
-    MAX_RESTORED_VIDEO_BYTES, read_body_bounded, write_body_bounded,
-};
+pub use self::video_import::import_video_path_to_managed_media_file;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::thread;
-use std::time::Instant;
 use tiny_http::{Response, Server};
 
-const NORMALIZED_IMPORT_AUDIO_SAMPLE_RATE: u32 = 48_000;
-const NORMALIZED_IMPORT_AUDIO_CHANNELS: u32 = 2;
-const NORMALIZED_IMPORT_AUDIO_BITRATE_KBPS: u32 = 192;
+/// Concurrent request handlers; further requests are answered 503 at once.
+const MAX_ACTIVE_HANDLERS: usize = 64;
+
+static START_LOCK: Mutex<()> = Mutex::new(());
+static ACTIVE_HANDLERS: AtomicUsize = AtomicUsize::new(0);
+static IMPORT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) fn recordings_dir() -> PathBuf {
-    crate::paths::app_local_data_dir().join("recordings")
+    crate::paths::app_runtime_local_data_dir().join("recordings")
 }
 
-fn normalize_imported_video(
-    input_path: &Path,
-    output_path: &Path,
-    trace_id: &str,
-) -> Result<bool, String> {
-    import_normalize::normalize_imported_video_mf(input_path, output_path, trace_id)
-}
-
-fn managed_import_path(recordings_dir: &Path, ts: u128, extension: &str) -> PathBuf {
-    recordings_dir.join(format!("imported-{ts}.{extension}"))
+/// Unique, time-ordered file-name stamp for managed imports.
+fn unique_import_stamp() -> String {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let sequence = IMPORT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{ts}-{}-{sequence}", std::process::id())
 }
 
 pub(crate) fn write_managed_narration_wav(
@@ -74,50 +77,20 @@ pub(crate) fn write_managed_narration_wav(
     Ok(output_path.to_string_lossy().to_string())
 }
 
-pub fn import_video_path_to_managed_media_file(
-    source_path: &Path,
-    trace_id: &str,
-) -> Result<(String, bool), String> {
-    if !source_path.exists() || !source_path.is_file() {
-        return Err(format!("Video file not found: {}", source_path.display()));
+/// Starts the media server once per process and returns its port. Later calls
+/// (every editor window reopen) reuse the running server.
+pub fn start_global_media_server() -> Result<u16, String> {
+    let _start = START_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let running = SERVER_PORT.load(Ordering::SeqCst);
+    if running != 0 {
+        return Ok(running);
+    }
+    if MEDIA_SERVER_TOKEN.get().is_none() {
+        MEDIA_SERVER_TOKEN
+            .set(mint_media_server_token()?)
+            .map_err(|_| "Media-server token was initialized concurrently".to_string())?;
     }
 
-    let recordings_dir = recordings_dir();
-    std::fs::create_dir_all(&recordings_dir)
-        .map_err(|error| format!("Create recordings dir: {error}"))?;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let extension = source_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .filter(|ext| !ext.is_empty())
-        .unwrap_or("mp4");
-    let output_path = managed_import_path(&recordings_dir, ts, extension);
-    let started_at = Instant::now();
-
-    std::fs::copy(source_path, &output_path).map_err(|error| {
-        format!(
-            "Copy imported video failed from '{}' to '{}': {error}",
-            source_path.display(),
-            output_path.display()
-        )
-    })?;
-    let has_audio = import_normalize::probe_media_has_audio(&output_path)?;
-    crate::log_info!(
-        "[VideoImport:{}][Path] complete total {:.3}s file=\"{}\" output=\"{}\" has_audio={}",
-        trace_id,
-        started_at.elapsed().as_secs_f64(),
-        source_path.display(),
-        output_path.display(),
-        has_audio
-    );
-
-    Ok((output_path.to_string_lossy().to_string(), has_audio))
-}
-
-pub fn start_global_media_server() -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
         match Server::http(format!("127.0.0.1:{}", port)) {
@@ -131,466 +104,68 @@ pub fn start_global_media_server() -> Result<u16, String> {
         }
     };
 
-    let actual_port = port;
-    SERVER_PORT.store(actual_port, std::sync::atomic::Ordering::SeqCst);
-    if MEDIA_SERVER_TOKEN.get().is_none() {
-        MEDIA_SERVER_TOKEN
-            .set(mint_media_server_token()?)
-            .map_err(|_| "Media-server token was initialized concurrently".to_string())?;
-    }
-
-    thread::spawn(move || {
-        for mut request in server.incoming_requests() {
-            if request.method() == &tiny_http::Method::Options {
-                let mut res = Response::empty(204);
-                res.add_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap(),
-                );
-                res.add_header(
-                    tiny_http::Header::from_bytes(
-                        &b"Access-Control-Allow-Methods"[..],
-                        &b"GET, POST, OPTIONS"[..],
-                    )
-                    .unwrap(),
-                );
-                res.add_header(
-                    tiny_http::Header::from_bytes(
-                        &b"Access-Control-Allow-Headers"[..],
-                        &b"Range, Content-Type, X-SGT-Token"[..],
-                    )
-                    .unwrap(),
-                );
-                let _ = request.respond(res);
-                continue;
+    thread::Builder::new()
+        .name("sgt-media-server".into())
+        .spawn(move || {
+            for request in server.incoming_requests() {
+                accept(request);
             }
-
-            if let Err(rejection) = check_request_gate(&request) {
-                let mut res = Response::from_string(rejection.body).with_status_code(403);
-                res.add_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap(),
-                );
-                let _ = request.respond(res);
-                continue;
-            }
-
-            if request.method() == &tiny_http::Method::Post
-                && request.url().starts_with("/stage-atlas")
-            {
-                let cors =
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap();
-                let url = request.url().to_string();
-                let qs = url.split_once('?').map(|(_, q)| q).unwrap_or("");
-                let find_param = |name: &str| -> Option<u32> {
-                    qs.split('&')
-                        .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
-                        .and_then(|v| v.parse().ok())
-                };
-                let Some(w) = find_param("w") else {
-                    let mut res =
-                        Response::from_string("Missing atlas width").with_status_code(400);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                    continue;
-                };
-                let Some(h) = find_param("h") else {
-                    let mut res =
-                        Response::from_string("Missing atlas height").with_status_code(400);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                    continue;
-                };
-                let expected_rgba = usize::try_from(w)
-                    .ok()
-                    .and_then(|width| {
-                        usize::try_from(h)
-                            .ok()
-                            .and_then(|height| width.checked_mul(height))
-                    })
-                    .and_then(|pixels| pixels.checked_mul(4));
-                let Some(expected_rgba) = expected_rgba else {
-                    let mut res =
-                        Response::from_string("Atlas dimensions overflowed").with_status_code(400);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                    continue;
-                };
-                let body = match read_body_bounded(request.as_reader(), MAX_ATLAS_BODY_BYTES) {
-                    Ok(body) => body,
-                    Err(error) => {
-                        let mut res = Response::from_string(error).with_status_code(400);
-                        res.add_header(cors);
-                        let _ = request.respond(res);
-                        continue;
-                    }
-                };
-                {
-                    let find_str_param = |name: &str| -> Option<String> {
-                        let raw = qs
-                            .split('&')
-                            .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))?;
-                        Some(urlencoding::decode(raw).unwrap_or_default().into_owned())
-                    };
-                    let session_job = find_str_param("session").zip(find_str_param("job"));
-
-                    let rgba = if body.len() == expected_rgba {
-                        body
-                    } else {
-                        let dimensions = image::ImageReader::new(std::io::Cursor::new(&body))
-                            .with_guessed_format()
-                            .map_err(|error| error.to_string())
-                            .and_then(|reader| {
-                                reader.into_dimensions().map_err(|error| error.to_string())
-                            });
-                        if let Err(msg) = match dimensions {
-                            Ok((actual_w, actual_h)) if (actual_w, actual_h) == (w, h) => Ok(()),
-                            Ok((actual_w, actual_h)) => Err(format!(
-                                "Atlas dimensions do not match: decoded {actual_w}x{actual_h}, expected {w}x{h}"
-                            )),
-                            Err(error) => Err(format!("Atlas header decode failed: {error}")),
-                        } {
-                            let mut res = Response::from_string(msg).with_status_code(400);
-                            res.add_header(cors);
-                            let _ = request.respond(res);
-                            continue;
-                        }
-                        match image::load_from_memory(&body) {
-                            Ok(img) => {
-                                let rgba8 = img.to_rgba8();
-                                let actual_w = rgba8.width();
-                                let actual_h = rgba8.height();
-                                if actual_w != w || actual_h != h {
-                                    let msg = format!(
-                                        "Atlas dimensions do not match: decoded {actual_w}x{actual_h}, expected {w}x{h}"
-                                    );
-                                    let mut res = Response::from_string(msg).with_status_code(400);
-                                    res.add_header(cors);
-                                    let _ = request.respond(res);
-                                    continue;
-                                }
-                                rgba8.into_raw()
-                            }
-                            Err(e) => {
-                                let msg = format!("Atlas PNG decode failed: {e}");
-                                eprintln!("[stage-atlas] {msg}");
-                                let mut res = Response::from_string(msg).with_status_code(400);
-                                res.add_header(cors);
-                                let _ = request.respond(res);
-                                continue;
-                            }
-                        }
-                    };
-
-                    let staged = if let Some((sid, jid)) = session_job {
-                        native_export::staging::set_atlas_for(&sid, &jid, rgba, w, h)
-                    } else {
-                        native_export::staging::set_atlas(rgba, w, h)
-                    };
-                    let (message, status) = match staged {
-                        Ok(()) => (r#"{"ok":true}"#.to_string(), 200),
-                        Err(error) => (error, 400),
-                    };
-                    let mut res = Response::from_string(message).with_status_code(status);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                }
-                continue;
-            }
-
-            if request.method() == &tiny_http::Method::Post
-                && request.url().starts_with("/write-temp")
-            {
-                let cors =
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap();
-                let recordings_dir = recordings_dir();
-                if let Err(error) = std::fs::create_dir_all(&recordings_dir) {
-                    let mut res = Response::from_string(format!(
-                        "Create recordings directory failed: {error}"
-                    ))
-                    .with_status_code(500);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                    continue;
-                }
-                let dest = recordings_dir.join(format!(
-                    "restored_{}_{}.mp4",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis(),
-                    std::process::id()
-                ));
-                if write_body_bounded(request.as_reader(), &dest, MAX_RESTORED_VIDEO_BYTES).is_ok()
-                {
-                    let json =
-                        format!("{{\"path\":{}}}", serde_json::json!(dest.to_string_lossy()));
-                    let mut res = Response::from_string(json).with_status_code(200);
-                    res.add_header(cors);
-                    res.add_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .unwrap(),
-                    );
-                    let _ = request.respond(res);
-                } else {
-                    let _ = std::fs::remove_file(&dest);
-                    let mut res = Response::from_string("Write failed").with_status_code(500);
-                    res.add_header(cors);
-                    let _ = request.respond(res);
-                }
-                continue;
-            }
-
-            if request.method() == &tiny_http::Method::Post
-                && request.url().starts_with("/import-video")
-            {
-                let cors =
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap();
-                let recordings_dir = recordings_dir();
-                let _ = std::fs::create_dir_all(&recordings_dir);
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-                let url = request.url().to_string();
-                let file_name = url
-                    .split_once('?')
-                    .map(|(_, query)| query)
-                    .unwrap_or("")
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("filename="))
-                    .and_then(|value| urlencoding::decode(value).ok())
-                    .map(|value| value.into_owned())
-                    .unwrap_or_else(|| "upload.mp4".to_string());
-                let trace_id = url
-                    .split_once('?')
-                    .map(|(_, query)| query)
-                    .unwrap_or("")
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("traceId="))
-                    .and_then(|value| urlencoding::decode(value).ok())
-                    .map(|value| value.into_owned())
-                    .unwrap_or_else(|| format!("video-import-{ts}"));
-                let extension = Path::new(&file_name)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(str::to_ascii_lowercase)
-                    .filter(|ext| {
-                        matches!(ext.as_str(), "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi")
-                    })
-                    .unwrap_or_else(|| "mp4".to_string());
-                let normalize_requested = url
-                    .split_once('?')
-                    .map(|(_, query)| query)
-                    .unwrap_or("")
-                    .split('&')
-                    .any(|kv| kv == "normalize=1" || kv == "normalize=true");
-                let input_path = recordings_dir.join(format!("import-source-{ts}.{extension}"));
-                let output_path = managed_import_path(&recordings_dir, ts, &extension);
-                let mut uploaded_bytes = 0u64;
-                let request_started_at = Instant::now();
-
-                let result = (|| -> Result<(String, bool), String> {
-                    uploaded_bytes = write_body_bounded(
-                        request.as_reader(),
-                        &input_path,
-                        MAX_IMPORTED_VIDEO_BYTES,
-                    )?;
-                    if normalize_requested {
-                        let normalize_output_path =
-                            recordings_dir.join(format!("imported-{ts}.mp4"));
-                        let has_audio = normalize_imported_video(
-                            &input_path,
-                            &normalize_output_path,
-                            &trace_id,
-                        )?;
-                        return Ok((
-                            normalize_output_path.to_string_lossy().to_string(),
-                            has_audio,
-                        ));
-                    }
-
-                    std::fs::rename(&input_path, &output_path).or_else(|rename_error| {
-                        std::fs::copy(&input_path, &output_path)
-                            .map(|_| ())
-                            .map_err(|copy_error| {
-                                format!(
-                                    "Persist imported video failed (rename: {rename_error}; copy: {copy_error})"
-                                )
-                            })
-                    })?;
-                    let has_audio = import_normalize::probe_media_has_audio(&output_path)?;
-                    Ok((output_path.to_string_lossy().to_string(), has_audio))
-                })();
-
-                let _ = std::fs::remove_file(&input_path);
-
-                match result {
-                    Ok((path, has_audio)) => {
-                        crate::log_info!(
-                            "[VideoImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" has_audio={}",
-                            trace_id,
-                            request_started_at.elapsed().as_secs_f64(),
-                            uploaded_bytes as f64 / (1024.0 * 1024.0),
-                            file_name,
-                            path,
-                            has_audio
-                        );
-                        let json = format!(
-                            "{{\"path\":{},\"hasAudio\":{}}}",
-                            serde_json::json!(path),
-                            if has_audio { "true" } else { "false" }
-                        );
-                        let mut res = Response::from_string(json).with_status_code(200);
-                        res.add_header(cors);
-                        res.add_header(
-                            tiny_http::Header::from_bytes(
-                                &b"Content-Type"[..],
-                                &b"application/json"[..],
-                            )
-                            .unwrap(),
-                        );
-                        let _ = request.respond(res);
-                    }
-                    Err(error) => {
-                        crate::log_info!(
-                            "[VideoImport:{}][HTTP] failed after {:.3}s: {}",
-                            trace_id,
-                            request_started_at.elapsed().as_secs_f64(),
-                            error
-                        );
-                        let _ = std::fs::remove_file(&output_path);
-                        let mut res = Response::from_string(error).with_status_code(500);
-                        res.add_header(cors);
-                        let _ = request.respond(res);
-                    }
-                }
-                continue;
-            }
-
-            if request.method() == &tiny_http::Method::Post
-                && request.url().starts_with("/import-audio")
-            {
-                let cors =
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap();
-                let recordings_dir = recordings_dir();
-                let _ = std::fs::create_dir_all(&recordings_dir);
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-                let url = request.url().to_string();
-                let file_name = url
-                    .split_once('?')
-                    .map(|(_, query)| query)
-                    .unwrap_or("")
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("filename="))
-                    .and_then(|value| urlencoding::decode(value).ok())
-                    .map(|value| value.into_owned())
-                    .unwrap_or_else(|| "upload.mp3".to_string());
-                let trace_id = url
-                    .split_once('?')
-                    .map(|(_, query)| query)
-                    .unwrap_or("")
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("traceId="))
-                    .and_then(|value| urlencoding::decode(value).ok())
-                    .map(|value| value.into_owned())
-                    .unwrap_or_else(|| format!("audio-import-{ts}"));
-                let raw_ext = Path::new(&file_name)
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .filter(|ext| !ext.is_empty())
-                    .unwrap_or("mp3");
-                let extension = normalized_audio_extension(raw_ext);
-                let output_path = managed_import_audio_path(&recordings_dir, ts, extension);
-                let mut uploaded_bytes = 0u64;
-                let request_started_at = Instant::now();
-
-                let result = (|| -> Result<(String, f64), String> {
-                    uploaded_bytes = write_body_bounded(
-                        request.as_reader(),
-                        &output_path,
-                        MAX_IMPORTED_AUDIO_BYTES,
-                    )?;
-                    let duration_sec =
-                        import_normalize::probe_audio_duration_seconds(&output_path).unwrap_or(0.0);
-                    Ok((output_path.to_string_lossy().to_string(), duration_sec))
-                })();
-
-                match result {
-                    Ok((path, duration_sec)) => {
-                        crate::log_info!(
-                            "[AudioImport:{}][HTTP] complete total {:.3}s size_mb={:.2} file=\"{}\" output=\"{}\" duration={:.3}s",
-                            trace_id,
-                            request_started_at.elapsed().as_secs_f64(),
-                            uploaded_bytes as f64 / (1024.0 * 1024.0),
-                            file_name,
-                            path,
-                            duration_sec
-                        );
-                        let json = format!(
-                            "{{\"path\":{},\"duration\":{}}}",
-                            serde_json::json!(path),
-                            duration_sec
-                        );
-                        let mut res = Response::from_string(json).with_status_code(200);
-                        res.add_header(cors);
-                        res.add_header(
-                            tiny_http::Header::from_bytes(
-                                &b"Content-Type"[..],
-                                &b"application/json"[..],
-                            )
-                            .unwrap(),
-                        );
-                        let _ = request.respond(res);
-                    }
-                    Err(error) => {
-                        crate::log_info!(
-                            "[AudioImport:{}][HTTP] failed after {:.3}s: {}",
-                            trace_id,
-                            request_started_at.elapsed().as_secs_f64(),
-                            error
-                        );
-                        let _ = std::fs::remove_file(&output_path);
-                        let mut res = Response::from_string(error).with_status_code(500);
-                        res.add_header(cors);
-                        let _ = request.respond(res);
-                    }
-                }
-                continue;
-            }
-
-            let url = request.url();
-            let media_path_str = query_param(url, "path").unwrap_or_default();
-            if media_path_str.is_empty() || !Path::new(&media_path_str).exists() {
-                let mut res = Response::from_string("File not found").with_status_code(404);
-                res.add_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap(),
-                );
-                let _ = request.respond(res);
-                continue;
-            }
-
-            let range_header_str: Option<String> = request
-                .headers()
-                .iter()
-                .find(|h| h.field.to_string().eq_ignore_ascii_case("range"))
-                .and_then(|h| h.value.as_str().strip_prefix("bytes="))
-                .map(|s| s.to_owned());
-
-            streaming::spawn_media_file_response(request, media_path_str, range_header_str);
-        }
-    });
-
-    Ok(actual_port)
+            SERVER_PORT.store(0, Ordering::SeqCst);
+        })
+        .map_err(|error| format!("Start media server thread: {error}"))?;
+    SERVER_PORT.store(port, Ordering::SeqCst);
+    Ok(port)
 }
+
+/// Answers cheap requests inline and hands everything else to a handler
+/// thread, so uploads, probes, and file streams never queue behind each other.
+fn accept(request: tiny_http::Request) {
+    if request.method() == &tiny_http::Method::Options {
+        let mut res = Response::empty(204);
+        res.add_header(routes::cors_header());
+        res.add_header(
+            tiny_http::Header::from_bytes(
+                &b"Access-Control-Allow-Methods"[..],
+                &b"GET, POST, OPTIONS"[..],
+            )
+            .unwrap(),
+        );
+        res.add_header(
+            tiny_http::Header::from_bytes(
+                &b"Access-Control-Allow-Headers"[..],
+                &b"Range, Content-Type, X-SGT-Token"[..],
+            )
+            .unwrap(),
+        );
+        let _ = request.respond(res);
+        return;
+    }
+    if let Err(rejection) = check_request_gate(&request) {
+        routes::respond_text(request, 403, rejection.body);
+        return;
+    }
+    if ACTIVE_HANDLERS.fetch_add(1, Ordering::SeqCst) >= MAX_ACTIVE_HANDLERS {
+        ACTIVE_HANDLERS.fetch_sub(1, Ordering::SeqCst);
+        routes::respond_text(request, 503, "Media server is busy");
+        return;
+    }
+    let spawned = thread::Builder::new()
+        .name("sgt-media-request".into())
+        .spawn(move || {
+            struct Slot;
+            impl Drop for Slot {
+                fn drop(&mut self) {
+                    ACTIVE_HANDLERS.fetch_sub(1, Ordering::SeqCst);
+                }
+            }
+            let _slot = Slot;
+            routes::handle(request);
+        });
+    if spawned.is_err() {
+        ACTIVE_HANDLERS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+#[path = "media_server_tests.rs"]
+mod tests;

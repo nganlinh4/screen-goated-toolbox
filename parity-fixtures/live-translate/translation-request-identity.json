@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {"name":"unchanged", "requested":"Same source.", "current":"Same source.", "accepted":true},
+    {"name":"append", "requested":"Same source.", "current":"Same source. More.", "accepted":true},
+    {"name":"same-length-correction", "requested":"Same source.", "current":"Newer words.", "accepted":false},
+    {"name":"truncated", "requested":"Same source.", "current":"Same.", "accepted":false},
+    {"name":"unicode-correction", "requested":"한글 문장.", "current":"다른 문장.", "accepted":false}
+  ],
+  "revisionCases": [
+    {"name":"same-source-after-reset", "requested":"Same source.", "current":"Same source.", "reset":true, "accepted":false},
+    {"name":"same-source-same-revision", "requested":"Same source.", "current":"Same source.", "reset":false, "accepted":true},
+    {"name":"target-language-change", "requested":"Same source.", "current":"Same source.", "change":"target", "accepted":false},
+    {"name":"translation-model-change", "requested":"Same source.", "current":"Same source.", "change":"model", "accepted":false},
+    {"name":"audio-source-change", "requested":"Same source.", "current":"Same source.", "change":"source", "accepted":false},
+    {"name":"transcription-provider-change", "requested":"Same source.", "current":"Same source.", "change":"transcription", "accepted":false},
+    {"name":"transcription-language-change", "requested":"Same source.", "current":"Same source.", "change":"transcriptionLanguage", "accepted":false},
+    {"name":"vocabulary-change", "requested":"Same source.", "current":"Same source.", "change":"vocabulary", "accepted":false}
+  ],
+  "forceCommitCases": [
+    {"name":"ascii-below", "pending":"123456789", "commit":false},
+    {"name":"ascii-at", "pending":"1234567890", "commit":true},
+    {"name":"multibyte-below", "pending":"가나다", "commit":false},
+    {"name":"multibyte-above", "pending":"가나다라", "commit":true},
+    {"name":"supplementary-below", "pending":"😀😀", "commit":false},
+    {"name":"supplementary-above", "pending":"😀😀😀", "commit":true}
+  ],
+  "retryCases": [
+    {"name":"unchanged-draft", "processed":"First draft", "current":"First draft", "retry":false},
+    {"name":"same-length-correction", "processed":"First draft", "current":"Other draft", "retry":true},
+    {"name":"appended-draft", "processed":"First draft", "current":"First draft more", "retry":true},
+    {"name":"shortened-draft", "processed":"First draft", "current":"First", "retry":true}
+  ],
+  "prefixCases": [
+    {"name":"supplementary-correction", "previous":"prefix 😀 suffix", "current":"prefix 😁 suffix", "retained":"prefix "},
+    {"name":"earlier-supplementary-character", "previous":"😀 A 😁 tail", "current":"😀 A 😂 tail", "retained":"😀 A "}
+  ],
+  "fallbackCases": [
+    {"name":"llm-failure-fallback-success", "selected":"text-llm", "current":"text-llm", "requestCurrent":true, "fallback":"google-gtx", "fallbackSucceeds":true, "saved":"text-llm"},
+    {"name":"gtx-failure-fallback-failure", "selected":"google-gtx", "current":"google-gtx", "requestCurrent":true, "fallback":"text-llm", "fallbackSucceeds":false, "saved":"google-gtx"},
+    {"name":"user-change-during-request", "selected":"text-llm", "current":"google-gtx", "requestCurrent":false, "fallback":null, "saved":"google-gtx"},
+    {"name":"stale-source", "selected":"google-gtx", "current":"google-gtx", "requestCurrent":false, "fallback":null, "saved":"google-gtx"}
+  ],
+  "finalityCases": [
+    {"name":"processed-draft-becomes-final", "initialCommitted":"", "initialDraft":"Same source", "currentCommitted":"Same source", "currentDraft":"", "alreadyProcessed":true, "accepted":false, "retry":true},
+    {"name":"draft-becomes-final", "initialCommitted":"", "initialDraft":"Same source", "currentCommitted":"Same source", "currentDraft":"", "accepted":false, "retry":true},
+    {"name":"unchanged-draft-finality", "initialCommitted":"", "initialDraft":"Same source", "currentCommitted":"", "currentDraft":"Same source", "accepted":true, "retry":false},
+    {"name":"new-finality-after-request-range", "initialCommitted":"First.", "initialDraft":"", "currentCommitted":"First. More.", "currentDraft":"", "accepted":true, "retry":true}
+  ]
+}

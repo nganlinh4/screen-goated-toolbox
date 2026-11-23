@@ -12,6 +12,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -25,6 +27,18 @@ class GeminiS2sClient(
         outputMode = AudioTrackOutputMode.VOICE_COMMUNICATION,
         outputVolumeBoost = LIVE_TRANSLATE_COMMUNICATION_VOLUME_BOOST,
     )
+    private val visibility = S2sVisibilityController {
+        mediaPlayer.stopImmediate()
+        communicationPlayer.stopImmediate()
+    }
+    internal val visibilityGate: S2sVisibilityGate get() = visibility.gate
+    private val sessionMutex = Mutex()
+
+    fun setPlaybackVisible(visible: Boolean) = visibility.setVisible(visible)
+
+    fun stopPlayback() = visibility.stopActive()
+
+    private fun stopPlaybackSession(id: Long) = visibility.stop(id)
 
     private fun liveTranslatePlayer(sourceMode: SourceMode): AudioTrackPlayer {
         return if (sourceMode == SourceMode.MIC) {
@@ -34,14 +48,16 @@ class GeminiS2sClient(
         }
     }
 
-    suspend fun runSession(
+    internal suspend fun runSession(
         apiKey: String,
         model: String,
         sourceMode: SourceMode,
-        audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
+        audioChunks: kotlinx.coroutines.flow.Flow<S2sCapturedAudio>,
         settingsProvider: () -> GeminiS2sRuntimeSettings,
         onDisplay: (S2sDisplaySnapshot) -> Unit,
-    ) = coroutineScope {
+    ) = sessionMutex.withLock { coroutineScope {
+        val sessionId = visibility.start()
+        try {
         val startMs = SystemClock.elapsedRealtime()
         val logTag = geminiLiveAudioLogTag(model)
         val initialSettings = settingsProvider()
@@ -66,7 +82,7 @@ class GeminiS2sClient(
                 )
             } finally {
                 Log.i(logTag, "session-exit uptime_ms=${SystemClock.elapsedRealtime() - startMs}")
-                player.stopImmediate()
+                stopPlaybackSession(sessionId)
             }
             return@coroutineScope
         }
@@ -86,6 +102,7 @@ class GeminiS2sClient(
                 onDisplay = onDisplay,
                 logTag = logTag,
                 backlogMs = backlogMs,
+                visibilityGate = visibilityGate,
             )
         }
         val workers = workerChannels.mapIndexed { workerIndex, channel ->
@@ -117,9 +134,12 @@ class GeminiS2sClient(
             workers.forEach { it.cancelAndJoin() }
             attempts.close()
             coordinator.cancelAndJoin()
-            player.stopImmediate()
+            stopPlaybackSession(sessionId)
         }
-    }
+        } finally {
+            stopPlaybackSession(sessionId)
+        }
+    } }
 }
 
 internal fun geminiLiveAudioLogTag(model: String): String {

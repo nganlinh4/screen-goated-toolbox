@@ -75,8 +75,14 @@ fn quarantine_with(
     failure_reason: &str,
     rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Option<PathBuf>> {
-    let _exclusive = crate::component_registry::lease::reserve_exclusive_mutation(delivery.id)?;
     let source = version_root(delivery)?;
+    // An absent version has nothing to move; a lease on the tool must not block it.
+    if let Err(error) = std::fs::symlink_metadata(&source)
+        && error.kind() == std::io::ErrorKind::NotFound
+    {
+        return Ok(None);
+    }
+    let _exclusive = crate::component_registry::lease::reserve_exclusive_mutation(delivery.id)?;
     let metadata = match std::fs::symlink_metadata(&source) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

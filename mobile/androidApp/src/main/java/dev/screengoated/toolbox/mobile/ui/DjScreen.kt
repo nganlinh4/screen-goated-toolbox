@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.ui
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -24,6 +25,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import dev.screengoated.toolbox.mobile.service.dj.DjJsBridge
 import dev.screengoated.toolbox.mobile.service.dj.DjWebViewHolder
 import java.io.FileNotFoundException
+import java.net.URI
 import java.util.Locale
 
 @SuppressLint("JavascriptInterface", "SetJavaScriptEnabled")
@@ -96,18 +98,33 @@ internal fun DjScreen(
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                // The key goes only to the bundled DJ page, addressed to its exact origin.
+                if (!isDjAssetUrl(url)) return
                 handler.postDelayed({
+                    if (!isDjAssetUrl(webView.url)) return@postDelayed
                     val script = """
-                        window.postMessage({ type: 'pm-dj-set-api-key', apiKey: '$escapedKey', lang: '$lang' }, '*');
-                        window.postMessage({ type: 'pm-dj-set-theme', theme: '$theme' }, '*');
-                        window.postMessage({ type: 'pm-dj-set-font', font: 'google-sans-flex' }, '*');
+                        window.postMessage({ type: 'pm-dj-set-api-key', apiKey: '$escapedKey', lang: '$lang' }, '$DJ_ORIGIN');
+                        window.postMessage({ type: 'pm-dj-set-theme', theme: '$theme' }, '$DJ_ORIGIN');
+                        window.postMessage({ type: 'pm-dj-set-font', font: 'google-sans-flex' }, '$DJ_ORIGIN');
                     """.trimIndent()
                     webView.evaluateJavascript(script, null)
                 }, 300)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                return false
+                if (request == null || !request.isForMainFrame) return false
+                val url = request.url.toString()
+                if (isDjAssetUrl(url)) return false
+                if (isExternalWebUrl(url) && request.hasGesture()) {
+                    try {
+                        appContext.startActivity(
+                            Intent(Intent.ACTION_VIEW, request.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    } catch (_: RuntimeException) {
+                        // No handler: the navigation is still kept out of the key-holding WebView.
+                    }
+                }
+                return true
             }
 
             override fun shouldInterceptRequest(
@@ -137,8 +154,8 @@ internal fun DjScreen(
             // Re-sending pm-dj-set-api-key would create a new LiveMusicHelper,
             // orphaning the old one that's still playing audio.
             val script = """
-                window.postMessage({ type: 'pm-dj-set-theme', theme: '$theme' }, '*');
-                window.postMessage({ type: 'pm-dj-set-lang', lang: '$lang' }, '*');
+                window.postMessage({ type: 'pm-dj-set-theme', theme: '$theme' }, '$DJ_ORIGIN');
+                window.postMessage({ type: 'pm-dj-set-lang', lang: '$lang' }, '$DJ_ORIGIN');
             """.trimIndent()
             webView.evaluateJavascript(script, null)
         }
@@ -156,7 +173,7 @@ internal fun DjScreen(
         // If stopped, send stop signal first.
         if (!DjWebViewHolder.isPlaying) {
             webView.evaluateJavascript(
-                "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
+                "window.postMessage({ type: 'pm-dj-stop-audio' }, '$DJ_ORIGIN')",
                 null,
             )
         }
@@ -186,7 +203,22 @@ private fun escapeJs(value: String): String =
         .replace("\r", "\\r")
 
 private const val DJ_ASSET_HOST = "promptdj.screengoated.local"
-private const val DJ_INDEX_URL = "https://$DJ_ASSET_HOST/promptdj/index.html"
+internal const val DJ_ORIGIN = "https://$DJ_ASSET_HOST"
+private const val DJ_INDEX_URL = "$DJ_ORIGIN/promptdj/index.html"
+
+/** True only for the bundled DJ page origin, the one page allowed to hold the API key. */
+internal fun isDjAssetUrl(url: String?): Boolean {
+    val parsed = url?.let { runCatching { URI(it) }.getOrNull() } ?: return false
+    return parsed.scheme.equals("https", ignoreCase = true) &&
+        parsed.host.equals(DJ_ASSET_HOST, ignoreCase = true) &&
+        parsed.port == -1 &&
+        parsed.rawUserInfo == null
+}
+
+internal fun isExternalWebUrl(url: String): Boolean {
+    val scheme = runCatching { URI(url).scheme }.getOrNull() ?: return false
+    return scheme.equals("https", ignoreCase = true) || scheme.equals("http", ignoreCase = true)
+}
 
 private fun djAssetPathFor(path: String): String? {
     val normalized = path.removePrefix("/").substringBefore('?').substringBefore('#')

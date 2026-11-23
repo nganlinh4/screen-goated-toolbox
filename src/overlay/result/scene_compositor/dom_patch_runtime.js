@@ -1,5 +1,63 @@
 (function() {
     var authoredStyles = new WeakMap();
+    var allowedElements = new Set([
+        'A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'H1', 'H2', 'H3',
+        'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'INPUT', 'LI', 'OL', 'P', 'PRE', 'S',
+        'SPAN', 'STRONG', 'SUB', 'SUP', 'TABLE', 'TBODY', 'TD', 'TH', 'THEAD', 'TR', 'U', 'UL'
+    ]);
+    var discardedElements = new Set([
+        'SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'FORM', 'META', 'LINK',
+        'BASE', 'SVG', 'MATH', 'TEMPLATE', 'AUDIO', 'VIDEO'
+    ]);
+    function safeUrl(value, image) {
+        var trimmed = value.trim();
+        if (image && /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(trimmed)) return true;
+        try {
+            var url = new URL(trimmed, document.baseURI);
+            return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch (_error) {
+            return false;
+        }
+    }
+    function safeAttribute(element, attribute) {
+        var name = attribute.name.toLowerCase();
+        var tag = element.tagName;
+        if (name === 'class' || name === 'title') return true;
+        if (name === 'href' && tag === 'A') return safeUrl(attribute.value, false);
+        if (name === 'src' && tag === 'IMG') return safeUrl(attribute.value, true);
+        if (tag === 'IMG' && ['alt', 'width', 'height'].includes(name)) return true;
+        if (tag === 'INPUT' && name === 'type') return attribute.value.toLowerCase() === 'checkbox';
+        if (tag === 'INPUT' && ['disabled', 'checked'].includes(name)) return true;
+        if (tag === 'OL' && name === 'start') return /^\d+$/.test(attribute.value);
+        if ((tag === 'TD' || tag === 'TH') && ['colspan', 'rowspan'].includes(name)) return /^\d+$/.test(attribute.value);
+        if ((tag === 'TD' || tag === 'TH') && name === 'style') {
+            return /^\s*text-align\s*:\s*(?:left|right|center)\s*;?\s*$/i.test(attribute.value);
+        }
+        return false;
+    }
+    function safeFragment(html) {
+        var template = document.createElement('template');
+        template.innerHTML = html;
+        for (var element of template.content.querySelectorAll('*')) {
+            if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml' || discardedElements.has(element.tagName)) {
+                element.remove();
+                continue;
+            }
+            if (!allowedElements.has(element.tagName)) {
+                element.replaceWith(...element.childNodes);
+                continue;
+            }
+            for (var attribute of Array.from(element.attributes)) {
+                if (!safeAttribute(element, attribute)) element.removeAttribute(attribute.name);
+            }
+            if (element.tagName === 'INPUT') {
+                if (element.getAttribute('type') !== 'checkbox') element.remove();
+                else element.disabled = true;
+            }
+        }
+        return template.content;
+    }
+    window.__SGT_SAFE_FRAGMENT__ = safeFragment;
     function cloneAuthored(node) {
         var clone = node.cloneNode(true);
         if (clone.nodeType === Node.ELEMENT_NODE) {
@@ -64,8 +122,6 @@
     }
 
     window.__SGT_PATCH_BODY__ = function(body, html) {
-        var template = document.createElement('template');
-        template.innerHTML = html;
-        syncChildren(body, template.content);
+        syncChildren(body, safeFragment(html));
     };
 })();

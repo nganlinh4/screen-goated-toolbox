@@ -93,6 +93,7 @@ impl super::Brain {
         );
         Some(super::SemanticSurfaceState {
             elements: elements.to_string(),
+            has_elements: comparable_elements(&observed),
             title: title.to_string(),
             url: url.to_string(),
             identity,
@@ -100,8 +101,26 @@ impl super::Brain {
     }
 }
 
+fn comparable_elements(observed: &serde_json::Value) -> bool {
+    observed
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|count| count > 0)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn empty_or_unknown_browser_inventory_is_not_comparable_despite_display_text() {
+        for value in [
+            serde_json::json!({"count":0,"elements":"no interactive elements found"}),
+            serde_json::json!({"elements":"display text"}),
+            serde_json::json!({"count":"1"}),
+        ] {
+            assert!(!super::comparable_elements(&value));
+        }
+        assert!(super::comparable_elements(&serde_json::json!({"count":1})));
+    }
     use super::super::super::controller::world::{BrowserWindowIdentity, SurfaceIdentity};
     use super::browser_document;
 

@@ -179,19 +179,6 @@ pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText, toggles: FooterToggle
                 crate::overlay::image_to_svg::show_image_to_svg();
             }
 
-            if crate::creation_feature_availability::image_creator_entry_visible()
-                && footer_launcher_button(
-                    ui,
-                    Icon::Image,
-                    text.shell.image_creator_btn,
-                    theme.accent_image_creator(),
-                    btn_text,
-                )
-                .clicked()
-            {
-                crate::overlay::image_creator::show_image_creator();
-            }
-
             if footer_launcher_button(
                 ui,
                 Icon::Album,
@@ -432,7 +419,6 @@ mod tests {
                 text.tts_playground.tts_playground_btn,
                 text.shell.three_d_generator_btn,
                 text.shell.image_to_svg_btn,
-                text.shell.image_creator_btn,
                 text.shell.prompt_dj_btn,
                 text.auxiliary.download.download_feature_btn,
                 text.tool_runtime.screen_record_btn,

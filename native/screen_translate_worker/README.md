@@ -1,9 +1,9 @@
 # Incremental Screen Translate Worker
 
 Native geometry and recognition orchestration for Screen Translate. The worker
-uses protocol `stream` from `screen_text_detector_protocol`; the prior worker
-and its immutable package remain the rollback implementation, not a per-request
-fallback. The host supplies and leases every runtime/model path explicitly.
+uses protocol `stream` from `screen_text_detector_protocol`. It is the only
+Screen Translate worker: the original request/response detector (`sgtd-v4`) is
+retired and has no host client, protocol codec or packager. The host supplies and leases every runtime/model path explicitly.
 
 One capture produces geometry, independently completed readings, then a terminal
 event. Cancellation interrupts pending recognition without assigning late output
@@ -25,6 +25,16 @@ All readers warm before readiness. Width-compatible batches retain region
 identities and prioritize longer strips; reader scheduling follows normalized
 text workload rather than catalog order. No region is omitted by scheduling.
 Worker startup does not select delivery sources.
+
+Detector deliveries declare `component.protocol`: `sgts-v1` is the streaming
+message and model-path contract, including geometry layout. Compatibility
+declarations are independent of package versions. The host rejects `sgtd-v4`,
+unknown declarations and new versions without one, and checks readiness against
+the selected package version. Only the shipped metadata-free 4.2.2 contract is
+read as `sgts-v1`. An earlier detector install left on disk is not deleted; it
+is simply never selected.
+Signed catalog host-compatibility ranges must exclude hosts that do not support
+the delivery's declared protocol and complete message/model-path contract.
 
 Advisory document layout runs on DirectML alongside localization. Geometry carries
 both the complete OCR inventory and separate layout regions; layout never filters

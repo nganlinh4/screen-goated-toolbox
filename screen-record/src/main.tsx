@@ -7,10 +7,12 @@ import { RecorderErrorBoundary } from "@/components/RecorderErrorBoundary";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { installBrowserTestIpcMock } from "@/testHarness/browserIpcMock";
 import { reportStartupMilestone } from "@/lib/startupTelemetry";
+import { resumeRetiredNarrationCancellations } from "@/hooks/retiredNarrationCancellation";
 import "./App.css";
 import "./accessibility.css";
 
 installBrowserTestIpcMock();
+resumeRetiredNarrationCancellations();
 reportStartupMilestone("frontend-module-evaluated");
 
 function StartupTelemetry() {

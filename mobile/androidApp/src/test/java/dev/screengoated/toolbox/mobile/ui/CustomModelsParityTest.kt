@@ -13,12 +13,23 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
 class CustomModelsParityTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun `openrouter input modalities match shared fixture`() {
+        fixture().getValue("openrouter_import_types").jsonArray.forEach { case ->
+            val entry = case.jsonObject
+            val model = JSONObject(entry.getValue("model").toString())
+            val expected = PresetModelType.valueOf(entry.getValue("expected").jsonPrimitive.content)
+            assertEquals(expected, inferOpenRouterModelType(model))
+        }
+    }
 
     @Test
     fun `editable providers match windows custom models dialog order`() {

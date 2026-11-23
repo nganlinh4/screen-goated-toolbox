@@ -3,7 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider
 import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -146,17 +145,6 @@ internal class AndroidAppProvider(
             "Window queries require the Accessibility surface provider.",
         )
         else -> AndroidProviderResult.Failure("unsupported_query", "Unknown system-query domain.")
-    }
-
-    fun writeClipboard(text: String): AndroidProviderResult {
-        val clipboard = context.getSystemService(ClipboardManager::class.java)
-            ?: return AndroidProviderResult.Failure("capability_unavailable", "Clipboard service is unavailable.")
-        clipboard.setPrimaryClip(ClipData.newPlainText("SGT Phone Control", text))
-        return AndroidProviderResult.Success(
-            buildJsonObject { put("characters", text.length) },
-            effectMayHaveOccurred = true,
-            effectVerified = true,
-        )
     }
 
     private fun launchIntent(intent: Intent, packageName: String): AndroidProviderResult = runCatching {
@@ -305,5 +293,7 @@ internal sealed interface AndroidProviderResult {
         val retryable: Boolean = false,
         val requiredUserStep: String? = null,
         val data: JsonObject = JsonObject(emptyMap()),
+        val effect: dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty? = null,
+        val providerState: dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState? = null,
     ) : AndroidProviderResult
 }

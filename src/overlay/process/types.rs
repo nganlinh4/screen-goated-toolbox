@@ -1,14 +1,16 @@
 use crate::overlay::result::layout::calculate_next_window_rect;
-use std::collections::HashMap;
+use crate::overlay::utils::bounded_cache::BoundedCache;
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Per-chain window position tracking - ensures snake pattern only applies within the same chain
-// Key: chain_id (UUID string), Value: last window RECT for that chain
-static CHAIN_WINDOW_POSITIONS: LazyLock<Mutex<HashMap<String, RECT>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+// Key: chain_id, Value: last window RECT for that chain. Only recent chains can
+// still open windows, so older ones are evicted instead of growing forever.
+const MAX_TRACKED_CHAINS: usize = 64;
+static CHAIN_WINDOW_POSITIONS: LazyLock<Mutex<BoundedCache<String, RECT>>> =
+    LazyLock::new(|| Mutex::new(BoundedCache::new(MAX_TRACKED_CHAINS)));
 
 /// Get the corrected rect using saved preset geometry (if available).
 /// For non-image presets, uses the saved window_geometry from the preset.
@@ -51,7 +53,9 @@ pub fn generate_chain_id() -> String {
 /// This is mutex-protected so parallel branches within the SAME chain get sequential positions
 /// Different chains (different chain_id) are completely independent
 pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) -> RECT {
-    let mut positions = CHAIN_WINDOW_POSITIONS.lock().unwrap();
+    let mut positions = CHAIN_WINDOW_POSITIONS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
 
     let monitor_rect = unsafe {
         let h_monitor = MonitorFromRect(&initial_rect, MONITOR_DEFAULTTONEAREST);
@@ -71,7 +75,7 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
         }
     };
 
-    let next_rect = match positions.get(chain_id) {
+    let next_rect = match positions.get(&chain_id.to_string()) {
         None => {
             // First window in this chain: use initial rect
             initial_rect
@@ -87,4 +91,33 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
     positions.insert(chain_id.to_string(), next_rect);
 
     next_rect
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CHAIN_WINDOW_POSITIONS, MAX_TRACKED_CHAINS, generate_chain_id,
+        get_next_window_position_for_chain,
+    };
+    use windows::Win32::Foundation::RECT;
+
+    #[test]
+    fn chain_positions_stay_bounded_over_many_chains() {
+        let rect = RECT {
+            left: 10,
+            top: 10,
+            right: 210,
+            bottom: 110,
+        };
+        let mut latest = None;
+        for _ in 0..MAX_TRACKED_CHAINS * 3 {
+            let chain = generate_chain_id();
+            get_next_window_position_for_chain(&chain, rect);
+            latest = Some(chain);
+        }
+        let latest = latest.unwrap();
+        let positions = CHAIN_WINDOW_POSITIONS.lock().unwrap();
+        assert!(positions.len() <= MAX_TRACKED_CHAINS);
+        assert!(positions.get(&latest).is_some());
+    }
 }

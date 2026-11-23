@@ -183,8 +183,9 @@ fn effects_json(effects: &[LiveLifecycleEffect]) -> Value {
 fn lifecycle_policy(value: &Value) -> LiveLifecyclePolicy {
     let kind = match value["kind"].as_str().unwrap() {
         "finiteRequest" => LiveSessionKind::FiniteRequest,
-        "continuousStream" => LiveSessionKind::ContinuousStream,
-        "agentSession" => LiveSessionKind::AgentSession,
+        // Windows runs no agent sessions; the shared profile differs from a
+        // continuous stream only in the policy fields read below.
+        "continuousStream" | "agentSession" => LiveSessionKind::ContinuousStream,
         other => panic!("unknown session kind {other}"),
     };
     let signals = string_array(value.get("finiteCompletionSignals"));

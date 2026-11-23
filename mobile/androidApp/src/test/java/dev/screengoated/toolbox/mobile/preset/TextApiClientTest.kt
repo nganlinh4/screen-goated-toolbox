@@ -214,16 +214,16 @@ class TextApiClientTest {
     }
 
     @Test
-    fun openRouterGemmaUsesNestedReasoningPolicy() {
+    fun openRouterLingUsesNestedReasoningPolicy() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
-                modelId = "openrouter-gemma-4-26b-a4b-text",
+                modelId = "openrouter-ling-3-2-flash-text",
                 prompt = "Translate.",
                 inputText = "Hello",
             ),
         ).jsonObject
         assertEquals(
-            "google/gemma-4-26b-a4b-it:free",
+            "inclusionai/ling-3.2-flash:free",
             payload.getValue("model").jsonPrimitive.content,
         )
         assertEquals(
@@ -261,7 +261,7 @@ class TextApiClientTest {
     }
 
     @Test
-    fun geminiRequestRespectsStreamingToggle() {
+    fun geminiRequestSelectsStreamingByEndpointNotBody() {
         val payload = json.parseToJsonElement(
             client.debugBuildRequestBody(
                 modelId = "google-gemini-3-flash-text",
@@ -270,7 +270,33 @@ class TextApiClientTest {
                 streamingEnabled = false,
             ),
         ).jsonObject
-        assertFalse(payload.getValue("stream").jsonPrimitive.boolean)
+        // The production Gemini body has no "stream" field; the endpoint decides.
+        assertFalse(payload.containsKey("stream"))
+        assertTrue(geminiTextRequestUrl("m", streamingEnabled = false).endsWith("/m:generateContent"))
+        assertTrue(
+            geminiTextRequestUrl("m", streamingEnabled = true)
+                .endsWith("/m:streamGenerateContent?alt=sse"),
+        )
+    }
+
+    @Test
+    fun debugRequestBodyIsTheProductionPayload() {
+        val model = client.resolveModel("google-gemini-3-flash-text")
+        assertEquals(
+            json.parseToJsonElement(
+                buildGeminiPayload(model, "Summarize this.", "Hello", searchEnabled = false).toString(),
+            ),
+            json.parseToJsonElement(client.debugBuildRequestBody(model.id, "Summarize this.", "Hello")),
+        )
+        val openAi = client.resolveModel("groq-gpt-oss-120b-text")
+        assertEquals(
+            json.parseToJsonElement(
+                openAiPayload(openAi.provider, openAi.fullName, "Answer.", "Q", stream = false).toString(),
+            ),
+            json.parseToJsonElement(
+                client.debugBuildRequestBody(openAi.id, "Answer.", "Q", streamingEnabled = false),
+            ),
+        )
     }
 
     private fun fixtureCases(): List<FixtureCase> {

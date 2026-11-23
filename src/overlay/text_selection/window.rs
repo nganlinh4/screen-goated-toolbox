@@ -104,9 +104,10 @@ pub fn internal_create_tag_thread() {
                 }
 
                 // KEY HELD SYNC (POLLING)
-                if TRIGGER_VK_CODE != 0 {
+                let trigger = TRIGGER_VK_CODE.load(Ordering::SeqCst);
+                if trigger != 0 {
                     let is_physically_down =
-                        (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+                        (GetAsyncKeyState(trigger as i32) as u16 & 0x8000) != 0;
                     if !is_physically_down && IS_HOTKEY_HELD.load(Ordering::SeqCst) {
                         IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
                     }

@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef } from 'react';
 import type { SubtitleSegment } from '@/types/video';
-import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
-import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
+import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
+import { withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
 import { updateSubtitleTimingAcrossTracks, updateSubtitleTimingsAcrossTracks } from '@/lib/subtitleTrackMutations';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
 import { clampSegmentEdge, computeGroupDragDelta, snapshotSegmentBounds, type DragOriginalBounds } from './trackDragUtils';
 import { useVisibilitySegmentDrag } from './useVisibilitySegmentDrag';
+import { VISIBILITY_LANES } from './timelineLaneEdits';
 import type { UseTrackSegmentDragOptions } from './useTrackSegmentDragTypes';
 
 export function useTrackSegmentDrag({
@@ -52,22 +53,15 @@ export function useTrackSegmentDrag({
     commitBatch,
     dragStartGuard: (seg) => !!seg && (seg.keystrokeMode ?? 'off') !== 'off',
     snapshotOriginals: (seg) =>
-      clampVisibilitySegmentsToDuration(
-        getKeystrokeVisibilitySegmentsForMode(seg as NonNullable<typeof seg>),
-        duration,
-      ).map((s) => ({ ...s })),
+      VISIBILITY_LANES.keystroke.read(seg as NonNullable<typeof seg>, duration).map((s) => ({ ...s })),
     onDragStart: (id) => {
       setEditingKeystrokeId?.(id);
     },
-    writeDuringDrag: (seg, modified) =>
-      withKeystrokeVisibilitySegmentsForMode(
-        seg,
-        clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
-      ),
+    writeDuringDrag: (seg, modified) => VISIBILITY_LANES.keystroke.write(seg, modified, duration),
     getSegmentsForSplit: (seg) =>
       !seg || (seg.keystrokeMode ?? 'off') === 'off'
         ? null
-        : clampVisibilitySegmentsToDuration(getKeystrokeVisibilitySegmentsForMode(seg), duration),
+        : VISIBILITY_LANES.keystroke.read(seg, duration),
     setSegmentsAfterSplit: (seg, nextSegs) =>
       withKeystrokeVisibilitySegmentsForMode(
         seg,
@@ -87,19 +81,14 @@ export function useTrackSegmentDrag({
     commitBatch,
     snapshotOriginals: (seg) =>
       seg?.cursorVisibilitySegments
-        ? clampVisibilitySegmentsToDuration(seg.cursorVisibilitySegments, duration).map((s) => ({ ...s }))
+        ? VISIBILITY_LANES.pointer.read(seg, duration).map((s) => ({ ...s }))
         : null,
     onDragStart: () => {
       setEditingKeystrokeId?.(null);
     },
-    writeDuringDrag: (seg, modified) => ({
-      ...seg,
-      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
-    }),
+    writeDuringDrag: (seg, modified) => VISIBILITY_LANES.pointer.write(seg, modified, duration),
     getSegmentsForSplit: (seg) =>
-      seg?.cursorVisibilitySegments
-        ? clampVisibilitySegmentsToDuration(seg.cursorVisibilitySegments, duration)
-        : null,
+      seg?.cursorVisibilitySegments ? VISIBILITY_LANES.pointer.read(seg, duration) : null,
     setSegmentsAfterSplit: (seg, nextSegs) => ({
       ...seg,
       cursorVisibilitySegments: nextSegs,
@@ -118,19 +107,14 @@ export function useTrackSegmentDrag({
     commitBatch,
     snapshotOriginals: (seg) =>
       seg?.webcamVisibilitySegments
-        ? clampVisibilitySegmentsToDuration(seg.webcamVisibilitySegments, duration).map((s) => ({ ...s }))
+        ? VISIBILITY_LANES.webcam.read(seg, duration).map((s) => ({ ...s }))
         : null,
     onDragStart: () => {
       setEditingKeystrokeId?.(null);
     },
-    writeDuringDrag: (seg, modified) => ({
-      ...seg,
-      webcamVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
-    }),
+    writeDuringDrag: (seg, modified) => VISIBILITY_LANES.webcam.write(seg, modified, duration),
     getSegmentsForSplit: (seg) =>
-      seg?.webcamVisibilitySegments
-        ? clampVisibilitySegmentsToDuration(seg.webcamVisibilitySegments, duration)
-        : null,
+      seg?.webcamVisibilitySegments ? VISIBILITY_LANES.webcam.read(seg, duration) : null,
     setSegmentsAfterSplit: (seg, nextSegs) => ({
       ...seg,
       webcamVisibilitySegments: nextSegs,
@@ -330,8 +314,10 @@ export function useTrackSegmentDrag({
     }
   }, [isDraggingSubtitleStart, isDraggingSubtitleEnd, setEditingSubtitleId, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
 
-  const resetTrackDragState = useCallback(() => {
+  /** Applies a subtitle drag frame still waiting for its animation frame. Call before commitBatch. */
+  const flushPendingSubtitleDrag = useCallback(() => {
     const pendingClientX = pendingSubtitleDragClientXRef.current;
+    pendingSubtitleDragClientXRef.current = null;
     if (subtitleDragFrameRef.current !== null) {
       cancelAnimationFrame(subtitleDragFrameRef.current);
       subtitleDragFrameRef.current = null;
@@ -339,7 +325,10 @@ export function useTrackSegmentDrag({
     if (pendingClientX !== null) {
       applySubtitleDrag(pendingClientX);
     }
-    pendingSubtitleDragClientXRef.current = null;
+  }, [applySubtitleDrag]);
+
+  const resetTrackDragState = useCallback(() => {
+    flushPendingSubtitleDrag();
     setIsDraggingTextStart(false);
     setIsDraggingTextEnd(false);
     setIsDraggingTextBody(false);
@@ -355,7 +344,7 @@ export function useTrackSegmentDrag({
     subtitleDragIdsRef.current = [];
     textDragOriginalsRef.current = null;
     subtitleDragOriginalsRef.current = null;
-  }, [applySubtitleDrag, keystrokeDrag.reset, pointerDrag.reset, webcamDrag.reset]);
+  }, [flushPendingSubtitleDrag, keystrokeDrag.reset, pointerDrag.reset, webcamDrag.reset]);
 
   return {
     // State
@@ -395,6 +384,7 @@ export function useTrackSegmentDrag({
     handleWebcamDragStart: webcamDrag.handleDragStart,
     handleWebcamDrag: webcamDrag.handleDrag,
     handleWebcamClick: webcamDrag.handleClick,
+    flushPendingSubtitleDrag,
     resetTrackDragState,
   };
 }

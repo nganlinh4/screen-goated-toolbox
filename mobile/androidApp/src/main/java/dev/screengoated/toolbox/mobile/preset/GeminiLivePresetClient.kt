@@ -31,7 +31,6 @@ import java.util.concurrent.LinkedBlockingDeque
 
 private const val STILL_FRAME_STREAM_COUNT = 4
 private const val STILL_FRAME_INTERVAL_MS = 500L
-private const val LIVE_IDLE_COMPLETION_MS = 1_200L
 
 internal sealed interface GeminiLivePresetEvent {
     data class Chunk(val text: String) : GeminiLivePresetEvent
@@ -121,14 +120,15 @@ private suspend fun OkHttpClient.streamGeminiLive(
         },
     )
 
-    val result = try {
+    withOwnedGeminiLivePresetSocket(socket) {
         withTimeout(20_000) { setupReady.await() }
         image?.let { (bytes, mimeType) ->
-            for (payload in buildGeminiLiveImagePayloads(bytes, mimeType)) {
+            val payloads = buildGeminiLiveImagePayloads(bytes, mimeType)
+            for ((index, payload) in payloads.withIndex()) {
                 if (!socket.send(payload)) {
                     throw IOException("Gemini Live image payload was rejected.")
                 }
-                delay(STILL_FRAME_INTERVAL_MS)
+                if (index + 1 < payloads.size) delay(STILL_FRAME_INTERVAL_MS)
             }
         }
         if (!socket.send(buildGeminiLiveTextPayload(inputText))) {
@@ -136,48 +136,40 @@ private suspend fun OkHttpClient.streamGeminiLive(
         }
 
         val fullContent = StringBuilder()
-        var contentStarted = false
         val responseStarted = System.nanoTime()
+        fun nowMillis() = (System.nanoTime() - responseStarted) / 1_000_000L
+        val progress = GeminiLivePresetResponseState(GeminiLivePresetResponsePolicy.finite(), requireInteractionIdle, 0)
         while (true) {
-            val remaining = 90_000L - (System.nanoTime() - responseStarted) / 1_000_000L
-            if (requireInteractionIdle && remaining <= 0) {
-                throw IOException("Response did not reach interaction idle before deadline.")
-            }
-            val event = awaitGeminiLivePresetEvent(events,
-                if (requireInteractionIdle && contentStarted) remaining
-                else if (contentStarted) LIVE_IDLE_COMPLETION_MS else 20_000L,
-            )
-            if (event == null) {
-                if (contentStarted && !requireInteractionIdle) {
-                    break
-                }
-                throw IOException("Gemini Live websocket timed out before producing output.")
-            }
-
+            val event = awaitGeminiLivePresetEvent(events, progress.remainingMillis(nowMillis()))
+            coroutineContext.ensureActive()
+            var complete = false
+            var closed = false
             when (event) {
                 is GeminiLivePresetEvent.Chunk -> {
-                    coroutineContext.ensureActive()
-                    if (event.text.isEmpty()) continue
-                    contentStarted = true
-                    fullContent.append(event.text)
-                    onChunk(event.text)
-                }
-
-                is GeminiLivePresetEvent.Error -> throw IOException(event.message)
-                GeminiLivePresetEvent.Complete -> break
-                GeminiLivePresetEvent.Closed -> {
-                    if (fullContent.isNotEmpty() && !requireInteractionIdle) {
-                        break
+                    if (event.text.isNotEmpty()) {
+                        progress.observeText(nowMillis(), event.text)
+                        fullContent.append(event.text)
+                        coroutineContext.ensureActive()
+                        onChunk(event.text)
                     }
-                    throw IOException("Gemini Live websocket closed before producing output.")
                 }
+                is GeminiLivePresetEvent.Error -> throw IOException(event.message)
+                GeminiLivePresetEvent.Complete -> complete = true
+                GeminiLivePresetEvent.Closed -> closed = true
+                null -> Unit
+            }
+            when (progress.outcome(nowMillis(), complete, closed)) {
+                GeminiLivePresetWaitOutcome.PENDING -> Unit
+                GeminiLivePresetWaitOutcome.COMPLETE -> break
+                GeminiLivePresetWaitOutcome.FIRST_OUTPUT_TIMEOUT -> throw IOException("Gemini Live websocket timed out before producing output.")
+                GeminiLivePresetWaitOutcome.HARD_TIMEOUT -> throw IOException("Response did not reach interaction idle before deadline.")
+                GeminiLivePresetWaitOutcome.CLOSED -> throw IOException("Gemini Live websocket closed before response completion.")
+                GeminiLivePresetWaitOutcome.FAILED -> throw IOException("Finite response lifecycle failed.")
             }
         }
+        if (fullContent.isBlank()) throw IOException("Gemini Live completed without nonblank output.")
         fullContent.toString()
-    } finally {
-        socket.close(1000, "SGT preset request finished")
     }
-    result
 }
 
 private fun buildGeminiLivePresetSetup(
@@ -231,10 +223,9 @@ private fun buildGeminiLiveStillFrame(
 ): Pair<ByteArray, String> {
     val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
         ?: return imageBytes to mimeType
-    val scaled = bitmap.scale(
-        (bitmap.width / 4).coerceAtLeast(1),
-        (bitmap.height / 4).coerceAtLeast(1),
-    )
+    val (width, height) = geminiLiveStillFrameSize(bitmap.width, bitmap.height)
+    val scaled = if (width == bitmap.width && height == bitmap.height) bitmap
+        else bitmap.scale(width, height)
     val jpegBytes = PreparedImageBytes.encodeJpeg(scaled)
     if (scaled !== bitmap) {
         scaled.recycle()

@@ -1,85 +1,15 @@
 // --- TEXT INPUT MESSAGES ---
 // Window procedure and message handling.
 
+use super::editor_text::apply_pending_text;
 use super::passive;
 use super::state::*;
 use super::styles::get_editor_css;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::*;
 use wry::Rect;
-
-/// Internal function to apply pending text (called on the window's thread)
-/// Inserts text at the current cursor position instead of replacing all content
-pub fn apply_pending_text() {
-    let text = PENDING_TEXT.lock().unwrap().take();
-    if let Some(text) = text {
-        // Check if this is a history replacement (replace all) or insertion
-        let (is_replace_all, actual_text) =
-            if let Some(stripped) = text.strip_prefix("__REPLACE_ALL__") {
-                (true, stripped.to_string())
-            } else {
-                (false, text)
-            };
-
-        let escaped = actual_text
-            .replace('\\', "\\\\")
-            .replace('`', "\\`")
-            .replace("${", "\\${")
-            .replace('\n', "\\n")
-            .replace('\r', "");
-
-        TEXT_INPUT_WEBVIEW.with(|webview| {
-            if let Some(wv) = webview.borrow().as_ref() {
-                let script = if is_replace_all {
-                    // Replace all text (for history navigation)
-                    format!(
-                        r#"(function() {{
-                            const editor = document.getElementById('editor');
-                            const text = `{}`;
-                            editor.value = text;
-                            editor.selectionStart = editor.selectionEnd = text.length;
-                            if (!{}) editor.focus();
-                        }})();"#,
-                        escaped,
-                        PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
-                    )
-                } else {
-                    // Insert at cursor position (for paste/transcription)
-                    format!(
-                        r#"(function() {{
-                            const editor = document.getElementById('editor');
-                            const start = editor.selectionStart;
-                            const end = editor.selectionEnd;
-                            const text = `{}`;
-                            editor.value = editor.value.substring(0, start) + text + editor.value.substring(end);
-                            editor.selectionStart = editor.selectionEnd = start + text.length;
-                            if (!{}) editor.focus();
-                        }})();"#,
-                        escaped,
-                        PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst)
-                    )
-                };
-                let _ = wv.evaluate_script(&script);
-            }
-        });
-        println!("[Badge] Starting WebView initialization...");
-    }
-}
-
-/// Clear the webview editor content and refocus (for continuous input mode)
-pub fn clear_editor_text() {
-    TEXT_INPUT_WEBVIEW.with(|webview| {
-        if let Some(wv) = webview.borrow().as_ref() {
-            let script = r#"document.getElementById('editor').value = ''; document.getElementById('editor').focus();"#;
-            let _ = wv.evaluate_script(script);
-        }
-    });
-}
 
 unsafe fn set_noactivate_mode(hwnd: HWND, enabled: bool) {
     let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 };
@@ -102,12 +32,51 @@ pub unsafe extern "system" fn input_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
-        // State variables for this window instance
-        static mut FADE_ALPHA: i32 = 0;
-        // IS_DRAGGING is no longer needed with native drag
-
         match msg {
             WM_APP_SHOW => {
+                let session = if wparam.0 == 0 {
+                    let Some(show) = PENDING_SHOW.lock().unwrap().take() else {
+                        return LRESULT(0);
+                    };
+                    if show.passive && INPUT_HOOK.lock().unwrap().0.is_invalid() {
+                        let text = crate::gui::locale::LocaleText::get(&show.language).shell;
+                        crate::overlay::auto_copy_badge::show_error_notification(
+                            text.text_input_unavailable,
+                        );
+                        return LRESULT(0);
+                    }
+                    super::focus::cancel(hwnd);
+                    EDITOR_SESSIONS.begin();
+                    let session = EDITOR_SESSIONS.current().unwrap();
+                    EDITOR_READY.store(0, std::sync::atomic::Ordering::SeqCst);
+                    CALLBACK_OWNER.store(session, std::sync::atomic::Ordering::SeqCst);
+                    *CFG_TITLE.lock().unwrap() = show.title;
+                    *CFG_LANG.lock().unwrap() = show.language;
+                    *CFG_CANCEL.lock().unwrap() = show.cancel_hotkey;
+                    *CFG_CONTINUOUS.lock().unwrap() = show.continuous;
+                    *CFG_CALLBACK.lock().unwrap() = Some(show.callback);
+                    PASSIVE_CAPTURE_ENABLED
+                        .store(show.passive, std::sync::atomic::Ordering::SeqCst);
+                    passive::reset_state();
+                    *SUBMITTED_TEXT.lock().unwrap() = None;
+                    *SHOULD_CLOSE.lock().unwrap() = false;
+                    *SHOULD_CLEAR_ONLY.lock().unwrap() = false;
+                    HIDE_PENDING.with(|pending| pending.set(false));
+                    let _ = KillTimer(Some(hwnd), 4);
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    if EDITOR_SESSIONS.is_current(session) {
+                        super::activation::start(hwnd, session);
+                    }
+                    return LRESULT(0);
+                } else {
+                    let session = lparam.0 as u64;
+                    if !EDITOR_SESSIONS.is_current(session)
+                        || EDITOR_READY.load(std::sync::atomic::Ordering::SeqCst) != session
+                    {
+                        return LRESULT(0);
+                    }
+                    session
+                };
                 // Restore History Navigation State
                 crate::overlay::input_history::reset_history_navigation();
 
@@ -115,51 +84,58 @@ pub unsafe extern "system" fn input_wnd_proc(
 
                 // 1. Position Logic - Center on the monitor where the cursor is
                 if wparam.0 != 1 {
-                    let mut cursor = POINT::default();
-                    let _ = GetCursorPos(&mut cursor);
-                    let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-                    let mut mi = MONITORINFO {
-                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                        ..Default::default()
-                    };
-                    let _ = GetMonitorInfoW(hmonitor, &mut mi);
-
-                    let mut rect = RECT::default();
-                    let _ = GetWindowRect(hwnd, &mut rect);
-                    let w = rect.right - rect.left;
-                    let h = rect.bottom - rect.top;
-
-                    let monitor_w = mi.rcWork.right - mi.rcWork.left;
-                    let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
-
-                    let x = mi.rcWork.left + (monitor_w - w) / 2;
-                    let y = mi.rcWork.top + (monitor_h - h) / 2;
+                    // Sized for the cursor's monitor, not the warm-up monitor:
+                    // with mixed scales a fixed size would be half or double.
+                    let (cursor, area) = crate::overlay::display_placement::cursor_work_area();
+                    let (w, h) = super::window::editor_size(
+                        area,
+                        crate::overlay::display_placement::scale_at_point(cursor),
+                    );
+                    let target = area.centered(w, h);
 
                     let passive_capture =
                         PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst);
                     set_noactivate_mode(hwnd, passive_capture);
                     let flags = if passive_capture {
-                        SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE
+                        SWP_SHOWWINDOW | SWP_NOACTIVATE
                     } else {
-                        SWP_NOSIZE | SWP_SHOWWINDOW
+                        SWP_SHOWWINDOW
                     };
-                    let _ = SetWindowPos(hwnd, Some(HWND_TOP), x, y, 0, 0, flags);
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND_TOP),
+                        target.left,
+                        target.top,
+                        target.right - target.left,
+                        target.bottom - target.top,
+                        flags,
+                    );
+                    if !EDITOR_SESSIONS.is_current(session) {
+                        return LRESULT(0);
+                    }
                 }
 
                 let passive_capture =
                     PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst);
 
                 // 2. Focus / Activation
-                if passive_capture {
-                    passive::reset_state();
-                } else {
+                if !passive_capture {
                     let _ = SetForegroundWindow(hwnd);
+                    if !EDITOR_SESSIONS.is_current(session) {
+                        return LRESULT(0);
+                    }
                     let _ = SetFocus(Some(hwnd));
+                    if !EDITOR_SESSIONS.is_current(session) {
+                        return LRESULT(0);
+                    }
                     TEXT_INPUT_WEBVIEW.with(|webview| {
                         if let Some(wv) = webview.borrow().as_ref() {
                             let _ = wv.focus();
                         }
                     });
+                    if !EDITOR_SESSIONS.is_current(session) {
+                        return LRESULT(0);
+                    }
                 }
 
                 // 3. Dynamic Update (Theme + Locales)
@@ -203,7 +179,9 @@ pub unsafe extern "system" fn input_wnd_proc(
                     format!("{}  |  {}  |  {} {}", submit, newline, cancel_hint, cancel);
 
                 let script = format!(
-                    r#"
+                    r#"(() => {{
+                const sgtSession = '{}';
+                if (window.__sgtTextSession !== sgtSession) return;
                 if (document.getElementById('theme-style')) {{
                    document.getElementById('theme-style').textContent = {};
                 }}
@@ -217,40 +195,41 @@ pub unsafe extern "system" fn input_wnd_proc(
                    document.getElementById('editor').placeholder = {};
                 }}
                 document.documentElement.setAttribute('data-theme', '{}');
-                const passiveCapture = {};
-                setTimeout(() => {{
-                    const el = document.getElementById('editor');
-                    if (!el) return;
-                    el.value = '';
-                    el.selectionStart = el.selectionEnd = el.value.length;
-                    if (!passiveCapture) {{
-                        el.focus();
-                        el.select();
-                    }}
-                }}, 10);
+                }})();
                 "#,
+                    session,
                     serde_json::json!(css),
                     serde_json::json!(title),
                     serde_json::json!(footer_html),
                     serde_json::json!(placeholder),
-                    if is_dark { "dark" } else { "light" },
-                    passive_capture
+                    if is_dark { "dark" } else { "light" }
                 );
 
                 TEXT_INPUT_WEBVIEW.with(|webview| {
                     if let Some(wv) = webview.borrow().as_ref() {
                         let _ = wv.evaluate_script(&script);
                         // NOW trigger animation, after text has been updated
-                        let _ = wv.evaluate_script("playEntry();");
+                        if EDITOR_SESSIONS.is_current(session) {
+                            let _ = wv.evaluate_script("playEntry();");
+                        }
                     }
                 });
+                if !EDITOR_SESSIONS.is_current(session) {
+                    return LRESULT(0);
+                }
 
                 if passive_capture {
                     passive::sync_editor();
                 }
-
-                // Reset state
-                FADE_ALPHA = 0;
+                if wparam.0 == 2 {
+                    if !passive_capture {
+                        super::refocus_editor_for_session(session);
+                    }
+                    super::wake_editor_queue();
+                }
+                if !EDITOR_SESSIONS.is_current(session) {
+                    return LRESULT(0);
+                }
 
                 // IPC check timer
                 SetTimer(Some(hwnd), 2, 50, None);
@@ -258,9 +237,46 @@ pub unsafe extern "system" fn input_wnd_proc(
                 LRESULT(0)
             }
 
+            WM_APP_ACTIVATION_ACK => {
+                let session = wparam.0 as u64;
+                if super::activation::ack(hwnd, session, lparam.0 == 1) {
+                    return input_wnd_proc(hwnd, WM_APP_SHOW, WPARAM(2), LPARAM(session as isize));
+                }
+                LRESULT(0)
+            }
+
+            WM_APP_PRIOR_QUIET => {
+                let session = wparam.0 as u64;
+                if super::activation::prior_quiet(hwnd, session) {
+                    return input_wnd_proc(hwnd, WM_APP_SHOW, WPARAM(2), LPARAM(session as isize));
+                }
+                LRESULT(0)
+            }
+
             WM_APP_SET_TEXT => {
                 // Apply pending text from cross-thread call
-                apply_pending_text();
+                if EDITOR_SESSIONS.current()
+                    == Some(EDITOR_READY.load(std::sync::atomic::Ordering::SeqCst))
+                {
+                    apply_pending_text();
+                }
+                LRESULT(0)
+            }
+
+            WM_APP_REVOKE_TEXT => {
+                super::editor_text::revoke_operation(wparam.0 as u64);
+                LRESULT(0)
+            }
+
+            WM_APP_INPUT_LIMIT => {
+                if EDITOR_SESSIONS.is_current(wparam.0 as u64) {
+                    super::notify_text_delivery(false);
+                }
+                LRESULT(0)
+            }
+
+            WM_APP_PASSIVE_KEY => {
+                passive::handle_deferred_key(wparam, lparam);
                 LRESULT(0)
             }
 
@@ -289,6 +305,12 @@ pub unsafe extern "system" fn input_wnd_proc(
             }
 
             WM_APP_HIDE => {
+                super::activation::retire(hwnd);
+                if EDITOR_SESSIONS.current().is_some() {
+                    return LRESULT(0);
+                }
+                let _ = KillTimer(Some(hwnd), 2);
+                let _ = KillTimer(Some(hwnd), 3);
                 PASSIVE_CAPTURE_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
                 // Trigger Fade Out Script & Delay Hide
                 TEXT_INPUT_WEBVIEW.with(|webview| {
@@ -296,22 +318,47 @@ pub unsafe extern "system" fn input_wnd_proc(
                         let _ = wv.evaluate_script("playExit();");
                     }
                 });
+                if EDITOR_SESSIONS.current().is_some() {
+                    return LRESULT(0);
+                }
                 // 150ms delay for animation (Timer ID 4)
+                HIDE_PENDING.with(|pending| pending.set(true));
                 SetTimer(Some(hwnd), 4, 150, None);
                 LRESULT(0)
             }
 
             WM_CLOSE => {
+                super::activation::retire(hwnd);
+                if EDITOR_SESSIONS.current().is_some() {
+                    return LRESULT(0);
+                }
+                HIDE_PENDING.with(|pending| pending.set(false));
+                let _ = KillTimer(Some(hwnd), 4);
                 PASSIVE_CAPTURE_ENABLED.store(false, std::sync::atomic::Ordering::SeqCst);
                 let _ = ShowWindow(hwnd, SW_HIDE);
-                let _ = KillTimer(Some(hwnd), 1);
                 let _ = KillTimer(Some(hwnd), 2);
                 let _ = KillTimer(Some(hwnd), 3);
                 LRESULT(0)
             }
 
             WM_DESTROY => {
+                super::activation::stop(hwnd);
+                super::focus::cancel(hwnd);
+                EDITOR_READY.store(0, std::sync::atomic::Ordering::SeqCst);
+                EDITOR_SESSIONS.end();
+                let nonce = DOCUMENT_NONCE.lock().unwrap().take();
+                if let Some(nonce) = nonce {
+                    super::delivery::abandon_document(&nonce);
+                }
+                CALLBACK_OWNER.store(0, std::sync::atomic::Ordering::SeqCst);
                 PostQuitMessage(0);
+                LRESULT(0)
+            }
+
+            WM_APP_CLOSE_SESSION => {
+                if super::is_callback_owner(wparam.0 as u64) {
+                    return input_wnd_proc(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
                 LRESULT(0)
             }
 
@@ -329,62 +376,100 @@ pub unsafe extern "system" fn input_wnd_proc(
             }
 
             WM_TIMER => {
-                if wparam.0 == 1 {
-                    // Fade Timer Logic removed
-                    let _ = KillTimer(Some(hwnd), 1);
+                if wparam.0 == 7 {
+                    super::activation::tick(hwnd);
                 }
 
-                if wparam.0 == 2 {
+                if wparam.0 == 2 && !SUBMISSION_IN_PROGRESS.with(|active| active.get()) {
                     // IPC messages
                     let should_close = *SHOULD_CLOSE.lock().unwrap();
                     if should_close {
                         *SHOULD_CLOSE.lock().unwrap() = false;
                         let submitted = SUBMITTED_TEXT.lock().unwrap().take();
-                        if let Some(text) = submitted {
+                        if let Some(SubmittedText {
+                            text,
+                            revision,
+                            passive,
+                            snapshot,
+                        }) = submitted
+                        {
                             let continuous = *CFG_CONTINUOUS.lock().unwrap();
+                            let Some(session) = EDITOR_SESSIONS.current() else {
+                                return LRESULT(0);
+                            };
+                            // Callbacks may run a nested message loop. Do not dispatch
+                            // another submission until this one has returned.
+                            let _ = KillTimer(Some(hwnd), 2);
                             if continuous {
-                                let cb_lock = CFG_CALLBACK.lock().unwrap();
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(text, hwnd);
+                                dispatch_submit(&CFG_CALLBACK, text, hwnd, session);
+                                if EDITOR_SESSIONS.is_current(session) {
+                                    super::queue_editor_action(
+                                        session,
+                                        String::new(),
+                                        EditorAction::Clear {
+                                            revision,
+                                            passive,
+                                            snapshot,
+                                        },
+                                        None,
+                                    );
+                                    super::refocus_editor_for_session(session);
+                                    if EDITOR_SESSIONS.is_current(session) {
+                                        SetTimer(Some(hwnd), 2, 50, None);
+                                    }
                                 }
-                                clear_editor_text();
-                                super::refocus_editor();
                             } else {
-                                let _ = ShowWindow(hwnd, SW_HIDE);
-                                let cb_lock = CFG_CALLBACK.lock().unwrap();
-                                if let Some(cb) = cb_lock.as_ref() {
-                                    cb(text, hwnd);
+                                super::focus::cancel(hwnd);
+                                EDITOR_READY.store(0, std::sync::atomic::Ordering::SeqCst);
+                                EDITOR_SESSIONS.end();
+                                super::activation::invalidate(session);
+                                if !super::is_callback_owner(session) {
+                                    return LRESULT(0);
                                 }
+                                HIDE_PENDING.with(|pending| pending.set(false));
+                                PASSIVE_CAPTURE_ENABLED
+                                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                                let _ = KillTimer(Some(hwnd), 3);
+                                let _ = KillTimer(Some(hwnd), 4);
+                                let _ = ShowWindow(hwnd, SW_HIDE);
+                                if !super::is_callback_owner(session) {
+                                    return LRESULT(0);
+                                }
+                                dispatch_submit(&CFG_CALLBACK, text, hwnd, session);
+                                let _ = CALLBACK_OWNER.compare_exchange(
+                                    session,
+                                    0,
+                                    std::sync::atomic::Ordering::SeqCst,
+                                    std::sync::atomic::Ordering::SeqCst,
+                                );
                             }
                         } else {
+                            super::activation::retire(hwnd);
+                            if EDITOR_SESSIONS.current().is_some() {
+                                return LRESULT(0);
+                            }
+                            HIDE_PENDING.with(|pending| pending.set(false));
+                            PASSIVE_CAPTURE_ENABLED
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            let _ = KillTimer(Some(hwnd), 1);
+                            let _ = KillTimer(Some(hwnd), 2);
+                            let _ = KillTimer(Some(hwnd), 3);
+                            let _ = KillTimer(Some(hwnd), 4);
                             let _ = ShowWindow(hwnd, SW_HIDE);
                         }
                     }
                 }
                 // Timer 3: focus logic (used by refocus_editor after preset wheel)
                 if wparam.0 == 3 {
-                    let _ = KillTimer(Some(hwnd), 3);
-                    if !PASSIVE_CAPTURE_ENABLED.load(std::sync::atomic::Ordering::SeqCst) {
-                        TEXT_INPUT_WEBVIEW.with(|webview| {
-                            if let Some(wv) = webview.borrow().as_ref() {
-                                let _ = wv.focus();
-                                let _ = wv
-                                    .evaluate_script("document.getElementById('editor').focus();");
-                            }
-                        });
-                    }
+                    super::focus::fire(hwnd);
                 }
                 // Timer 4: Hide window after fade-out
-                if wparam.0 == 4 {
+                if wparam.0 == 4 && HIDE_PENDING.with(|pending| pending.replace(false)) {
                     let _ = KillTimer(Some(hwnd), 4);
+                    EDITOR_SESSIONS.end();
                     let _ = ShowWindow(hwnd, SW_HIDE);
 
-                    // Signal closure if needed
-                    let mut should_close = SHOULD_CLOSE.lock().unwrap();
-                    if *should_close {
-                        *should_close = false;
-                        let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+                    *SHOULD_CLOSE.lock().unwrap() = false;
                 }
                 LRESULT(0)
             }
@@ -421,6 +506,11 @@ pub unsafe extern "system" fn input_wnd_proc(
 
             WM_LBUTTONUP => {
                 // No capture cleanup needed for native drag
+                LRESULT(0)
+            }
+
+            WM_DPICHANGED => {
+                crate::overlay::display_placement::apply_suggested_dpi_rect(hwnd, lparam);
                 LRESULT(0)
             }
 

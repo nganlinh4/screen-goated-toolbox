@@ -1,10 +1,8 @@
-import React, { type MutableRefObject, type RefObject } from "react";
+import React, { useEffect, type MutableRefObject, type RefObject } from "react";
+import { notifyPreviewMediaMounted } from "@/lib/previewMediaLifecycle";
 import { BackgroundConfig, type AudioGainPoint, type ImportedAudioSegment, type SpeedPoint } from "@/types/video";
-import {
-  Placeholder,
-  CanvasResizeOverlay,
-  SeekIndicator,
-} from "@/components/VideoPreview";
+import { Placeholder, SeekIndicator } from "@/components/VideoPreview";
+import { CanvasResizeOverlay } from "@/components/CanvasResizeOverlay";
 import { ImportedAudioPlayers } from "@/components/ImportedAudioPlayers";
 
 export interface KeystrokeEditFrame {
@@ -65,6 +63,8 @@ export interface PreviewCanvasProps {
   narrationTrackVolumePoints?: AudioGainPoint[];
   speedPoints?: SpeedPoint[];
   currentTime: number;
+  /** Clock project audio plays against (see usePreviewAudioClock); defaults to `currentTime`. */
+  audioClockTime?: number;
   isPlaying: boolean;
   audioResetKey?: number;
   liveNarrationProjectId?: string | null;
@@ -109,10 +109,14 @@ export function PreviewCanvas({
   narrationTrackVolumePoints,
   speedPoints,
   currentTime,
+  audioClockTime,
   isPlaying,
   audioResetKey,
   liveNarrationProjectId,
 }: PreviewCanvasProps) {
+  useEffect(() => {
+    notifyPreviewMediaMounted(videoRef.current, canvasRef.current);
+  }, [videoRef, canvasRef]);
   return (
     <div className="video-preview-container flex-1 min-h-0 overflow-hidden flex items-center justify-center">
       <div className="preview-inner relative w-full h-full flex justify-center items-center">
@@ -168,7 +172,8 @@ export function PreviewCanvas({
             audioTrackVolumePoints={audioTrackVolumePoints}
             narrationTrackVolumePoints={narrationTrackVolumePoints}
             speedPoints={speedPoints}
-            currentTime={currentTime}
+            currentTime={audioClockTime ?? currentTime}
+            speedCurveTime={currentTime}
             isPlaying={isPlaying}
             resetKey={audioResetKey}
             liveNarrationProjectId={liveNarrationProjectId}

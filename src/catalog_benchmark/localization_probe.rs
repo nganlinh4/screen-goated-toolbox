@@ -10,9 +10,7 @@ use super::report::{Attempt, Recorder};
 use super::setup::{Credentials, Pacer};
 use crate::api::{TranslateTextRequest, translate_text_streaming};
 use crate::model_config::{ModelConfig, ModelType};
-use crate::overlay::screen_translate::contract::{
-    DetectedTextRegion, NormalizedBounds, parse_response,
-};
+use crate::overlay::screen_translate::contract::{DetectedTextRegion, parse_response};
 use crate::overlay::screen_translate::request::{completed_response, prepare};
 
 mod review;
@@ -134,7 +132,15 @@ fn run_case(
             );
         }
     };
-    let candidates = reference_candidates(case, image.width(), image.height());
+    let candidates = match reference_candidates(case, image.width(), image.height()) {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            return (
+                failed_attempt(case, model, "fixture_error", error.to_string(), 0),
+                None,
+            );
+        }
+    };
     let prepared = match prepare(
         model,
         &case.target_language,
@@ -166,6 +172,8 @@ fn run_case(
             TranslateTextRequest {
                 max_output_tokens: Some(prepared.max_output_tokens),
                 search_enabled: false,
+                search_capability: None,
+                search_tool_enabled_by_default: None,
                 groq_api_key: Credentials::groq_key_for(&model.provider, provider_key),
                 gemini_api_key: provider_key,
                 text: prepared.text.clone(),
@@ -444,28 +452,29 @@ fn reference_candidates(
     case: &LocalizationCase,
     image_width: u32,
     image_height: u32,
-) -> Vec<DetectedTextRegion> {
-    fn scaled(value: u32, extent: u32) -> u16 {
-        ((u64::from(value) * 1000 + u64::from(extent) / 2) / u64::from(extent)).min(1000) as u16
-    }
+) -> Result<Vec<DetectedTextRegion>> {
     case.regions
         .iter()
         .enumerate()
         .map(|(index, region)| {
             let [x, y, width, height] = region.box_px;
-            DetectedTextRegion {
+            Ok(DetectedTextRegion {
                 id: u16::try_from(index + 1).expect("localization fixture cap fits u16"),
                 source_text: region.source_text.clone(),
                 source_alternatives: vec![region.source_text.clone()],
                 recognition: Default::default(),
-                bounds: NormalizedBounds {
-                    left: scaled(x, image_width),
-                    top: scaled(y, image_height),
-                    right: scaled(x.saturating_add(width), image_width),
-                    bottom: scaled(y.saturating_add(height), image_height),
-                },
+                bounds: crate::overlay::screen_translate::source_bounds::SourceBounds::from_pixels(
+                    crate::overlay::screen_translate::geometry::PixelRegion {
+                        x,
+                        y,
+                        width,
+                        height,
+                    },
+                    image_width,
+                    image_height,
+                )?,
                 appearance: None,
-            }
+            })
         })
         .collect()
 }
@@ -480,7 +489,7 @@ mod tests {
         for case in &manifest.localization_cases {
             let (width, height) =
                 image::image_dimensions(manifest.image_path(&case.image)).unwrap();
-            let candidates = reference_candidates(case, width, height);
+            let candidates = reference_candidates(case, width, height).unwrap();
             for model in crate::model_config::get_all_models()
                 .iter()
                 .filter(|model| model.model_type == ModelType::Text && model.provider == "groq")

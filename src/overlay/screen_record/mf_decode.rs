@@ -3,15 +3,11 @@
 
 mod thumbnails;
 
-use std::mem::ManuallyDrop;
-
 pub use self::thumbnails::{generate_thumbnails, generate_thumbnails_at_times};
 
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::*;
-use windows::Win32::System::Com::StructuredStorage::*;
-use windows::Win32::System::Variant::VT_I8;
 use windows::core::Interface;
 
 /// DXGI Device Manager shared between decoder and encoder.
@@ -45,26 +41,12 @@ pub struct MfDecoder {
     height: u32,
 }
 
-use std::sync::OnceLock;
-
-static MF_INIT: OnceLock<Result<(), String>> = OnceLock::new();
-
-/// Initialize Media Foundation runtime. Idempotent — safe to call multiple times.
-pub fn mf_startup() -> Result<(), String> {
-    MF_INIT
-        .get_or_init(|| unsafe {
-            MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("MFStartup failed: {e}"))
-        })
-        .clone()
-}
-
-/// Shutdown Media Foundation runtime.
-/// Intentionally no-op: calling MFShutdown() tears down the shared MF platform
-/// used by the WinRT capture pipeline, causing MF_E_SHUTDOWN (0xC00D3E85) on
-/// subsequent recordings. The OS reclaims all resources on process exit.
-pub fn mf_shutdown() -> Result<(), String> {
-    Ok(())
-}
+// MFShutdown is deliberately never called: it tears down the MF platform the
+// WinRT capture pipeline shares, failing later recordings with MF_E_SHUTDOWN.
+#[path = "mf_decode_min.rs"]
+mod shared;
+pub(super) use shared::make_i64_propvariant;
+pub use shared::mf_startup;
 
 impl DxgiDeviceManager {
     /// Create a DXGI Device Manager and associate it with a D3D11 device.
@@ -150,31 +132,24 @@ impl MfDecoder {
     ///
     /// Returns `None` at end-of-stream.
     pub fn read_frame(&self) -> Result<Option<DecodedFrame>, String> {
-        let mut stream_flags: u32 = 0;
-        let mut timestamp: i64 = 0;
-        let mut sample: Option<IMFSample> = None;
-
-        unsafe {
-            self.reader
-                .ReadSample(
-                    self.video_stream_index,
-                    0,
-                    None,
-                    Some(&mut stream_flags),
-                    Some(&mut timestamp),
-                    Some(&mut sample),
-                )
-                .map_err(|e| format!("ReadSample: {e}"))?;
-        }
-
-        // Check end-of-stream
-        if (stream_flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+        let follow_type_change = || {
+            let size = get_frame_size(&self.reader, self.video_stream_index)?;
+            let aperture = get_display_aperture(&self.reader, self.video_stream_index);
+            if same_picture((self.width, self.height), size, aperture) {
+                return Ok(());
+            }
+            Err(format!(
+                "video frame size changed mid-stream from {}x{} to {}x{}",
+                self.width, self.height, size.0, size.1
+            ))
+        };
+        let Some((sample, timestamp)) = super::mf_audio::source_read::read_stream_sample(
+            &self.reader,
+            self.video_stream_index,
+            follow_type_change,
+        )?
+        else {
             return Ok(None);
-        }
-
-        let sample = match sample {
-            Some(s) => s,
-            None => return Ok(None), // No sample but not EOS (e.g., gap)
         };
 
         // Extract D3D11 texture from the sample's DXGI buffer
@@ -290,6 +265,48 @@ fn get_frame_size(reader: &IMFSourceReader, stream_index: u32) -> Result<(u32, u
     let height = (frame_size & 0xFFFF_FFFF) as u32;
 
     Ok((width, height))
+}
+
+/// The visible picture of the current output type when the decoder declares
+/// one at the origin (MF_MT_MINIMUM_DISPLAY_APERTURE).
+fn get_display_aperture(reader: &IMFSourceReader, stream_index: u32) -> Option<(u32, u32)> {
+    let media_type = unsafe { reader.GetCurrentMediaType(stream_index).ok()? };
+    let mut area = MFVideoArea::default();
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            std::ptr::from_mut(&mut area).cast::<u8>(),
+            std::mem::size_of::<MFVideoArea>(),
+        )
+    };
+    unsafe {
+        media_type
+            .GetBlob(&MF_MT_MINIMUM_DISPLAY_APERTURE, bytes, None)
+            .ok()?;
+    }
+    let at_origin = area.OffsetX.value == 0 && area.OffsetY.value == 0;
+    let size = (
+        u32::try_from(area.Area.cx).ok()?,
+        u32::try_from(area.Area.cy).ok()?,
+    );
+    (at_origin && size.0 > 0 && size.1 > 0).then_some(size)
+}
+
+/// Decoders renegotiate to the macroblock-aligned coded size on the first
+/// frame (160x120 becomes 160x128, 1080 becomes 1088) without changing the
+/// picture: the extra rows are padding below and right of it, and consumers
+/// read only the size reported at open. Any other change is a real resolution
+/// switch that the export cannot follow.
+fn same_picture(opened: (u32, u32), coded: (u32, u32), aperture: Option<(u32, u32)>) -> bool {
+    if coded == opened {
+        return true;
+    }
+    if let Some(visible) = aperture {
+        return visible == opened && coded.0 >= opened.0 && coded.1 >= opened.1;
+    }
+    let padded = |opened: u32, coded: u32| {
+        coded == opened || (coded > opened && coded - opened < 16 && coded.is_multiple_of(16))
+    };
+    padded(opened.0, coded.0) && padded(opened.1, coded.1)
 }
 
 /// Extract the D3D11 texture from a decoded MF sample.
@@ -435,17 +452,24 @@ pub fn probe_video_metadata(file_path: &str) -> Result<VideoMetadataProbe, Strin
     })
 }
 
-/// Create a PROPVARIANT containing an i64 value (VT_I8), used for seeking.
-pub(super) fn make_i64_propvariant(value: i64) -> PROPVARIANT {
-    PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {
-                vt: VT_I8,
-                wReserved1: 0,
-                wReserved2: 0,
-                wReserved3: 0,
-                Anonymous: PROPVARIANT_0_0_0 { hVal: value },
-            }),
-        },
+#[cfg(test)]
+mod frame_size_tests {
+    use super::same_picture;
+
+    #[test]
+    fn coded_size_padding_is_the_same_picture() {
+        assert!(same_picture((160, 120), (160, 120), None));
+        assert!(same_picture((160, 120), (160, 128), None));
+        assert!(same_picture((1920, 1080), (1920, 1088), None));
+        assert!(same_picture((1234, 567), (1248, 576), None));
+        assert!(same_picture((640, 360), (640, 368), Some((640, 360))));
+    }
+
+    #[test]
+    fn real_resolution_switches_are_rejected() {
+        assert!(!same_picture((1920, 1080), (1280, 720), None));
+        assert!(!same_picture((160, 120), (176, 144), None));
+        assert!(!same_picture((160, 120), (160, 130), None));
+        assert!(!same_picture((640, 360), (640, 368), Some((640, 352))));
     }
 }

@@ -201,7 +201,7 @@ fn parse_json_object(response: &str) -> Option<serde_json::Value> {
     serde_json::from_str(response.trim()).ok().or_else(|| {
         let start = response.find('{')?;
         let end = response.rfind('}')?;
-        serde_json::from_str(&response[start..=end]).ok()
+        serde_json::from_str(response.get(start..=end)?).ok()
     })
 }
 
@@ -211,6 +211,16 @@ mod tests {
         coordinate, exact_constraint_coverage, exact_coverage, forbidden_avoidance,
         line_count_matches, ocr_similarity, term_coverage, text_similarity, transcription,
     };
+
+    #[test]
+    fn malformed_brace_order_does_not_panic() {
+        assert!(super::parse_json_object("} else {").is_none());
+        assert!(super::parse_json_object("}{").is_none());
+        assert_eq!(
+            super::parse_json_object("response: {\"x\":1}"),
+            Some(serde_json::json!({"x": 1}))
+        );
+    }
 
     #[test]
     fn text_scoring_is_unicode_and_punctuation_tolerant() {

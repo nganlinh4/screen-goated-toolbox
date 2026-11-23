@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "feature": "session-artifacts",
+  "distributionBehavior": "play_full_identical",
+  "limits": {"maxRetainedBytes": 33554432, "maxEntries": 128},
+  "budget": "payload_and_input_string_metadata_utf8",
+  "ownership": {
+    "scope": "exact_session",
+    "idReuse": false,
+    "callerMutationChangesStoredBytes": false,
+    "quotaAdmissionAtomic": true,
+    "evictExistingOnExhaustion": false,
+    "closeIsTerminal": true,
+    "latePublicationAfterClose": false,
+    "explicitExportsRemoved": false,
+    "importedSourcesRemoved": false,
+    "historicalUnownedFiles": "preserve"
+  },
+  "platformStorage": {
+    "windows": "owned_delete_on_close_cache_or_session_memory",
+    "android": "session_memory_no_automatic_disk_duplicate"
+  },
+  "cases": [
+    {"operation": "quota", "maxEntries": 1, "values": ["retained", "excess"], "accepted": [true, false], "firstValueAfterFailure": "retained"},
+    {"operation": "retire", "value": "owned content", "visibleAfterClose": false, "publishAfterClose": false},
+    {"operation": "replace_session", "value": "same content", "oldIdResolves": false, "newIdEqualsOld": false}
+  ]
+}

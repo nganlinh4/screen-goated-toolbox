@@ -1,9 +1,13 @@
 package dev.screengoated.toolbox.mobile.downloader
 
 import android.content.Context
+import java.io.File
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.io.ByteArrayOutputStream
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CancellationException
 
@@ -22,7 +26,16 @@ internal class YtDlpCommand(private val url: String) {
 
     fun hasOption(option: String): Boolean = option in arguments
 
-    fun build(): List<String> = arguments + url
+    /**
+     * `--` ends yt-dlp option parsing before the user's input (Windows
+     * `append_url_operand`), so a pasted ID or text that starts with `-`, such
+     * as `--config-locations=...` with an `--exec` line, stays a URL operand.
+     */
+    fun build(): List<String> = arguments + END_OF_OPTIONS + url
+
+    private companion object {
+        const val END_OF_OPTIONS = "--"
+    }
 }
 
 internal data class YtDlpProcessResult(
@@ -34,6 +47,7 @@ internal data class YtDlpProcessResult(
 internal class DownloaderProcessHost(
     context: Context,
     private val installer: DownloaderRuntimeInstaller,
+    private val upstreamStore: YtDlpInstallStore? = null,
     private val acquireLease: () -> AutoCloseable?,
 ) {
     private val context = context.applicationContext
@@ -43,43 +57,25 @@ internal class DownloaderProcessHost(
         request: YtDlpCommand,
         processId: String? = null,
         callback: ((Float, Long, String) -> Unit)? = null,
+        analysis: AnalysisControl? = null,
     ): YtDlpProcessResult {
         val lease = acquireLease() ?: error("Downloader runtime is unavailable or removal is pending")
+        var executableLease: YtDlpLease? = null
         var process: Process? = null
+        val analysisReaders = mutableListOf<Thread>()
         try {
-            check(installer.isInstalled()) { "Downloader runtime is not installed" }
-            val nativeDir = context.applicationInfo.nativeLibraryDir
-            val python = java.io.File(nativeDir, "libpython.so")
-            val ffmpeg = java.io.File(nativeDir, "libffmpeg.so")
-            val quickJs = java.io.File(nativeDir, "libqjs_runner.so")
-            check(python.isFile && ffmpeg.isFile && quickJs.isFile) {
-                "Downloader executable launchers are missing"
-            }
-
+            executableLease = upstreamStore?.acquire()
+            val executable = executableLease?.tool?.executable ?: installer.ytdlpFile
+            check(installer.canRun(executable)) { "Downloader runtime is not installed" }
+            val nativeDir = File(context.applicationInfo.nativeLibraryDir)
             val arguments = buildYtDlpProcessArguments(
                 request,
-                ffmpeg.absolutePath,
-                quickJs.absolutePath,
+                nativeDir.resolve("libffmpeg.so").absolutePath,
+                nativeDir.resolve("libqjs_runner.so").absolutePath,
             )
-            val command = listOf(python.absolutePath, installer.ytdlpFile.absolutePath) + arguments
-            val builder = ProcessBuilder(command)
-            builder.environment().apply {
-                val pythonLibs = java.io.File(installer.pythonDirectory, "usr/lib")
-                val ffmpegLibs = java.io.File(installer.ffmpegDirectory, "usr/lib")
-                val pythonHome = java.io.File(installer.pythonDirectory, "usr")
-                remove("LD_LIBRARY_PATH")
-                this["SGT_PYTHON_LIBRARY_DIR"] = pythonLibs.absolutePath
-                this["SGT_FFMPEG_LIBRARY_DIR"] = ffmpegLibs.absolutePath
-                this["SSL_CERT_FILE"] = java.io.File(
-                    installer.pythonDirectory,
-                    "usr/etc/tls/cert.pem",
-                ).absolutePath
-                this["PATH"] = "${System.getenv("PATH").orEmpty()}:$nativeDir"
-                this["PYTHONHOME"] = pythonHome.absolutePath
-                this["HOME"] = pythonHome.absolutePath
-                this["TMPDIR"] = context.cacheDir.absolutePath
-            }
-            process = builder.start()
+            if (analysis?.isRetired() == true) throw CancellationException("Analysis retired")
+            process = processBuilder(executable, arguments).start()
+            if (analysis != null && !analysis.attach(process)) throw CancellationException("Analysis retired")
             if (processId != null && processes.putIfAbsent(processId, process) != null) {
                 process.destroyForcibly()
                 error("Downloader process ID already exists")
@@ -88,13 +84,32 @@ internal class DownloaderProcessHost(
             val out = StringBuffer()
             val errors = StringBuffer()
             val progress = ProgressParser()
-            val stdout = readStream(process.inputStream, out) { line ->
+            val overflow = AtomicBoolean(false)
+            val stdout = if (analysis != null) readAnalysisStream(process.inputStream, out, 16 * 1024 * 1024, overflow) else readStream(process.inputStream, out) { line ->
                 callback?.invoke(progress.fraction(line), progress.etaSeconds(line), line)
             }
-            val stderr = readStream(process.errorStream, errors, null)
+            if (analysis != null) analysisReaders.add(stdout)
+            val stderr = if (analysis != null) readAnalysisStream(process.errorStream, errors, 64 * 1024, overflow) else readStream(process.errorStream, errors, null)
+            if (analysis != null) analysisReaders.add(stderr)
+            if (analysis != null) {
+                val started = System.nanoTime()
+                while (!process.waitFor(100, TimeUnit.MILLISECONDS)) {
+                    if (analysis.isRetired() || overflow.get() || System.nanoTime() - started >= TimeUnit.SECONDS.toNanos(90)) {
+                        process.destroyForcibly()
+                        process.waitFor()
+                        stdout.join()
+                        stderr.join()
+                        if (analysis.isRetired()) throw CancellationException("Analysis retired")
+                        if (overflow.get()) error("Analysis output exceeded its size limit")
+                        error("Analysis timed out")
+                    }
+                }
+            }
             val exitCode = process.waitFor()
             stdout.join()
             stderr.join()
+            if (analysis?.isRetired() == true) throw CancellationException("Analysis retired")
+            if (overflow.get()) error("Analysis output exceeded its size limit")
             val cancelled = processId != null && processes[processId] !== process
             if (processId != null) processes.remove(processId, process)
             if (cancelled) throw CancellationException("Downloader process was cancelled")
@@ -107,8 +122,68 @@ internal class DownloaderProcessHost(
             Thread.currentThread().interrupt()
             throw CancellationException("Downloader process was interrupted")
         } finally {
+            if (process != null) {
+                // Keep the executable and runtime leases until the owned child and
+                // its pipe readers have actually settled, even after interruption.
+                var interrupted = Thread.interrupted()
+                if (process.isAlive) runCatching { process.destroyForcibly() }
+                while (process.isAlive) {
+                    try { process.waitFor() } catch (_: InterruptedException) { interrupted = true }
+                }
+                for (reader in analysisReaders) {
+                    while (reader.isAlive) {
+                        try { reader.join() } catch (_: InterruptedException) { interrupted = true }
+                    }
+                }
+                if (interrupted) Thread.currentThread().interrupt()
+            }
             if (processId != null && process != null) processes.remove(processId, process)
-            lease.close()
+            if (process != null) analysis?.detach(process)
+            try {
+                executableLease?.close()
+            } finally {
+                lease.close()
+            }
+        }
+    }
+
+    fun verifyCandidate(executable: File, version: YtDlpVersion) {
+        val process = processBuilder(
+            executable,
+            listOf("--ignore-config", "--no-plugin-dirs", "--no-update", "--version"),
+        ).redirectErrorStream(true).start()
+        try {
+            check(process.waitFor(15, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                "This yt-dlp release could not start with the installed Android runtime"
+            }
+            val output = process.inputStream.use { it.readBytes().decodeToString().trim() }
+            check(output == version.tag) { "The Android launcher reported an unexpected yt-dlp version" }
+        } finally {
+            if (process.isAlive) {
+                process.destroyForcibly()
+                process.waitFor()
+            }
+        }
+    }
+
+    private fun processBuilder(executable: File, arguments: List<String>): ProcessBuilder {
+        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+        val python = nativeDir.resolve("libpython.so")
+        check(python.isFile && nativeDir.resolve("libffmpeg.so").isFile && nativeDir.resolve("libqjs_runner.so").isFile) {
+            "Downloader executable launchers are missing"
+        }
+        return ProcessBuilder(listOf(python.absolutePath, executable.absolutePath) + arguments).apply {
+            environment().apply {
+                val pythonHome = installer.pythonDirectory.resolve("usr")
+                remove("LD_LIBRARY_PATH")
+                this["SGT_PYTHON_LIBRARY_DIR"] = pythonHome.resolve("lib").absolutePath
+                this["SGT_FFMPEG_LIBRARY_DIR"] = installer.ffmpegDirectory.resolve("usr/lib").absolutePath
+                this["SSL_CERT_FILE"] = pythonHome.resolve("etc/tls/cert.pem").absolutePath
+                this["PATH"] = "${System.getenv("PATH").orEmpty()}:$nativeDir"
+                this["PYTHONHOME"] = pythonHome.absolutePath
+                this["HOME"] = pythonHome.absolutePath
+                this["TMPDIR"] = context.cacheDir.absolutePath
+            }
         }
     }
 
@@ -120,6 +195,22 @@ internal class DownloaderProcessHost(
     }
 }
 
+internal fun readAnalysisStream(stream: InputStream, output: StringBuffer, limit: Int, overflow: AtomicBoolean): Thread =
+    thread(name = "sgt-analysis-stream", start = true) {
+        val collected = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        stream.use {
+            while (true) {
+                val count = it.read(buffer)
+                if (count < 0) break
+                val remaining = limit - collected.size()
+                if (count > remaining) overflow.set(true)
+                if (remaining > 0) collected.write(buffer, 0, minOf(count, remaining))
+            }
+        }
+        output.append(collected.toString(StandardCharsets.UTF_8.name()))
+    }
+
 internal fun buildYtDlpProcessArguments(
     request: YtDlpCommand,
     ffmpegPath: String,
@@ -127,6 +218,7 @@ internal fun buildYtDlpProcessArguments(
 ): List<String> = buildList {
     add("--ignore-config")
     add("--no-plugin-dirs")
+    add("--no-update")
     add("--ffmpeg-location")
     add(ffmpegPath)
     add("--js-runtimes")

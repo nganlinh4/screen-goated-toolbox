@@ -1,6 +1,4 @@
-use crate::config::tts_catalog::{
-    GEMINI_VOICES, SUPERTONIC_LANGUAGE_SUMMARY, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES,
-};
+use crate::config::tts_catalog::{GEMINI_VOICES, SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES};
 use crate::config::{Config, TtsMethod};
 use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
@@ -8,13 +6,8 @@ use crate::gui::theme::AppTheme;
 use eframe::egui;
 
 mod preview;
-mod providers;
 
 use preview::speak_settings_preview;
-use providers::{
-    render_kokoro_settings, render_magpie_settings, render_step_audio_settings,
-    render_supertonic_settings, render_vieneu_settings,
-};
 
 pub fn render_tts_settings_modal(
     ui: &mut egui::Ui,
@@ -90,11 +83,6 @@ pub fn render_tts_settings_modal(
                 *show_modal = false;
             }
 
-            if config.tts_method == TtsMethod::VoxtralTts {
-                config.tts_method = TtsMethod::VieneuTts;
-                changed = true;
-            }
-
             // === TTS METHOD SELECTION === (dropdown — too many options for a row)
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(text.tts_settings.tts_method_label).strong());
@@ -102,13 +90,6 @@ pub fn render_tts_settings_modal(
                     TtsMethod::GeminiLive => text.tts_settings.tts_method_standard,
                     TtsMethod::EdgeTTS => text.tts_settings.tts_method_edge,
                     TtsMethod::GoogleTranslate => text.tts_settings.tts_method_fast,
-                    TtsMethod::StepAudioEditX => "Step Audio EditX",
-                    TtsMethod::MagpieMultilingual => "NVIDIA Magpie-Multilingual 357M",
-                    TtsMethod::Kokoro => "Kokoro 82M v1.0",
-                    TtsMethod::Supertonic => "Supertonic 3",
-                    TtsMethod::VieneuTts | TtsMethod::VoxtralTts => "VieNeu-TTS v2",
-                    // Deprecated/hidden (migrated away on load) — never a real option.
-                    TtsMethod::FishAudioS2Pro => text.tts_settings.tts_method_standard,
                 };
                 crate::gui::widgets::combo("tts_method_combo")
                     .selected_text(current_label)
@@ -145,61 +126,6 @@ pub fn render_tts_settings_modal(
                             if config.tts_speed == "Fast" {
                                 config.tts_speed = "Normal".to_string();
                             }
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.tts_method,
-                                TtsMethod::StepAudioEditX,
-                                "Step Audio EditX",
-                            )
-                            .on_hover_text("Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.")
-                            .clicked()
-                        {
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.tts_method,
-                                TtsMethod::MagpieMultilingual,
-                                "NVIDIA Magpie-Multilingual 357M",
-                            )
-                            .on_hover_text(text.auxiliary.managed_tools.tool_desc_magpie)
-                            .clicked()
-                        {
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.tts_method,
-                                TtsMethod::Kokoro,
-                                "Kokoro 82M v1.0",
-                            )
-                            .on_hover_text("Supports English, Mandarin Chinese, Japanese, Spanish, French, Hindi, Italian, and Portuguese.")
-                            .clicked()
-                        {
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.tts_method,
-                                TtsMethod::Supertonic,
-                                "Supertonic 3",
-                            )
-                            .on_hover_text(SUPERTONIC_LANGUAGE_SUMMARY)
-                            .clicked()
-                        {
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut config.tts_method,
-                                TtsMethod::VieneuTts,
-                                "VieNeu-TTS v2",
-                            )
-                            .on_hover_text("Vietnamese-first local TTS with English/Vietnamese code-switching and zero-shot voice cloning.")
-                            .clicked()
-                        {
                             changed = true;
                         }
                     });
@@ -461,16 +387,16 @@ pub fn render_tts_settings_modal(
                     });
                 } else if let Some(ref error) = cache_status.2 {
                     // Error
-                    ui.colored_label(theme.danger_text(), format!("{} {}", text.tts_settings.tts_failed_load_voices, error).replace("{}", ""));
+                    ui.colored_label(
+                        theme.danger_text(),
+                        text.tts_settings.tts_failed_load_voices.replacen("{}", error, 1),
+                    );
                     if ui.button(text.tts_settings.tts_retry_label).clicked() {
-                        // Reset cache and retry
-                        let mut cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
-                        cache.loaded = false;
-                        cache.loading = false;
-                        cache.error = None;
+                        crate::api::tts::edge_voices::retry_edge_voices_async();
                     }
                 } else if cache_status.0 {
                     // Loaded - show voice configuration
+                    let preview_settings = config.edge_tts_settings.clone();
                     egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                         let mut to_remove: Option<usize> = None;
 
@@ -501,10 +427,10 @@ pub fn render_tts_settings_modal(
                                     });
 
                                 if icon_button(ui, Icon::Speaker)
-                                    .on_hover_text(text.tts_settings.tts_preview_label)
+                                    .on_hover_text(preview::row_preview_label(text, &voice_config.language_code))
                                     .clicked()
                                 {
-                                    speak_settings_preview(text, &voice_config.voice_name);
+                                    preview::preview_edge_row(&preview_settings, voice_config);
                                 }
 
                                 // Remove button
@@ -572,16 +498,6 @@ pub fn render_tts_settings_modal(
                         ui.label(text.tts_settings.tts_initializing_voices);
                     });
                 }
-            } else if config.tts_method == TtsMethod::StepAudioEditX {
-                changed |= render_step_audio_settings(ui, config, text);
-            } else if config.tts_method == TtsMethod::MagpieMultilingual {
-                changed |= render_magpie_settings(ui, config, text);
-            } else if config.tts_method == TtsMethod::Kokoro {
-                changed |= render_kokoro_settings(ui, config, text);
-            } else if config.tts_method == TtsMethod::Supertonic {
-                changed |= render_supertonic_settings(ui, config, text);
-            } else if config.tts_method == TtsMethod::VieneuTts {
-                changed |= render_vieneu_settings(ui, config, text);
             }
         });
 

@@ -4,27 +4,26 @@
     "version":  "0.9.0",
     "features":  [
                      "image_to_3d",
-                     "image_to_svg",
-                     "image_creator"
+                     "image_to_svg"
                  ],
     "windows":  {
-                    "asset":  "sgt-creation-runtime-windows-x64-57d223f3f06cc73b.exe",
-                    "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-57d223f3f06cc73b.exe",
-                    "sizeBytes":  2491392,
-                    "sha256":  "57d223f3f06cc73b9c8b802cc5d851391baef5f373fa4142b6dc1d5258a62385"
+                    "asset":  "sgt-creation-runtime-windows-x64-a23fae846ce43bc1.exe",
+                    "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-windows-x64-a23fae846ce43bc1.exe",
+                    "sizeBytes":  2330112,
+                    "sha256":  "a23fae846ce43bc19b0a257245e193e5bdf4fb24415b300723f3186355a853f0"
                 },
     "android":  {
                     "full":  {
-                                 "asset":  "sgt-creation-runtime-android-arm64-8c51ec374100de77.zip",
-                                 "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64-8c51ec374100de77.zip",
-                                 "sizeBytes":  1422582,
-                                 "sha256":  "8c51ec374100de775db71c66d4c1f1a68684a278d9540633210e85b0342a0ab7"
+                                 "asset":  "sgt-creation-runtime-android-arm64-6ab0bb5a30446644.zip",
+                                 "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-arm64-6ab0bb5a30446644.zip",
+                                 "sizeBytes":  1129690,
+                                 "sha256":  "6ab0bb5a3044664400c38eac347d23e8c74f711ee785f915487a82d876d7c8e3"
                              },
                     "play":  {
-                                 "asset":  "sgt-creation-runtime-android-c11b10c370136683.aar",
-                                 "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-c11b10c370136683.aar",
-                                 "sizeBytes":  1530183,
-                                 "sha256":  "c11b10c3701366831f8fcd9b151a6aa74fe1ed4a505415c24c4806bc18af0a36"
+                                 "asset":  "sgt-creation-runtime-android-99ff7984a4868d44.aar",
+                                 "downloadUrl":  "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/sgt-creation-runtime-android-99ff7984a4868d44.aar",
+                                 "sizeBytes":  1224225,
+                                 "sha256":  "99ff7984a4868d449be2762dc26a35efa61564d549f2d9c9223dc430557daf13"
                              },
                     "factoryClass":  "dev.screengoated.toolbox.creation.runtime.AndroidCreationRuntimeFactory",
                     "entries":  [
@@ -32,15 +31,15 @@
                                         "archivePath":  "runtime/sgt-creation-runtime.dex.jar",
                                         "installPath":  "runtime/sgt-creation-runtime.dex.jar",
                                         "role":  "factory_dex",
-                                        "sizeBytes":  752640,
-                                        "sha256":  "fecd961b6275585454b87c79e3dff5ec2893d2353fd600eadada1ac3bfe541ab"
+                                        "sizeBytes":  510908,
+                                        "sha256":  "33d8cafd8e65f017bf0d8ca98d5ba2ecab0cb27a198d60954b61db070aa54c70"
                                     },
                                     {
                                         "archivePath":  "lib/arm64-v8a/libsgt_creation_glb.so",
                                         "installPath":  "lib/arm64-v8a/libsgt_creation_glb.so",
                                         "role":  "native_library",
-                                        "sizeBytes":  669624,
-                                        "sha256":  "ddfb5c9866c2a86de20b62cb04c51ac918dcea293e799d462c65b2d58ba7096a"
+                                        "sizeBytes":  618464,
+                                        "sha256":  "840a3e9d47858643f8698b045e525e03ba8b1e5a12536945b096d8797284f973"
                                     }
                                 ]
                 }

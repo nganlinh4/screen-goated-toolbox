@@ -1,4 +1,5 @@
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { LabelledField } from '@/components/ui/FieldLabelContext';
 import { Slider } from '@/components/ui/Slider';
 import { LanguageConfigList } from './LanguageConfigList';
 import { useSettings } from '@/hooks/useSettings';
@@ -46,51 +47,57 @@ export function NarrationGeminiSettings({
     <>
       {geminiModels.length > 0 && (
         <div className="narration-panel-row mb-2 flex items-center gap-2">
-          <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-            {t.narrationTtsModel}
-          </span>
-          <PanelSelect
-            value={settings.geminiModel}
-            options={geminiModels.map((model) => ({
-              value: model.apiModel,
-              label: model.label,
-            }))}
-            onChange={(value) => update('geminiModel', value)}
-            triggerClassName="narration-model-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-            contentClassName="narration-model-menu"
-          />
+          <LabelledField
+            label={t.narrationTtsModel}
+            labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+          >
+            <PanelSelect
+              value={settings.geminiModel}
+              options={geminiModels.map((model) => ({
+                value: model.apiModel,
+                label: model.label,
+              }))}
+              onChange={(value) => update('geminiModel', value)}
+              triggerClassName="narration-model-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+              contentClassName="narration-model-menu"
+            />
+          </LabelledField>
         </div>
       )}
       <div className="narration-panel-row mb-2 flex items-center gap-2">
-        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-          {t.narrationTtsVoice}
-        </span>
-        <PanelSelect
-          value={settings.geminiVoice}
-          options={geminiVoices.map((voice) => ({
-            value: voice.name,
-            label: `${voice.name} · ${voice.gender}`,
-          }))}
-          onChange={(value) => update('geminiVoice', value)}
-          triggerClassName="narration-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-          contentClassName="narration-voice-menu"
-          searchable
-        />
+        <LabelledField
+          label={t.narrationTtsVoice}
+          labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+        >
+          <PanelSelect
+            value={settings.geminiVoice}
+            options={geminiVoices.map((voice) => ({
+              value: voice.name,
+              label: `${voice.name} · ${voice.gender}`,
+            }))}
+            onChange={(value) => update('geminiVoice', value)}
+            triggerClassName="narration-voice-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="narration-voice-menu"
+            searchable
+          />
+        </LabelledField>
       </div>
       <div className="narration-panel-row mb-2 flex items-center gap-2">
-        <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-          {t.narrationTtsSpeed}
-        </span>
-        <PanelSelect
-          value={settings.geminiSpeed}
-          options={geminiSpeedOptions.map((speed) => ({
-            value: speed,
-            label: speed,
-          }))}
-          onChange={(value) => update('geminiSpeed', value)}
-          triggerClassName="narration-speed-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-          contentClassName="narration-speed-menu"
-        />
+        <LabelledField
+          label={t.narrationTtsSpeed}
+          labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+        >
+          <PanelSelect
+            value={settings.geminiSpeed}
+            options={geminiSpeedOptions.map((speed) => ({
+              value: speed,
+              label: speed,
+            }))}
+            onChange={(value) => update('geminiSpeed', value)}
+            triggerClassName="narration-speed-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+            contentClassName="narration-speed-menu"
+          />
+        </LabelledField>
       </div>
       <div className="narration-panel-parallel mb-2 space-y-1.5">
         <div className="narration-panel-parallel-header flex items-center justify-between gap-2">

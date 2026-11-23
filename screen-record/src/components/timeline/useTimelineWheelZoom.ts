@@ -31,13 +31,16 @@ interface UseTimelineWheelZoomOptions {
   segmentRef: MutableRefObject<VideoSegment | null>;
   isInteractingRef: MutableRefObject<boolean>;
   zoomRef: MutableRefObject<number>;
+  committedZoomRef: MutableRefObject<number>;
+  wheelRevisionRef: MutableRefObject<number>;
   pendingWheelAnchorRef: MutableRefObject<TimelineWheelAnchor | null>;
-  programmaticScrollRef: MutableRefObject<boolean>;
+  programmaticScrollTargetRef: MutableRefObject<number | null>;
   releaseProgrammaticScrollRef: MutableRefObject<number | null>;
   followSpringRef: MutableRefObject<SpringSolver>;
   setVisibleTimeRange: Dispatch<SetStateAction<TimelineVisibleRange | null>>;
   setZoom: Dispatch<SetStateAction<number>>;
   scheduleScrollbarThumbSync: () => void;
+  scheduleVisibleRangeSync: () => void;
   suppressFollow: () => void;
 }
 
@@ -48,22 +51,27 @@ export function useTimelineWheelZoom({
   segmentRef,
   isInteractingRef,
   zoomRef,
+  committedZoomRef,
+  wheelRevisionRef,
   pendingWheelAnchorRef,
-  programmaticScrollRef,
+  programmaticScrollTargetRef,
   releaseProgrammaticScrollRef,
   followSpringRef,
   setVisibleTimeRange,
   setZoom,
   scheduleScrollbarThumbSync,
+  scheduleVisibleRangeSync,
   suppressFollow,
-}: UseTimelineWheelZoomOptions): void {
+}: UseTimelineWheelZoomOptions): () => void {
   const pendingZoomCommitTimerRef = useRef<number | null>(null);
   const commitPendingWheelZoom = useCallback(() => {
     pendingZoomCommitTimerRef.current = null;
     const activeViewport = viewportRef.current;
     const activeDurationForRange = durationRef.current;
     const activeZoomForRange = zoomRef.current;
+    const revision = wheelRevisionRef.current;
     const pendingAnchor = pendingWheelAnchorRef.current;
+    if (!pendingAnchor) return;
     if (activeViewport && segmentRef.current && activeDurationForRange > 0) {
       const visibleWidthForRange = getVisibleContentWidth(activeViewport);
       const contentWidthForRange =
@@ -88,21 +96,54 @@ export function useTimelineWheelZoom({
               activeDurationForRange,
             );
       startTransition(() => {
-        setVisibleTimeRange(nextVisibleTimeRange);
-        setZoom(zoomRef.current);
+        setVisibleTimeRange((previous) =>
+          wheelRevisionRef.current === revision ? nextVisibleTimeRange : previous,
+        );
+        setZoom((previous) =>
+          wheelRevisionRef.current === revision ? activeZoomForRange : previous,
+        );
       });
+      if (activeZoomForRange === committedZoomRef.current) {
+        pendingWheelAnchorRef.current = null;
+      }
       return;
     }
-    startTransition(() => setZoom(zoomRef.current));
+    pendingWheelAnchorRef.current = null;
+    startTransition(() => setZoom((previous) =>
+      wheelRevisionRef.current === revision ? activeZoomForRange : previous,
+    ));
   }, [
+    committedZoomRef,
     durationRef,
     pendingWheelAnchorRef,
     segmentRef,
     setVisibleTimeRange,
     setZoom,
     viewportRef,
+    wheelRevisionRef,
     zoomRef,
   ]);
+
+  const rebasePendingWheelAnchor = useCallback(() => {
+    const viewport = viewportRef.current;
+    const duration = durationRef.current;
+    // A user scroll also supersedes range updates already queued by a no-op
+    // wheel commit, whose anchor may have been cleared before React renders it.
+    wheelRevisionRef.current += 1;
+    if (!pendingWheelAnchorRef.current || !viewport || duration <= 0) return;
+    const zoom = Math.max(zoomRef.current, MIN_TIMELINE_ZOOM);
+    const contentWidth = getVisibleContentWidth(viewport) * zoom;
+    pendingWheelAnchorRef.current = {
+      anchorTime: clamp((viewport.scrollLeft / contentWidth) * duration, 0, duration),
+      pointerContentX: 0,
+      zoom,
+    };
+    scheduleVisibleRangeSync();
+    if (pendingZoomCommitTimerRef.current !== null) {
+      window.clearTimeout(pendingZoomCommitTimerRef.current);
+    }
+    pendingZoomCommitTimerRef.current = window.setTimeout(commitPendingWheelZoom, 100);
+  }, [commitPendingWheelZoom, durationRef, pendingWheelAnchorRef, scheduleVisibleRangeSync, viewportRef, wheelRevisionRef, zoomRef]);
 
   const wheelHandlerRef = useRef<(event: globalThis.WheelEvent) => void>(
     () => {},
@@ -157,7 +198,9 @@ export function useTimelineWheelZoom({
     pendingWheelAnchorRef.current = {
       anchorTime,
       pointerContentX,
+      zoom: nextZoom,
     };
+    wheelRevisionRef.current += 1;
     suppressFollow();
     zoomRef.current = nextZoom;
     const canvas = timelineRef.current?.parentElement;
@@ -171,15 +214,15 @@ export function useTimelineWheelZoom({
     if (canvas instanceof HTMLElement) {
       canvas.style.width = `${Math.max(nextZoom, MIN_TIMELINE_ZOOM) * 100}%`;
     }
-    programmaticScrollRef.current = true;
     viewport.scrollLeft = nextScrollLeft;
+    programmaticScrollTargetRef.current = viewport.scrollLeft;
     followSpringRef.current.set(nextScrollLeft);
     scheduleScrollbarThumbSync();
     if (releaseProgrammaticScrollRef.current !== null) {
       cancelAnimationFrame(releaseProgrammaticScrollRef.current);
     }
     releaseProgrammaticScrollRef.current = requestAnimationFrame(() => {
-      programmaticScrollRef.current = false;
+      programmaticScrollTargetRef.current = null;
       releaseProgrammaticScrollRef.current = null;
     });
     if (pendingZoomCommitTimerRef.current !== null) {
@@ -209,4 +252,6 @@ export function useTimelineWheelZoom({
       }
     };
   }, []);
+
+  return rebasePendingWheelAnchor;
 }

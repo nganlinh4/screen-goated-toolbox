@@ -24,6 +24,10 @@ data class MobileUiPreferences(
     val overlayOpacityPercent: Int = DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT,
 )
 
+/** Reset defaults restores theme and overlay opacity; the UI language is always kept. */
+fun MobileUiPreferences.restoredDefaults(): MobileUiPreferences =
+    MobileUiPreferences(uiLanguage = uiLanguage)
+
 fun MobileThemeMode.next(): MobileThemeMode {
     return when (this) {
         MobileThemeMode.SYSTEM -> MobileThemeMode.DARK

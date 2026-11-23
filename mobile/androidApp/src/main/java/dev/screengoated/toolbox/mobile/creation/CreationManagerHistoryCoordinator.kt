@@ -25,31 +25,46 @@ internal class CreationManagerHistoryCoordinator(
         synchronized(mutationLock) {
             val previous = history.list(tool).firstOrNull { it.id == id }
                 ?: error("Result is no longer in history")
-            var retiredInputs = emptyList<String>()
-            val snapshot = synchronized(stateLock) {
-                memory.jobs.replaceAll { _, status ->
-                    if (status.outputPath == previous.outputPath) {
-                        status.copy(outputPath = null, outputName = null, canSegment = false)
-                    } else {
-                        status
-                    }
-                }
-                retiredInputs = memory.continuations.values
-                    .filter { it.outputPath == previous.outputPath }
-                    .map(CreationContinuation::sourcePath)
-                memory.continuations.entries.removeAll {
-                    it.value.outputPath == previous.outputPath
-                }
-                journalWriter.snapshot(memory)
-            }
-            journalWriter.writeRequired(snapshot)
-            files.releaseJobInputs(retiredInputs)
-            history.delete(id)
+            // History first: if it cannot delete, jobs and continuations keep their links.
+            history.delete(previous.id)
+            detachDeletedOutputs(setOf(previous.outputPath))
         }
     }
 
+    /**
+     * Deletes every saved result of [tool] from one snapshot of the list, keeps going
+     * past an entry that fails, detaches the deleted outputs with one journal write,
+     * then reports the first failure (others suppressed) so the caller can refresh.
+     */
     fun deleteAll(tool: CreationTool) {
-        history.list(tool).forEach { entry -> delete(tool, entry.id) }
+        synchronized(mutationLock) {
+            val batch = deleteCreationHistoryBatch(history.list(tool)) { entry ->
+                history.delete(entry.id)
+            }
+            detachDeletedOutputs(batch.deleted.mapTo(mutableSetOf(), CreationHistoryEntry::outputPath))
+            batch.throwFirstFailure()
+        }
+    }
+
+    private fun detachDeletedOutputs(outputPaths: Set<String>) {
+        if (outputPaths.isEmpty()) return
+        var retiredInputs = emptyList<String>()
+        val snapshot = synchronized(stateLock) {
+            memory.jobs.replaceAll { _, status ->
+                if (status.outputPath in outputPaths) {
+                    status.copy(outputPath = null, outputName = null, canSegment = false)
+                } else {
+                    status
+                }
+            }
+            retiredInputs = memory.continuations.values
+                .filter { it.outputPath in outputPaths }
+                .map(CreationContinuation::sourcePath)
+            memory.continuations.entries.removeAll { it.value.outputPath in outputPaths }
+            journalWriter.snapshot(memory)
+        }
+        journalWriter.writeRequired(snapshot)
+        files.releaseJobInputs(retiredInputs)
     }
 
     fun reconcileAtStartup() {
@@ -99,4 +114,29 @@ internal class CreationManagerHistoryCoordinator(
             }
         }
     }
+}
+
+internal class CreationHistoryBatchDeletion<T>(
+    val deleted: List<T>,
+    val failures: List<Throwable>,
+) {
+    fun throwFirstFailure() {
+        val first = failures.firstOrNull() ?: return
+        failures.drop(1).forEach(first::addSuppressed)
+        throw first
+    }
+}
+
+internal fun <T> deleteCreationHistoryBatch(
+    entries: List<T>,
+    delete: (T) -> Unit,
+): CreationHistoryBatchDeletion<T> {
+    val deleted = mutableListOf<T>()
+    val failures = mutableListOf<Throwable>()
+    entries.forEach { entry ->
+        runCatching { delete(entry) }
+            .onSuccess { deleted += entry }
+            .onFailure { failures += it }
+    }
+    return CreationHistoryBatchDeletion(deleted, failures)
 }

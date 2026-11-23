@@ -264,8 +264,13 @@ pub(super) fn verify_navigation(
                 }
                 last_state = Some(state.clone());
                 if stable_samples >= STABLE_SAMPLES
-                    && let Some(outcome) =
-                        classify_navigation(requested_url, before, &state, transition_seen)
+                    && let Some(outcome) = classify_navigation(
+                        requested_url,
+                        before,
+                        &state,
+                        transition_seen,
+                        dispatch_loader_id.is_some(),
+                    )
                 {
                     return Ok(NavigationVerification {
                         outcome,

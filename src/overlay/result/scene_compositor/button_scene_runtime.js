@@ -25,6 +25,7 @@
     window.invalidateButtonRegions?.();
     window.ipc.postMessage(JSON.stringify({
       action: 'update_clickable_regions',
+      topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
       scale: window.devicePixelRatio || 1,
       regions: []
     }));
@@ -138,7 +139,7 @@
       controlGeometry.clear();
       completedCards.delete(key);
     } else if (command.type === 'refine_text') {
-      window.setRefineText(String(command.id), String(command.text || ''), Boolean(command.is_insert));
+      window.setRefineText(String(command.id), String(command.text || ''), Boolean(command.is_insert), command.edit_session);
       return;
     } else if (command.type === 'external_drag') {
       externalDrag = Boolean(command.active);
@@ -192,7 +193,13 @@
     completionPulseTokens.set(key, token);
     const started = performance.now();
     const duration = 1250;
+    const epoch = window.__SGT_TOPOLOGY_EPOCH__ || '1';
     function animatePulse(now) {
+      if (epoch !== (window.__SGT_TOPOLOGY_EPOCH__ || '1')) {
+        delete group.dataset.pulseOpacity;
+        group.style.removeProperty('transform');
+        return;
+      }
       const progress = Math.min(1, (now - started) / duration);
       const pulseOpacity = Math.sin(Math.PI * progress);
       const scale = 1 + (0.05 * Math.sin(Math.PI * progress));
@@ -229,6 +236,13 @@
     allocateGestureId: allocateGestureId,
     rebuild: rebuild,
     clearClickableRegions: clearClickableRegions,
+    resetTopology: function() {
+      nativeDrag = 0;
+      awaitingDragSettle = 0;
+      externalDrag = false;
+      window.resetResultDragTopology?.();
+      window.__SGT_CARD_RESIZE__?.resetTopology();
+    },
     setDragActive: setDragActive,
     releaseDragPreview: releaseDragPreview,
     isGeometryPreviewActive: function() { return Boolean(nativeDrag || awaitingDragSettle || externalDrag); },

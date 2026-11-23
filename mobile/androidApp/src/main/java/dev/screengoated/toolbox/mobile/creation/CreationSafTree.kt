@@ -40,7 +40,7 @@ internal class CreationSafTree(
             DocumentsContract.createDocument(
                 resolver,
                 parent,
-                "application/octet-stream",
+                CREATION_SAF_PENDING_MIME_TYPE,
                 pendingName,
             ),
         )
@@ -104,6 +104,9 @@ internal class CreationSafTree(
 }
 
 internal const val CREATION_SAF_MAXIMUM_CHILDREN = 4_096
+
+/** MIME type for SAF reservations and probes; providers keep an untyped name verbatim. */
+internal const val CREATION_SAF_PENDING_MIME_TYPE = "application/octet-stream"
 
 internal fun creationSafProbeOwns(expectedDocumentId: String?, actualDocumentId: String?): Boolean =
     expectedDocumentId != null && expectedDocumentId == actualDocumentId

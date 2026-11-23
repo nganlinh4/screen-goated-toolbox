@@ -3,13 +3,19 @@ use std::path::Path;
 
 use super::{CancellationRecord, CancelledDelivery, DeliveryStore};
 
-pub(crate) fn cancel_dispatch(cancellation: CancelledDelivery) -> Result<(), String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CancellationOutcome {
+    Cancelled,
+    Published,
+}
+
+pub(crate) fn cancel_dispatch(
+    cancellation: CancelledDelivery,
+) -> Result<CancellationOutcome, String> {
     super::validate_cancellation(&cancellation)?;
     let product = cancellation.product;
-    let _guard = super::DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
-    let assignment = crate::overlay::creation_intent_journal::verify_delivery_assignment(
+    let _guard = crate::overlay::creation_lifecycle::acquire_delivery()?;
+    let assignment = crate::overlay::creation_intent_journal::saved_delivery_assignment(
         cancellation.product,
         &cancellation.job_id,
         &cancellation.dispatch_id,
@@ -28,11 +34,14 @@ pub(crate) fn cancel_dispatch(cancellation: CancelledDelivery) -> Result<(), Str
     }
     let path = super::journal_path();
     let mut store = super::load_store(&path)?;
+    #[cfg(test)]
+    super::cross_process::pause_after_load()?;
     prune_cancellations(&mut store, super::now_ms());
     if store.entries.iter().any(|entry| {
         entry.dispatch_id == cancellation.dispatch_id && !entry.stage.is_pre_publication()
     }) {
-        return advance_saved_delivery(&path, &mut store, &cancellation.dispatch_id);
+        advance_saved_delivery(&path, &mut store, &cancellation.dispatch_id)?;
+        return Ok(CancellationOutcome::Published);
     }
     if let Some(existing) = store
         .cancellations
@@ -69,13 +78,13 @@ pub(crate) fn cancel_dispatch(cancellation: CancelledDelivery) -> Result<(), Str
         });
         super::save_store(&path, &store)?;
     }
-    let cleanup_error = finalize_cancellations(&path, &mut store, product).err();
+    let cleanup = finalize_cancellations(&path, &mut store, product);
     drop(_guard);
-    if let Some(error) = cleanup_error {
-        crate::log_info!("[Creation delivery] Cancellation cleanup is still pending: {error}");
+    if cleanup != Ok(CleanupOutcome::Complete) {
+        crate::log_info!("[Creation delivery] Cancellation cleanup is still pending.");
         super::schedule_reconciliation(product);
     }
-    Ok(())
+    Ok(CancellationOutcome::Cancelled)
 }
 
 pub(crate) fn cancel_product_intents(product: &'static str) -> bool {
@@ -116,9 +125,7 @@ pub(crate) fn cancel_product_intents(product: &'static str) -> bool {
 
 pub(crate) fn ensure_cancellation_capacity() -> Result<(), String> {
     let active_jobs = crate::overlay::creation_intent_journal::load_all()?.len();
-    let _guard = super::DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_delivery()?;
     let path = super::journal_path();
     let mut store = super::load_store(&path)?;
     if prune_cancellations(&mut store, super::now_ms()) {
@@ -148,6 +155,18 @@ pub(super) fn advance_saved_delivery(
     store: &mut DeliveryStore,
     dispatch_id: &str,
 ) -> Result<(), String> {
+    let record = store
+        .entries
+        .iter()
+        .find(|entry| entry.dispatch_id == dispatch_id)
+        .ok_or_else(|| "Creation delivery state is missing.".to_string())?;
+    super::ensure_outputs_unreserved(
+        &record.output_path,
+        record
+            .companion
+            .as_ref()
+            .map(|companion| companion.output_path.as_str()),
+    )?;
     super::advance_delivery(
         path,
         store,
@@ -187,11 +206,17 @@ pub(super) fn pending_job_ids(store: &DeliveryStore, product: &str) -> HashSet<S
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CleanupOutcome {
+    Complete,
+    Pending,
+}
+
 pub(super) fn finalize_cancellations(
     path: &Path,
     store: &mut DeliveryStore,
     product: &str,
-) -> Result<(), String> {
+) -> Result<CleanupOutcome, String> {
     let cancellations = store
         .cancellations
         .iter()
@@ -206,7 +231,14 @@ pub(super) fn finalize_cancellations(
             .iter()
             .find(|entry| entry.dispatch_id == cancellation.dispatch_id)
             .cloned()
-            && super::publication::cancel_pre_publication(&record).is_err()
+            && super::publication::cancel_pre_publication(&record)
+                .and_then(|()| {
+                    record
+                        .companion
+                        .as_ref()
+                        .map_or(Ok(()), super::companion::cancel)
+                })
+                .is_err()
         {
             pending = true;
             continue;
@@ -224,6 +256,16 @@ pub(super) fn finalize_cancellations(
             &cancellation.dispatch_id,
             &cancellation.output_name,
         )?;
+        if let Some(companion) = store
+            .entries
+            .iter()
+            .find(|entry| entry.dispatch_id == cancellation.dispatch_id)
+            .and_then(|entry| entry.companion.as_ref())
+            && super::companion::cleanup_staging(companion).is_err()
+        {
+            pending = true;
+            continue;
+        }
         if crate::overlay::creation_output::cleanup_staging(
             &cancellation.dispatch_id,
             &cancellation.output_name,
@@ -245,9 +287,9 @@ pub(super) fn finalize_cancellations(
         super::save_store(path, store)?;
     }
     if pending {
-        Err("Cancelled creation cleanup is still pending.".to_string())
+        Ok(CleanupOutcome::Pending)
     } else {
-        Ok(())
+        Ok(CleanupOutcome::Complete)
     }
 }
 

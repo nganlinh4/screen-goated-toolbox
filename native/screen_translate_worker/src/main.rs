@@ -1,3 +1,4 @@
+mod admission;
 mod input;
 mod layout;
 mod localization;
@@ -9,10 +10,7 @@ use std::ffi::OsString;
 use std::io::{BufReader, BufWriter};
 use std::os::windows::{ffi::OsStringExt, fs::MetadataExt};
 use std::path::PathBuf;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::Ordering;
 
 fn main() {
     if let Err(error) = run() {
@@ -30,9 +28,8 @@ fn run() -> Result<()> {
     let (hello_id, Request::Hello(hello)) = stream::read_request(&mut reader)? else {
         bail!("missing handshake");
     };
-    let startup_cancel = Arc::new(AtomicBool::new(false));
-    let active = Arc::new(Mutex::new((hello_id, Arc::clone(&startup_cancel))));
-    let incoming = input::start(reader, Arc::clone(&active), hello_id);
+    let (admission, startup_cancel) = admission::Admission::starting(hello_id);
+    let incoming = input::start(reader, admission.clone());
     let initialized = (|| -> Result<_> {
         let runtime = path(&hello.runtime_dir, true)?;
         let detector = path(&hello.detector_model, false)?;
@@ -70,7 +67,7 @@ fn run() -> Result<()> {
     if startup_cancel.load(Ordering::Acquire) {
         return Ok(());
     }
-    active.lock().unwrap().0 = 0;
+    admission.finish(hello_id);
     stream::write_event(
         &mut writer,
         hello_id,
@@ -152,15 +149,7 @@ fn run() -> Result<()> {
                 },
             }
         };
-        // Clear admission before sending the terminal event; a following request
-        // must not race against the previous capture's busy state.
-        {
-            let mut current = active.lock().unwrap();
-            if current.0 == id {
-                current.0 = 0;
-            }
-        }
-        stream::write_event(&mut writer, id, &terminal)?;
+        admission::send_terminal(&mut writer, &admission, id, &terminal)?;
     }
     Ok(())
 }

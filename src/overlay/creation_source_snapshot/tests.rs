@@ -48,41 +48,6 @@ fn accepted_snapshot_survives_original_deletion_and_releases_exactly() {
 }
 
 #[test]
-fn presentation_paths_preserve_every_reference_in_frozen_order() {
-    let root = test_root();
-    std::fs::create_dir(&root).unwrap();
-    let first = source(&root.join("first.png"), [240, 10, 20]);
-    let second = source(&root.join("second.png"), [10, 20, 240]);
-    let dispatch = dispatch();
-    let assignment = prepare("image", &dispatch, &[first, second]).unwrap();
-    let descriptors = assignment.descriptors().to_vec();
-    assignment.persist();
-
-    let previews = presentation_paths(&descriptors).unwrap();
-    assert_eq!(previews.len(), 2);
-    assert_ne!(previews[0], previews[1]);
-    let first_pixel = image::open(&previews[0])
-        .unwrap()
-        .to_rgb8()
-        .get_pixel(0, 0)
-        .0;
-    let second_pixel = image::open(&previews[1])
-        .unwrap()
-        .to_rgb8()
-        .get_pixel(0, 0)
-        .0;
-    assert_eq!(first_pixel, [240, 10, 20]);
-    assert_eq!(second_pixel, [10, 20, 240]);
-    assert_eq!(presentation_path(&descriptors).unwrap(), previews[0]);
-
-    release_intent(&descriptors, &dispatch).unwrap();
-    for preview in previews {
-        let _ = std::fs::remove_file(preview);
-    }
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn continuation_owner_keeps_source_after_base_intent_and_releases_on_expiry_path() {
     let root = test_root();
     std::fs::create_dir(&root).unwrap();
@@ -131,7 +96,7 @@ fn corrupted_manifest_cannot_redirect_cleanup_outside_snapshot_root() {
     let inspected = source(&original, [9, 8, 7]);
     source(&external, [6, 5, 4]);
     let dispatch = dispatch();
-    let assignment = prepare("image", &dispatch, &[inspected]).unwrap();
+    let assignment = prepare("svg", &dispatch, &[inspected]).unwrap();
     assignment.persist();
 
     let snapshots = snapshot_root().unwrap();

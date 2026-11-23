@@ -189,6 +189,30 @@ pub(super) struct DecodeThreadContext<'a> {
     pub d3d11_fence: Option<&'a ID3D11Fence>,
 }
 
+/// CPU decode thread context: VP converts into a readback texture and sends
+/// BGRA pixels. Used for the primary stream when its shared ring is unavailable
+/// and likewise for the webcam stream.
+pub(super) struct CpuDecodeContext<'a> {
+    pub label: &'static str,
+    pub cancel_flag: &'a std::sync::atomic::AtomicBool,
+    pub source_video_path: &'a str,
+    pub source_times: &'a [f64],
+    pub speed_points: &'a [SpeedPoint],
+    pub trim_segments: &'a [TrimSegment],
+    /// Initial seek when there are no trim segments.
+    pub fallback_seek: f64,
+    pub framerate: u32,
+    pub crop_x: u32,
+    pub crop_y: u32,
+    pub source_rect_width: u32,
+    pub source_rect_height: u32,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub active_mask: Option<&'a [bool]>,
+    pub tx: mpsc::SyncSender<DecodeOutput>,
+    pub recycle_rx: mpsc::Receiver<Vec<u8>>,
+}
+
 /// Render thread context: receives decoded frames, runs compositor, sends output to encoder.
 ///
 /// Decode input: GPU path copies shared decode texture to video_texture (fast GPU copy).
@@ -214,6 +238,7 @@ pub(super) struct RenderThreadContext<'a> {
     pub dec_keyed_mutexes: &'a [IDXGIKeyedMutex],
     pub webcam_rx: Option<mpsc::Receiver<DecodeOutput>>,
     pub webcam_gpu_recycle_tx: Option<mpsc::Sender<usize>>,
+    pub webcam_cpu_recycle_tx: Option<mpsc::Sender<Vec<u8>>>,
     pub webcam_wgpu_textures: &'a [wgpu::Texture],
     pub webcam_d3d12_fence: Option<&'a d3d12::ID3D12Fence>,
     pub webcam_keyed_mutexes: &'a [IDXGIKeyedMutex],
@@ -237,7 +262,7 @@ pub(super) struct EncodeThreadContext<'a> {
     pub enc_device_manager: &'a super::super::mf_decode::DxgiDeviceManager,
     pub progress: Option<ProgressCallback>,
     pub cancel_flag: &'a std::sync::atomic::AtomicBool,
-    pub rx: &'a mpsc::Receiver<RenderOutput>,
+    pub rx: mpsc::Receiver<RenderOutput>,
     pub total_frames: u32,
     pub start: &'a std::time::Instant,
     pub gpu_buffers: &'a [SharedVramBuffer],
@@ -249,8 +274,13 @@ pub(super) struct EncodeThreadContext<'a> {
 pub(super) struct WebcamDecodeSetup {
     pub d3d_device: ID3D11Device,
     pub d3d_context: ID3D11DeviceContext,
-    pub ring: DecodeInputRing,
+    /// None when the zero-copy ring is unavailable: the webcam then decodes on
+    /// the CPU path, as the primary stream does.
+    pub ring: Option<DecodeInputRing>,
+    /// Webcam media times: export source times minus the webcam offset.
     pub source_times: Vec<f64>,
+    /// Trim segments in the same webcam media time as `source_times`.
+    pub trim_segments: Vec<TrimSegment>,
     pub active_mask: Vec<bool>,
     pub source_width: u32,
     pub source_height: u32,

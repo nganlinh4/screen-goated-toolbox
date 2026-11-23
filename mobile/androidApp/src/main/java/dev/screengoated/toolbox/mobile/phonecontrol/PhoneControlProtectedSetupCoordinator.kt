@@ -32,10 +32,16 @@ internal class PhoneControlProtectedSetupCoordinator(
         PhoneControlProtectedCheckpointToken,
         Boolean,
     ) -> Unit = { _, _, _ -> },
+    private val reconcileRejectedGuidance: (PhoneControlProtectedCheckpointToken) -> Unit,
     private val adapters: Map<String, PhoneControlProtectedSetupAdapter> = mapOf(
         SGT_ADB_PROVIDER_ID to SgtAdbProtectedSetupAdapter,
         SHIZUKU_PROVIDER_ID to ShizukuProtectedSetupAdapter,
     ),
+    private val publishUserStepNotification: (String) -> Unit = { guidance ->
+        // Do not attach the normal setup continuation: tapping it would resume
+        // capture while the system pairing surface may still contain a secret.
+        PhoneControlSetupNotification.show(context, guidance, null)
+    },
 ) : Closeable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val continuation = PhoneControlProtectedSetupContinuation()
@@ -52,13 +58,28 @@ internal class PhoneControlProtectedSetupCoordinator(
         adapters[providerId]?.navigationContract
 
     fun start(providerId: String, token: PhoneControlProtectedCheckpointToken) {
+        if (!PhoneControlProtectedCheckpointRegistry.owns(token)) return
         cancel()
         continuation.begin()
-        replaceGuidance(
-            providerId,
-            context.phoneControlString(R.string.phone_control_private_setup_working),
-        )
         val adapter = adapters[providerId]
+        val guidance = context.phoneControlString(
+            adapter?.userStepGuidance ?: R.string.phone_control_private_setup_working,
+        )
+        val accepted = replaceGuidance(
+            providerId,
+            guidance,
+        )
+        if (!accepted) {
+            if (PhoneControlProtectedCheckpointRegistry.owns(token)) {
+                reconcileRejectedGuidance(token)
+            }
+            return
+        }
+        if (adapter?.userStepGuidance != null &&
+            PhoneControlProtectedCheckpointRegistry.owns(token)
+        ) {
+            publishUserStepNotification(guidance)
+        }
         if (adapter == null) {
             publishPending(providerId, token, "adapter_unavailable")
             return
@@ -107,7 +128,11 @@ internal class PhoneControlProtectedSetupCoordinator(
         authoritySetup: PhoneControlAuthoritySetupController,
         resumeSelectedSetup: () -> Unit,
     ) {
-        val shouldResume = continuation.consumeResumeSelectedSetup()
+        // Called only after the owning checkpoint accepts a fresh projection.
+        // Its fallback notification must also retire when no setup resumes.
+        val shouldResume = continuation.projectionAttached {
+            PhoneControlSetupNotification.clear(context)
+        }
         PhoneControlLog.i(
             TAG,
             "protected_setup_projection_resume accepted=$shouldResume " +

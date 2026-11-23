@@ -5,12 +5,13 @@
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
+mod file_load;
 mod media_load;
 mod paste;
 
 use crate::APP;
 use crate::overlay::preset_wheel::{
-    show_custom_wheel, show_preset_wheel, show_preset_wheel_with_extra,
+    show_custom_wheel, show_preset_wheel_id, show_preset_wheel_with_extra,
 };
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
@@ -19,6 +20,7 @@ use crate::task_runtime::{TaskClass, spawn_detached};
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -27,6 +29,7 @@ pub(crate) use media_load::load_audio_file;
 pub use paste::handle_paste;
 
 type CapturedImagePayload = (ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>);
+static DROP_SELECTOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Image file extensions we support
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -62,9 +65,73 @@ fn is_subtitle_extension(ext: &str) -> bool {
     SUBTITLE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
-/// Load a text file content
-fn load_text_file(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path).ok()
+fn notify_drop_error(error: file_load::DropError) {
+    let text = {
+        let app = APP.lock().unwrap();
+        let shell = crate::gui::locale::LocaleText::get(&app.config.ui_language).shell;
+        match error {
+            file_load::DropError::TooLarge => shell.drop_too_large,
+            file_load::DropError::Unsupported => shell.drop_unsupported,
+            file_load::DropError::ReadFailed => shell.drop_read_failed,
+            file_load::DropError::Busy => shell.drop_busy,
+            file_load::DropError::ProcessingFailed => shell.drop_process_failed,
+        }
+    };
+    crate::overlay::auto_copy_badge::show_error_notification(text);
+}
+
+fn spawn_drop_load(class: TaskClass, name: &'static str, work: impl FnOnce() + Send + 'static) {
+    if crate::task_runtime::spawn(class, name, move |_| work()).is_err() {
+        notify_drop_error(file_load::DropError::ProcessingFailed);
+    }
+}
+
+fn reserve_drop() -> Option<file_load::SelectionGuard<'static>> {
+    let guard = file_load::SelectionGuard::try_acquire(&DROP_SELECTOR_ACTIVE);
+    if guard.is_none() {
+        notify_drop_error(file_load::DropError::Busy);
+    }
+    guard
+}
+
+fn spawn_drop_selector(
+    guard: file_load::SelectionGuard<'static>,
+    work: impl FnOnce() + Send + 'static,
+) {
+    if std::thread::Builder::new()
+        .name("dropped-file-selector".into())
+        .spawn(move || {
+            let _guard = guard;
+            work();
+        })
+        .is_err()
+    {
+        notify_drop_error(file_load::DropError::ProcessingFailed);
+    }
+}
+
+fn select_preset(
+    filter: &str,
+    cursor_pos: POINT,
+) -> Option<(crate::config::Config, crate::config::Preset)> {
+    let id = show_preset_wheel_id(filter, None, cursor_pos)?;
+    let selected = {
+        let mut app = APP.lock().unwrap();
+        select_current_preset(&mut app.config, &id).map(|preset| (app.config.clone(), preset))
+    };
+    if selected.is_none() {
+        notify_drop_error(file_load::DropError::ProcessingFailed);
+    }
+    selected
+}
+
+fn select_current_preset(
+    config: &mut crate::config::Config,
+    id: &str,
+) -> Option<crate::config::Preset> {
+    let index = config.presets.iter().position(|preset| preset.id == id)?;
+    config.active_preset_idx = index;
+    Some(config.presets[index].clone())
 }
 
 /// Get cursor position for wheel placement
@@ -89,43 +156,31 @@ fn get_screen_rect_at_cursor() -> RECT {
 
 /// Process dropped/pasted image content
 fn process_image_content(img: ImageBuffer<Rgba<u8>, Vec<u8>>) {
-    let cursor_pos = get_cursor_pos();
+    process_image_content_at(img, get_cursor_pos());
+}
 
+fn process_image_content_at(img: ImageBuffer<Rgba<u8>, Vec<u8>>, cursor_pos: POINT) {
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_current();
     // Show image preset wheel (no filter_mode = all image presets)
-    let selected = show_preset_wheel("image", None, cursor_pos);
-
-    if let Some(preset_idx) = selected {
-        let (config, preset) = {
-            let mut app = APP.lock().unwrap();
-            // Update active preset for auto-paste to work correctly
-            app.config.active_preset_idx = preset_idx;
-            (app.config.clone(), app.config.presets[preset_idx].clone())
-        };
-
+    if let Some((config, preset)) = select_preset("image", cursor_pos) {
         let rect = get_screen_rect_at_cursor();
 
         // Spawn processing in background thread
         spawn_detached(TaskClass::Io, "dropped-image-pipeline", move || {
-            start_processing_pipeline(img, rect, config, preset);
+            start_processing_pipeline(img, rect, config, preset, destination);
         });
     }
 }
 
 /// Process dropped/pasted text content
 fn process_text_content(text: String) {
-    let cursor_pos = get_cursor_pos();
+    process_text_content_at(text, get_cursor_pos());
+}
 
+fn process_text_content_at(text: String, cursor_pos: POINT) {
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_current();
     // Show text preset wheel without mode filter (shows both select and type presets)
-    let selected = show_preset_wheel("text", None, cursor_pos);
-
-    if let Some(preset_idx) = selected {
-        let (config, preset) = {
-            let mut app = APP.lock().unwrap();
-            // Update active preset for auto-paste to work correctly
-            app.config.active_preset_idx = preset_idx;
-            (app.config.clone(), app.config.presets[preset_idx].clone())
-        };
-
+    if let Some((config, preset)) = select_preset("text", cursor_pos) {
         let rect = get_screen_rect_at_cursor();
         let ui_lang = config.ui_language.clone();
         let localized_name =
@@ -138,62 +193,32 @@ fn process_text_content(text: String) {
 
         // Spawn processing in background thread
         spawn_detached(TaskClass::Io, "dropped-text-pipeline", move || {
-            start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
+            start_text_processing(
+                text,
+                rect,
+                config,
+                preset,
+                localized_name,
+                cancel_hotkey,
+                destination,
+            );
         });
     }
 }
 
 /// Process image content in parallel (show wheel immediately, wait for load)
-fn process_image_parallel(rx: mpsc::Receiver<Option<CapturedImagePayload>>) {
-    let cursor_pos = get_cursor_pos();
-    let selected = show_preset_wheel("image", None, cursor_pos);
-
-    if let Some(preset_idx) = selected {
-        crate::log_info!("Image preset selected: {}", preset_idx);
-        let (config, preset) = {
-            let mut app = APP.lock().unwrap();
-            app.config.active_preset_idx = preset_idx;
-            (app.config.clone(), app.config.presets[preset_idx].clone())
-        };
+fn process_image_parallel(rx: mpsc::Receiver<Option<CapturedImagePayload>>, cursor_pos: POINT) {
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_current();
+    if let Some((config, preset)) = select_preset("image", cursor_pos) {
         let rect = get_screen_rect_at_cursor();
 
         // Use parallel pipeline to show window immediately while waiting for data
-        start_processing_pipeline_parallel(rx, rect, config, preset);
-    }
-}
-
-/// Process text content in parallel
-fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
-    let cursor_pos = get_cursor_pos();
-    let selected = show_preset_wheel("text", None, cursor_pos);
-
-    if let Some(preset_idx) = selected {
-        crate::log_info!("Text preset selected: {}", preset_idx);
-        let (config, preset) = {
-            let mut app = APP.lock().unwrap();
-            app.config.active_preset_idx = preset_idx;
-            (app.config.clone(), app.config.presets[preset_idx].clone())
-        };
-
-        let rect = get_screen_rect_at_cursor();
-        let ui_lang = config.ui_language.clone();
-        let localized_name =
-            crate::gui::settings_ui::get_localized_preset_name(&preset.id, &ui_lang);
-        let cancel_hotkey = preset
-            .hotkeys
-            .first()
-            .map(|h| h.display_name())
-            .unwrap_or_default();
-
-        spawn_detached(TaskClass::Interactive, "dropped-text-receive", move || {
-            if let Ok(Some(text)) = rx.recv() {
-                start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
-            }
-        });
+        start_processing_pipeline_parallel(rx, rect, config, preset, destination);
     }
 }
 
 fn process_audio_parallel_with_preset(rx: mpsc::Receiver<Option<Vec<u8>>>, preset_idx: usize) {
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_current();
     let preset = {
         let mut app = APP.lock().unwrap();
         app.config.active_preset_idx = preset_idx;
@@ -202,7 +227,7 @@ fn process_audio_parallel_with_preset(rx: mpsc::Receiver<Option<Vec<u8>>>, prese
 
     spawn_detached(TaskClass::Interactive, "dropped-audio-receive", move || {
         if let Ok(Some(wav_data)) = rx.recv() {
-            crate::api::audio::process_audio_file_request(preset, wav_data);
+            crate::api::audio::process_audio_file_request(preset, wav_data, destination);
         }
     });
 }
@@ -356,35 +381,59 @@ pub fn process_file_path(path: &Path) {
 
     if is_video_extension(ext) {
         crate::log_info!("Type detected: VIDEO");
-        process_video_path(path);
+        // Every wheel runs its own message loop, so it never runs on the UI thread.
+        let Some(guard) = reserve_drop() else {
+            return;
+        };
+        spawn_drop_selector(guard, move || process_video_path(&path_clone));
     } else if is_subtitle_extension(ext) {
         crate::log_info!("Type detected: SUBTITLE");
         open_subtitle_in_screen_record(path);
     } else if is_image_extension(ext) {
         crate::log_info!("Type detected: IMAGE");
-        let (tx, rx) = mpsc::channel();
-        spawn_detached(TaskClass::Cpu, "dropped-image-load", move || {
-            // Read file bytes directly (preserves original format e.g. JPEG)
-            if let Ok(bytes) = std::fs::read(&path_clone)
-                && let Ok((rgba, source_bytes)) = crate::image_decode::load_for_pipeline(bytes)
-            {
-                let _ = tx.send(Some((rgba, source_bytes)));
-                return;
+        let Some(guard) = reserve_drop() else {
+            return;
+        };
+        let cursor_pos = get_cursor_pos();
+        spawn_drop_load(TaskClass::Cpu, "dropped-image-load", move || {
+            let image = file_load::read_file(&path_clone, crate::image_decode::MAX_ENCODED_BYTES)
+                .and_then(|bytes| {
+                    crate::image_decode::load_for_pipeline(bytes)
+                        .map_err(|_| file_load::DropError::Unsupported)
+                });
+            match image {
+                Ok(payload) => {
+                    let (tx, rx) = mpsc::channel();
+                    let _ = tx.send(Some(payload));
+                    spawn_drop_selector(guard, move || process_image_parallel(rx, cursor_pos));
+                }
+                Err(error) => notify_drop_error(error),
             }
-            let _ = tx.send(None);
         });
-        process_image_parallel(rx);
     } else if is_audio_extension(ext) {
         crate::log_info!("Type detected: AUDIO");
-        process_audio_path(path);
+        let Some(guard) = reserve_drop() else {
+            return;
+        };
+        spawn_drop_selector(guard, move || process_audio_path(&path_clone));
     } else {
-        crate::log_info!("Type detected: TEXT (Default)");
-        // Default to Text (covers text files and unknown extensions)
-        let (tx, rx) = mpsc::channel();
-        spawn_detached(TaskClass::Io, "dropped-text-load", move || {
-            let _ = tx.send(load_text_file(&path_clone));
-        });
-        process_text_parallel(rx);
+        crate::log_info!("Type detected: possible text");
+        let Some(guard) = reserve_drop() else {
+            return;
+        };
+        let cursor_pos = get_cursor_pos();
+        spawn_drop_load(
+            TaskClass::Io,
+            "dropped-text-load",
+            move || match file_load::read_file(&path_clone, file_load::MAX_TEXT_BYTES)
+                .and_then(file_load::text)
+            {
+                Ok(text) => {
+                    spawn_drop_selector(guard, move || process_text_content_at(text, cursor_pos))
+                }
+                Err(error) => notify_drop_error(error),
+            },
+        );
     }
 }
 
@@ -408,7 +457,9 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
         .collect();
     if !audio_paths.is_empty() && audio_paths.len() == dropped_files.len() {
         crate::log_info!("Handling dropped audio files: {}", audio_paths.len());
-        process_audio_paths(&audio_paths);
+        if let Some(guard) = reserve_drop() {
+            spawn_drop_selector(guard, move || process_audio_paths(&audio_paths));
+        }
         return true;
     }
 
@@ -422,21 +473,33 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
         }
         // If path is not available, use existing byte handling (already threaded but serial load->process)
         else if let Ok(bytes) = file.bytes() {
+            let Some(guard) = reserve_drop() else {
+                return true;
+            };
             let bytes_clone = bytes;
-            spawn_detached(TaskClass::Cpu, "dropped-bytes-decode", move || {
+            let cursor_pos = get_cursor_pos();
+            spawn_drop_load(TaskClass::Cpu, "dropped-bytes-decode", move || {
+                if bytes_clone.len() > crate::image_decode::MAX_ENCODED_BYTES {
+                    notify_drop_error(file_load::DropError::TooLarge);
+                    return;
+                }
                 // Try to interpret as image first
                 if let Ok(img) = crate::image_decode::load_from_memory(&bytes_clone) {
                     let rgba = img.to_rgba8();
-                    // For direct bytes drop, we also pass the bytes as "original"
-                    process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?
-                // NOTE: process_image_content expects just ImageBuffer.
-                // To support zero-copy for bytes-drop too, we would need to update process_image_content.
-                // But user specifically asked for "dragging job" (files).
-                // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
+                    spawn_drop_selector(guard, move || process_image_content_at(rgba, cursor_pos));
                 }
                 // Try as text
-                else if let Ok(text) = String::from_utf8(bytes_clone.to_vec()) {
-                    process_text_content(text);
+                else {
+                    if bytes_clone.len() > file_load::MAX_TEXT_BYTES {
+                        notify_drop_error(file_load::DropError::TooLarge);
+                        return;
+                    }
+                    match file_load::text(bytes_clone.to_vec()) {
+                        Ok(text) => spawn_drop_selector(guard, move || {
+                            process_text_content_at(text, cursor_pos)
+                        }),
+                        Err(error) => notify_drop_error(error),
+                    }
                 }
             });
             return true;
@@ -449,4 +512,59 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 /// Check if files are currently being dragged over the window (not yet dropped)
 pub fn is_files_hovered(ctx: &egui::Context) -> bool {
     ctx.input(|i| !i.raw.hovered_files.is_empty())
+}
+
+#[cfg(test)]
+mod drop_selector_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// The wheel's message loop runs on its own thread: the UI thread returns
+    /// at once, and the drop reservation lasts until the selection finishes.
+    #[test]
+    fn selector_work_runs_off_the_calling_thread_and_holds_the_reservation() {
+        static ACTIVE: AtomicBool = AtomicBool::new(false);
+        let guard = file_load::SelectionGuard::try_acquire(&ACTIVE).unwrap();
+        let caller = std::thread::current().id();
+        let (release, gate) = mpsc::channel::<()>();
+        let (report, finished) = mpsc::channel();
+        spawn_drop_selector(guard, move || {
+            let _ = gate.recv_timeout(Duration::from_secs(5));
+            let _ = report.send(std::thread::current().id());
+        });
+        let reserved_while_selecting = file_load::SelectionGuard::try_acquire(&ACTIVE).is_none();
+        release.send(()).unwrap();
+        let worker = finished.recv_timeout(Duration::from_secs(5)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while ACTIVE.load(std::sync::atomic::Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline, "reservation leaked");
+            std::thread::yield_now();
+        }
+        assert!(reserved_while_selecting);
+        assert_ne!(worker, caller);
+    }
+
+    #[test]
+    fn every_wheel_opening_drop_goes_through_the_selector_thread() {
+        let source = include_str!("input_handler.rs");
+        let dispatch = &source[source.find("pub fn process_file_path").unwrap()
+            ..source.find("pub fn is_files_hovered").unwrap()];
+        for call in [
+            "process_video_path(",
+            "process_audio_path(",
+            "process_audio_paths(",
+            "process_image_parallel(",
+            "process_text_content_at(",
+            "process_image_content_at(",
+        ] {
+            for (offset, _) in dispatch.match_indices(call) {
+                let before = &dispatch[..offset];
+                let selector = before.rfind("spawn_drop_selector(").unwrap_or(0);
+                assert!(
+                    selector > 0 && !before[selector..].contains(';'),
+                    "{call} must run inside spawn_drop_selector"
+                );
+            }
+        }
+    }
 }

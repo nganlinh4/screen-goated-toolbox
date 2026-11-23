@@ -43,8 +43,6 @@ internal fun providerIsAvailable(
         settings.providerSettings.useOllama && apiKeys.ollamaBaseUrl.isNotBlank()
     PresetModelProvider.GOOGLE_GTX,
     PresetModelProvider.QRSERVER,
-    PresetModelProvider.PARAKEET,
-    PresetModelProvider.MOONSHINE,
     PresetModelProvider.TAALAS,
     -> true
 }
@@ -164,23 +162,15 @@ internal fun resolveNextRetryModel(
     chainKind: PresetRetryChainKind,
     apiKeys: ApiKeys,
     settings: PresetRuntimeSettings,
+    searchEnabled: Boolean,
+    orderedModels: List<String>? = null,
 ): PresetModelDescriptor? {
     val current = PresetModelCatalog.getById(currentModelId) ?: return null
-    val mustSupportSearch = PresetModelCatalog.supportsSearchById(currentModelId)
+    val mustSupportSearch = searchEnabled
     val targetType = chainKind.targetModelType()
-    val explicit = chainKind.effectiveChain(settings, apiKeys)
-
-    explicit.firstNotNullOfOrNull { candidateId ->
-        val candidate = PresetModelCatalog.getById(candidateId) ?: return@firstNotNullOfOrNull null
-        if (candidate.id == currentModelId || candidate.id in failedModelIds) {
-            return@firstNotNullOfOrNull null
-        }
-        if (isRetryCandidateCompatible(candidate, targetType, mustSupportSearch, blockedProviders, apiKeys, settings)) {
-            candidate
-        } else {
-            null
-        }
-    }?.let { return it }
+    resolveNextConfiguredRetryModel(
+        currentModelId, failedModelIds, blockedProviders, chainKind, apiKeys, settings, searchEnabled, orderedModels,
+    )?.let { return it }
 
     PresetModelCatalog.runtimeModels()
         .filter { it.provider == current.provider }
@@ -198,6 +188,42 @@ internal fun resolveNextRetryModel(
         }
 }
 
+internal fun resolveNextConfiguredRetryModel(
+    currentModelId: String,
+    failedModelIds: List<String>,
+    blockedProviders: Set<PresetModelProvider>,
+    chainKind: PresetRetryChainKind,
+    apiKeys: ApiKeys,
+    settings: PresetRuntimeSettings,
+    searchEnabled: Boolean,
+    orderedModels: List<String>? = null,
+): PresetModelDescriptor? {
+    val explicit = orderedModels ?: chainKind.effectiveChain(settings, apiKeys)
+    val targetType = chainKind.targetModelType()
+
+    return explicit.firstNotNullOfOrNull { candidateId ->
+        val candidate = PresetModelCatalog.getById(candidateId) ?: return@firstNotNullOfOrNull null
+        if (candidate.id == currentModelId || candidate.id in failedModelIds) {
+            return@firstNotNullOfOrNull null
+        }
+        if (isRetryCandidateCompatible(candidate, targetType, searchEnabled, blockedProviders, apiKeys, settings)) {
+            candidate
+        } else {
+            null
+        }
+    }
+}
+
+internal fun retrySearchCompatible(model: PresetModelDescriptor, searchEnabled: Boolean): Boolean =
+    (searchEnabled || !model.searchToolEnabledByDefault) &&
+        (!searchEnabled || PresetModelCatalog.supportsTextSearch(model))
+
+internal fun requireExplicitSearchOptIn(model: PresetModelDescriptor, searchEnabled: Boolean) {
+    require(searchEnabled || !model.searchToolEnabledByDefault) {
+        "SEARCH_REQUIRES_EXPLICIT_OPT_IN:${model.id}"
+    }
+}
+
 private fun isRetryCandidateCompatible(
     model: PresetModelDescriptor,
     targetType: PresetModelType,
@@ -211,7 +237,7 @@ private fun isRetryCandidateCompatible(
         feedAllowsRuntimeModel(model, settings, apiKeys) &&
         model.provider !in blockedProviders &&
         providerIsAvailable(model.provider, apiKeys, settings) &&
-        (!mustSupportSearch || PresetModelCatalog.supportsSearchById(model.id))
+        retrySearchCompatible(model, mustSupportSearch)
 }
 
 private fun providerKey(provider: PresetModelProvider): String = when (provider) {
@@ -223,8 +249,6 @@ private fun providerKey(provider: PresetModelProvider): String = when (provider)
     PresetModelProvider.GEMINI_LIVE -> "gemini-live"
     PresetModelProvider.OLLAMA -> "ollama"
     PresetModelProvider.QRSERVER -> "qrserver"
-    PresetModelProvider.PARAKEET -> "parakeet"
-    PresetModelProvider.MOONSHINE -> "moonshine"
     PresetModelProvider.TAALAS -> "taalas"
 }
 

@@ -1,110 +1,91 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
+import dev.screengoated.toolbox.mobile.phonecontrol.authorization.PreparedResourceMutation
 import dev.screengoated.toolbox.mobile.phonecontrol.authorization.ResourceAuthorizationDecision
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.AndroidProviderResult
-import dev.screengoated.toolbox.mobile.phonecontrol.provider.FileMutationTargetLease
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.NioTestFileTransactionIo
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.PreparedFileTarget
+import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class ResourceScopedMutationTest {
-    @Test
-    fun `rejected target never reaches mutation edge`() = runTest {
-        var invoked = false
+    @get:Rule val temporaryFolder = TemporaryFolder()
 
-        val result = executeResourceScopedMutation(
-            tool = "edit_text_file",
-            arguments = buildJsonObject { put("path", "/outside.txt") },
-            authorizer = { _, _ ->
-                ResourceAuthorizationDecision(
-                    authorized = false,
-                    code = "ERR_FILE_TARGET_REQUEST_CONTRACT_REJECTED",
-                    message = "target is outside scope",
-                    data = buildJsonObject {
-                        put("authorized", false)
-                        put("original_unchanged", true)
-                    },
-                    targetLease = null,
-                )
-            },
-        ) { _ ->
+    private fun prepared(): PreparedResourceMutation =
+        PreparedFileTarget.prepare(File(temporaryFolder.root, "output.txt").absolutePath, 1024, NioTestFileTransactionIo())
+            .use { PreparedResourceMutation("save_artifact", it) }
+
+    @Test fun rejectedTargetNeverReachesMutationEdge() = runTest {
+        var invoked = false
+        val result = executeResourceScopedMutation("save_artifact", prepared(), { _, _ ->
+            ResourceAuthorizationDecision(false, "ERR_FILE_TARGET_REQUEST_CONTRACT_REJECTED", "outside scope",
+                buildJsonObject { put("authorized", false); put("original_unchanged", true) }, null)
+        }) {
             invoked = true
             AndroidProviderResult.Success(buildJsonObject {})
         }
-
         assertFalse(invoked)
-        assertTrue(result is AndroidProviderResult.Failure)
-        result as AndroidProviderResult.Failure
-        assertEquals("ERR_FILE_TARGET_REQUEST_CONTRACT_REJECTED", result.code)
-        assertTrue(result.data.getValue("original_unchanged").jsonPrimitive.boolean)
+        val failure = result as AndroidProviderResult.Failure
+        assertEquals("ERR_FILE_TARGET_REQUEST_CONTRACT_REJECTED", failure.code)
+        assertTrue(failure.data.getValue("original_unchanged").jsonPrimitive.boolean)
     }
 
-    @Test
-    fun `authorized target evidence survives provider failure`() = runTest {
-        val result = executeResourceScopedMutation(
-            tool = "save_artifact",
-            arguments = buildJsonObject { put("path", "/output.txt") },
-            authorizer = { _, _ ->
-                ResourceAuthorizationDecision(
-                    authorized = true,
-                    code = "ok",
-                    message = "target is in scope",
-                    data = buildJsonObject {
-                        put("authorized", true)
-                        put("positive_verdicts", 2)
-                    },
-                    targetLease = missingTargetLease(),
-                )
-            },
-        ) { _ ->
-            AndroidProviderResult.Failure("path_exists", "already exists")
-        }
-
-        assertTrue(result is AndroidProviderResult.Failure)
-        result as AndroidProviderResult.Failure
+    @Test fun authorizedEvidenceSurvivesAnUncertainProviderFailureWithoutUpgradingIt() = runTest {
+        val proposal = prepared()
+        val result = executeResourceScopedMutation("save_artifact", proposal, { _, _ ->
+            ResourceAuthorizationDecision(true, "ok", "scope",
+                buildJsonObject { put("authorized", true); put("positive_verdicts", 2) }, proposal.targetLease)
+        }) {
+            AndroidProviderResult.Failure("hash_mismatch", "changed",
+                data = buildJsonObject { put("retained_staging_path", "owned-stage") },
+                effect = EffectCertainty.MAY_HAVE_OCCURRED)
+        } as AndroidProviderResult.Failure
         val evidence = result.data.getValue("resource_scope_authorization").jsonObject
         assertTrue(evidence.getValue("authorized").jsonPrimitive.boolean)
         assertEquals(2, evidence.getValue("positive_verdicts").jsonPrimitive.content.toInt())
+        val execution = providerResult(PhoneControlToolJobContext(1, "scope-test", 1), "save_artifact",
+            "artifact_access", "android_app_api", true, result)
+        assertEquals("may_have_occurred", execution.response.string("effect_status"))
+        assertEquals(false, execution.response.boolean("effect_verified"))
+        assertEquals("owned-stage", execution.response.string("retained_staging_path"))
     }
 
-    @Test
-    fun `authorized verdict without a target lease cannot reach mutation edge`() = runTest {
-        var invoked = false
+    @Test fun missingOrDifferentApprovedLeaseCannotReachMutationEdge() = runTest {
+        val proposal = prepared()
+        for (missing in listOf(true, false)) {
+            var invoked = false
+            val result = executeResourceScopedMutation("save_artifact", proposal, { _, _ ->
+                ResourceAuthorizationDecision(true, "ok", "scope", buildJsonObject {},
+                    if (missing) null else proposal.targetLease.copy(canonicalPath = File(temporaryFolder.root, "other.txt").absolutePath))
+            }) {
+                invoked = true
+                AndroidProviderResult.Success(buildJsonObject {})
+            } as AndroidProviderResult.Failure
+            assertFalse(invoked)
+            assertEquals(if (missing) "ERR_FILE_TARGET_AUTHORIZATION_LEASE_MISSING" else "ERR_FILE_TARGET_AUTHORIZATION_LEASE_CHANGED", result.code)
+        }
+    }
 
-        val result = executeResourceScopedMutation(
-            tool = "save_artifact",
-            arguments = buildJsonObject { put("path", "/output.txt") },
-            authorizer = { _, _ ->
-                ResourceAuthorizationDecision(
-                    authorized = true,
-                    code = "ok",
-                    message = "malformed authorization",
-                    data = buildJsonObject { put("authorized", true) },
-                    targetLease = null,
-                )
-            },
-        ) { _ ->
+    @Test fun revisedAuthorityCannotReachMutationEdge() = runTest {
+        val proposal = prepared()
+        var invoked = false
+        val result = executeResourceScopedMutation("save_artifact", proposal, { _, _ ->
+            ResourceAuthorizationDecision(true, "ok", "prior scope", buildJsonObject {}, proposal.targetLease, isCurrent = { false })
+        }) {
             invoked = true
             AndroidProviderResult.Success(buildJsonObject {})
-        }
-
+        } as AndroidProviderResult.Failure
         assertFalse(invoked)
-        assertTrue(result is AndroidProviderResult.Failure)
-        result as AndroidProviderResult.Failure
-        assertEquals("ERR_FILE_TARGET_AUTHORIZATION_LEASE_MISSING", result.code)
-        assertTrue(result.data.getValue("original_unchanged").jsonPrimitive.boolean)
+        assertEquals("ERR_FILE_TARGET_AUTHORIZATION_LEASE_CHANGED", result.code)
     }
-
-    private fun missingTargetLease() = FileMutationTargetLease(
-        canonicalPath = "/output.txt",
-        existedBefore = false,
-        expectedSha256 = null,
-    )
 }

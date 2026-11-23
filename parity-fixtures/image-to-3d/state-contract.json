@@ -1,6 +1,15 @@
 {
-  "schemaVersion": 73,
+  "schemaVersion": 75,
   "tool": "image-to-3d",
+  "workerRequestSettings": {
+    "topologyField": "topology",
+    "automaticSeparationLevelField": "segmentationLevel",
+    "legacyTopology": "derived_from_auto_segment",
+    "legacySeparationLevel": "detailed",
+    "topologies": ["triangle", "quad"],
+    "separationLevels": ["simple", "balanced", "detailed"],
+    "quadWithAutomaticSeparation": "rejected"
+  },
   "runtimeDelivery": {
     "authority": "tracked-immutable-contract",
     "sharedAcrossWindowsAndAndroid": true,
@@ -37,7 +46,7 @@
     "outputFormat": "glb_plain"
   },
   "limits": {
-    "minimumPolycount": 100,
+    "minimumPolycount": 500,
     "maximumPolycount": 20000,
     "maximumParallelJobs": 2,
     "maximumJobRuntimeMs": 7200000,
@@ -220,6 +229,8 @@
   },
   "generationModes": {
     "default": "quality",
+    "newRequestModes": ["quality"],
+    "savedRequestModes": ["fast", "quality"],
     "selectionVisible": true,
     "implementationBrandingVisible": false,
     "requestedPolycountForwardedExactly": true,
@@ -274,7 +285,7 @@
   },
   "runtimeCapabilities": {
     "contractVersion": 1,
-    "deliveredFeatures": ["image_to_3d", "image_to_svg", "image_creator"],
+    "deliveredFeatures": ["image_to_3d", "image_to_svg"],
     "strictProductOnlyManifest": true,
     "malformedOrMissingCapabilityFailsClosed": true,
     "optionalInstruction": {
@@ -408,6 +419,7 @@
     "selectedRevisionOnly": true,
     "validatesCommittedSizeBeforeCopy": true,
     "validatesCommittedSha256BeforeCopy": true,
+    "rejectsChangedCommittedArtifactBeforeCopy": true,
     "neverOverwritesExistingFiles": true,
     "companionUsesSharedCollisionSuffix": true,
     "verifiesPublishedBytes": true,
@@ -415,6 +427,12 @@
     "exportedCopiesAreNeverPruned": true
   },
   "presentation": {
+    "compactViewport": {
+      "windowActionsRemainReachable": true,
+      "creationControlsRemainReachable": true,
+      "windowsWorkspaceCanScrollHorizontally": true,
+      "railsCanScrollVertically": true
+    },
     "showImplementationBranding": false,
     "showImplementationSelection": false,
     "showGenerationModeSelection": true,
@@ -473,6 +491,14 @@
     "viewerSurfacesVisibleFromBothSides": true
   },
   "hostLifecycle": {
+    "cancellationCommit": {
+      "pendingDecisionStopsWorker": false,
+      "failedDecisionRestoresOldStatus": false,
+      "failedDecisionPreservesLatestWorkerState": true,
+      "durableCancellationStopsLatePublication": true,
+      "publicationWinnerRemainsDelivered": true,
+      "closeRequiresDurableDecisionBeforeComplete": true
+    },
     "executionLossRequeuesActiveJobExactlyOnce": true,
     "staleCompletionCannotReleaseNewExecution": true,
     "cancelWinsOverLateSuccess": true,

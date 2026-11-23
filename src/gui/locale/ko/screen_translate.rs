@@ -6,6 +6,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_subtitle_description: "이 영역에 나타나는 글자를 자동으로 번역합니다.",
         screen_translate_subtitle_toggle_hint: "{hotkey} 키로 영역 상자 표시/숨기기",
         screen_translate_subtitle_quit: "종료",
+        screen_translate_subtitle_display_changed: "디스플레이가 변경되어 자막 번역이 중지되었습니다. 다시 시작하려면 영역을 다시 선택하세요.",
         screen_translate_show_glow_box: "글로우 박스 애니메이션 표시",
         screen_translate_btn: "화면 번역",
         screen_translate_short_btn: "화면 번역",

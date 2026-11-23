@@ -1,8 +1,6 @@
 use crate::gui::locale::LocaleText;
 use crate::updater::{UpdateStatus, Updater};
 use eframe::egui;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 pub fn render_update_section_content(
     ui: &mut egui::Ui,
@@ -98,48 +96,7 @@ pub fn render_update_section_content(
             );
             ui.label(text.desktop_settings.restart_to_use_new_version);
             if ui.button(text.desktop_settings.restart_app_btn).clicked() {
-                let path = std::env::current_exe()
-                    .map_err(anyhow::Error::from)
-                    .and_then(|exe_path| staged.verified_path_beside(&exe_path));
-                let Ok(path) = path else {
-                    eprintln!("Refused to launch an unverified staged update");
-                    return;
-                };
-                println!("Attempting to spawn with delay: {:?}", path);
-
-                // Create a temporary batch file to handle the delayed restart reliably
-                // This avoids complex escaping issues with cmd /C inline commands
-                let kill_mutex_cmd = "timeout /t 2 /nobreak > NUL".to_string();
-                let start_cmd = format!("start \"\" \"{}\"", path.to_string_lossy());
-                let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
-
-                let batch_content = format!(
-                    "@echo off\r\n{}\r\n{}\r\n{}",
-                    kill_mutex_cmd, start_cmd, self_del_cmd
-                );
-
-                let temp_dir = std::env::temp_dir();
-                let bat_path = temp_dir.join(format!("sgt_restart_{}.bat", std::process::id()));
-
-                println!("Writing batch file to: {:?}", bat_path);
-                if std::fs::write(&bat_path, batch_content).is_ok() {
-                    // Spawn the batch file hidden via cmd /C
-                    let mut cmd = std::process::Command::new("cmd");
-                    cmd.args(["/C", &bat_path.to_string_lossy()]);
-                    #[cfg(windows)]
-                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-
-                    let status = cmd.spawn();
-
-                    match status {
-                        Ok(_) => crate::gui::app::exit_app(),
-                        Err(e) => {
-                            eprintln!("Failed to spawn batch file: {}", e);
-                        }
-                    }
-                } else {
-                    eprintln!("Failed to write batch file");
-                }
+                crate::gui::app::request_update_restart(staged.clone());
             }
         }
     }

@@ -50,8 +50,9 @@ export function createPromptDjInitialState(
     const savedPrompts = Array.isArray(parsed?.prompts) ? parsed.prompts : [];
     savedPrompts.forEach((saved) => {
       if (!saved || typeof saved.promptId !== 'string') return;
-      if (prompts.has(saved.promptId)) {
-        const existing = prompts.get(saved.promptId)!;
+      // Built-in slots outside the initial grid exist only once the user added them.
+      const existing = prompts.get(saved.promptId) ?? basePrompts.get(saved.promptId);
+      if (existing) {
         prompts.set(saved.promptId, {
           ...existing,
           text: typeof saved.text === 'string' ? saved.text : existing.text,
@@ -80,6 +81,8 @@ export function createPromptDjInitialState(
         (value): value is string => typeof value === 'string' && basePrompts.has(value),
       );
       removedSlots = new Set<string>(validRemovals);
+      // A removed slot renders as an add button; its prompt must not keep playing.
+      removedSlots.forEach((id) => prompts.delete(id));
     }
   } catch {
     // Ignore corrupt localStorage and keep default prompt layout.

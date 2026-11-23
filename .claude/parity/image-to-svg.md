@@ -1,13 +1,18 @@
 # Image to SVG Parity
 
+Storage and destination availability follow the shared
+[Creation storage contract](creation-storage.md).
+
+The creation backend is external. This contract covers the frontend, the host
+client/IPC side, and the delivery steps; backend internals are out of scope.
+
 ## Restoration Status
 
 - The mini app is an active optional creation capability on Windows, Android
   Full, and Android Play. Each platform exposes the same product contract and
   installs the checksum-pinned creation runtime before first use.
-- Image-to-SVG is delivered alongside Image to 3D and image creation/editing.
-  The three capabilities remain independently gated; image creation/editing is
-  currently packaged but hidden and rejects job admission.
+- Image-to-SVG is delivered alongside Image to 3D. The two capabilities remain
+  independently gated by their shared release-availability fixtures.
 
 ## Canonical Source
 
@@ -74,7 +79,7 @@
   connections may fail earlier. Inbound elapsed and estimated-duration values
   are bounded to the same two-hour ceiling before storage or presentation.
 - Progress preserves `draft`, `queued`, `preparing`, `generating`,
-  `finalizing`, `done`, `failed`, and `cancelled`.
+  `finalizing`, `cancelling`, `done`, `failed`, and `cancelled`.
 - The selected source preview, public stages, measured ETA, and real SVG are
   the generation visuals.
 - Queue and history rows use the shared image icon and never decode artwork.
@@ -116,6 +121,15 @@
   Edit paths action. After editing is activated they also include path
   selection, fill/stroke editing, undo, redo, shape deletion, and saving edits
   to the real SVG.
+- An edit is validated before publication. Saving never truncates the previous
+  result on failure, and the history ownership proof matches the saved bytes.
+  Android publishes edits as a new result in the original destination because
+  document providers do not guarantee atomic in-place replacement; the old
+  user-owned result remains available. A failed save retains the editor draft.
+  Managed originals retained for these copies remain visible and explicitly
+  removable even after ordinary history retention expires; they are labeled as
+  originals and do not count toward the ordinary history limit. If retention
+  state is unavailable, protect the files and leave unrelated history usable.
 - A stationary primary-pointer press on editable geometry selects that exact
   geometry in one interaction. Pointer capture begins only after the pan
   threshold, so it cannot retarget a click to the artboard and clear the
@@ -157,6 +171,11 @@
   commit, then recovery-intent removal. Restart reconciliation resumes that
   transaction without repeating generation or publishing a second copy. A
   published file with uncertain ownership is retained for the user.
+  Delivery retry is bounded. Before anything is published, a permanent
+  destination error (revoked folder access, missing destination or source) or
+  a persisted attempt budget ends the job as failed and releases its
+  reservation, staging output, and inputs; once a file is published, delivery
+  keeps resuming until history records it.
 - History rename is transactional. A failed index commit rolls the file move
   back, and restart reconciliation repairs an interrupted rename without
   orphaning the result.
@@ -208,27 +227,22 @@
 - A failed job remains failed and cannot publish a stale or previous result.
 - Submission and recovery are bounded; an accepted request is never submitted
   twice.
-- Preparation retries are bounded and use fresh execution state. A context that
-  cannot enter a clean workspace is quarantined for revalidation rather than
-  returned to the ready queue, and one transient capacity failure cannot poison
-  unrelated tools or every later SVG job.
-- A preparation instance whose rendering context stops responding is retired
-  before retry. Recreated execution state must use platform services belonging
-  to its own presentation surface so an app or system-runtime update cannot
-  preserve a mismatched context indefinitely.
-- A temporary capacity pause is waited through for a bounded interval before a
-  job fails. Recovery remains scoped to the affected product capability and
-  never exposes implementation details through UI, history, public diagnostics,
-  or the shared fixture.
-- Bounded recovery storage can never become a permanent preparation gate. When
-  its reserve is full, inactive least-useful preparation state is reclaimed
-  before a fresh workspace is admitted; live jobs, accepted recovery, published
-  artifacts, and user-owned files remain protected.
+- Execution preparation, capacity handling, and worker retirement are backend
+  internals. Recovery stays scoped to the affected product capability and never
+  exposes implementation details through UI, history, public diagnostics, or
+  the shared fixture.
 - Restart recovery binds to the same dispatch rather than submitting it again.
-- A recovery handoff publishes execution loss only after the prior worker has
-  finished cleanup, so recovery cannot race preparation against retiring state.
 - Cancellation wins over late success and stale completions cannot affect newer
   executions.
+- Input validation belongs to its captured submission. Closing or cancelling that
+  submission retires validation and its dialog before it can start work. Dismissing
+  the dialog submits nothing and leaves published results intact. A late start
+  acknowledgement is reconciled against that same submission and cancelled when
+  it was retired;it cannot replace another session's state.
+- Cancellation remains pending while the host reports `cancelling`. The surface
+  displays the authoritative cancellation outcome. A result committed before the
+  cancellation decision remains done;an unavailable decision is not presented as
+  successful cancellation.
 - A creation surface may contain multiple independent sessions. Closing it
   cancels its work, releases its owned execution resources, destroys the
   product surface, and prevents late completion from publishing.
@@ -244,9 +258,9 @@
 - Real UI acceptance submits one Simple job on Windows, Android Full, and
   Android Play. It selects the source and setting through the product surface,
   waits for a terminal state, and validates the committed SVG.
-- A failed real UI case retains bounded terminal diagnostics, triggers private
-  execution-readiness investigation and repair, then reruns in a fresh evidence
-  directory. Acceptance is incomplete until the repaired build completes the
+- A failed real UI case retains bounded terminal diagnostics and reruns in a
+  fresh evidence directory after repair; a backend-side cause is handed to the
+  backend repository. Acceptance is incomplete until the repaired build completes the
   real job and the committed SVG validates; repeated repair failures never
   cancel the required rerun.
 

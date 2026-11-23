@@ -73,9 +73,11 @@ fn live_modality_provider_acceptance() -> Result<()> {
         ..Default::default()
     };
     let started = Instant::now();
-    let transcript = crate::api::audio::execute_audio_processing_logic(
-        &preset,
-        std::fs::read(std::env::var("SGT_PUBLIC_SPEECH_WAV")?)?,
+    // The block call the preset chain makes (overlay/process/chain/execution.rs).
+    let transcript = crate::api::audio::execute_audio_block_cancellable(
+        &preset.blocks[0],
+        &std::fs::read(std::env::var("SGT_PUBLIC_SPEECH_WAV")?)?,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     )?;
     results.insert(
         "audio-preset".to_string(),
@@ -127,12 +129,14 @@ fn live_modality_provider_acceptance() -> Result<()> {
         gemini_model: model,
         ..Default::default()
     };
+    // The artifact route the TTS playground uses: queue on a manager and let its
+    // socket worker run the Gemini Live request.
+    let manager = Arc::new(crate::api::tts::TtsManager::new());
+    let worker_manager = manager.clone();
+    std::thread::spawn(move || crate::api::tts::worker::run_socket_worker(worker_manager));
     let started = Instant::now();
-    let audio = crate::api::tts::worker::synthesize_gemini_live_to_wav_cancel(
-        "The report is ready.",
-        (&profile).into(),
-        Arc::new(AtomicBool::new(false)),
-    )?;
+    let audio =
+        manager.synthesize_to_wav_with_profile("The report is ready.", (&profile).into())?;
     anyhow::ensure!(!audio.pcm_samples.is_empty());
     results.insert("tts".to_string(), serde_json::json!({"elapsed_ms": started.elapsed().as_millis(), "duration_ms": audio.duration_ms, "wav_bytes": audio.wav_data.len()}));
     std::fs::write(output, serde_json::to_vec_pretty(&results)?)?;

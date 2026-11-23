@@ -3,6 +3,11 @@ import { validateSvgInput } from "./input-validation";
 import "../../ui-shared/creation-shell-layout.css";
 import { confirmDestructive } from "../../ui-shared/destructive-confirmation";
 import { DemandPoller } from "../../ui-shared/demand-poller";
+import { CoalescedTask } from "../../ui-shared/coalesced-task";
+import { CreationPollState, creationJobIsTerminal } from "../../ui-shared/creation-poll-state";
+import { creationErrorMessageKey } from "../../ui-shared/creation-error-code";
+import { adoptRecoveredJobs } from "./recovered-jobs";
+import { applyHistoryOutput, removeDeletedHistoryItem } from "./history-items";
 import { setLanguage, t, type MessageKey } from "./i18n";
 import { svgAppMarkup, SVG_ICONS } from "./layout";
 import { SvgCanvasController } from "./svg-canvas";
@@ -10,21 +15,22 @@ import { SvgQueueView } from "./queue-view";
 import {
   advanceMissingStatusPoll,
   claimNextQueued,
-  releaseDispatchClaim,
 } from "./queue-dispatch";
 import {
   canActivatePrimaryAction,
-  canSubmitItem,
   freshSubmissionSession,
   needsFreshSubmissionSession,
 } from "./explicit-submission";
 import { createSvgAssetLoader } from "./svg-asset-loader";
 import {
   svgHistoryPresentationSignature,
-  svgStatusChangesPresentation,
 } from "./poll-presentation";
 import { normalizeBackgroundMode, SvgSettingsControl } from "./settings-control";
+import { SvgSubmissionController } from "./submission-controller";
 import type { HistoryEntry, HostContext, Item, JobStatus, Stage } from "./types";
+const pollSource = new CreationPollState(
+  () => invoke<boolean>("recovery_pending"), () => invoke<JobStatus[]>("job_statuses"),
+);
 declare global {
   interface Window {
     invoke?: <T = unknown>(cmd: string, args?: unknown) => Promise<T>;
@@ -63,7 +69,6 @@ let items: Item[] = [];
 let selectedId = "";
 let outputDir = "";
 let pumping = false;
-let historyRefreshing = false;
 let toastTimer = 0;
 const MAX_IMPORT_SESSIONS = 100;
 const MAX_MISSING_STATUS_POLLS = 85;
@@ -77,14 +82,15 @@ function selected() {
 }
 
 function busy(item: Item) {
-  return ["preparing", "generating", "finalizing"].includes(item.stage)
-    || (item.stage === "queued" && Boolean(item.submitted));
+  return item.stage !== "draft" && !creationJobIsTerminal(item.stage)
+    && (item.stage !== "queued" || Boolean(item.submitted));
 }
 
 function stageLabel(stage: Stage) {
   if (stage === "done") return t("done");
   if (stage === "failed") return t("failed");
   if (stage === "cancelled") return t("cancelled");
+  if (stage === "cancelling") return t("cancelling");
   if (stage === "draft") return t("selected");
   if (stage === "queued") return t("queued");
   return t("creating");
@@ -106,6 +112,7 @@ const progressKeys: Record<string, MessageKey> = {
 };
 
 function localizedProgress(item: Item) {
+  if (item.stage === "cancelling") return item.error || t("cancelling");
   const key = item.progressKey && progressKeys[item.progressKey];
   if (key) return t(key);
   if (item.stage === "preparing") return t("preparing");
@@ -133,7 +140,7 @@ function formatRemaining(milliseconds: number) {
 
 function updateProgressUi() {
   const item = selected();
-  const isBusy = Boolean(item && busy(item));
+  const isBusy = Boolean(item && busy(item) && item.stage !== "cancelling");
   progressTrack.classList.toggle("visible", isBusy);
   statusEta.classList.toggle("visible", isBusy);
   if (!item || !isBusy) {
@@ -215,11 +222,10 @@ async function renameHistoryItem(item: Item, newName: string) {
       id: item.historyId,
       newName,
     });
-    item.outputPath = entry.outputPath;
-    item.outputName = entry.outputName;
+    applyHistoryOutput(item, entry);
     if (item.id === selectedId) canvas.invalidate();
-  } catch {
-    showToast(t("renameFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "renameFailed")));
   } finally {
     queueView.finishRename();
     render();
@@ -230,18 +236,17 @@ async function deleteHistoryItem(item: Item) {
   if (!item.historyId) return;
   try {
     await invoke("delete_history_result", { id: item.historyId });
-    const index = items.indexOf(item);
-    items.splice(index, 1);
-    if (selectedId === item.id) {
+    const removal = removeDeletedHistoryItem(items, item, selectedId);
+    if (removal.selectionChanged) {
       canvas.clear();
       canvas.invalidate();
-      selectedId = items[Math.min(index, items.length - 1)]?.id || "";
+      selectedId = removal.selectedId;
       if (!selectedId) canvas.showEmpty();
     }
     render();
     if (selected()) await canvas.showItem(selected());
-  } catch {
-    showToast(t("deleteFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "deleteFailed")));
   }
 }
 
@@ -262,8 +267,8 @@ async function deleteAllHistory() {
     render();
     if (selected()) await canvas.showItem(selected());
     else canvas.showEmpty();
-  } catch {
-    showToast(t("deleteFailed"));
+  } catch (error) {
+    showToast(t(creationErrorMessageKey(error, "deleteFailed")));
   }
 }
 
@@ -271,9 +276,15 @@ function comparablePath(path?: string) {
   return (path || "").toLowerCase();
 }
 
-async function refreshHistory() {
-  if (historyRefreshing || !window.invoke) return;
-  historyRefreshing = true;
+// A refresh requested while one runs must still run, or a result published
+// meanwhile never receives its history id.
+const historyRefresh = new CoalescedTask(refreshHistoryOnce);
+
+function refreshHistory(): Promise<void> {
+  return window.invoke ? historyRefresh.run() : Promise.resolve();
+}
+
+async function refreshHistoryOnce() {
   try {
     const before = svgHistoryPresentationSignature(items, selectedId);
     const entries = await invoke<HistoryEntry[]>("history_results");
@@ -286,8 +297,7 @@ async function refreshHistory() {
       if (item) {
         item.historyId = entry.id;
         item.createdAtMs = entry.createdAtMs;
-        item.outputPath = entry.outputPath;
-        item.outputName = entry.outputName;
+        applyHistoryOutput(item, entry);
         continue;
       }
       const model = entry.metadata?.model === "detail" ? "detail" : "simple";
@@ -324,41 +334,17 @@ async function refreshHistory() {
     }
   } catch {
     // Keep the active queue available if history storage is unavailable.
-  } finally {
-    historyRefreshing = false;
   }
 }
 
 async function restoreCurrentJobs() {
   try {
-    const statuses = await invoke<JobStatus[]>("job_statuses");
-    for (const status of statuses.filter((value) =>
-      ["queued", "preparing", "generating", "finalizing"].includes(value.stage))) {
-      if (items.some((item) => item.jobId === status.jobId)) continue;
-      items.push({
-        id: `recovered_${status.jobId}`,
-        batchId: `recovered_${status.jobId}`,
-        path: status.sourceImagePath,
-        sourceProvenance: "presentation",
-        name: basename(status.sourceImagePath),
-        model: status.model,
-        backgroundMode: status.backgroundMode,
-        outputDir: status.outputDir,
-        stage: status.stage,
-        submitted: true,
-        jobId: status.jobId,
-        progress: status.progressRatio,
-        progressText: status.progressText,
-        progressKey: status.progressKey,
-        phase: status.phase,
-        operationStartedAt: Date.now() - Math.max(0, status.elapsedMs || 0),
-        estimatedTotalMs: status.estimatedTotalMs,
-        createdAtMs: Date.now() - Math.max(0, status.elapsedMs || 0),
-      });
-    }
+    const snapshot = await pollSource.refresh();
+    if (!snapshot) return;
+    adoptRecoveredJobs(items, snapshot.jobs, basename);
     if (!selectedId && items.length) selectedId = items[0].id;
   } catch {
-    // There are no running jobs to recover.
+    // A later refresh can recover retained work.
   }
 }
 
@@ -394,6 +380,22 @@ async function addImages() {
   await addImagePaths(await invoke<string[]>("pick_images"));
 }
 
+const submissions = new SvgSubmissionController({
+  items: () => items,
+  invoke,
+  validate: (input, signal, current) => validateSvgInput(invoke, input.path, input.name, () => void addImages(), signal, current),
+  accepted: (item, status) => {
+    if (busy(item) && item.stage !== "cancelling") beginProgress(item, status);
+    if (creationJobIsTerminal(status.stage)) {
+      void refreshHistory();
+      if (item.id === selectedId) { canvas.invalidate(); void canvas.showItem(item); }
+    }
+  },
+  render,
+  failedText: () => t("failed"),
+  unconfirmedText: () => t("cancellationUnconfirmed"),
+});
+
 async function pump() {
   if (pumping) return;
   pumping = true;
@@ -401,31 +403,7 @@ async function pump() {
     for (;;) {
       const item = claimNextQueued(items);
       if (!item) break;
-      try {
-        if (!await validateSvgInput(invoke, item.path, item.name, () => void addImages())) {
-          releaseDispatchClaim(item);
-          item.stage = "draft";
-          render();
-          continue;
-        }
-        const status = await invoke<JobStatus>("start_job", {
-          imagePath: item.path,
-          outputDir: item.outputDir,
-          model: item.model,
-          backgroundMode: item.backgroundMode,
-        });
-        item.jobId = status.jobId;
-        item.stage = status.stage;
-        item.progressText = status.progressText;
-        item.progressKey = status.progressKey;
-        item.phase = status.phase;
-        beginProgress(item, status);
-      } catch {
-        releaseDispatchClaim(item);
-        item.stage = "failed";
-        item.error = t("failed");
-      }
-      render();
+      await submissions.dispatch(item);
     }
   } finally {
     pumping = false;
@@ -435,23 +413,21 @@ async function pump() {
 
 async function poll() {
   try {
-    const statuses = await invoke<JobStatus[]>("job_statuses");
-    let presentationChanged = false;
+    const snapshot = await pollSource.refresh();
+    if (!snapshot) return;
+    const statuses = snapshot.jobs;
+    let presentationChanged = adoptRecoveredJobs(items, statuses, basename) > 0;
+    if (!selectedId && items.length) selectedId = items[0].id;
+    if (snapshot.reachedTerminal) void refreshHistory();
     const returnedJobIds = new Set(statuses.map((status) => status.jobId));
     for (const status of statuses) {
       const item = items.find((value) => value.jobId === status.jobId);
       if (!item) continue;
+      const change = submissions.applyStatus(item, status);
+      if (!change) continue;
       item.missingStatusPolls = 0;
-      const changed = item.stage !== status.stage;
-      presentationChanged ||= svgStatusChangesPresentation(item, status);
-      item.stage = status.stage;
-      item.progress = status.progressRatio;
-      item.progressText = status.progressText;
-      item.outputPath = status.outputPath;
-      item.outputName = status.outputName;
-      item.error = status.error;
-      item.progressKey = status.progressKey;
-      item.phase = status.phase;
+      const changed = change.stageChanged;
+      presentationChanged ||= change.presentationChanged;
       if (busy(item)) {
         if (!item.operationStartedAt) beginProgress(item, status);
         if (status.estimatedTotalMs) item.estimatedTotalMs = status.estimatedTotalMs;
@@ -460,7 +436,6 @@ async function poll() {
         canvas.invalidate();
         void canvas.showItem(item);
       }
-      if (changed && status.stage === "done") void refreshHistory();
     }
     for (const item of items) {
       if (!item.jobId || !busy(item) || returnedJobIds.has(item.jobId)) continue;
@@ -483,13 +458,13 @@ async function poll() {
 }
 
 const jobMonitor = new DemandPoller({
-  hasWork: () => items.some(busy),
+  hasWork: () => pollSource.hasWork(items.some(busy)),
   poll,
   present: updateProgressUi,
   pollEveryMs: 700,
   presentEveryMs: 250,
 });
-window.addEventListener("pagehide", () => jobMonitor.dispose(), { once: true });
+window.addEventListener("pagehide", () => { submissions.dispose(); jobMonitor.dispose(); }, { once: true });
 
 query("#addImages").addEventListener("click", () => void addImages());
 query("#deleteAllHistory").addEventListener("click", () => void deleteAllHistory());
@@ -524,7 +499,9 @@ query("#generate").addEventListener("click", () => {
 });
 query("#cancel").addEventListener("click", async () => {
   const item = selected();
-  if (item?.jobId) await invoke("cancel_job", { jobId: item.jobId });
+  if (!item) return;
+  try { await submissions.cancel(item); }
+  catch { showToast(t("cancellationUnconfirmed")); }
   void poll();
 });
 query("#openFolder").addEventListener("click", () => {

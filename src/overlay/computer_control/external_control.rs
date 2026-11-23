@@ -1,21 +1,26 @@
 //! Authenticated loopback entrance for the visible Computer Control runtime.
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::overlay::SessionUnavailable;
 use super::runtime::control::{TextCommandDisposition, text_command_queued, turn_idle};
 
 const MAXIMUM_REQUEST_BYTES: usize = 8_192;
 const DISCOVERY_FILE: &str = "computer-control-api.json";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+mod request;
+use request::{ReadError, Request, read_request};
 
 pub(crate) struct ServerGuard {
     stop: Arc<AtomicBool>,
@@ -29,9 +34,6 @@ impl ServerGuard {
     pub(crate) fn start() -> Result<Self> {
         let listener =
             TcpListener::bind("127.0.0.1:0").context("bind Computer Control loopback API")?;
-        listener
-            .set_nonblocking(true)
-            .context("configure Computer Control loopback API")?;
         let endpoint = format!("http://{}", listener.local_addr()?);
         let token = random_token()?;
         let discovery_path = crate::paths::app_runtime_local_data_dir().join(DISCOVERY_FILE);
@@ -66,15 +68,16 @@ fn serve(listener: TcpListener, token: &str, stop: &AtomicBool) {
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
                 if let Err(error) = handle_connection(stream, token) {
-                    crate::log_info!("[ComputerControlApi] Request failed: {error:#}");
+                    cc_log!("[ComputerControlApi] Request failed: {error:#}");
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => {
-                crate::log_info!("[ComputerControlApi] Listener stopped: {error}");
+                cc_log!("[ComputerControlApi] Listener stopped: {error}");
                 return;
             }
         }
@@ -82,15 +85,22 @@ fn serve(listener: TcpListener, token: &str, stop: &AtomicBool) {
 }
 
 fn handle_connection(mut stream: TcpStream, token: &str) -> Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    let deadline = Instant::now() + REQUEST_TIMEOUT;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-    let request = match read_request(&mut stream) {
+    let request = match read_request(&mut stream, deadline) {
         Ok(request) => request,
-        Err(error) if error.to_string().contains("exceeds byte limit") => {
+        Err(error) if error.downcast_ref::<ReadError>() == Some(&ReadError::TooLarge) => {
             return write_response(
                 &mut stream,
                 413,
                 json!({"ok": false, "code": "request_too_large"}),
+            );
+        }
+        Err(error) if error.downcast_ref::<ReadError>() == Some(&ReadError::Timeout) => {
+            return write_response(
+                &mut stream,
+                408,
+                json!({"ok": false, "code": "request_timeout"}),
             );
         }
         Err(error) => return Err(error),
@@ -105,77 +115,6 @@ fn handle_connection(mut stream: TcpStream, token: &str) -> Result<()> {
     }
     let response = route(&request);
     write_response(&mut stream, response.status, response.body)
-}
-
-struct Request {
-    method: String,
-    path: String,
-    authorization: Option<String>,
-    content_type: Option<String>,
-    body: Vec<u8>,
-}
-
-fn read_request(stream: &mut TcpStream) -> Result<Request> {
-    let mut bytes = Vec::new();
-    let mut chunk = [0_u8; 1_024];
-    let header_end = loop {
-        let count = stream.read(&mut chunk)?;
-        if count == 0 {
-            return Err(anyhow!("request ended before headers"));
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-        if bytes.len() > MAXIMUM_REQUEST_BYTES {
-            return Err(anyhow!("request exceeds byte limit"));
-        }
-        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            break index + 4;
-        }
-    };
-    let headers = std::str::from_utf8(&bytes[..header_end])?;
-    let mut lines = headers.split("\r\n");
-    let mut request_line = lines.next().unwrap_or_default().split_whitespace();
-    let method = request_line.next().unwrap_or_default().to_string();
-    let path = request_line.next().unwrap_or_default().to_string();
-    let mut content_length = 0_usize;
-    let mut authorization = None;
-    let mut content_type = None;
-    for line in lines.filter(|line| !line.is_empty()) {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        match name.trim().to_ascii_lowercase().as_str() {
-            "authorization" => authorization = Some(value.trim().to_string()),
-            "content-type" => {
-                content_type = Some(
-                    value
-                        .split(';')
-                        .next()
-                        .unwrap_or_default()
-                        .trim()
-                        .to_ascii_lowercase(),
-                )
-            }
-            "content-length" => content_length = value.trim().parse()?,
-            _ => {}
-        }
-    }
-    if header_end + content_length > MAXIMUM_REQUEST_BYTES {
-        return Err(anyhow!("request exceeds byte limit"));
-    }
-    while bytes.len() < header_end + content_length {
-        let count = stream.read(&mut chunk)?;
-        if count == 0 {
-            return Err(anyhow!("request body ended early"));
-        }
-        bytes.extend_from_slice(&chunk[..count]);
-    }
-    Ok(Request {
-        method,
-        path,
-        authorization,
-        content_type,
-        body: bytes[header_end..header_end + content_length].to_vec(),
-    })
 }
 
 struct ApiResponse {
@@ -204,14 +143,10 @@ fn route(request: &Request) -> ApiResponse {
         return response(400, json!({"ok": false, "code": "invalid_request"}));
     };
     match command.operation.as_str() {
-        "launch" => {
-            super::show_overlay();
-            if super::is_active() {
-                response(202, status_body())
-            } else {
-                response(409, json!({"ok": false, "code": "startup_rejected"}))
-            }
-        }
+        "launch" => match super::overlay::start_session() {
+            Ok(()) => response(202, status_body()),
+            Err(reason) => unavailable(reason),
+        },
         "submit_turn" => match command.prompt {
             Some(prompt) => submit(prompt),
             None => response(400, json!({"ok": false, "code": "prompt_required"})),
@@ -227,12 +162,23 @@ fn route(request: &Request) -> ApiResponse {
 
 fn submit(prompt: String) -> ApiResponse {
     match super::overlay::launch_and_submit(prompt) {
-        TextCommandDisposition::Queued => response(202, json!({"ok": true, "state": "queued"})),
-        TextCommandDisposition::Busy => response(409, json!({"ok": false, "code": "busy"})),
-        TextCommandDisposition::Invalid => {
+        Ok(TextCommandDisposition::Queued) => response(202, json!({"ok": true, "state": "queued"})),
+        Ok(TextCommandDisposition::Busy) => response(409, json!({"ok": false, "code": "busy"})),
+        Ok(TextCommandDisposition::Invalid) => {
             response(400, json!({"ok": false, "code": "invalid_prompt"}))
         }
+        Err(reason) => unavailable(reason),
     }
+}
+
+/// A launch or command the session cannot take, with a code clients can act
+/// on: retry after the old session exits, or fix the API key.
+fn unavailable(reason: SessionUnavailable) -> ApiResponse {
+    let code = match reason {
+        SessionUnavailable::Stopping => "stopping",
+        SessionUnavailable::Credentials => "credentials_required",
+    };
+    response(409, json!({"ok": false, "code": code}))
 }
 
 fn status_body() -> Value {
@@ -256,6 +202,7 @@ fn write_response(stream: &mut TcpStream, status: u16, body: Value) -> Result<()
         400 => "Bad Request",
         401 => "Unauthorized",
         404 => "Not Found",
+        408 => "Request Timeout",
         409 => "Conflict",
         413 => "Payload Too Large",
         415 => "Unsupported Media Type",
@@ -313,21 +260,4 @@ fn remove_owned_discovery(path: &std::path::Path, token: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn routing_rejects_unknown_and_untyped_requests() {
-        let request = Request {
-            method: "POST".into(),
-            path: "/v1/control".into(),
-            authorization: None,
-            content_type: Some("application/json".into()),
-            body: br#"{"operation":"future"}"#.to_vec(),
-        };
-        assert_eq!(route(&request).status, 400);
-        let mut wrong_type = request;
-        wrong_type.content_type = Some("text/plain".into());
-        assert_eq!(route(&wrong_type).status, 415);
-    }
-}
+mod tests;

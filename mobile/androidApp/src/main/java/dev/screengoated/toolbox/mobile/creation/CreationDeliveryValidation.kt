@@ -15,7 +15,6 @@ internal fun validCreationDeliveryRecord(
     val expectedMime = when (tool) {
         CreationTool.IMAGE_TO_3D -> "model/gltf-binary"
         CreationTool.IMAGE_TO_SVG -> "image/svg+xml"
-        CreationTool.IMAGE_CREATOR -> "image/png"
     }
     val token = record.intent.reservationToken
     val library = File(filesDir, "creation/library").toPath().toAbsolutePath().normalize()
@@ -172,6 +171,7 @@ internal fun validCreationDeliveryRecord(
         record.artifactSha256.length == 64 &&
         record.artifactSha256.all(Char::isCreationHexDigit) &&
         record.cleanupAttempts in 0..CREATION_DELIVERY_MAXIMUM_CLEANUP_ATTEMPTS &&
+        record.publishAttempts in 0..CREATION_DELIVERY_MAXIMUM_PUBLISH_ATTEMPTS &&
         intentValid &&
         pendingValid &&
         publishedValid &&

@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name":"visible-audio", "events":[{"produce":"first"},{"deliver":"first","expected":true}]},
+    {"name":"hide-and-show", "events":[{"produce":"old"},{"hide":true},{"show":true},{"deliver":"old","expected":false},{"produce":"new"},{"deliver":"new","expected":true}]},
+    {"name":"audio-produced-hidden", "events":[{"hide":true},{"produce":"hidden"},{"show":true},{"deliver":"hidden","expected":false}]},
+    {"name":"session-stop-and-restart", "events":[{"produce":"old"},{"stop":true},{"restart":true},{"deliver":"old","expected":false},{"produce":"new"},{"deliver":"new","expected":true}]}
+  ]
+}

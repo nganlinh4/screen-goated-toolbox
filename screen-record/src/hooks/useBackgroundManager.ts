@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react";
 import type { BackgroundConfig, ProjectComposition } from "@/types/video";
 import { useBackgroundConfig } from "@/hooks/useBackgroundConfig";
-import { useBackgroundUpload } from "@/hooks/useBackgroundUpload";
+import { useBackgroundUpload, type BackgroundUploadTarget } from "@/hooks/useBackgroundUpload";
 
 export interface UseBackgroundManagerParams {
   backgroundConfig: BackgroundConfig;
@@ -10,6 +10,8 @@ export interface UseBackgroundManagerParams {
   ) => void;
   isProjectTransitionRef: MutableRefObject<boolean>;
   composition: ProjectComposition | null;
+  getUploadTarget: () => BackgroundUploadTarget | null;
+  applyUploadedBackground: (url: string) => void;
 }
 
 export function useBackgroundManager({
@@ -17,6 +19,8 @@ export function useBackgroundManager({
   setBackgroundConfigState,
   isProjectTransitionRef,
   composition,
+  getUploadTarget,
+  applyUploadedBackground,
 }: UseBackgroundManagerParams) {
   const {
     backgroundMutationMetaRef,
@@ -37,6 +41,8 @@ export function useBackgroundManager({
     backgroundConfig,
     composition,
     setBackgroundConfig,
+    getUploadTarget,
+    applyUploadedBackground,
   });
 
   return {

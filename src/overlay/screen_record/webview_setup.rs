@@ -308,6 +308,7 @@ pub(super) unsafe fn internal_create_sr_loop() {
         SR_HWND = SendHwnd::default();
         super::IS_WARMED_UP = false;
         super::IS_INITIALIZING = false;
+        super::close_show::finish_window(super::window_proc::take_close_attempt());
     }
 }
 
@@ -382,7 +383,6 @@ unsafe fn build_webview(
         }
         builder = builder.with_additional_browser_args(webview_browser_args(debug_port));
 
-        builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(wrapper)
     });
     init.finish(result.is_ok());
@@ -492,11 +492,20 @@ fn handle_ipc_message(msg: wry::http::Request<String>, send_hwnd: SendHwnd) {
                 return;
             }
             let failure_id = id.clone();
+            let recording_generation = super::shutdown::recording_generation();
             let spawn_result = thread::Builder::new()
                 .name(format!("recorder-ipc-{cmd}"))
                 .spawn(move || {
                     let _guard = IpcJobGuard;
-                    post_ipc_reply(target_hwnd_val, id, handle_ipc_command(cmd, args));
+                    let result = if cmd == "start_recording" {
+                        super::shutdown::start_recording_with_generation(
+                            &args,
+                            recording_generation,
+                        )
+                    } else {
+                        handle_ipc_command(cmd, args)
+                    };
+                    post_ipc_reply(target_hwnd_val, id, result);
                 });
             if let Err(error) = spawn_result {
                 IPC_JOBS_IN_FLIGHT.fetch_sub(1, Ordering::AcqRel);

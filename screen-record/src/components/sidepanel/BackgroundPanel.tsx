@@ -9,6 +9,7 @@ import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
 import downloadableBackgrounds from '@/config/downloadable-backgrounds.json';
 import {
+  BUILT_IN_BACKGROUND_NAME_KEYS,
   BUILT_IN_BACKGROUND_PANEL_ORDER,
   DEFAULT_BUILT_IN_BACKGROUND_ID,
   type BuiltInBackgroundId,
@@ -46,6 +47,8 @@ export interface BackgroundPanelProps {
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isBackgroundUploadProcessing: boolean;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function BackgroundPanel({
@@ -54,7 +57,9 @@ export function BackgroundPanel({
   recentUploads,
   onRemoveRecentUpload,
   onBackgroundUpload,
-  isBackgroundUploadProcessing
+  isBackgroundUploadProcessing,
+  beginBatch,
+  commitBatch,
 }: BackgroundPanelProps) {
   const { t } = useSettings();
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
@@ -111,18 +116,21 @@ export function BackgroundPanel({
       <div className="background-controls space-y-3.5">
         <SettingRow label={t.videoSize} valueDisplay={`${backgroundConfig.scale}%`} className="video-size-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={50} max={100} value={backgroundConfig.scale}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, scale: val }))}
           />
         </SettingRow>
         <SettingRow label={t.roundness} valueDisplay={`${backgroundConfig.borderRadius}px`} className="roundness-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={0} max={64} value={backgroundConfig.borderRadius}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, borderRadius: val }))}
           />
         </SettingRow>
         <SettingRow label={t.shadow} valueDisplay={`${backgroundConfig.shadow || 0}px`} className="shadow-field">
           <Slider
+            onGestureStart={beginBatch} onGestureEnd={commitBatch}
             min={0} max={100} value={backgroundConfig.shadow || 0}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, shadow: val }))}
           />
@@ -159,10 +167,15 @@ export function BackgroundPanel({
             {BUILT_IN_BACKGROUND_PANEL_ORDER.map((key) => {
               const preset = GRADIENT_PRESETS[key];
               const spinnerClass = key === 'white' ? 'text-gray-500/80' : 'text-white/85';
+              const presetName = t[BUILT_IN_BACKGROUND_NAME_KEYS[key]];
               return (
               <button
                 key={key}
+                type="button"
+                aria-label={presetName}
+                title={presetName}
                 onClick={() => applyPreset(key, { backgroundType: key as BackgroundConfig['backgroundType'] })}
+                aria-pressed={backgroundConfig.backgroundType === key}
                 style={preset.style}
                 className={`bg-preset-${key} ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden ${
                   backgroundConfig.backgroundType === key
@@ -185,31 +198,30 @@ export function BackgroundPanel({
               />
             ))}
 
-            {recentUploads.map((imageUrl, index) => (
-              <button
-                key={index}
-                onClick={() => applyPreset(imageUrl, { backgroundType: 'custom', customBackground: imageUrl })}
-                className={`uploaded-bg-btn ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden group ${
-                  backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl
-                    ? 'ui-choice-tile-active'
-                    : ''
-                }`}
-              >
-                <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />
-                {applyingKey === imageUrl && <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
+            {recentUploads.map((imageUrl, index) => {
+              const isSelected = backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl;
+              return (
+              <div key={index} className="uploaded-bg-swatch aspect-square h-10 relative group">
+                <button
+                  type="button"
+                  onClick={() => applyPreset(imageUrl, { backgroundType: 'custom', customBackground: imageUrl })}
+                  aria-pressed={isSelected}
+                  className={`uploaded-bg-btn ui-choice-tile w-full h-full rounded-lg relative overflow-hidden ${
+                    isSelected ? 'ui-choice-tile-active' : ''
+                  }`}
+                >
+                  <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />
+                  {applyingKey === imageUrl && <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-20"><Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" /></div>}
+                </button>
                 <SwatchDeleteBadge
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onRemoveRecentUpload(imageUrl);
-                  }}
-                  className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-xs bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
+                  onClick={() => onRemoveRecentUpload(imageUrl)}
+                  className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-xs bg-black/50 flex items-center justify-center transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
                   iconClassName="w-2.5 h-2.5 text-white"
-                  title={t.backgroundRemoveUploaded}
-                  ariaLabel={t.backgroundRemoveUploaded}
+                  label={t.backgroundRemoveUploaded}
                 />
-              </button>
-            ))}
+              </div>
+              );
+            })}
           </div>
         </div>
       </div>

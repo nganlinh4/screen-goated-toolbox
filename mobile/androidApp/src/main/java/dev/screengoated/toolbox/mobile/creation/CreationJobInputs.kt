@@ -20,11 +20,7 @@ internal class CreationJobInputStore(
         root.apply(File::mkdirs),
         jobId,
         sourceHandles,
-        if (tool == CreationTool.IMAGE_CREATOR) {
-            CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES
-        } else {
-            CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES
-        },
+        CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES,
         openInput,
         linkInput,
     )

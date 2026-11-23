@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "pinned_cases": [
+    {
+      "name": "blank_text_model_is_unavailable",
+      "block_type": "text",
+      "model_id": "",
+      "resolved_model_type": null,
+      "expected_saved_id": "",
+      "expected_action": "unavailable"
+    },
+    {
+      "name": "whitespace_text_model_is_unavailable",
+      "block_type": "text",
+      "model_id": "  ",
+      "resolved_model_type": null,
+      "expected_saved_id": "  ",
+      "expected_action": "unavailable"
+    },
+    {
+      "name": "text_model_before_discovery",
+      "block_type": "text",
+      "model_id": "ollama-example-text",
+      "resolved_model_type": null,
+      "expected_saved_id": "ollama-example-text",
+      "expected_action": "unavailable"
+    },
+    {
+      "name": "text_model_after_discovery",
+      "block_type": "text",
+      "model_id": "ollama-example-text",
+      "resolved_model_type": "text",
+      "expected_saved_id": "ollama-example-text",
+      "expected_action": "dispatch_selected"
+    },
+    {
+      "name": "vision_model_before_discovery",
+      "block_type": "image",
+      "model_id": "discovered-example-vision",
+      "resolved_model_type": null,
+      "expected_saved_id": "discovered-example-vision",
+      "expected_action": "unavailable"
+    },
+    {
+      "name": "vision_model_after_discovery",
+      "block_type": "image",
+      "model_id": "discovered-example-vision",
+      "resolved_model_type": "vision",
+      "expected_saved_id": "discovered-example-vision",
+      "expected_action": "dispatch_selected"
+    },
+    {
+      "name": "wrong_modality_never_dispatches",
+      "block_type": "image",
+      "model_id": "discovered-example-text",
+      "resolved_model_type": "text",
+      "expected_saved_id": "discovered-example-text",
+      "expected_action": "unavailable"
+    },
+    {
+      "name": "audio_model_before_discovery",
+      "block_type": "audio",
+      "model_id": "discovered-example-audio",
+      "resolved_model_type": null,
+      "expected_saved_id": "discovered-example-audio",
+      "expected_action": "unavailable"
+    }
+  ],
+  "chain_cases": [
+    {
+      "name": "unresolved_rows_survive_and_keep_order",
+      "authored": ["ollama-example-text", "discovered-example-text", "ollama-example-text"],
+      "expected_saved": ["ollama-example-text", "discovered-example-text"]
+    }
+  ]
+}

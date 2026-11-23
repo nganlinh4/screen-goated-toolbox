@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PlaybackControls } from "@/components/VideoPreview";
+import { PlaybackControls } from "@/components/PlaybackControls";
 
 const baseProps = {
   isPlaying: false,
@@ -39,5 +39,12 @@ describe("PlaybackControls frame download", () => {
     );
 
     expect(screen.getByRole("button", { name: "Save current frame" })).toBeDisabled();
+  });
+
+  it("names the icon-only play/pause button for its current action", () => {
+    const { rerender } = render(<PlaybackControls {...baseProps} />);
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+    rerender(<PlaybackControls {...baseProps} isPlaying />);
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
   });
 });

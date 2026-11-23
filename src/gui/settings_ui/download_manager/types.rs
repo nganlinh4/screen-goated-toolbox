@@ -18,9 +18,9 @@ pub enum InstallStatus {
 #[derive(Clone, PartialEq, Debug)]
 pub enum DownloadState {
     Idle,
-    Downloading(f32, String),  // Progress, Status message
-    Finished(PathBuf, String), // File Path, Success message
-    Error(String),             // Error message
+    Downloading(f32, String),       // Progress, Status message
+    Finished(PathBuf, Option<u32>), // File path, reported short-side resolution
+    Error(String),                  // Error message
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -38,14 +38,10 @@ pub struct DownloadSession {
     pub download_state: Arc<Mutex<DownloadState>>,
     pub cancel_flag: Arc<AtomicBool>,
     pub logs: Arc<Mutex<Vec<String>>>,
-    pub available_formats: Arc<Mutex<Vec<String>>>,
     pub selected_format: Option<String>,
-    pub available_subs_manual: Arc<Mutex<Vec<String>>>,
     pub download_type: DownloadType,
     pub selected_subtitle: Option<String>,
-    pub is_analyzing: Arc<Mutex<bool>>,
-    pub last_url_analyzed: String,
-    pub analysis_error: Arc<Mutex<Option<String>>>,
+    pub(super) analysis: super::analysis::SharedAnalysis,
     pub last_input_change: f64,
     pub initial_focus_set: bool,
     pub show_error_log: bool,
@@ -59,18 +55,23 @@ impl DownloadSession {
             download_state: Arc::new(Mutex::new(DownloadState::Idle)),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             logs: Arc::new(Mutex::new(Vec::new())),
-            available_formats: Arc::new(Mutex::new(Vec::new())),
             selected_format: None,
-            available_subs_manual: Arc::new(Mutex::new(Vec::new())),
             download_type: default_download_type,
             selected_subtitle: None,
-            is_analyzing: Arc::new(Mutex::new(false)),
-            last_url_analyzed: String::new(),
-            analysis_error: Arc::new(Mutex::new(None)),
+            analysis: Arc::new(Mutex::new(super::analysis::AnalysisState::default())),
             last_input_change: 0.0,
             initial_focus_set: false,
             show_error_log: false,
         }
+    }
+}
+
+impl Drop for DownloadSession {
+    fn drop(&mut self) {
+        self.analysis
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .invalidate();
     }
 }
 

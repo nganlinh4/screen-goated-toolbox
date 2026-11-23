@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="live_audio_gap">Một phần âm thanh có thể đã bị bỏ lỡ trong khi kết nối lại.</string>
     <string name="app_name">SGT Mobile</string>
     <string name="live_translate_channel_name">Dịch trực tiếp</string>
     <string name="live_translate_channel_description">Trạng thái phiên nền cho tính năng dịch trực tiếp của SGT mobile.</string>
@@ -16,6 +17,7 @@
     <string name="preset_audio_notification_title">Preset Âm thanh SGT</string>
     <string name="preset_audio_notification_device">Đang thu âm thanh thiết bị cho preset</string>
     <string name="preset_audio_notification_microphone">Đang thu âm thanh micro cho preset</string>
+    <string name="preset_audio_permission_required">Cho phép dùng micrô để tiếp tục preset.</string>
     <string name="preset_audio_notification_idle">Thu âm thanh preset đang chờ</string>
     <string name="bubble_channel_name">SGT Bubble</string>
     <string name="bubble_channel_description">Lớp phủ bong bóng nổi</string>
@@ -56,6 +58,9 @@
     <string name="phone_control_activation_accessibility_toast">Bật Trợ năng SGT.</string>
     <string name="phone_control_activation_overlay_toast">Cho phép quả cầu nổi.</string>
     <string name="phone_control_activation_projection_needed">Chia sẻ toàn bộ màn hình để khởi động Điều khiển điện thoại.</string>
+    <string name="phone_control_projection_busy">Chia sẻ màn hình đang bận. Hãy hoàn tất bước hiện tại rồi thử lại.</string>
+    <string name="phone_control_stop_retry">Không thể dừng điều khiển điện thoại. Nhấn để thử lại.</string>
+    <string name="phone_control_projection_expired">Trạng thái chia sẻ màn hình đã thay đổi. Hãy thử lại.</string>
     <string name="phone_control_activation_projection_toast">Chia sẻ toàn bộ màn hình.</string>
     <string name="phone_control_activation_start_failed_toast">Không thể bật Điều khiển.</string>
     <string name="phone_control_power_prompt_title">Mức điều khiển</string>
@@ -74,6 +79,7 @@
     <string name="phone_control_sgt_adb_setup_toast">Đang mở Gỡ lỗi không dây…</string>
     <string name="phone_control_sgt_adb_pending">Cầu nối SGT vẫn đang được chọn. Hãy giữ Gỡ lỗi không dây bật và hoàn tất bước Android đang hiển thị.</string>
     <string name="phone_control_sgt_adb_pending_toast">Hoàn tất bước Android đang hiện.</string>
+    <string name="phone_control_sgt_adb_unavailable">Không thể dùng Cầu nối SGT vì không thể xác minh kết nối. Hãy chọn quyền khác để tiếp tục hoặc giữ lựa chọn hiện tại.</string>
     <string name="phone_control_sgt_adb_forget">Quên ghép nối</string>
     <string name="phone_control_sgt_adb_forgotten_toast">Đã quên ghép nối Cầu nối SGT.</string>
     <string name="phone_control_sgt_adb_forget_failed_toast">Không thể xóa ghép nối SGT.</string>
@@ -93,14 +99,17 @@
     <string name="phone_control_private_setup_continue">Chia sẻ lại màn hình để xác minh chế độ điều khiển đã chọn.</string>
     <string name="phone_control_private_setup_complete_toast">Chia sẻ màn hình để tiếp tục.</string>
     <string name="phone_control_private_setup_working">Đang hoàn tất thiết lập…</string>
+    <string name="phone_control_private_setup_shizuku_manual">Nhập mã vào thông báo ghép nối, rồi khởi động Shizuku.</string>
     <string name="phone_control_private_setup_pending">Chia sẻ lại màn hình để tiếp tục thiết lập. SGT sẽ kiểm tra lại chế độ điều khiển đã chọn bằng dữ liệu mới.</string>
     <string name="phone_control_private_setup_pending_toast">Chia sẻ màn hình để tiếp tục.</string>
     <string name="phone_control_private_setup_needs_user_step">Thiết lập vẫn cần một bước Android đang hiển thị.</string>
     <string name="phone_control_private_setup_needs_user_step_toast">Hoàn tất bước Android.</string>
     <string name="phone_control_action_cancel_setup">Hủy thiết lập</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
-    <string name="feature_asr_ort_name">Thời gian chạy Moonshine</string>
-    <string name="feature_asr_moonshine_name">Bộ máy Moonshine</string>
-    <string name="feature_asr_sherpa_name">Bộ máy Zipformer</string>
     <string name="feature_creation_runtime_name">Công cụ sáng tạo</string>
+    <string name="creation_retained_original">Bản gốc</string>
+    <string name="secure_store_unavailable_title">Không thể mở cài đặt</string>
+    <string name="secure_store_unavailable_body">Không thể mở cài đặt đã mã hóa. Dữ liệu của bạn chưa bị xóa. Hãy mở khóa thiết bị và thử lại.</string>
+    <string name="secure_store_retry_failed">Vẫn không thể mở cài đặt. Hãy thử lại sau.</string>
+    <string name="secure_store_retry">Thử lại</string>
 </resources>

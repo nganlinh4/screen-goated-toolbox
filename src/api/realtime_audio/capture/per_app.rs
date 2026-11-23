@@ -5,19 +5,24 @@ use super::*;
 /// This function spawns a thread that captures audio from a specific process
 /// and pushes samples to the provided buffer.
 #[cfg(target_os = "windows")]
-pub fn start_per_app_capture(
+pub(crate) fn start_per_app_capture(
     process_id: u32,
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    owner: Option<RealtimeCaptureOwner>,
 ) -> Result<CaptureWorker> {
     use std::collections::VecDeque;
     use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat};
 
-    CaptureWorker::spawn("sgt-per-app-capture", move |capture_stop| {
+    CaptureWorker::spawn_ready("sgt-per-app-capture", move |capture_stop, ready| {
+        let fail = |reason: String| {
+            request_device_reconnect(&reason, owner.as_ref());
+            ready.failed(reason);
+        };
         // Initialize COM for this thread (required for WASAPI)
         if wasapi::initialize_mta().is_err() {
-            eprintln!("Per-app capture: Failed to initialize MTA");
+            fail("per-app capture COM initialization failed".to_string());
             return;
         }
 
@@ -26,10 +31,9 @@ pub fn start_per_app_capture(
         let audio_client = match AudioClient::new_application_loopback_client(process_id, true) {
             Ok(client) => client,
             Err(e) => {
-                eprintln!(
-                    "Per-app capture: Failed to create loopback client for PID {}: {:?}",
-                    process_id, e
-                );
+                fail(format!(
+                    "per-app capture client creation failed for PID {process_id}: {e:?}"
+                ));
                 return;
             }
         };
@@ -57,11 +61,9 @@ pub fn start_per_app_capture(
         let mut audio_client = audio_client;
         if let Err(e) = audio_client.initialize_client(&desired_format, &Direction::Capture, &mode)
         {
-            eprintln!(
-                "Per-app capture: Failed to initialize audio client: {:?}",
-                e
-            );
-            eprintln!("Hint: Per-app capture requires Windows 10 version 1903 or later");
+            fail(format!(
+                "per-app capture initialization failed (requires Windows 10 1903 or later): {e:?}"
+            ));
             return;
         }
 
@@ -69,7 +71,7 @@ pub fn start_per_app_capture(
         let capture_client = match audio_client.get_audiocaptureclient() {
             Ok(client) => client,
             Err(e) => {
-                eprintln!("Per-app capture: Failed to get capture client: {:?}", e);
+                fail(format!("per-app capture client unavailable: {e:?}"));
                 return;
             }
         };
@@ -78,21 +80,21 @@ pub fn start_per_app_capture(
         let event_handle = match audio_client.set_get_eventhandle() {
             Ok(handle) => handle,
             Err(e) => {
-                eprintln!("Per-app capture: Failed to get event handle: {:?}", e);
+                fail(format!("per-app capture event unavailable: {e:?}"));
                 return;
             }
         };
 
         // Start the audio stream
         if let Err(e) = audio_client.start_stream() {
-            eprintln!("Per-app capture: Failed to start stream: {:?}", e);
+            fail(format!("per-app capture start failed: {e:?}"));
             return;
         }
-
-        // Per-app capture started for process_id
+        ready.opened();
 
         // Buffer for reading audio data
         let mut capture_buffer: VecDeque<u8> = VecDeque::new();
+        let mut drops = crate::api::audio::retention::DropReport::default();
 
         // Capture loop
         while !stop_signal.load(Ordering::Relaxed) && !capture_stop.load(Ordering::Acquire) {
@@ -134,7 +136,11 @@ pub fn start_per_app_capture(
 
                             // Push to shared audio buffer
                             if let Ok(mut buf) = audio_buffer.lock() {
-                                buf.extend(&samples);
+                                let dropped = crate::api::audio::retention::append_pending(
+                                    &mut buf, &samples,
+                                );
+                                drop(buf);
+                                drops.note("per-app", dropped);
                             }
 
                             // Calculate RMS for volume visualization
@@ -142,16 +148,17 @@ pub fn start_per_app_capture(
                                 let sum_sq: f64 =
                                     samples.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
                                 let rms = (sum_sq / samples.len() as f64).sqrt() as f32;
-                                REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                                publish_capture_rms(rms, owner.as_ref());
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    // Check for specific errors that indicate process ended or connection lost
-                    eprintln!("Per-app capture: Read error: {:?}", e);
-                    // Small delay before retrying
-                    std::thread::sleep(Duration::from_millis(10));
+                    // A read error means the target process ended or the
+                    // endpoint was lost; the owner restarts capture.
+                    crate::log_info!("[AudioCapture] owner=per-app read_error={e:?}");
+                    request_device_reconnect("per-app capture read failed", owner.as_ref());
+                    break;
                 }
             }
         }

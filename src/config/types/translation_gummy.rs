@@ -130,33 +130,25 @@ impl Default for TranslationGummySettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS, TranslationGummyProfile,
-        TranslationGummySettings,
-    };
+    use super::{MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS, TranslationGummySettings};
 
     #[test]
     fn build_system_instruction_omits_blank_optional_fields() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/translation-gummy/prompt-contract.json"
+        ))
+        .unwrap();
         let settings = TranslationGummySettings {
-            first: TranslationGummyProfile {
-                language: "Korean".to_string(),
-                accent: "Busan".to_string(),
-                tone: "polite".to_string(),
-            },
-            second: TranslationGummyProfile {
-                language: "English".to_string(),
-                accent: String::new(),
-                tone: "easy to hear".to_string(),
-            },
-            hotkey: None,
-            hotkeys: Vec::new(),
-            guide_seen: false,
-            max_transcript_items: 50,
+            first: serde_json::from_value(fixture["first"].clone()).unwrap(),
+            second: serde_json::from_value(fixture["second"].clone()).unwrap(),
+            ..Default::default()
         };
 
         let prompt = settings.build_system_instruction();
-        assert!(prompt.contains("Korean Busan accent (polite tone)"));
-        assert!(prompt.contains("English (easy to hear tone)"));
+        assert_eq!(
+            prompt,
+            fixture["systemInstructionExample"].as_str().unwrap()
+        );
         assert!(!prompt.contains("()"));
     }
 

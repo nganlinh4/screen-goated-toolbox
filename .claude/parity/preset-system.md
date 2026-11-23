@@ -9,7 +9,33 @@
 
 ## Data and Editor Contract
 
+- Selection capture invokes the platform copy action, never an arbitrary button
+  identified by localized text. Android tries `ACTION_COPY` on the focused node,
+  then a platform `android:id/copy` control. Existing application selections,
+  including WebView selections, remain the clipboard source. The shared cases
+  are in `parity-fixtures/preset-system/selection-copy.json`.
+
 - Windows built-ins are canonical seed data. Android persists user overrides by preset ID; restore removes the override.
+  `parity-fixtures/preset-system/default-presets.json` is generated from
+  `get_default_presets()` (`src/config/preset/defaults/parity_tests.rs`; rerun
+  with `SGT_WRITE_PARITY_FIXTURES=1`) and replayed against the Android built-ins
+  by `DefaultPresetsParityTest`: ids, localized names, section order, preset
+  flags, connections and every block field. Input adapters compare only their
+  output behavior; hotkeys and window geometry stay Windows-only. Image, audio
+  and input-adapter blocks do not stream by default, as in the Windows builder.
+- Preset edits are published only after a complete atomic persistence write. An
+  unreadable existing override document is preserved and must not be treated as
+  an empty document for subsequent saves; the interface reports the failure.
+  Failed edits leave the editor showing the last successfully saved state;
+  prompt and name drafts remain open for retry until their save succeeds.
+  The persistence cases live in `parity-fixtures/preset-system/persistence.json`.
+- A custom preset has one user-chosen name, as on Windows. Renaming it writes
+  that name for every UI language (English, Vietnamese and Korean), the same
+  way create and duplicate do. The rename draft opens with the name shown in
+  the current UI language. Built-in presets are not renamed in the editor.
+- Concurrent edits merge only the fields changed by that editor action against
+  the current preset. Delayed updates cannot restore a deleted preset, and
+  newly created preset identities cannot replace an existing preset.
 - The OCR-first `preset_extract_retranslate` and
   `preset_extract_retrans_retrans` built-ins are retired on both platforms.
   Their canonical replacements are `preset_translate` and
@@ -28,18 +54,12 @@
   stable default. Catalog availability or priority-chain membership does not
   make a model a built-in preset default. Authority-bearing Computer/Phone
   Control keeps its separate catalog-owned model chain.
-- The fast text-arena seed uses Groq GPT-OSS 20B. The general image retry
-  chain keeps Qwen 3.8 first, then prioritizes reliable
-  broad-image and provider-diverse OCR endpoints before higher-variance
-  fallbacks. The text chain keeps Qwen 3.8 first, with Groq
-  GPT-OSS as fast fallbacks before the remaining hosted endpoints. Most slow or
-  lower-reliability endpoints remain selectable outside the bounded shipped
-  chain; its final OpenRouter row preserves a provider-diverse fallback. The
-  2026-10-18 update promotes Flash Lite 3.5 to the first Google text slot and
-  uses dots 3 Note at the OpenRouter text tail. The ordinary image chain has
-  nine defaults after disabling Gemma 4 26B vision, and retains 3.1 Flash Lite
-  only at its tail. Existing saved choices follow normal reset/adoption behavior.
-  Exact order remains owned only by the shared catalog and fixture.
+- The fast text-arena seed uses Groq GPT-OSS 20B. Groq Qwen 3.8 leads the
+  general image chain after returning all ten ordinary OCR cases on
+  2026-11-23. Gemini 3.5 Flash Lite and Gemini 3 Flash are next. The text chain
+  starts with Qwen 3.8, then Groq GPT-OSS 120B and 20B, and includes Particle-1
+  and Ling 3.2 Flash as OpenRouter fallbacks. The shared retry fixture records the exact order
+  and default IDs. Existing saved choices follow normal reset/adoption behavior.
 - The Windows one-time post-update recommendation prompt compares the staged
   preset models, priority chains, and recommended-provider defaults. Applying
   updates changed built-in model slots, restores both priority chains, and
@@ -49,10 +69,54 @@
   runtime settings, while persisted Android choices remain unchanged until the
   user resets them.
 - Favorite state, ordering, edits, and custom presets are repository-backed, never Compose-only state.
+- Deleting a preset preserves the selected surviving preset. If the selected
+  preset is deleted, select its previous neighbor, or the first remaining row;
+  an empty list has no selected preset. Selection follows the structural row,
+  including when saved preset IDs are duplicated. Windows cancels shortcut
+  capture when its target is deleted or the active profile changes, and keeps
+  capture bound to the same surviving row when earlier rows are deleted. The
+  shared cases are in `parity-fixtures/preset-system/list-identity.json`.
 - Android supports preset creation, duplication, deletion, and the current node-graph editor actions. Capability UI must still reflect real runtime support for every block/provider.
+- Node-graph saves retain every authored block, including disconnected drafts,
+  and their connections. Execution starts at the input and does not run
+  disconnected blocks. A persisted explicit-graph marker distinguishes an
+  intentionally empty edge set from an older linear preset without edges;
+  absent markers preserve legacy behavior. Capability and audio-runtime
+  selection use only input-reachable blocks, so an unreachable draft cannot
+  start or block a runtime. Opening a graph with malformed or
+  unrepresentable connections must not panic or rewrite the saved graph.
+  Its graph controls are read-only with a visible explanation until an
+  explicit restore or repair replaces that data; unrelated preset settings may
+  still be saved without changing its blocks or connections. Shared cases are
+  in `parity-fixtures/preset-system/node-graph-editor.json`.
+- Inline node chrome (model and prompt labels, add-language button, the
+  empty-prompt placeholder, the language search hint, and the
+  `Stream on` / `Stream off` toggle) uses the Windows localized labels.
+- Connecting a new source to an occupied input replaces its existing source;
+  self-connections and unsupported target types remain rejected.
 - New presets and newly inserted graph nodes resolve their modality default
   through the shared catalog constants; platform editors must not carry a
   literal fallback model ID.
+- A saved model ID remains unchanged through loading, publication,
+  unrelated edits, and saves even when its model has not yet been discovered
+  or has the wrong modality, including a blank or whitespace-only ID. An
+  unresolved or incompatible pinned model cannot
+  dispatch or silently enter a different provider's retry chain: show an
+  unavailable state and let the user retry after discovery or change the model.
+  Recheck the selected model against the current catalog before execution so
+  a later discovery can restore it without editing the preset. This applies to
+  text, image, and audio blocks. Normal retry after an actual known-model
+  failure keeps its existing configured-chain behavior.
+- Authored priority chains retain unresolved nonempty IDs and their relative
+  order. An unresolved candidate is skipped at execution until it resolves;
+  merely loading or saving settings must not replace it with a default.
+  [saved-model-resolution.json](../../parity-fixtures/preset-system/saved-model-resolution.json)
+  records the shared state transitions.
+- Ordinary image and text blocks can opt into a global first-attempt override
+  by reordering the chosen-model row in their priority chain. The Windows
+  executor and Android graph executor validate the saved selection before
+  applying the order. Candidate checks, cancellation and automatic fallback
+  still apply at dispatch. Dedicated non-LLM blocks keep their own route.
 - Unknown/corrupt override fields fall back safely to canonical built-ins.
 - Hotkeys and controller/master invocation remain Windows-only until Android has a real equivalent.
 
@@ -61,9 +125,37 @@
 - Presets execute from the floating bubble service. Zero favorites shows a localized empty state.
 - The panel preserves Windows keep-open, size, multi-column, overlap, animation, drag/reposition, and refresh semantics through a thin Android bridge.
 - Input uses the Windows text-input DOM/CSS/message contract, including submit, cancel, history, close, and working microphone input.
+- Text-input documents bind messages and edits to their owning invocation. Submit
+  carries the rendered revision;continuous-input cleanup clears only that submitted
+  revision,so newer typing survives a delayed clear. A retired document cannot
+  submit,move,focus,or close its replacement. Preference changes update chrome and
+  theme without replacing the draft or selection. Android imports the canonical
+  Windows markup,styles,and typed edit scripts through the overlay asset generator;
+  touch dragging,IME focus,and native window lifetime remain platform adapters.
 - Permission-gated image/audio paths fail before capture, explain the required Android permission, and preserve retry state.
+- Finite audio recordings stop and submit at the ten-minute capture limit with a visible notice, retaining all accepted audio. Continuous transcription may continue beyond that limit, but omits the entire audio attachment rather than presenting a partial recording. Android uses temporary storage while capturing and releases it when the session ends.
+- If live transcription fails while a complete recording remains available, capture falls back to a finite recording; if the recording has already been omitted, capture fails promptly instead of continuing without a recoverable result. A live setup backlog may not silently discard input.
+- Android audio input previews read the current result's owned audio through a per-window capability, with seeking and native download; replacement, navigation, and closure revoke access. The result document does not contain an encoded copy of the recording.
+- Android audio permission recovery uses a non-exported activity and resumes only the exact pending capture request after permission succeeds; exported launcher intents cannot start or resume capture. A stale or denied recovery never starts another session. The request belongs to its overlay controller and original input window, if any; stop, replacement, or input closure invalidates its continuation, and dictation returns to that same input window. A delayed permission result may only reach an already-live owner and cannot restart the overlay service.
 - Image presets support continuous relaunch. Holding a text-input preset opens a persistent editor: submitting clears and refocuses it without changing the saved preset. Holding a selected-text preset retains the canonical Windows selection badge; tapping captures a fresh selection, and Stop disarms further captures. Android uses explicit touch capture because desktop mouse-release monitoring has no equivalent. Each callback remains bound to the active invocation; a stopped or replaced invocation cannot submit late clipboard text.
+- Continuous image capture has one owning invocation. Stop during startup disarms it, startup failures leave capture inactive, and a replacement starts after the previous invocation has released its capture resources. A stale invocation cannot retire or publish input for its replacement. Desktop right-button hooks and their message queue are platform-specific; Android uses its own touch and projection lifecycle. Shared ownership cases are in `parity-fixtures/preset-system/continuous-image-lifecycle.json`.
+- Android fences frame, screenshot and selection callbacks to their invocation. A replacement waits for an already-requested screenshot and for an in-flight overlay show and detachment; stale screenshot bitmaps are recycled. If detachment fails, the old overlay remains owned and its Cancel action retries closure without submitting stale input. A screenshot callback or detachment that never settles can block a replacement; device acceptance remains unverified.
 - Result windows are session-owned, precreated in loading state, multi-window, and support markdown streaming or raw HTML according to block render mode.
+- A replacement or canceled invocation retires its prior session before publishing
+  new execution state. Late window chunks, errors, completion, and post-processing
+  from the retired session cannot mutate the replacement or perform effects.
+- Deferred copy, paste, and speech actions belong to the session that scheduled
+  them. Completion keeps them valid until replacement, cancellation, or reset;
+  retired sessions cannot dispatch queued actions or speech retries.
+  Buffered speech stops promptly when its session retires, including while
+  waiting for output capacity or for playback to drain. A drain timeout is a
+  partial playback outcome and does not replay speech that may have been heard.
+  A speech response that produces no playable audio is a failure, so it can
+  follow the normal retry or error path rather than reporting completion.
+  Buffered time-stretch output is finalized for the current speech request and
+  cleared on termination; samples cannot carry over to a later request.
+- A model recovery probe belongs to the attempt that claimed it; cancellation
+  or completion of another attempt cannot release or resolve that probe.
 - Raw HTML is a document lifecycle, not a Markdown DOM update. A complete raw
   document (including one harmless outer `html`/`htm` code fence) is normalized,
   loaded once, and remains authoritative: the host must never replace its body
@@ -71,10 +163,60 @@
   animations, scripts, and interaction state remain owned by that document;
   host integration is limited to overlay interaction, navigation, diagnostics,
   visibility, and lifecycle bridges.
+- Whether a block streams is decided by its render mode only, never by prompt
+  wording. A streamed or refined result that becomes a complete raw document
+  is loaded once after its stream ends; a document identical to the loaded one
+  is never reloaded.
+- Blocks run as a dataflow (Windows `post_process.rs`): a block starts when
+  its parents finish, and independent sibling branches run concurrently. A
+  block whose running parents all failed, produced blank text or were skipped
+  is skipped and its window closed, unless a parent is the input adapter.
+- A result window runs at most one refine. A new refine replaces the running
+  one, and closing the window or dismissing all overlays cancels it; callbacks
+  of a replaced refine are ignored. Standalone windows (no preset) do not offer
+  refine.
+- Raw-document detection requires an explicit, complete `html` root: a closed
+  opening tag and a final closing tag, optionally preceded by an HTML doctype
+  and enclosed in a single outer HTML fence. Until that root is complete,
+  streaming text remains Markdown and then enters the raw-document lifecycle.
+  Unambiguous HTML comments may surround the root or follow its doctype.
+  This conservative rule leaves documents with implicit root closure or ambiguous
+  script/comment parsing in Markdown; it prevents incomplete tags and standalone
+  tag explanations from being run. Apparent closing tags inside unclosed
+  foreign-content CDATA are not document boundaries. Single outer fences accept
+  CR, LF, and CRLF line endings. SVG and MathML are tracked separately; markup
+  inside their raw-text-like elements is accepted only when it is unambiguous.
+  Self-closing raw-like foreign elements are recognized only before an untracked
+  child or surrounding sensitive context can switch the parser's namespace;
+  namespace ambiguity propagates through nested foreign elements.
 - Interactive raw-HTML presets choose controls appropriate to the generated experience: keyboard, pointer, touch, or a combination. The built-in Make a Game prompt must not impose a mouse-only design; it requires visible control instructions and keyboard activation after the player clicks or taps the result.
 - The result-control badge identifies the endpoint that actually produced the current result after retry/fallback, formatted as provider display name plus the complete API model name; non-model results have no badge.
 - Android result and mini-app WebViews follow [the shared Android overlay rendering contract](../../parity-fixtures/android-webview-overlays/rendering-contract.json): each overlay window owns hardware acceleration and its WebView composes directly without a persistent offscreen hardware layer.
 - Reuse Windows markdown fitting/theme/font/table and button-canvas contracts. Preserve text selection, one-finger window drag, two-finger bidirectional content scroll, navigation recovery, and result geometry ownership.
+- Result tables use the same bundled, version-pinned Grid.js JavaScript and CSS
+  as Windows; displaying a result does not download executable table code.
+- Markdown fragments use the Windows result compositor's HTML allowlist before
+  insertion into the privileged result shell. Raw HTML documents retain their
+  separate interactive document lifecycle.
+- Android requires an observed user gesture before an overlay may launch an
+  external application for a non-WebView navigation scheme.
+- Untrusted result documents and intercepted external navigations use a separate
+  WebView without a page-script native bridge. The trusted shell uses an origin-bound main-frame
+  bridge. When the WebView provider supports isolated script worlds, untrusted
+  result gestures run in a dedicated world and accept only trusted touch and
+  click events; messages from subframes are rejected. Without that capability,
+  the document remains readable and navigable, with native result controls,
+  while document-origin privileged page actions are unavailable.
+- A native tap on an untrusted result reveals its result controls even when it
+  is already active. Gestures from a navigated document stay disabled if its
+  identity cannot be established; the native controls remain available.
+- Android does not expose every navigation request to the interception callback.
+  Any external document that remains in the original WebView is denied bridge
+  messages and injected result state by the origin and document identity checks.
+- Android input-adapter audio downloads are bound to the current result's native
+  audio bytes and a trusted user action; page scripts cannot supply the bytes or
+  destination. If isolated gesture support is unavailable, the embedded control
+  reports failure and the native result control remains available.
 - Edit/refine, undo/redo, share/download, and speaker actions are real Android actions. Refine starts with the endpoint that actually produced the displayed text when it is text-capable, then uses the current adaptive Text-to-Text retry chain and circuit policy. Its result badge follows the endpoint that completes the refine. Do not list implemented actions as placeholders.
 - Android result controls expose the Markdown/plain toggle. Plain mode escapes the source text and preserves it through streaming, refinement, history navigation, and theme changes. Raw HTML documents keep their own lifecycle and do not expose the toggle. Broom mouse-button variants remain desktop-specific.
 - Tablet acceptance exercises the real language picker and overlay WebViews in
@@ -140,10 +282,18 @@
 - Search capability preserves explicit-search retry compatibility and draws
   the model-list marker. The separate catalog-owned
   `search_tool_enabled_by_default` flag controls normal request behavior. Ordinary
-  text/audio generation never invokes provider search tools implicitly;
+  text/audio generation never invokes provider search tools implicitly; an initially
+  selected endpoint that enables search by default requires explicit opt-in;
   quota-bearing grounding is enabled only by an explicit search feature path.
   Groq GPT-OSS search uses `browser_search` with a required tool choice and
   rejects structured output before dispatch on both platforms.
+- The request's explicit search setting stays unchanged across retries. A
+  search-capable failed model alone does not require its replacement to support
+  search; ordinary requests skip models that invoke a search tool by default.
+  Explicit search retries use only endpoints whose actual adapter supports the
+  requested tool, and fail if none can be used. Image-block search fails before
+  any provider call while image adapters cannot carry that request.
+  Shared retry cases live in `parity-fixtures/preset-system/retry-runtime.json`.
 - Gemini Live setup uses the catalog-owned output ceiling for each endpoint: 8,192 for Live 2.5 and 65,536 for Live 3.1, on both Windows and Android.
 - `Viết liên tục` uses the older Live 2.5 input-transcription row
   (`google-gemini-2-5-live-transcribe-audio`), rendered as `GG Live cũ (Chép)`
@@ -152,6 +302,12 @@
 - Every native Live setup envelope is built through the platform's typed setup builder; endpoint policy is applied by construction and feature adapters supply only capability deltas.
 - Live server events are decoded structurally. Setup completion must be a top-level field, all audio parts in a frame are retained, and finite responses complete on either `turnComplete` or `generationComplete`.
 - Finite Gemini Live text/vision response waits remain cancellable before and after first output. Cancelling closes the owning socket and prevents any subsequent chunk delivery; an empty frame does not count as first output. Setup errors take precedence over acknowledgement.
+- Every finite response owns its queued work and accepted transport until completion,
+  failure,cancellation,or caller abandonment. Receive and socket-poll boundaries
+  recheck retirement after blocking. Empty chunks do not start output or refresh an
+  idle deadline;wire traffic without output cannot keep the first-output wait alive.
+  [live-response-wait.json](../../parity-fixtures/preset-system/live-response-wait.json)
+  locks the caller poll budget and ordinary/interaction-idle deadline transitions.
 - Blank, legacy, or unknown Gemini TTS model values normalize to the catalog-owned TTS default on both platforms; listed models remain unchanged.
 - Provider/auth failures and retryable model failures remain distinct. Retrying an open result updates its loading status.
 - Every enabled provider has a complete encrypted credential path from settings
@@ -262,6 +418,20 @@
   OpenRouter transport field. Unknown/custom OpenRouter models remain
   provider-managed unless they have an exact catalog profile.
 - Hidden blocks execute without windows; each visible result block owns its own result window.
+- Input-adapter media results keep their native media identity for result actions.
+  Android copies an image through a content URI, offers audio through its native
+  download action, and does not copy, speak, refine, or share generated media
+  HTML as text. Clipboard and share failures are reported; oversized text is
+  rejected rather than sent through an unbounded Binder transaction. Ordinary
+  text result actions retain their existing behavior. These Android platform
+  adaptations and their content-replacement cases are recorded in
+  `parity-fixtures/preset-system/result-media-actions.json`.
+- Android image clipboard files are immutable per publication. Files whose
+  publication may have succeeded remain available, including after an error;
+  unpublished files are removed. A bounded cache rejects further copies when
+  its capacity of 64 files or 128 MiB is exhausted rather than invalidating an
+  earlier clipboard URI. Copy then reports failure until cache space is made
+  available; no background clipboard read can reliably establish grant expiry.
 - Unsupported graph/provider paths return an explicit reason. Never guess from ID prefixes.
 
 ## Fixtures

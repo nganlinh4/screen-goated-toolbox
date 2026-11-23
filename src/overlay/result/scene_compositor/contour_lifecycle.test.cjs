@@ -6,13 +6,14 @@ const path = require('node:path');
 
 function harness() {
   let time = 0, worker, nextFrame = 0;
-  const frames = new Map(), jobs = [], events = [], draws = [], uploads = [];
-  const element = () => ({style:{},appendChild(){},remove(){},setAttribute(){},addEventListener(){}});
+  const frames = new Map(), jobs = [], events = [], draws = [], uploads = [], elements = [], controls = [];
+  const element = () => { const value={style:{},appendChild(){},remove(){},setAttribute(){},addEventListener(){}}; elements.push(value); return value; };
   const window = {
     addEventListener(){}, __SGT_BUILD_PROCESSING_FIELD__: function buildProcessingField(){},
     ipc:{postMessage(message){events.push(JSON.parse(message));}},
     __SGT_PROCESSING_GPU__: () => ({
-      upload(field,now){uploads.push({field,now});}, draw(...args){draws.push(args);}, destroy(){}
+      upload(field,now){uploads.push({field,now});}, draw(...args){draws.push(args);},
+      setControls(boxes,clip){controls.push({boxes,clip});}, destroy(){}
     })
   };
   const scope = vm.createContext({window,document:{createElement:element,body:element()},
@@ -24,13 +25,31 @@ function harness() {
   vm.runInContext(fs.readFileSync(path.join(__dirname,'contour_runtime.js'),'utf8'),scope);
   const effect={id:1,rect:{x:0,y:0,width:600,height:400},revision:0,elapsed_ms:0,cells:[],closing:false,finish:false};
   return {
-    jobs,events,draws,uploads,
+    jobs,events,draws,uploads,elements,controls,
     apply(update={}){Object.assign(effect,update);window.__SGT_PROCESSING_CONTOURS__.apply([effect]);},
+    cutouts(boxes,work){window.__SGT_PROCESSING_CONTOURS__.controlCutouts(effect.id,boxes,work);},
     tick(now){time=now;const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(now));},
     deliver(job=jobs.at(-1)){worker.onmessage({data:{id:job.id,revision:job.revision,field:{padding:24},duration:10}});},
     get stopped(){return worker?.terminated;}
   };
 }
+
+test('desktop rebase moves the existing contour without restarting geometry or animation', () => {
+  const h=harness();
+  h.apply({rect:{x:100,y:80,width:600,height:400},revision:1,cells:[[20,20,100,20]]});
+  h.deliver();h.tick(300);
+  h.cutouts([{x:120,y:90,w:20,h:10,radius:4}],{x:100,y:80,w:600,h:400});
+  const beforeControls=JSON.stringify(h.controls.at(-1)), left=parseFloat(h.elements[1].style.left), top=parseFloat(h.elements[1].style.top);
+  const morph=h.draws.at(-1)[2], jobs=h.jobs.length, uploads=h.uploads.length;
+  h.apply({rect:{x:2020,y:-120,width:600,height:400}});
+  assert.equal(parseFloat(h.elements[1].style.left)-left,1920);
+  assert.equal(parseFloat(h.elements[1].style.top)-top,-200);
+  assert.equal(h.jobs.length,jobs,'an origin shift must not resubmit relative cells');
+  assert.equal(h.uploads.length,uploads);
+  h.cutouts([{x:2040,y:-110,w:20,h:10,radius:4}],{x:2020,y:-120,w:600,h:400});
+  assert.equal(JSON.stringify(h.controls.at(-1)),beforeControls,'recomputed cutouts remain effect-relative');
+  h.tick(320);assert.ok(h.draws.at(-1)[2]>=morph,'morph timeline must not restart');
+});
 
 test('bursts keep one active job and the latest destination without resetting the morph', () => {
   const h=harness();h.apply();h.tick(200);

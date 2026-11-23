@@ -96,7 +96,7 @@ class ServiceNotificationFactory(
 
     companion object {
         const val CHANNEL_ID = "sgt_live_translate_silent_v2"
-        const val NOTIFICATION_ID = 1001
+        const val NOTIFICATION_ID = ForegroundNotificationIds.LIVE_TRANSLATE
     }
 }
 

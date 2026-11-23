@@ -1,5 +1,116 @@
 use super::*;
 
+#[test]
+fn uncertain_publication_retains_3d_inputs_without_queueing() {
+    let name = format!(
+        "{}::uncertain_publication_retains_3d_inputs_without_queueing",
+        module_path!().split_once("::").unwrap().1
+    );
+    crate::overlay::creation_submission_test::run_isolated(&name, |root| {
+        let source = crate::overlay::creation_submission_test::input_image(root);
+        let request = StartJobRequest {
+            image_path: source.to_string_lossy().to_string(),
+            source_descriptors: Vec::new(),
+            output_dir: Some(root.join("output").to_string_lossy().to_string()),
+            final_output_dir: None,
+            polycount: 5_000,
+            mode: "quality".to_string(),
+            generation_mode: GenerationMode::Quality,
+            output_format: "glb".to_string(),
+            auto_segment: false,
+            segmentation_level: "balanced".to_string(),
+            topology: None,
+            segmentation_mode: String::new(),
+            instruction: None,
+            output_name: String::new(),
+            dispatch_id: String::new(),
+        };
+        let error = super::submission::start_job(request).unwrap_err();
+        assert!(error.contains("uncertain"), "{error}");
+        assert!(STATE.lock().unwrap().jobs.is_empty());
+        assert!(super::admission::try_acquire().is_some());
+        crate::overlay::creation_submission_test::assert_retained("3d", &source);
+    });
+}
+
+#[test]
+fn uncertain_refinement_retains_prior_source_and_staging() {
+    let name = format!(
+        "{}::uncertain_refinement_retains_prior_source_and_staging",
+        module_path!().split_once("::").unwrap().1
+    );
+    crate::overlay::creation_submission_test::run_isolated(&name, |root| {
+        let source = prepare_refinement(root, "balanced");
+        let error = super::submission::start_refinement(RefineRequest {
+            continuation_id: "parent-id".into(),
+            kind: RefinementKind::SeparateParts,
+            segmentation_level: Some("balanced".into()),
+            topology: None,
+            face_limit: None,
+            animation: None,
+        })
+        .unwrap_err();
+        assert!(error.contains("uncertain"), "{error}");
+        let state = STATE.lock().unwrap();
+        assert_eq!(state.jobs.len(), 1);
+        assert!(state.continuations.contains_key("parent-id"));
+        drop(state);
+        crate::overlay::creation_submission_test::assert_retained("3d", &source);
+    });
+}
+
+pub(super) fn prepare_refinement(root: &std::path::Path, level: &str) -> PathBuf {
+    let source = crate::overlay::creation_submission_test::input_image(root);
+    let inspected = crate::overlay::creation_source::inspect_image(&source).unwrap();
+    let snapshot =
+        crate::overlay::creation_source_snapshot::prepare("3d", "parent-dispatch", &[inspected])
+            .unwrap();
+    let descriptor = snapshot.descriptors()[0].clone();
+    let expiry = now_ms() + 60_000;
+    crate::overlay::creation_source_snapshot::retain_continuation(
+        std::slice::from_ref(&descriptor),
+        "parent-dispatch",
+        "parent-id",
+        expiry,
+    )
+    .unwrap();
+    snapshot.persist();
+    let output = root.join("output");
+    std::fs::create_dir_all(&output).unwrap();
+    let output = std::fs::canonicalize(output).unwrap();
+    let glb = output.join("previous.glb");
+    let mut json = br#"{"asset":{"version":"2.0"},"buffers":[{"byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}],"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}]}"#.to_vec();
+    while !json.len().is_multiple_of(4) {
+        json.push(b' ');
+    }
+    let total = 12 + 8 + json.len() + 8 + 36;
+    let mut bytes = Vec::from(&b"glTF\x02\0\0\0"[..]);
+    bytes.extend_from_slice(&(total as u32).to_le_bytes());
+    bytes.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&0x4e4f_534au32.to_le_bytes());
+    bytes.extend_from_slice(&json);
+    bytes.extend_from_slice(&36u32.to_le_bytes());
+    bytes.extend_from_slice(&0x004e_4942u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 36]);
+    std::fs::write(&glb, bytes).unwrap();
+    let mut previous = continuation();
+    previous.segmentation_level = level.to_string();
+    previous.available_actions.push("add_materials".into());
+    previous.image_path = descriptor.path.clone();
+    previous.source_descriptor = descriptor;
+    previous.output_dir = output;
+    previous.previous_output_path = glb;
+    previous.expires_at_ms = expiry;
+    {
+        let mut state = STATE.lock().unwrap();
+        state
+            .continuations
+            .insert("parent-id".to_string(), previous);
+        state.jobs.insert("parent-id".to_string(), idle_status());
+    }
+    source
+}
+
 const _: () = assert!(MAX_RETAINED_TERMINAL_JOBS >= MAX_QUEUED_JOBS);
 
 #[test]
@@ -7,7 +118,21 @@ fn bounded_user_interaction_remains_an_active_job() {
     assert!(status_is_busy("waiting_for_user"));
 }
 
-fn continuation() -> Continuation {
+#[test]
+fn queued_status_with_a_live_process_is_not_dispatched_or_ignored_for_capacity() {
+    let mut state = RuntimeState::default();
+    let mut active = idle_status();
+    active.stage = "queued".to_string();
+    state.insert_job("active".to_string(), active);
+    state.pids.insert("active".to_string(), 123);
+    let mut waiting = idle_status();
+    waiting.stage = "queued".to_string();
+    state.insert_job("waiting".to_string(), waiting);
+    assert_eq!(state.running_count(), 1);
+    assert_eq!(state.next_queued_job().as_deref(), Some("waiting"));
+}
+
+pub(super) fn continuation() -> Continuation {
     Continuation {
         parent_dispatch_id: "parent-dispatch".to_string(),
         dispatch_id: String::new(),

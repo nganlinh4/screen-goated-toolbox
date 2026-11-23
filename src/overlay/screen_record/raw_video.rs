@@ -22,7 +22,8 @@ const CLIPBOARD_FORMAT_CF_HDROP: u32 = 15;
 static SAVED_RAW_VIDEO_CAPABILITIES: LazyLock<Mutex<HashSet<PathBuf>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
-fn sanitize_dir_path(path: &str) -> Result<PathBuf, String> {
+/// Shared by every "save into a user folder" path (raw videos, subtitles).
+pub(super) fn sanitize_dir_path(path: &str) -> Result<PathBuf, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Target directory is empty".to_string());
@@ -55,7 +56,7 @@ fn ensure_source_video(path: &str) -> Result<PathBuf, String> {
     Ok(source)
 }
 
-fn unique_destination(dir: &Path, file_name: &str) -> PathBuf {
+pub(super) fn unique_destination(dir: &Path, file_name: &str) -> PathBuf {
     let base = Path::new(file_name);
     let stem = base
         .file_stem()
@@ -89,8 +90,29 @@ fn unique_destination(dir: &Path, file_name: &str) -> PathBuf {
     }
 }
 
+const RAW_VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v", "webm", "mkv", "avi"];
+
+/// The WebView may only export a video the recorder itself manages: a file in
+/// the recordings directory with a video extension. Anything else (settings,
+/// credentials, arbitrary user files) is refused.
+fn ensure_recorder_owned_video(path: &str) -> Result<PathBuf, String> {
+    let source = ensure_source_video(path)?;
+    let canonical =
+        fs::canonicalize(&source).map_err(|error| format!("Resolve raw video failed: {error}"))?;
+    let recordings = fs::canonicalize(super::ipc::media_server::recordings_dir())
+        .map_err(|error| format!("Resolve recordings directory failed: {error}"))?;
+    let is_video = canonical
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| RAW_VIDEO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()));
+    if !canonical.starts_with(&recordings) || !is_video {
+        return Err("Only recorder-managed videos can be saved".to_string());
+    }
+    Ok(canonical)
+}
+
 pub fn save_raw_video_copy(source_path: &str, target_dir: &str) -> Result<String, String> {
-    let source = ensure_source_video(source_path)?;
+    let source = ensure_recorder_owned_video(source_path)?;
     let dir = sanitize_dir_path(target_dir)?;
     let source_name = source
         .file_name()
@@ -119,7 +141,7 @@ pub fn save_raw_video_copy(source_path: &str, target_dir: &str) -> Result<String
 
 pub fn save_composition_snapshot_copy(source_path: &str) -> Result<String, String> {
     let source = ensure_source_video(source_path)?;
-    let dir = crate::paths::app_local_data_dir().join("composition-snapshots");
+    let dir = crate::paths::app_runtime_local_data_dir().join("composition-snapshots");
     fs::create_dir_all(&dir)
         .map_err(|e| format!("Failed to create composition snapshot dir: {}", e))?;
     let source_name = source
@@ -152,15 +174,16 @@ pub fn move_saved_raw_video(current_path: &str, target_dir: &str) -> Result<Stri
         return Err("Raw video was not saved by this recorder session".to_string());
     }
     let dir = sanitize_dir_path(target_dir)?;
+    // unique_destination always sees the file itself in its own folder, so a
+    // same-folder "move" would otherwise rename it to "name (1)".
+    if fs::canonicalize(&dir).ok().as_deref() == canonical_current.parent() {
+        return Ok(current.to_string_lossy().to_string());
+    }
     let current_name = current
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("recording.mp4");
     let destination = unique_destination(&dir, current_name);
-
-    if destination == current {
-        return Ok(destination.to_string_lossy().to_string());
-    }
 
     if fs::rename(&current, &destination).is_err() {
         // Fallback for cross-volume moves.
@@ -270,4 +293,63 @@ pub fn copy_video_file_to_clipboard(file_path: &str) -> Result<(), String> {
     }
 
     Err("Failed to open clipboard".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_video_copy_only_accepts_recorder_managed_videos() {
+        let recordings = super::super::ipc::media_server::recordings_dir();
+        fs::create_dir_all(&recordings).unwrap();
+        let mut random = [0u8; 8];
+        getrandom::fill(&mut random).unwrap();
+        let tag = format!("{}-{}", std::process::id(), u64::from_ne_bytes(random));
+        let video = recordings.join(format!("recording_test-{tag}.mp4"));
+        let not_video = recordings.join(format!("notes-{tag}.json"));
+        let outside = std::env::temp_dir().join(format!("config-{tag}.mp4"));
+        for path in [&video, &not_video, &outside] {
+            fs::write(path, b"data").unwrap();
+        }
+        let target = std::env::temp_dir().join(format!("sgt-raw-copy-{tag}"));
+
+        assert!(
+            save_raw_video_copy(&outside.to_string_lossy(), &target.to_string_lossy()).is_err()
+        );
+        assert!(
+            save_raw_video_copy(&not_video.to_string_lossy(), &target.to_string_lossy()).is_err()
+        );
+        let saved =
+            save_raw_video_copy(&video.to_string_lossy(), &target.to_string_lossy()).unwrap();
+        assert!(Path::new(&saved).is_file());
+
+        for path in [&video, &not_video, &outside] {
+            fs::remove_file(path).unwrap();
+        }
+        fs::remove_dir_all(target).unwrap();
+    }
+    #[test]
+    fn moving_a_saved_video_into_its_own_folder_keeps_its_name() {
+        let mut random = [0u8; 8];
+        getrandom::fill(&mut random).unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "sgt-raw-move-{}-{}",
+            std::process::id(),
+            u64::from_ne_bytes(random)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let saved = dir.join("Recording.mp4");
+        fs::write(&saved, b"data").unwrap();
+        SAVED_RAW_VIDEO_CAPABILITIES
+            .lock()
+            .unwrap()
+            .insert(fs::canonicalize(&saved).unwrap());
+
+        let moved = move_saved_raw_video(&saved.to_string_lossy(), &dir.to_string_lossy()).unwrap();
+        assert_eq!(Path::new(&moved), saved.as_path());
+        assert!(saved.is_file());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

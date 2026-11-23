@@ -3,65 +3,96 @@
 //! `ShellExecuteW`. Fully self-contained — no shared `SendInput` state.
 
 use anyhow::{Result, anyhow};
+use base64::Engine as _;
 use serde_json::{Value, json};
-use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Output, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::PCWSTR;
 
+#[path = "program_resolution.rs"]
+mod program_resolution;
+use program_resolution::{native_fallback, resolve_program};
+
+#[path = "shell_capture.rs"]
+mod capture;
 #[path = "shell_contract.rs"]
 mod contract;
+#[path = "shell_script.rs"]
+mod script;
+#[path = "shell_wait.rs"]
+mod wait;
+use super::super::shell_job as job;
+use capture::{CapturedOutput, CommandCapture, MAX_CAPTURE_BYTES, Reservation};
+use wait::{WaitResult, interrupted_value, process_interrupted_value, wait_cancellable};
 
 /// Run a PowerShell command (non-interactive, no profile) and capture its text
 /// output — the agent's GENERAL escape hatch for anything without a dedicated
 /// tool (files, processes, volume, system info). Inherits THIS process's
 /// (non-elevated) privileges. `CREATE_NO_WINDOW` avoids a console flash.
-pub(super) fn run_command(args: &Value) -> Result<Value> {
-    run_command_with_timeout(args, Duration::from_secs(60))
+pub(super) fn run_command(args: &Value, cancel: &AtomicBool) -> Result<Value> {
+    run_command_cancellable(args, Duration::from_secs(60), cancel)
 }
 
-fn run_command_with_timeout(args: &Value, timeout: Duration) -> Result<Value> {
+pub(in crate::overlay::computer_control) fn scope_context(args: &Value) -> Result<Value> {
     if let Some(spec) = ProcessSpec::parse(args)? {
-        if let Some(rejection) = contract::inline_interpreter_rejection(&spec.program, &spec.args) {
-            return Ok(rejection);
-        }
-        return run_process_with_timeout(spec, timeout);
+        Ok(
+            json!({"mode":"exact_process", "program":spec.program, "args":spec.args, "cwd":spec.cwd}),
+        )
+    } else {
+        command_arg(args)?;
+        Ok(json!({"mode":"powershell", "cwd":command_working_dir()?}))
     }
-    let command = command_arg(args)?;
-    let child = spawn_powershell(command)?;
-    let pid = child.child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(wait_powershell(child));
-    });
-    match rx.recv_timeout(timeout) {
-        Ok(r) => r,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            let termination = terminate_process_tree(pid);
-            // Reap the worker after termination when possible. The bounded wait
-            // prevents a broken OS process handle from becoming a new hang.
-            let reaped = rx.recv_timeout(Duration::from_secs(5)).is_ok();
-            Ok(json!({
+}
+
+#[cfg(test)]
+fn run_command_with_timeout(args: &Value, timeout: Duration) -> Result<Value> {
+    run_command_cancellable(args, timeout, &AtomicBool::new(false))
+}
+
+fn run_command_cancellable(args: &Value, timeout: Duration, cancel: &AtomicBool) -> Result<Value> {
+    if cancel.load(Ordering::SeqCst) {
+        let mut result = interrupted_value("cancelled", false, false, false, None);
+        result["terminated"] = json!(false);
+        result["termination_requested"] = json!(false);
+        result["not_started"] = json!(true);
+        return Ok(result);
+    }
+    let spec = ProcessSpec::parse(args)?;
+    if let Some(spec) = &spec
+        && let Some(rejection) = contract::inline_interpreter_rejection(&spec.program, &spec.args)
+    {
+        return Ok(rejection);
+    }
+    let command = if spec.is_none() {
+        Some(command_arg(args)?)
+    } else {
+        None
+    };
+    let reservation = match Reservation::acquire() {
+        Ok(reservation) => reservation,
+        Err(_) => {
+            return Ok(json!({
                 "ok": false,
-                "timed_out": true,
-                "effect_verified": false,
-                "effect_may_have_occurred": true,
-                "terminated": termination.is_ok(),
-                "reaped": reaped,
-                "termination_error": termination.err().map(|error| error.to_string()),
-                "error": format!(
-                    "the command exceeded {}ms and its process tree was terminated",
-                    timeout.as_millis()
-                ),
-            }))
+                "status": "resource_unavailable",
+                "error": "command output reader capacity is exhausted",
+                "retryable": true,
+                "effect_may_have_occurred": false,
+            }));
         }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err(anyhow!("PowerShell worker stopped without a result"))
-        }
+    };
+    if let Some(spec) = spec {
+        return run_process_with_timeout(spec, timeout, cancel, reservation);
+    }
+    match wait_cancellable(
+        spawn_powershell(command.unwrap(), reservation)?,
+        timeout,
+        cancel,
+    )? {
+        WaitResult::Complete(output) => Ok(output_value(&output)),
+        WaitResult::Interrupted(value) => Ok(value),
     }
 }
 
@@ -135,96 +166,22 @@ impl ProcessSpec {
             None => command_working_dir()?,
         };
         Ok(Some(Self {
-            program: resolve_program(program, &cwd),
+            program: resolve_program(program, &cwd)?,
             args: argv,
             cwd,
         }))
     }
 }
 
-fn resolve_program(program: &str, cwd: &Path) -> String {
-    let requested = Path::new(program);
-    let explicit_path = requested.is_absolute() || requested.components().count() > 1;
-    let mut bases = Vec::new();
-    if explicit_path {
-        bases.push(if requested.is_absolute() {
-            requested.to_path_buf()
-        } else {
-            cwd.join(requested)
-        });
-    } else {
-        bases.push(cwd.join(requested));
-        if let Some(path) = std::env::var_os("PATH") {
-            bases.extend(
-                std::env::split_paths(&path)
-                    .filter(|path| !path.as_os_str().is_empty())
-                    .map(|path| path.join(requested)),
-            );
-        }
-    }
-    for base in bases {
-        if requested.extension().is_some() {
-            if base.is_file() {
-                return base.to_string_lossy().into_owned();
-            }
-            continue;
-        }
-        for extension in windows_program_extensions() {
-            let candidate = base.with_extension(extension);
-            if candidate.is_file() {
-                return candidate.to_string_lossy().into_owned();
-            }
-        }
-        if explicit_path && base.is_file() {
-            return base.to_string_lossy().into_owned();
-        }
-    }
-    program.to_string()
-}
-
-fn windows_program_extensions() -> Vec<String> {
-    let configured = std::env::var("PATHEXT").unwrap_or_default();
-    let extensions = configured
-        .split(';')
-        .map(|extension| {
-            extension
-                .trim()
-                .trim_start_matches('.')
-                .to_ascii_lowercase()
-        })
-        .filter(|extension| matches!(extension.as_str(), "com" | "exe" | "bat" | "cmd"))
-        .collect::<Vec<_>>();
-    if extensions.is_empty() {
-        vec!["com".into(), "exe".into(), "bat".into(), "cmd".into()]
-    } else {
-        extensions
-    }
-}
-
-fn run_process_with_timeout(spec: ProcessSpec, timeout: Duration) -> Result<Value> {
-    let child = spawn_process(&spec)?;
-    let pid = child.child.id();
-    let worker_spec = spec.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(wait_process(child, &worker_spec));
-    });
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            let termination = terminate_process_tree(pid);
-            let reaped = rx.recv_timeout(Duration::from_secs(5)).is_ok();
-            Ok(process_timeout_value(
-                &spec,
-                timeout,
-                termination.is_ok(),
-                reaped,
-                termination.err().map(|error| error.to_string()),
-            ))
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err(anyhow!("exact process worker stopped without a result"))
-        }
+fn run_process_with_timeout(
+    spec: ProcessSpec,
+    timeout: Duration,
+    cancel: &AtomicBool,
+    reservation: Reservation,
+) -> Result<Value> {
+    match wait_cancellable(spawn_process(&spec, reservation)?, timeout, cancel)? {
+        WaitResult::Complete(output) => Ok(process_output_value(&output, &spec)),
+        WaitResult::Interrupted(value) => Ok(process_interrupted_value(value, &spec)),
     }
 }
 
@@ -234,38 +191,64 @@ fn command_arg(args: &Value) -> Result<&str> {
         .ok_or_else(|| anyhow!("missing command"))
 }
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Every exact process is created suspended inside its kill-on-close job in
+/// one native call, leaving no instant where a creator crash orphans the child.
+/// A batch script runs through `cmd.exe` with Rust std's command line, and a
+/// bare name not found on PATH uses std's remaining native search locations.
+fn spawn_process(spec: &ProcessSpec, reservation: Reservation) -> Result<CapturedChild> {
+    let program = launch_path(&spec.program)?;
+    let mut command = if is_batch_script(&program) {
+        let processor = crate::system_command::system_executable("cmd.exe")?;
+        job::HelperCommand::batch_script(processor, &program)
+    } else {
+        job::HelperCommand::new(&program)
+    };
+    command.args(&spec.args).current_dir(&spec.cwd);
+    capture_child(job::ContainedChild::spawn_atomic(&command)?, reservation)
+}
 
-fn spawn_process(spec: &ProcessSpec) -> Result<CapturedChild> {
-    use std::os::windows::process::CommandExt;
-    let (capture, stdout, stderr) = CommandCapture::create()?;
-    let child = Command::new(&spec.program)
-        .args(&spec.args)
-        .current_dir(&spec.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|error| anyhow!("failed to launch exact process: {error}"))?;
-    Ok(CapturedChild { child, capture })
+fn launch_path(program: &str) -> Result<PathBuf> {
+    let path = Path::new(program);
+    if path.is_absolute() {
+        return Ok(path.to_owned());
+    }
+    native_fallback(program).ok_or_else(|| anyhow!("program not found: {program}"))
+}
+
+fn is_batch_script(program: &Path) -> bool {
+    program.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("bat") || extension.eq_ignore_ascii_case("cmd")
+    })
 }
 
 /// Spawn PowerShell without waiting so the caller retains a PID that can be
 /// terminated structurally at the timeout boundary.
-fn spawn_powershell(command: &str) -> Result<CapturedChild> {
-    use std::os::windows::process::CommandExt;
-    let (capture, stdout, stderr) = CommandCapture::create()?;
+fn spawn_powershell(command: &str, reservation: Reservation) -> Result<CapturedChild> {
     let cwd = command_working_dir()?;
-    let child = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", command])
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|error| anyhow!("failed to launch powershell: {error}"))?;
+    let executable = crate::system_command::system_relative_executable(&[
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+    ])?;
+    let mut shell = job::HelperCommand::new(executable);
+    shell
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(script::powershell_script(command))
+        .current_dir(cwd);
+    capture_child(job::ContainedChild::spawn_atomic(&shell)?, reservation)
+}
+
+fn capture_child(
+    mut child: job::ContainedChild,
+    reservation: Reservation,
+) -> Result<CapturedChild> {
+    let stdout = child
+        .take_stdout()
+        .ok_or_else(|| anyhow!("command stdout pipe is missing"))?;
+    let stderr = child
+        .take_stderr()
+        .ok_or_else(|| anyhow!("command stderr pipe is missing"))?;
+    let capture = CommandCapture::start(stdout, stderr, reservation)?;
     Ok(CapturedChild { child, capture })
 }
 
@@ -277,96 +260,19 @@ fn command_working_dir() -> Result<PathBuf> {
         .map_err(|error| anyhow!("failed to resolve managed command working directory: {error}"))
 }
 
-fn wait_powershell(mut child: CapturedChild) -> Result<Value> {
-    let status = child
-        .child
-        .wait()
-        .map_err(|error| anyhow!("failed to wait for powershell: {error}"))?;
-    let output = child.capture.output(status)?;
-    Ok(output_value(&output))
-}
-
-fn wait_process(mut child: CapturedChild, spec: &ProcessSpec) -> Result<Value> {
-    let status = child
-        .child
-        .wait()
-        .map_err(|error| anyhow!("failed to wait for exact process: {error}"))?;
-    let output = child.capture.output(status)?;
-    Ok(process_output_value(&output, spec))
-}
-
 struct CapturedChild {
-    child: Child,
+    child: job::ContainedChild,
     capture: CommandCapture,
 }
 
-struct CommandCapture {
-    stdout_path: PathBuf,
-    stderr_path: PathBuf,
-}
-
-impl CommandCapture {
-    fn create() -> Result<(Self, File, File)> {
-        static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(1);
-        for _ in 0..64 {
-            let id = NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed);
-            let stem = format!("sgt-cc-command-{}-{id}", std::process::id());
-            let stdout_path = std::env::temp_dir().join(format!("{stem}.stdout"));
-            let stderr_path = std::env::temp_dir().join(format!("{stem}.stderr"));
-            let stdout = match create_capture_file(&stdout_path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => {
-                    return Err(anyhow!("failed to create command stdout capture: {error}"));
-                }
-            };
-            let stderr = match create_capture_file(&stderr_path) {
-                Ok(file) => file,
-                Err(error) => {
-                    let _ = std::fs::remove_file(&stdout_path);
-                    if error.kind() == std::io::ErrorKind::AlreadyExists {
-                        continue;
-                    }
-                    return Err(anyhow!("failed to create command stderr capture: {error}"));
-                }
-            };
-            return Ok((
-                Self {
-                    stdout_path,
-                    stderr_path,
-                },
-                stdout,
-                stderr,
-            ));
-        }
-        Err(anyhow!("could not allocate command output capture files"))
-    }
-
-    fn output(&self, status: ExitStatus) -> Result<Output> {
-        Ok(Output {
-            status,
-            stdout: std::fs::read(&self.stdout_path)
-                .map_err(|error| anyhow!("failed to read command stdout: {error}"))?,
-            stderr: std::fs::read(&self.stderr_path)
-                .map_err(|error| anyhow!("failed to read command stderr: {error}"))?,
-        })
-    }
-}
-
-impl Drop for CommandCapture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.stdout_path);
-        let _ = std::fs::remove_file(&self.stderr_path);
-    }
-}
-
-fn create_capture_file(path: &Path) -> std::io::Result<File> {
-    OpenOptions::new().write(true).create_new(true).open(path)
-}
-
-fn output_value(output: &Output) -> Value {
-    let (stdout, stdout_truncated) = captured_text(&output.stdout);
-    let (stderr, stderr_truncated) = captured_text(&output.stderr);
+fn output_value(capture: &CapturedOutput) -> Value {
+    let output = &capture.output;
+    let (stdout, stdout_truncated, stdout_lossy) = captured_text(&output.stdout);
+    let (stderr, stderr_truncated, stderr_lossy) = captured_text(&output.stderr);
+    let (stdout_bytes, stdout_bytes_complete) =
+        captured_bytes(&output.stdout, capture.stdout_complete);
+    let (stderr_bytes, stderr_bytes_complete) =
+        captured_bytes(&output.stderr, capture.stderr_complete);
     json!({
         "ok": output.status.success(),
         "ok_scope": "process_exit_status",
@@ -378,30 +284,53 @@ fn output_value(output: &Output) -> Value {
         "stderr": stderr,
         "stdout_truncated": stdout_truncated,
         "stderr_truncated": stderr_truncated,
+        "stdout_lossy": stdout_lossy,
+        "stderr_lossy": stderr_lossy,
+        "stdout_encoding": "unknown_or_mixed",
+        "stderr_encoding": "unknown_or_mixed",
+        "stdout_text_exact": false,
+        "stderr_text_exact": false,
+        "stdout_bytes_base64": stdout_bytes,
+        "stderr_bytes_base64": stderr_bytes,
+        "stdout_bytes_complete": stdout_bytes_complete,
+        "stderr_bytes_complete": stderr_bytes_complete,
+        "stdout_complete": capture.stdout_complete,
+        "stderr_complete": capture.stderr_complete,
     })
 }
 
-fn process_output_value(output: &Output, spec: &ProcessSpec) -> Value {
-    let (stdout, stdout_truncated) = captured_text(&output.stdout);
-    let (stderr, stderr_truncated) = captured_text(&output.stderr);
+fn process_output_value(capture: &CapturedOutput, spec: &ProcessSpec) -> Value {
+    let output = &capture.output;
+    let (stdout, stdout_truncated, stdout_lossy) = captured_text(&output.stdout);
+    let (stderr, stderr_truncated, stderr_lossy) = captured_text(&output.stderr);
+    let (stdout_bytes, stdout_bytes_complete) =
+        captured_bytes(&output.stdout, capture.stdout_complete);
+    let (stderr_bytes, stderr_bytes_complete) =
+        captured_bytes(&output.stderr, capture.stderr_complete);
+    let cwd = spec.cwd.to_string_lossy();
+    let cwd_lossy = matches!(cwd, std::borrow::Cow::Owned(_));
     let mut exact = vec![
         "/program",
         "/args",
         "/arg_count",
-        "/cwd",
         "/exit_code",
         "/process_completed",
     ];
-    let mut partial = Vec::new();
-    if stdout_truncated {
-        partial.push("/stdout");
+    let mut partial = vec!["/stdout", "/stderr"];
+    if cwd_lossy {
+        partial.push("/cwd");
     } else {
-        exact.push("/stdout");
+        exact.push("/cwd");
     }
-    if stderr_truncated {
-        partial.push("/stderr");
+    if stdout_bytes_complete {
+        exact.push("/stdout_bytes_base64");
     } else {
-        exact.push("/stderr");
+        partial.push("/stdout_bytes_base64");
+    }
+    if stderr_bytes_complete {
+        exact.push("/stderr_bytes_base64");
+    } else {
+        partial.push("/stderr_bytes_base64");
     }
     json!({
         "ok": output.status.success(),
@@ -410,7 +339,8 @@ fn process_output_value(output: &Output, spec: &ProcessSpec) -> Value {
         "program": &spec.program,
         "args": &spec.args,
         "arg_count": spec.args.len(),
-        "cwd": spec.cwd.to_string_lossy(),
+        "cwd": cwd,
+        "cwd_lossy": cwd_lossy,
         "exit_code": output.status.code(),
         "process_completed": true,
         "effect_verified": false,
@@ -419,6 +349,18 @@ fn process_output_value(output: &Output, spec: &ProcessSpec) -> Value {
         "stderr": stderr,
         "stdout_truncated": stdout_truncated,
         "stderr_truncated": stderr_truncated,
+        "stdout_lossy": stdout_lossy,
+        "stderr_lossy": stderr_lossy,
+        "stdout_encoding": "unknown_or_mixed",
+        "stderr_encoding": "unknown_or_mixed",
+        "stdout_text_exact": false,
+        "stderr_text_exact": false,
+        "stdout_bytes_base64": stdout_bytes,
+        "stderr_bytes_base64": stderr_bytes,
+        "stdout_bytes_complete": stdout_bytes_complete,
+        "stderr_bytes_complete": stderr_bytes_complete,
+        "stdout_complete": capture.stdout_complete,
+        "stderr_complete": capture.stderr_complete,
         "completion_proof": {
             "exact": exact,
             "partial": partial,
@@ -426,59 +368,23 @@ fn process_output_value(output: &Output, spec: &ProcessSpec) -> Value {
     })
 }
 
-fn process_timeout_value(
-    spec: &ProcessSpec,
-    timeout: Duration,
-    terminated: bool,
-    reaped: bool,
-    termination_error: Option<String>,
-) -> Value {
-    json!({
-        "ok": false,
-        "ok_scope": "exact_process_exit_status",
-        "evidence_kind": "exact_process_invocation",
-        "program": &spec.program,
-        "args": &spec.args,
-        "arg_count": spec.args.len(),
-        "cwd": spec.cwd.to_string_lossy(),
-        "timed_out": true,
-        "effect_verified": false,
-        "effect_may_have_occurred": true,
-        "terminated": terminated,
-        "reaped": reaped,
-        "termination_error": termination_error,
-        "error": format!(
-            "the process exceeded {}ms and its process tree was terminated",
-            timeout.as_millis()
-        ),
-        "completion_proof": {
-            "exact": ["/program", "/args", "/arg_count", "/cwd", "/timed_out", "/terminated", "/reaped"],
-        },
-    })
+const RAW_PREFIX_BYTES: usize = 1024;
+
+fn captured_bytes(bytes: &[u8], complete: bool) -> (String, bool) {
+    let prefix = &bytes[..bytes.len().min(RAW_PREFIX_BYTES)];
+    (
+        base64::engine::general_purpose::STANDARD.encode(prefix),
+        complete && bytes.len() <= RAW_PREFIX_BYTES,
+    )
 }
 
-fn captured_text(bytes: &[u8]) -> (String, bool) {
-    let text = String::from_utf8_lossy(bytes);
-    let trimmed = text.trim();
-    let value = trimmed.chars().take(4_000).collect::<String>();
-    (value, trimmed.chars().count() > 4_000)
-}
-
-fn terminate_process_tree(pid: u32) -> Result<()> {
-    use std::os::windows::process::CommandExt;
-    let output = Command::new("taskkill.exe")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|error| anyhow!("failed to launch taskkill: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "taskkill failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
+fn captured_text(bytes: &[u8]) -> (String, bool, bool) {
+    let byte_truncated = bytes.len() > MAX_CAPTURE_BYTES;
+    let input = &bytes[..bytes.len().min(MAX_CAPTURE_BYTES)];
+    let lossy = std::str::from_utf8(input).is_err();
+    let text = String::from_utf8_lossy(input);
+    let value = text.chars().take(4_000).collect::<String>();
+    (value, byte_truncated || text.chars().count() > 4_000, lossy)
 }
 
 fn to_wide(s: &str) -> Vec<u16> {
@@ -551,6 +457,12 @@ pub(super) fn launch_app(args: &Value) -> Result<Value> {
     Ok(json!({"ok": true, "launched": name, "args": app_args}))
 }
 
+#[cfg(test)]
+#[path = "shell_cancellation_tests.rs"]
+mod cancellation_tests;
+#[cfg(test)]
+#[path = "shell_evidence_tests.rs"]
+mod evidence_tests;
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;

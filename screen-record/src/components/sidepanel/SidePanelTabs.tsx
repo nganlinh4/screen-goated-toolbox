@@ -44,11 +44,11 @@ export function SidePanelTabs({ activePanel, onPanelChange, hiddenTabs }: SidePa
   };
   const compactTabLabel = (id: ActivePanel) => {
     switch (id) {
-      case "background": return t.tabBackground === "Nền" ? "Nền" : "Bg";
-      case "cursor": return t.tabCursor === "Con Trỏ" ? "C.Trỏ" : t.tabCursor;
-      case "audio": return t.tabAudio === "Âm Thanh" ? "Â.Thanh" : t.tabAudio;
-      case "narration": return t.tabNarration === "Thuyết Minh" ? "T.Minh" : "Narr.";
-      case "subtitles": return t.tabSubtitles === "Phụ Đề" ? "P.Đề" : "Subs";
+      case "background": return t.tabBackgroundShort;
+      case "cursor": return t.tabCursorShort;
+      case "audio": return t.tabAudioShort;
+      case "narration": return t.tabNarrationShort;
+      case "subtitles": return t.tabSubtitlesShort;
       default: return tabLabel(id);
     }
   };

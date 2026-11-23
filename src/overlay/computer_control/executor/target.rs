@@ -1,5 +1,7 @@
 use anyhow::{Result, anyhow};
 use serde_json::Value;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
 
 use super::super::controller::world::BrowserWindowIdentity;
 
@@ -171,6 +173,15 @@ pub(super) fn verify_window(args: &Value) -> Result<()> {
     super::super::uia::validate_native_provider_ownership()?;
     super::super::uia::validate_native_identity(expected_hwnd, expected_pid, expected_generation)?;
     let actual = super::super::uia::input_target_snapshot();
+    verify_native_foreground(expected_hwnd, expected_pid, expected_generation, &actual)
+}
+
+fn verify_native_foreground(
+    expected_hwnd: u64,
+    expected_pid: u64,
+    expected_generation: u64,
+    actual: &Value,
+) -> Result<()> {
     let actual_hwnd = actual.get("hwnd").and_then(Value::as_u64).unwrap_or(0);
     let actual_pid = actual.get("pid").and_then(Value::as_u64).unwrap_or(0);
     let actual_generation = actual
@@ -188,42 +199,121 @@ pub(super) fn verify_window(args: &Value) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn verify_pointer(args: &Value) -> Result<()> {
+pub(super) fn verify_pointer(args: &Value, point: (i32, i32)) -> Result<()> {
     verify_window(args)?;
-    let Some(ExpectedInputTarget::Native {
+    let Some(expected) = expected_input_target(args)? else {
+        return Ok(());
+    };
+    let expected_hwnd = match &expected {
+        ExpectedInputTarget::Native { hwnd, .. } => *hwnd,
+        ExpectedInputTarget::Browser { window, .. } => window.hwnd,
+    };
+    verify_point_root(expected_hwnd, point)?;
+    let ExpectedInputTarget::Native {
         element: Some(element),
         ..
-    }) = expected_input_target(args)?
+    } = expected
     else {
         return Ok(());
     };
     super::super::uia::validate_native_element_at(
-        element.x,
-        element.y,
+        point.0,
+        point.1,
         super::super::uia::ExpectedNativeElement {
             role: &element.role,
             provider_name: &element.provider_name,
             automation_id: &element.automation_id,
             runtime_id: &element.runtime_id,
         },
-    )
+    )?;
+    if point != (element.x, element.y) {
+        super::super::uia::validate_native_element_at(
+            element.x,
+            element.y,
+            super::super::uia::ExpectedNativeElement {
+                role: &element.role,
+                provider_name: &element.provider_name,
+                automation_id: &element.automation_id,
+                runtime_id: &element.runtime_id,
+            },
+        )?;
+    }
+    verify_point_root(expected_hwnd, point)
+}
+
+fn verify_point_root(expected_hwnd: u64, point: (i32, i32)) -> Result<()> {
+    let actual = unsafe {
+        GetAncestor(
+            WindowFromPoint(POINT {
+                x: point.0,
+                y: point.1,
+            }),
+            GA_ROOT,
+        )
+    };
+    if actual.0 as usize as u64 != expected_hwnd {
+        return Err(anyhow!(
+            "input target under pointer changed before injection"
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn verify_keyboard(args: &Value) -> Result<()> {
     verify_window(args)?;
-    let Some(ExpectedInputTarget::Native {
+    if let Some(value) = args.get("expected_paste_element") {
+        let element = expected_native_element(value)?;
+        super::super::uia::validate_focused_editable(
+            super::super::uia::ExpectedNativeElement {
+                role: &element.role,
+                provider_name: &element.provider_name,
+                automation_id: &element.automation_id,
+                runtime_id: &element.runtime_id,
+            },
+            value
+                .get("require_document")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        )?;
+        // UIA observation may race with browser navigation or a foreground change.
+        verify_window(args)?;
+    }
+    if let Some(ExpectedInputTarget::Native {
         element: Some(element),
         ..
     }) = expected_input_target(args)?
-    else {
+    {
+        super::super::uia::validate_native_focused_element(
+            super::super::uia::ExpectedNativeElement {
+                role: &element.role,
+                provider_name: &element.provider_name,
+                automation_id: &element.automation_id,
+                runtime_id: &element.runtime_id,
+            },
+        )?;
+    }
+    // Checked last so slower UIA validation cannot widen the replacement window
+    // between this observation and key-down.
+    verify_staged_clipboard(args, super::super::clipboard::sequence())
+}
+
+/// A staged paste must send Ctrl+V only while the clipboard still holds the
+/// staged publication; otherwise the target would paste foreign content.
+fn verify_staged_clipboard(args: &Value, current_sequence: u32) -> Result<()> {
+    let Some(value) = args.get("expected_clipboard_sequence") else {
         return Ok(());
     };
-    super::super::uia::validate_native_focused_element(super::super::uia::ExpectedNativeElement {
-        role: &element.role,
-        provider_name: &element.provider_name,
-        automation_id: &element.automation_id,
-        runtime_id: &element.runtime_id,
-    })
+    let expected = value
+        .as_u64()
+        .and_then(|sequence| u32::try_from(sequence).ok())
+        .filter(|sequence| *sequence != 0)
+        .ok_or_else(|| anyhow!("invalid staged clipboard identity"))?;
+    if current_sequence != expected {
+        return Err(anyhow!(
+            "clipboard changed after the artifact was staged; the paste was not sent"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -231,6 +321,68 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn staged_clipboard_guard_requires_the_exact_staged_sequence() {
+        assert!(verify_staged_clipboard(&json!({}), 9).is_ok());
+        assert!(verify_staged_clipboard(&json!({"expected_clipboard_sequence": 9}), 9).is_ok());
+        let replaced = verify_staged_clipboard(&json!({"expected_clipboard_sequence": 9}), 10)
+            .unwrap_err()
+            .to_string();
+        assert!(replaced.contains("paste was not sent"));
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!("9"),
+            json!(u64::from(u32::MAX) + 1),
+        ] {
+            assert!(
+                verify_staged_clipboard(&json!({ "expected_clipboard_sequence": invalid }), 9)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn replaced_clipboard_blocks_ctrl_v_before_any_input_is_injected() {
+        // A past sequence can never recur, so this observes the real system
+        // clipboard read-only and the guard must reject before key-down.
+        let past = super::super::super::clipboard::sequence()
+            .wrapping_sub(1)
+            .max(1);
+        let receipt = super::super::execute_ex(
+            "key_combination",
+            &json!({"keys": "control+v", "expected_clipboard_sequence": past}),
+            &super::super::super::human_input::HumanProfile::instant(),
+            &std::sync::atomic::AtomicBool::new(false),
+        );
+        assert_eq!(receipt["ok"], false, "{receipt}");
+        assert!(
+            receipt["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("paste was not sent")),
+            "{receipt}"
+        );
+        assert!(receipt.get("input_injection").is_none(), "{receipt}");
+    }
+
+    #[test]
+    fn native_input_rejects_foreground_drift_without_changing_focus() {
+        let expected = (41, 73, 5);
+        let original = json!({"hwnd": 41, "pid": 73, "generation": 5});
+        assert!(verify_native_foreground(expected.0, expected.1, expected.2, &original).is_ok());
+
+        for changed in [
+            json!({"hwnd": 42, "pid": 73, "generation": 5}),
+            json!({"hwnd": 41, "pid": 74, "generation": 5}),
+            json!({"hwnd": 41, "pid": 73, "generation": 6}),
+            json!({"available": false, "reason": "timeout"}),
+        ] {
+            assert!(
+                verify_native_foreground(expected.0, expected.1, expected.2, &changed).is_err()
+            );
+        }
+    }
 
     fn browser_window() -> BrowserWindowIdentity {
         BrowserWindowIdentity {

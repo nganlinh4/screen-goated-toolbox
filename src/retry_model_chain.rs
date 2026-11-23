@@ -1,8 +1,7 @@
 use crate::config::Config;
 use crate::model_config::{
     ModelConfig, ModelType, get_all_models_with_custom, get_model_by_id_with_custom,
-    model_is_non_llm, model_supports_search_by_id_with_custom,
-    model_supports_search_by_provider_and_name,
+    model_is_non_llm, model_supports_text_search,
 };
 use std::collections::HashSet;
 #[cfg(not(feature = "recorder-worker"))]
@@ -11,8 +10,16 @@ use std::time::Duration;
 #[cfg(not(feature = "recorder-worker"))]
 #[path = "retry_model_chain/budget.rs"]
 mod budget;
+#[cfg(not(feature = "recorder-worker"))]
 #[path = "retry_model_chain/cooldown.rs"]
 mod cooldown;
+#[cfg(not(feature = "recorder-worker"))]
+mod priority_order;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use priority_order::{
+    CHOSEN_MODEL_ROW, PresetRetryOrder, editable_priority_order, normalized_chosen_after,
+    split_priority_order,
+};
 
 #[cfg(not(feature = "recorder-worker"))]
 const INTERACTIVE_DEFAULT_LATENCY_MS: u64 = 3_000;
@@ -46,8 +53,6 @@ const MIN_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 5_000;
 const MAX_INTERACTIVE_ATTEMPT_TIMEOUT_MS: u64 = 30_000;
 const UNBENCHMARKED_FEED_QUALITY_TIER: u8 = 4;
 
-#[cfg(feature = "recorder-worker")]
-use cooldown::model_cooldown_remaining;
 #[cfg(not(feature = "recorder-worker"))]
 use cooldown::model_cooldown_skip_reason;
 #[cfg(not(feature = "recorder-worker"))]
@@ -67,7 +72,8 @@ pub fn record_token_budget(provider: &str, api_model: &str, headers: &ureq::http
     let reset = headers
         .get("x-ratelimit-reset-tokens")
         .and_then(|value| value.to_str().ok())
-        .and_then(cooldown::parse_duration_seconds);
+        .and_then(cooldown::parse_duration_seconds)
+        .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok());
     let (Some(limit), Some(remaining), Some(reset)) = (
         count("x-ratelimit-limit-tokens"),
         count("x-ratelimit-remaining-tokens"),
@@ -75,12 +81,7 @@ pub fn record_token_budget(provider: &str, api_model: &str, headers: &ureq::http
     ) else {
         return;
     };
-    budget::record(
-        &budget_key(provider, api_model),
-        limit,
-        remaining,
-        Duration::from_secs_f64(reset),
-    );
+    budget::record(&budget_key(provider, api_model), limit, remaining, reset);
 }
 
 /// Key a token budget by the exact provider-qualified endpoint.
@@ -262,34 +263,51 @@ impl RetryChainKind {
         if offered_ids.is_empty() {
             configured
         } else {
+            let rank_for = |id: &str| {
+                let model =
+                    crate::model_config::get_model_by_id_with_custom(id, &config.custom_models);
+                candidate_rank(model.as_ref(), &offered, id)
+            };
+            let protected = crate::model_feed::protected_local_leaders(wanted);
+            #[cfg(not(feature = "recorder-worker"))]
+            if configured.iter().any(|row| row == CHOSEN_MODEL_ROW) {
+                return priority_order::merge_priority_rows(
+                    configured,
+                    &offered_ids,
+                    overrides,
+                    protected,
+                    rank_for,
+                );
+            }
             crate::model_feed::merge_into_chain_with_overrides(
                 &configured,
                 &offered_ids,
                 &overrides.pinned,
                 &overrides.excluded,
-                crate::model_feed::protected_local_leaders(wanted),
-                |id| {
-                    let model =
-                        crate::model_config::get_model_by_id_with_custom(id, &config.custom_models);
-                    crate::model_feed::CandidateRank {
-                        // A live-only model has operational evidence but no durable
-                        // cross-provider catalog benchmark yet. Tier 4 keeps it
-                        // useful without inventing premium quality evidence.
-                        quality_tier: model
-                            .as_ref()
-                            .and_then(|model| model.intelligence_tier)
-                            .unwrap_or(UNBENCHMARKED_FEED_QUALITY_TIER),
-                        latency_ms: offered
-                            .iter()
-                            .find_map(|(offered_id, latency)| {
-                                (offered_id == id).then_some(*latency)
-                            })
-                            .or_else(|| model.and_then(|model| model.typical_latency_ms))
-                            .unwrap_or(u32::MAX),
-                    }
-                },
+                protected,
+                rank_for,
             )
         }
+    }
+}
+
+fn candidate_rank(
+    model: Option<&ModelConfig>,
+    offered: &[(String, u32)],
+    id: &str,
+) -> crate::model_feed::CandidateRank {
+    crate::model_feed::CandidateRank {
+        // A live-only model has operational evidence but no durable
+        // cross-provider catalog benchmark yet. Tier 4 keeps it
+        // useful without inventing premium quality evidence.
+        quality_tier: model
+            .and_then(|model| model.intelligence_tier)
+            .unwrap_or(UNBENCHMARKED_FEED_QUALITY_TIER),
+        latency_ms: offered
+            .iter()
+            .find_map(|(offered_id, latency)| (offered_id == id).then_some(*latency))
+            .or_else(|| model.and_then(|model| model.typical_latency_ms))
+            .unwrap_or(u32::MAX),
     }
 }
 
@@ -307,7 +325,7 @@ pub fn provider_is_available(provider: &str, config: &Config) -> bool {
             config.use_nvidia && credential_present("NVIDIA_API_KEY", &config.nvidia_api_key)
         }
         "ollama" => config.use_ollama,
-        "google-gtx" | "qrserver" | "parakeet" | "taalas" => true,
+        "google-gtx" | "qrserver" | "taalas" => true,
         _ => false,
     }
 }
@@ -351,7 +369,7 @@ fn provider_preflight_skip_reason(provider: &str, config: &Config) -> Option<Str
             }
         }
         "ollama" => (!config.use_ollama).then_some("PROVIDER_DISABLED:ollama".to_string()),
-        "google-gtx" | "qrserver" | "parakeet" | "taalas" => None,
+        "google-gtx" | "qrserver" | "taalas" => None,
         _ => Some(format!("Provider {provider} is disabled.")),
     }
 }
@@ -382,13 +400,6 @@ pub fn preflight_skip_reason(
             wait.as_secs().max(1)
         ));
     }
-    #[cfg(feature = "recorder-worker")]
-    if let Some(remaining) = model_cooldown_remaining(model_id) {
-        return Some(format!(
-            "MODEL_RATE_LIMIT_COOLDOWN:{model_id}:{}s",
-            remaining.as_secs().max(1)
-        ));
-    }
     if blocked_providers.contains(provider) {
         return Some(format!("Provider {} is unavailable for retry.", provider));
     }
@@ -409,6 +420,7 @@ pub fn resolve_next_retry_model(
     failed_model_ids: &[String],
     blocked_providers: &HashSet<String>,
     chain_kind: RetryChainKind,
+    must_support_search: bool,
     config: &Config,
 ) -> Option<ModelConfig> {
     resolve_next_configured_model(
@@ -416,39 +428,19 @@ pub fn resolve_next_retry_model(
         failed_model_ids,
         blocked_providers,
         chain_kind,
+        must_support_search,
         config,
     )
     .or_else(|| {
-        let must_support_search =
-            model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
         resolve_auto_retry_model(
             current_model_id,
             failed_model_ids,
             blocked_providers,
-            &chain_kind.target_model_type(),
+            chain_kind,
             must_support_search,
             config,
         )
     })
-}
-
-/// Selects the first usable fallback when a preset's pinned model no longer
-/// resolves. The preset remains unchanged; execution silently enters the same
-/// priority and compatibility machinery used after an ordinary model failure.
-#[cfg(not(feature = "recorder-worker"))]
-pub fn resolve_unavailable_pinned_model(
-    block_type: &str,
-    unavailable_model_id: &str,
-    config: &Config,
-) -> Option<ModelConfig> {
-    let chain_kind = RetryChainKind::from_block_type(block_type)?;
-    resolve_next_retry_model(
-        unavailable_model_id,
-        &[unavailable_model_id.to_string()],
-        &HashSet::new(),
-        chain_kind,
-        config,
-    )
 }
 
 pub fn resolve_next_configured_model(
@@ -456,16 +448,35 @@ pub fn resolve_next_configured_model(
     failed_model_ids: &[String],
     blocked_providers: &HashSet<String>,
     chain_kind: RetryChainKind,
+    must_support_search: bool,
     config: &Config,
 ) -> Option<ModelConfig> {
-    let must_support_search =
-        model_supports_search_by_id_with_custom(current_model_id, &config.custom_models);
-
     let chain = chain_kind.effective_chain(config);
-    for candidate_id in &chain {
-        if failed_model_ids
-            .iter()
-            .any(|failed_id| failed_id == candidate_id)
+    resolve_configured_candidates(
+        &chain,
+        current_model_id,
+        failed_model_ids,
+        blocked_providers,
+        chain_kind,
+        must_support_search,
+        config,
+    )
+}
+
+fn resolve_configured_candidates(
+    chain: &[String],
+    current_model_id: &str,
+    failed_model_ids: &[String],
+    blocked_providers: &HashSet<String>,
+    chain_kind: RetryChainKind,
+    must_support_search: bool,
+    config: &Config,
+) -> Option<ModelConfig> {
+    for candidate_id in chain {
+        if candidate_id == current_model_id
+            || failed_model_ids
+                .iter()
+                .any(|failed_id| failed_id == candidate_id)
         {
             continue;
         }
@@ -487,61 +498,55 @@ pub fn resolve_next_configured_model(
     None
 }
 
+/// Picks a model outside the exhausted chain. The user's Live exclusions still
+/// apply, and the candidate the adaptive merge would rank first wins, so
+/// listing order never decides which fallback runs.
 fn resolve_auto_retry_model(
     current_model_id: &str,
     failed_model_ids: &[String],
     blocked_providers: &HashSet<String>,
-    current_model_type: &ModelType,
+    chain_kind: RetryChainKind,
     must_support_search: bool,
     config: &Config,
 ) -> Option<ModelConfig> {
+    let wanted = chain_kind.target_model_type();
+    let excluded = &chain_kind.live_overrides(config).excluded;
+    let offered = crate::model_feed::store::offered_models(config, wanted);
     let all_models: Vec<ModelConfig> = get_all_models_with_custom(&config.custom_models);
     let current_provider = get_model_by_id_with_custom(current_model_id, &config.custom_models)
         .map(|m| m.provider)
         .unwrap_or_default();
+    let candidates = all_models.iter().filter(|model| {
+        model.id != current_model_id
+            && !failed_model_ids
+                .iter()
+                .any(|failed_id| failed_id == &model.id)
+            && !excluded.iter().any(|excluded_id| excluded_id == &model.id)
+            && is_retry_candidate_compatible(
+                model,
+                &wanted,
+                must_support_search,
+                blocked_providers,
+                config,
+            )
+    });
+    preferred_candidate(candidates, &current_provider, &offered).cloned()
+}
 
-    let same_provider_candidates: Vec<&ModelConfig> = all_models
-        .iter()
-        .filter(|model| {
-            model.provider == current_provider
-                && model.id != current_model_id
-                && !failed_model_ids
-                    .iter()
-                    .any(|failed_id| failed_id == &model.id)
-                && is_retry_candidate_compatible(
-                    model,
-                    current_model_type,
-                    must_support_search,
-                    blocked_providers,
-                    config,
-                )
-        })
-        .collect();
-
-    if let Some(last) = same_provider_candidates.last() {
-        return Some((*last).clone());
-    }
-
-    let diff_provider_candidates: Vec<&ModelConfig> = all_models
-        .iter()
-        .filter(|model| {
-            model.provider != current_provider
-                && !failed_model_ids
-                    .iter()
-                    .any(|failed_id| failed_id == &model.id)
-                && is_retry_candidate_compatible(
-                    model,
-                    current_model_type,
-                    must_support_search,
-                    blocked_providers,
-                    config,
-                )
-        })
-        .collect();
-
-    diff_provider_candidates
-        .last()
-        .map(|model| (*model).clone())
+/// Same provider first, then the order the adaptive merge uses, so a retry
+/// never picks a fallback the chain itself would have ranked lower.
+fn preferred_candidate<'a>(
+    candidates: impl Iterator<Item = &'a ModelConfig> + Clone,
+    current_provider: &str,
+    offered: &[(String, u32)],
+) -> Option<&'a ModelConfig> {
+    let best = |same_provider: bool| {
+        candidates
+            .clone()
+            .filter(|model| (model.provider == current_provider) == same_provider)
+            .min_by_key(|model| candidate_rank(Some(model), offered, &model.id).preference_key())
+    };
+    best(true).or_else(|| best(false))
 }
 
 fn is_retry_candidate_compatible(
@@ -561,23 +566,20 @@ fn is_retry_candidate_compatible(
         && !blocked_providers.contains(&model.provider)
         && provider_is_available(&model.provider, config)
         && (must_support_search || !model_requires_search_tool(model))
-        && (!must_support_search
-            || model.supports_search_override.unwrap_or_else(|| {
-                model_supports_search_by_provider_and_name(&model.provider, &model.full_name)
-            }))
+        && (!must_support_search || model_supports_text_search(model))
 }
 
 fn model_requires_search_tool(model: &ModelConfig) -> bool {
-    #[cfg(not(feature = "recorder-worker"))]
-    {
-        model.search_tool_enabled_by_default
-    }
-    #[cfg(feature = "recorder-worker")]
-    {
-        let _ = model;
-        false
-    }
+    model.search_tool_enabled_by_default
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]
 mod tests;
+
+#[cfg(all(test, feature = "recorder-worker"))]
+#[path = "retry_model_chain/worker_tests.rs"]
+mod worker_tests;
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "retry_model_chain/auto_retry_tests.rs"]
+mod auto_retry_tests;

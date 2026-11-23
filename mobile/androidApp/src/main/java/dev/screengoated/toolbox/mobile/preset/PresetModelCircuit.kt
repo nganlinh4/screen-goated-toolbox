@@ -21,8 +21,11 @@ internal enum class PresetCircuitKind(val reason: String, val durationMillis: Lo
 private sealed interface PresetCircuitState {
     data object Monitoring : PresetCircuitState
     data class Open(val kind: PresetCircuitKind, val untilMillis: Long) : PresetCircuitState
-    data class HalfOpen(val kind: PresetCircuitKind) : PresetCircuitState
+    data class HalfOpen(val kind: PresetCircuitKind, val owner: PresetModelAttempt?) : PresetCircuitState
 }
+
+/** Identity of one provider attempt, including attempts started while the circuit was healthy. */
+internal class PresetModelAttempt(val modelId: String)
 
 private val presetCircuitLock = Any()
 private val presetCircuits = mutableMapOf<String, PresetCircuitState>()
@@ -32,30 +35,43 @@ internal fun recordPresetModelFailure(modelId: String, error: String) {
     recordPresetModelFailureAt(modelId, error, monotonicMillis())
 }
 
+internal fun recordPresetModelFailure(attempt: PresetModelAttempt, error: String) {
+    recordPresetModelFailureAt(attempt.modelId, error, monotonicMillis(), attempt)
+}
+
 internal fun recordPresetModelSuccess(modelId: String) {
     synchronized(presetCircuitLock) { presetCircuits.remove(modelId) }
 }
 
-internal fun releasePresetModelProbe(modelId: String) {
-    releasePresetModelProbeAt(modelId, monotonicMillis())
+internal fun recordPresetModelSuccess(attempt: PresetModelAttempt) {
+    synchronized(presetCircuitLock) {
+        val state = presetCircuits[attempt.modelId]
+        if (state is PresetCircuitState.Open ||
+            (state is PresetCircuitState.HalfOpen && state.owner !== attempt)) return
+        presetCircuits.remove(attempt.modelId)
+    }
 }
 
-internal fun releasePresetModelProbeAt(modelId: String, nowMillis: Long) {
+internal fun releasePresetModelProbe(attempt: PresetModelAttempt) {
+    releasePresetModelProbeAt(attempt.modelId, monotonicMillis(), attempt)
+}
+
+internal fun releasePresetModelProbeAt(modelId: String, nowMillis: Long, attempt: PresetModelAttempt? = null) {
     synchronized(presetCircuitLock) {
         val state = presetCircuits[modelId]
-        if (state is PresetCircuitState.HalfOpen) {
+        if (state is PresetCircuitState.HalfOpen && state.owner === attempt) {
             presetCircuits[modelId] = PresetCircuitState.Open(state.kind, nowMillis)
         }
     }
 }
 
-internal fun claimPresetModelAttempt(modelId: String): String? =
-    claimPresetModelAttemptAt(modelId, monotonicMillis())
+internal fun claimPresetModelAttempt(attempt: PresetModelAttempt): String? =
+    claimPresetModelAttemptAt(attempt.modelId, monotonicMillis(), attempt)
 
 internal fun presetModelCircuitSkipReason(modelId: String): String? =
     presetModelCircuitSkipReasonAt(modelId, monotonicMillis())
 
-internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMillis: Long) {
+internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMillis: Long, attempt: PresetModelAttempt? = null) {
     val rateLimited = isRateLimitError(error)
     val timedOut = isTimeoutError(error)
     val unavailable = isUnavailableModelError(error)
@@ -70,6 +86,8 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
         else kind.durationMillis
 
     synchronized(presetCircuitLock) {
+        val current = presetCircuits[modelId]
+        if (current is PresetCircuitState.HalfOpen && current.owner !== attempt) return
         if (!rateLimited && !timedOut && !unavailable && !billing && !invalid) {
             if (presetCircuits[modelId] is PresetCircuitState.HalfOpen) {
                 presetCircuits.remove(modelId)
@@ -78,7 +96,7 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
         }
         var state = presetCircuits[modelId] ?: PresetCircuitState.Monitoring
         if (state is PresetCircuitState.Open && state.untilMillis <= nowMillis) {
-            state = PresetCircuitState.HalfOpen(state.kind)
+            state = PresetCircuitState.HalfOpen(state.kind, attempt)
         }
         val next = when {
             state is PresetCircuitState.Open && state.untilMillis > nowMillis -> state
@@ -120,14 +138,14 @@ internal fun recordPresetModelFailureAt(modelId: String, error: String, nowMilli
     }
 }
 
-internal fun claimPresetModelAttemptAt(modelId: String, nowMillis: Long): String? =
+internal fun claimPresetModelAttemptAt(modelId: String, nowMillis: Long, attempt: PresetModelAttempt? = null): String? =
     synchronized(presetCircuitLock) {
         when (val state = presetCircuits[modelId]) {
             null, is PresetCircuitState.Monitoring -> null
             is PresetCircuitState.Open -> if (state.untilMillis > nowMillis) {
                 circuitReason(state.kind, modelId, state.untilMillis - nowMillis)
             } else {
-                presetCircuits[modelId] = PresetCircuitState.HalfOpen(state.kind)
+                presetCircuits[modelId] = PresetCircuitState.HalfOpen(state.kind, attempt)
                 null
             }
             is PresetCircuitState.HalfOpen -> "MODEL_COOLDOWN_PROBE_IN_FLIGHT:$modelId"

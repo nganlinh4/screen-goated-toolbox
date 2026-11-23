@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="live_audio_gap">다시 연결하는 동안 일부 오디오가 누락되었을 수 있습니다.</string>
     <string name="app_name">SGT Mobile</string>
     <string name="live_translate_channel_name">실시간 번역</string>
     <string name="live_translate_channel_description">SGT 모바일 실시간 번역의 포그라운드 세션 상태입니다.</string>
@@ -16,6 +17,7 @@
     <string name="preset_audio_notification_title">SGT 오디오 프리셋</string>
     <string name="preset_audio_notification_device">프리셋용 기기 오디오 캡처 중</string>
     <string name="preset_audio_notification_microphone">프리셋용 마이크 오디오 캡처 중</string>
+    <string name="preset_audio_permission_required">프리셋을 다시 시작하려면 마이크 접근을 허용하세요.</string>
     <string name="preset_audio_notification_idle">프리셋 오디오 캡처 대기 중</string>
     <string name="bubble_channel_name">SGT Bubble</string>
     <string name="bubble_channel_description">플로팅 버블 오버레이</string>
@@ -56,6 +58,9 @@
     <string name="phone_control_activation_accessibility_toast">SGT 접근성을 켜세요.</string>
     <string name="phone_control_activation_overlay_toast">플로팅 오브를 허용하세요.</string>
     <string name="phone_control_activation_projection_needed">휴대폰 제어를 시작하려면 전체 화면을 공유하세요.</string>
+    <string name="phone_control_projection_busy">화면 공유가 사용 중입니다. 현재 단계를 마친 후 다시 시도하세요.</string>
+    <string name="phone_control_stop_retry">휴대전화 제어를 중지하지 못했습니다. 탭하여 다시 시도하세요.</string>
+    <string name="phone_control_projection_expired">화면 공유 상태가 변경되었습니다. 다시 시도하세요.</string>
     <string name="phone_control_activation_projection_toast">전체 화면을 공유하세요.</string>
     <string name="phone_control_activation_start_failed_toast">휴대폰 제어를 시작하지 못했습니다.</string>
     <string name="phone_control_power_prompt_title">제어 권한</string>
@@ -74,6 +79,7 @@
     <string name="phone_control_sgt_adb_setup_toast">무선 디버깅을 여는 중…</string>
     <string name="phone_control_sgt_adb_pending">SGT 브리지 선택은 유지됩니다. 무선 디버깅을 켜 두고 표시된 Android 단계를 완료하세요.</string>
     <string name="phone_control_sgt_adb_pending_toast">표시된 Android 단계를 완료하세요.</string>
+    <string name="phone_control_sgt_adb_unavailable">연결을 확인할 수 없어 SGT 브리지를 사용할 수 없습니다. 계속하려면 다른 권한을 선택하거나 현재 선택을 유지하세요.</string>
     <string name="phone_control_sgt_adb_forget">페어링 삭제</string>
     <string name="phone_control_sgt_adb_forgotten_toast">SGT 브리지 페어링을 삭제했습니다.</string>
     <string name="phone_control_sgt_adb_forget_failed_toast">SGT 브리지 페어링을 삭제하지 못했습니다.</string>
@@ -93,14 +99,17 @@
     <string name="phone_control_private_setup_continue">선택한 제어 방식을 확인하려면 화면을 다시 공유하세요.</string>
     <string name="phone_control_private_setup_complete_toast">계속하려면 화면을 공유하세요.</string>
     <string name="phone_control_private_setup_working">보안 설정 마무리 중…</string>
+    <string name="phone_control_private_setup_shizuku_manual">Shizuku 페어링 알림에 코드를 입력한 다음 Shizuku를 시작하세요.</string>
     <string name="phone_control_private_setup_pending">설정을 계속하려면 화면을 다시 공유하세요. SGT가 선택한 제어 방식을 새 화면으로 다시 확인합니다.</string>
     <string name="phone_control_private_setup_pending_toast">계속하려면 화면을 공유하세요.</string>
     <string name="phone_control_private_setup_needs_user_step">설정에 표시된 Android 단계가 더 필요합니다.</string>
     <string name="phone_control_private_setup_needs_user_step_toast">Android 단계를 완료하세요.</string>
     <string name="phone_control_action_cancel_setup">설정 취소</string>
     <string name="preset_image_selection_overlay_label">%1$s • %2$s</string>
-    <string name="feature_asr_ort_name">Moonshine 런타임</string>
-    <string name="feature_asr_moonshine_name">Moonshine 엔진</string>
-    <string name="feature_asr_sherpa_name">Zipformer 엔진</string>
     <string name="feature_creation_runtime_name">제작 도구</string>
+    <string name="creation_retained_original">원본</string>
+    <string name="secure_store_unavailable_title">설정을 사용할 수 없습니다</string>
+    <string name="secure_store_unavailable_body">암호화된 설정을 열 수 없습니다. 기존 데이터는 삭제되지 않았습니다. 기기의 잠금을 해제한 후 다시 시도하세요.</string>
+    <string name="secure_store_retry_failed">설정을 아직 사용할 수 없습니다. 나중에 다시 시도하세요.</string>
+    <string name="secure_store_retry">다시 시도</string>
 </resources>

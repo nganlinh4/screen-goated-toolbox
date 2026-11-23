@@ -132,7 +132,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           <SettingRow label={t.fontSize} valueDisplay={`${resolvedStyle.fontSize}`}>
             <Slider
               min={12} max={200} step={1} value={resolvedStyle.fontSize}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => updateStyle({ fontSize: val })}
             />
           </SettingRow>
@@ -160,7 +160,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
               <SettingRow key={axis} label={label} valueDisplay={`${value}`} className={`font-axis-${axis.toLowerCase()}-field`}>
                 <Slider
                   min={min} max={max} step={step} value={value}
-                  onPointerDown={beginBatch} onPointerUp={commitBatch}
+                  onGestureStart={beginBatch} onGestureEnd={commitBatch}
                   onChange={(val) => updateStyle({
                     fontVariations: { ...(resolvedStyle.fontVariations || {}), [axis]: val }
                   })}
@@ -196,7 +196,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           <SettingRow label={t.opacity} valueDisplay={`${Math.round((resolvedStyle.opacity ?? 1) * 100)}%`}>
             <Slider
               min={0} max={1} step={0.01} value={resolvedStyle.opacity ?? 1}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => updateStyle({ opacity: val })}
             />
           </SettingRow>
@@ -204,7 +204,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           <SettingRow label={t.letterSpacing} valueDisplay={`${resolvedStyle.letterSpacing ?? 0}`}>
             <Slider
               min={-5} max={20} step={1} value={resolvedStyle.letterSpacing ?? 0}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => updateStyle({ letterSpacing: val })}
             />
           </SettingRow>
@@ -212,7 +212,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
           <SettingRow label={t.lineHeight} valueDisplay={`${(resolvedStyle.lineHeight ?? 1.25).toFixed(2)}x`}>
             <Slider
               min={0.8} max={2} step={0.01} value={resolvedStyle.lineHeight ?? 1.25}
-              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onGestureStart={beginBatch} onGestureEnd={commitBatch}
               onChange={(val) => updateStyle({ lineHeight: val })}
             />
           </SettingRow>
@@ -235,7 +235,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.maxWidth} valueDisplay={`${resolvedStyle.wrap.maxWidthPercent}%`}>
                   <Slider
                     min={20} max={100} step={1} value={resolvedStyle.wrap.maxWidthPercent}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       wrap: { ...resolvedStyle.wrap!, maxWidthPercent: val }
                     })}
@@ -268,7 +268,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.animationInDuration} valueDisplay={`${(resolvedStyle.animation?.inDuration ?? 0.3).toFixed(2)}s`}>
                   <Slider
                     min={0.05} max={1.5} step={0.01} value={resolvedStyle.animation?.inDuration ?? 0.3}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       animation: { ...(resolvedStyle.animation ?? { preset: 'fade', inDuration: 0.3, outDuration: 0.3 }), inDuration: val }
                     })}
@@ -277,7 +277,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.animationOutDuration} valueDisplay={`${(resolvedStyle.animation?.outDuration ?? 0.3).toFixed(2)}s`}>
                   <Slider
                     min={0.05} max={1.5} step={0.01} value={resolvedStyle.animation?.outDuration ?? 0.3}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       animation: { ...(resolvedStyle.animation ?? { preset: 'fade', inDuration: 0.3, outDuration: 0.3 }), outDuration: val }
                     })}
@@ -322,7 +322,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.pillOpacity} valueDisplay={`${Math.round((resolvedStyle.background.opacity ?? 0.6) * 100)}%`} className="pill-opacity-field">
                   <Slider
                     min={0} max={1} step={0.01} value={resolvedStyle.background.opacity ?? 0.6}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       background: { ...resolvedStyle.background!, opacity: val }
                     })}
@@ -331,7 +331,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.paddingX} valueDisplay={`${resolvedStyle.background.paddingX}`} className="pill-padding-x-field">
                   <Slider
                     min={0} max={64} step={1} value={resolvedStyle.background.paddingX}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       background: { ...resolvedStyle.background!, paddingX: val }
                     })}
@@ -340,7 +340,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.paddingY} valueDisplay={`${resolvedStyle.background.paddingY}`} className="pill-padding-y-field">
                   <Slider
                     min={0} max={48} step={1} value={resolvedStyle.background.paddingY}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       background: { ...resolvedStyle.background!, paddingY: val }
                     })}
@@ -349,7 +349,7 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.pillRadius} valueDisplay={`${resolvedStyle.background.borderRadius}`} className="pill-radius-field">
                   <Slider
                     min={0} max={32} step={1} value={resolvedStyle.background.borderRadius}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({
                       background: { ...resolvedStyle.background!, borderRadius: val }
                     })}
@@ -384,14 +384,14 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.strokeWidth} valueDisplay={`${resolvedStyle.stroke.width}`}>
                   <Slider
                     min={0} max={16} step={0.5} value={resolvedStyle.stroke.width}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ stroke: { ...resolvedStyle.stroke!, width: val } })}
                   />
                 </SettingRow>
                 <SettingRow label={t.strokeOpacity} valueDisplay={`${Math.round((resolvedStyle.stroke.opacity ?? 1) * 100)}%`}>
                   <Slider
                     min={0} max={1} step={0.01} value={resolvedStyle.stroke.opacity ?? 1}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ stroke: { ...resolvedStyle.stroke!, opacity: val } })}
                   />
                 </SettingRow>
@@ -424,28 +424,28 @@ export function TextPanel({ segment, editingTextId, selectedTextIds, onUpdateSeg
                 <SettingRow label={t.shadowBlur} valueDisplay={`${resolvedStyle.shadow.blur}`}>
                   <Slider
                     min={0} max={32} step={1} value={resolvedStyle.shadow.blur}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ shadow: { ...resolvedStyle.shadow!, blur: val } })}
                   />
                 </SettingRow>
                 <SettingRow label={t.shadowOffsetX} valueDisplay={`${resolvedStyle.shadow.offsetX}`}>
                   <Slider
                     min={-24} max={24} step={1} value={resolvedStyle.shadow.offsetX}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ shadow: { ...resolvedStyle.shadow!, offsetX: val } })}
                   />
                 </SettingRow>
                 <SettingRow label={t.shadowOffsetY} valueDisplay={`${resolvedStyle.shadow.offsetY}`}>
                   <Slider
                     min={-24} max={24} step={1} value={resolvedStyle.shadow.offsetY}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ shadow: { ...resolvedStyle.shadow!, offsetY: val } })}
                   />
                 </SettingRow>
                 <SettingRow label={t.shadowOpacity} valueDisplay={`${Math.round((resolvedStyle.shadow.opacity ?? 0.7) * 100)}%`}>
                   <Slider
                     min={0} max={1} step={0.01} value={resolvedStyle.shadow.opacity ?? 0.7}
-                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onGestureStart={beginBatch} onGestureEnd={commitBatch}
                     onChange={(val) => updateStyle({ shadow: { ...resolvedStyle.shadow!, opacity: val } })}
                   />
                 </SettingRow>

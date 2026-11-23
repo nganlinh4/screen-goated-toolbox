@@ -53,7 +53,6 @@
     { "file": "smart_toy.svg", "variants": ["SmartToy"] },
     { "file": "speaker.svg", "variants": ["Speaker"] },
     { "file": "speaker_disabled.svg", "variants": ["SpeakerDisabled"] },
-    { "file": "speech_to_text.svg", "variants": ["SpeechToText"] },
     { "file": "star.svg", "variants": ["Star"] },
     { "file": "star_filled.svg", "variants": ["StarFilled"] },
     { "file": "stat_1.svg", "variants": ["Stat1"] },
@@ -68,7 +67,6 @@
     { "file": "translate.svg", "variants": ["Translate"] },
     { "file": "upgrade.svg", "variants": ["Upgrade"] },
     { "file": "videocam.svg", "variants": ["Videocam"] },
-    { "file": "warning.svg", "variants": ["Warning"] },
-    { "file": "whatshot.svg", "variants": ["Whatshot"] }
+    { "file": "warning.svg", "variants": ["Warning"] }
   ]
 }

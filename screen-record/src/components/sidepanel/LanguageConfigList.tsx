@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { X } from '@/components/ui/MaterialIcon';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { FieldLabelContext, LabelledField } from '@/components/ui/FieldLabelContext';
 
 export interface LanguageConfigItem {
   languageCode: string;
@@ -70,24 +71,28 @@ export function LanguageConfigList<T extends LanguageConfigItem>({
   addTriggerClassName,
   addContentClassName,
 }: LanguageConfigListProps<T>) {
+  const titleId = useId();
   return (
     <div className={`language-config-list flex flex-col gap-1.5 ${className}`}>
-      <span className="text-[11px] font-medium text-on-surface-variant">{title}</span>
+      <span id={titleId} className="language-config-title text-[11px] font-medium text-on-surface-variant">{title}</span>
       {statusContent}
-      {items.map((item, index) => (
-        <div
-          key={`${item.languageCode}-${index}`}
-          className={`language-config-row flex items-center gap-1.5 ${rowClassName ?? ''}`}
-        >
-          <span
-            className={`language-config-name w-20 shrink-0 ${truncateLanguageName ? 'truncate ' : ''}text-[11px] font-medium text-[var(--secondary-color)]`}
+      {/* Each row's control is named by the list title plus its language. */}
+      <FieldLabelContext.Provider value={titleId}>
+        {items.map((item, index) => (
+          <div
+            key={`${item.languageCode}-${index}`}
+            className={`language-config-row flex items-center gap-1.5 ${rowClassName ?? ''}`}
           >
-            {item.languageName}
-          </span>
-          {renderControl(item, index)}
-          <RemoveLanguageButton onClick={() => onRemove(index)} title={removeTitle} />
-        </div>
-      ))}
+            <LabelledField
+              label={item.languageName}
+              labelClassName={`language-config-name w-20 shrink-0 ${truncateLanguageName ? 'truncate ' : ''}text-[11px] font-medium text-[var(--secondary-color)]`}
+            >
+              {renderControl(item, index)}
+            </LabelledField>
+            <RemoveLanguageButton onClick={() => onRemove(index)} title={removeTitle} />
+          </div>
+        ))}
+      </FieldLabelContext.Provider>
       {availableLanguages.length > 0 && (
         <PanelSelect
           value={addLabel}

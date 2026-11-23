@@ -16,7 +16,7 @@ window.__SGT_SOURCE_IMAGE__ = (function() {
     });
   }
   function embeddedFont() {
-    if (!font) font = fetch('/font.woff2').then(response => {
+    if (!font) font = fetch('font.woff2').then(response => {
       if (!response.ok) throw new Error('export font unavailable');
       return response.blob();
     }).then(dataUrl).then(url => fontFace.replace('__SGT_EXPORT_FONT_URL__',url))
@@ -97,9 +97,13 @@ window.__SGT_SOURCE_IMAGE__ = (function() {
     if (button.dataset.copyIcon !== icon) {
       button.dataset.copyIcon = icon; button.innerHTML = window.iconSvgs[icon];
     }
-    button.title = state?.failed ? window.L10N.copy_image_failed : window.L10N.copy_image;
+    button.dataset.l10nTitle = state?.failed ? 'copy_image_failed' : 'copy_image';
+    button.setAttribute('aria-label', window.L10N[button.dataset.l10nTitle] || '');
   }
-  function repaint(id) { decorate(document.querySelector('.button-group[data-hwnd="'+id+'"]'),id); }
+  function repaint(id) {
+    decorate(document.querySelector('.button-group[data-hwnd="'+id+'"]'),id);
+    window.__SGT_CONTROL_TOOLTIP__?.refresh();
+  }
   function forget(id) {
     const state = pending.get(String(id)); if (state) clearTimeout(state.timer);
     pending.delete(String(id));
@@ -109,12 +113,13 @@ window.__SGT_SOURCE_IMAGE__ = (function() {
     request(id) {
       id=String(id); if (pending.get(id)?.busy) return; forget(id);
       pending.set(id,{busy:true,timer:setTimeout(()=>{forget(id);repaint(id);},31000)}); repaint(id);
-      window.ipc.postMessage(JSON.stringify({action:'copy_image',hwnd:id}));
+      window.ipc.postMessage(JSON.stringify({action:'copy_image',hwnd:id,topology_epoch:window.__SGT_TOPOLOGY_EPOCH__ || '1'}));
     },
     async render(request) {
+      const epoch = window.__SGT_TOPOLOGY_EPOCH__ || '1';
       let png=null,error=null;
       try { png=await rasterize(request); } catch(failure) { error=String(failure.message || failure); }
-      window.ipc.postMessage(JSON.stringify({type:'source_image_ready',result:{id:request.id,token:request.token,png,error}}));
+      window.ipc.postMessage(JSON.stringify({type:'source_image_ready',topology_epoch:epoch,result:{id:request.id,token:request.token,png,error}}));
     },
     status(id,success) {
       id=String(id); forget(id);

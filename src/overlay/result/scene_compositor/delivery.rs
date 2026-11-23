@@ -1,8 +1,8 @@
-use super::mailbox::{CommandBuffer, PushResult};
+use super::mailbox::{CommandBuffer, PushResult, survives_snapshot};
 use super::protocol::HostCommand;
 use super::supervisor::{ProcessState, ensure_process, restart_now, start_watchdog, write_command};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 
 #[derive(Default)]
 struct PendingDelivery {
@@ -51,14 +51,17 @@ pub(super) fn request_restart() {
 }
 
 pub(super) fn queue_snapshot() {
-    let mut pending = PENDING.lock().unwrap();
+    let (mut pending, language, theme_mode) = pending_with_config();
     pending
         .commands
         .replace_with_snapshot(super::parent::scene_snapshot());
+    pending
+        .commands
+        .push(super::localization::command_for(&language));
     pending.commands.push(super::processing::snapshot());
     pending.commands.push(super::capture_exclusion::snapshot());
     pending.commands.push(HostCommand::Theme {
-        theme: super::parent::current_theme(),
+        theme: super::parent::theme_command(theme_mode.is_dark()),
     });
     pending.snapshot_required = false;
     drop(pending);
@@ -85,7 +88,7 @@ fn delivery_loop(receiver: Receiver<()>) {
 fn deliver_batch(process: ProcessState, mut commands: Vec<HostCommand>) {
     match process {
         ProcessState::Running => {}
-        ProcessState::Spawned => commands.retain(is_operation_after_snapshot),
+        ProcessState::Spawned => commands.retain(survives_snapshot),
         ProcessState::Unavailable => {
             defer_operations(commands);
             return;
@@ -106,36 +109,26 @@ fn deliver_batch(process: ProcessState, mut commands: Vec<HostCommand>) {
 
 fn defer_operations(commands: Vec<HostCommand>) {
     let mut pending = PENDING.lock().unwrap();
-    for command in commands.into_iter().filter(is_operation_after_snapshot) {
+    for command in commands.into_iter().filter(survives_snapshot) {
         if pending.commands.push(command) != PushResult::Queued {
             pending.snapshot_required = true;
         }
     }
 }
 
-fn is_operation_after_snapshot(command: &HostCommand) -> bool {
-    matches!(
-        command,
-        HostCommand::RefineText {
-            is_insert: true,
-            ..
-        } | HostCommand::NavigateBack { .. }
-            | HostCommand::NavigateForward { .. }
-            | HostCommand::SourceImage { .. }
-            | HostCommand::SourceImageStatus { .. }
-    )
-}
-
 fn take_pending() -> DeliveryBatch {
-    let mut pending = PENDING.lock().unwrap();
+    let (mut pending, language, theme_mode) = pending_with_config();
     if pending.snapshot_required {
         pending
             .commands
             .replace_with_snapshot(super::parent::scene_snapshot());
+        pending
+            .commands
+            .push(super::localization::command_for(&language));
         pending.commands.push(super::processing::snapshot());
         pending.commands.push(super::capture_exclusion::snapshot());
         pending.commands.push(HostCommand::Theme {
-            theme: super::parent::current_theme(),
+            theme: super::parent::theme_command(theme_mode.is_dark()),
         });
         pending.snapshot_required = false;
     }
@@ -150,28 +143,32 @@ fn signal_delivery() {
     let _ = SIGNAL.try_send(());
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// Keep config-to-queue lock ordering: recovery must not replace a newly queued
+// locale with a snapshot captured before that config change.
+fn pending_with_config() -> (
+    MutexGuard<'static, PendingDelivery>,
+    String,
+    crate::config::ThemeMode,
+) {
+    let app = crate::APP.lock().unwrap();
+    let pending = PENDING.lock().unwrap();
+    (
+        pending,
+        app.config.ui_language.clone(),
+        app.config.theme_mode.clone(),
+    )
+}
 
-    #[test]
-    fn only_operations_missing_from_the_snapshot_are_replayed_after_spawn() {
-        assert!(is_operation_after_snapshot(&HostCommand::RefineText {
-            id: 42,
-            text: "dictated".to_string(),
-            is_insert: true,
-        }));
-        assert!(is_operation_after_snapshot(&HostCommand::NavigateBack {
-            id: 42
-        }));
-        assert!(!is_operation_after_snapshot(&HostCommand::RefineText {
-            id: 42,
-            text: "canonical".to_string(),
-            is_insert: false,
-        }));
-        assert!(!is_operation_after_snapshot(&HostCommand::Opacity {
-            id: 42,
-            opacity: 75,
-        }));
+pub(crate) fn update_locale() {
+    start_watchdog();
+    let (mut pending, language, _) = pending_with_config();
+    if pending
+        .commands
+        .push(super::localization::command_for(&language))
+        != PushResult::Queued
+    {
+        pending.snapshot_required = true;
     }
+    drop(pending);
+    signal_delivery();
 }

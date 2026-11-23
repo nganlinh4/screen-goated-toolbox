@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { getImportedProjectOwner, importStartOwnerCurrent, type ImportStartOwner } from './importProjectOwnership';
 import { invoke } from "@/lib/ipc";
 import type { SubtitleSource } from "@/lib/subtitleGenerationPlan";
 import type { SubtitleFileFormat } from "@/lib/subtitleSrt";
@@ -8,6 +9,11 @@ type PendingVideoDropAction = {
   path?: string;
   action?: string;
 };
+
+export interface PendingAutoSubtitleRequest {
+  projectId: string;
+  isCurrent: () => boolean;
+}
 
 type PendingSubtitleDropAction = {
   path?: string;
@@ -21,140 +27,137 @@ type ReadSubtitleFilePathResult = {
 
 interface AppDropActionsOptions {
   getCurrentProjectId: () => string | null;
+  captureStartOwner?: () => ImportStartOwner;
   importAudioPaths: (
     filePaths: string[],
     expectedProjectId?: string | null,
+    owner?: ImportStartOwner,
   ) => Promise<unknown>;
   importSubtitlePayload: (payload: {
     fileName: string;
     content: string;
     format?: SubtitleFileFormat;
-  }, expectedProjectId?: string | null) => Promise<unknown>;
-  importVideoPath: (filePath: string) => Promise<{ id: string } | null | undefined>;
-  setPendingAutoSubtitleProjectId: (projectId: string | null) => void;
+  }, expectedProjectId?: string | null, owner?: ImportStartOwner) => Promise<unknown>;
+  importVideoPath: (filePath: string, owner?: ImportStartOwner) => Promise<{ id: string } | null | undefined>;
+  setPendingAutoSubtitleProjectId: (request: PendingAutoSubtitleRequest | null) => void;
+  /** True while an import of that kind runs; drops wait in the host queue until it ends. */
+  isAudioImportBusy?: boolean;
+  isSubtitleImportBusy?: boolean;
+  isVideoImportBusy?: boolean;
 }
 
-export function useAppDropActions({
-  getCurrentProjectId,
-  importAudioPaths,
-  importSubtitlePayload,
-  importVideoPath,
-  setPendingAutoSubtitleProjectId,
-}: AppDropActionsOptions) {
+/**
+ * Drains one host drop queue on mount, on its host event, and whenever the
+ * matching importer becomes idle. Actions stay queued on the host while that
+ * importer is busy (it would reject them), and an event that arrives during a
+ * drain schedules one more drain instead of being ignored.
+ */
+function usePendingDropDrain(eventName: string, busy: boolean, drain: () => Promise<void>) {
+  const drainRef = useRef(drain);
+  const busyRef = useRef(busy);
   useEffect(() => {
-    let isDraining = false;
-    const drainPendingAudioDropActions = () => {
-      if (isDraining) return;
-      isDraining = true;
-      const expectedProjectId = getCurrentProjectId();
-      void (async () => {
-        try {
-          const actions = await invoke<{ path: string }[]>(
-            "take_pending_audio_drop_actions",
-            {},
-          );
-          const filePaths = actions
-            .map((action) => action.path?.trim() ?? "")
-            .filter(Boolean);
-          if (filePaths.length > 0) {
-            await importAudioPaths(filePaths, expectedProjectId);
-          }
-        } catch (error) {
-          console.warn("[AudioDrop] Failed to drain pending audio actions", error);
-        } finally {
-          isDraining = false;
-        }
-      })();
-    };
-
-    window.addEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
-    drainPendingAudioDropActions();
-    return () => {
-      window.removeEventListener("sgt-audio-drop-pending", drainPendingAudioDropActions);
-    };
-  }, [getCurrentProjectId, importAudioPaths]);
-
+    drainRef.current = drain;
+    busyRef.current = busy;
+  });
+  const stateRef = useRef({ draining: false, again: false });
+  const runRef = useRef<() => void>(() => undefined);
   useEffect(() => {
-    let isDraining = false;
-    const drainPendingSubtitleDropActions = () => {
-      if (isDraining) return;
-      isDraining = true;
-      const expectedProjectId = getCurrentProjectId();
-      void (async () => {
-        try {
-          const actions = await invoke<PendingSubtitleDropAction[]>(
-            "take_pending_subtitle_drop_actions",
-            {},
-          );
-          for (const action of actions) {
-            const filePath = action.path?.trim();
-            if (!filePath) continue;
-            const result = await invoke<ReadSubtitleFilePathResult>(
-              "read_subtitle_file_path",
-              { path: filePath },
-            );
-            if (!result.content) continue;
-            await importSubtitlePayload(
-              {
-                content: result.content,
-                fileName: result.fileName || filePath,
-                format: result.format,
-              },
-              expectedProjectId,
-            );
-            break;
-          }
-        } catch (error) {
-          console.warn("[SubtitleDrop] Failed to drain pending subtitle actions", error);
-        } finally {
-          isDraining = false;
-        }
-      })();
+    runRef.current = () => {
+      const state = stateRef.current;
+      if (busyRef.current) return;
+      if (state.draining) {
+        state.again = true;
+        return;
+      }
+      state.draining = true;
+      state.again = false;
+      void drainRef.current().finally(() => {
+        state.draining = false;
+        if (state.again) runRef.current();
+      });
     };
-
-    window.addEventListener("sgt-subtitle-drop-pending", drainPendingSubtitleDropActions);
-    drainPendingSubtitleDropActions();
-    return () => {
-      window.removeEventListener(
-        "sgt-subtitle-drop-pending",
-        drainPendingSubtitleDropActions,
-      );
-    };
-  }, [getCurrentProjectId, importSubtitlePayload]);
-
+    const onPending = () => runRef.current();
+    window.addEventListener(eventName, onPending);
+    return () => window.removeEventListener(eventName, onPending);
+  }, [eventName]);
   useEffect(() => {
-    let isDraining = false;
-    const drainPendingVideoDropActions = () => {
-      if (isDraining) return;
-      isDraining = true;
-      void (async () => {
-        try {
-          const actions = await invoke<PendingVideoDropAction[]>(
-            "take_pending_video_drop_actions",
-            {},
-          );
-          for (const action of actions) {
-            const filePath = action.path?.trim();
-            if (!filePath) continue;
-            const project = await importVideoPath(filePath);
-            if (project && action.action === "generate-subtitles") {
-              setPendingAutoSubtitleProjectId(project.id);
-            }
-          }
-        } catch (error) {
-          console.warn("[VideoDrop] Failed to drain pending video actions", error);
-        } finally {
-          isDraining = false;
-        }
-      })();
-    };
+    if (!busy) runRef.current();
+  }, [busy]);
+}
 
-    window.addEventListener("sgt-video-drop-pending", drainPendingVideoDropActions);
-    drainPendingVideoDropActions();
-    return () => {
-      window.removeEventListener("sgt-video-drop-pending", drainPendingVideoDropActions);
-    };
-  }, [importVideoPath, setPendingAutoSubtitleProjectId]);
+export function useAppDropActions(options: AppDropActionsOptions) {
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  });
+
+  usePendingDropDrain("sgt-audio-drop-pending", options.isAudioImportBusy === true, async () => {
+    const { getCurrentProjectId, captureStartOwner, importAudioPaths } = optionsRef.current;
+    const expectedProjectId = getCurrentProjectId();
+    const owner = captureStartOwner?.();
+    try {
+      const actions = await invoke<{ path: string }[]>("take_pending_audio_drop_actions", {});
+      const filePaths = actions
+        .map((action) => action.path?.trim() ?? "")
+        .filter(Boolean);
+      if (filePaths.length > 0) {
+        await importAudioPaths(filePaths, expectedProjectId, owner);
+      }
+    } catch (error) {
+      console.warn("[AudioDrop] Failed to drain pending audio actions", error);
+    }
+  });
+
+  usePendingDropDrain("sgt-subtitle-drop-pending", options.isSubtitleImportBusy === true, async () => {
+    const { getCurrentProjectId, captureStartOwner, importSubtitlePayload } = optionsRef.current;
+    const expectedProjectId = getCurrentProjectId();
+    const owner = captureStartOwner?.();
+    try {
+      const actions = await invoke<PendingSubtitleDropAction[]>("take_pending_subtitle_drop_actions", {});
+      for (const action of actions) {
+        const filePath = action.path?.trim();
+        if (!filePath) continue;
+        const result = await invoke<ReadSubtitleFilePathResult>(
+          "read_subtitle_file_path",
+          { path: filePath },
+        );
+        if (!result.content) continue;
+        await importSubtitlePayload(
+          {
+            content: result.content,
+            fileName: result.fileName || filePath,
+            format: result.format,
+          },
+          expectedProjectId,
+          owner,
+        );
+        break;
+      }
+    } catch (error) {
+      console.warn("[SubtitleDrop] Failed to drain pending subtitle actions", error);
+    }
+  });
+
+  usePendingDropDrain("sgt-video-drop-pending", options.isVideoImportBusy === true, async () => {
+    const { captureStartOwner, importVideoPath, setPendingAutoSubtitleProjectId } = optionsRef.current;
+    let owner = captureStartOwner?.();
+    try {
+      const actions = await invoke<PendingVideoDropAction[]>("take_pending_video_drop_actions", {});
+      for (const action of actions) {
+        if (!importStartOwnerCurrent(owner)) return;
+        const filePath = action.path?.trim();
+        if (!filePath) continue;
+        const project = await importVideoPath(filePath, owner);
+        if (project && action.action === "generate-subtitles") {
+          const isCurrent = getImportedProjectOwner(project);
+          if (isCurrent?.()) setPendingAutoSubtitleProjectId({ projectId: project.id, isCurrent });
+        }
+        if (project && getImportedProjectOwner(project)?.()) owner = captureStartOwner?.();
+      }
+    } catch (error) {
+      console.warn("[VideoDrop] Failed to drain pending video actions", error);
+    }
+  });
 }
 
 interface PendingAutoSubtitleOptions {
@@ -162,10 +165,10 @@ interface PendingAutoSubtitleOptions {
   currentRawVideoPath: string;
   isGeneratingSubtitles: boolean;
   pendingAutoSubtitleArmed: boolean;
-  pendingAutoSubtitleProjectId: string | null;
+  pendingAutoSubtitleProjectId: PendingAutoSubtitleRequest | null;
   setActivePanel: (panel: ActivePanel) => void;
   setPendingAutoSubtitleArmed: (isArmed: boolean) => void;
-  setPendingAutoSubtitleProjectId: (projectId: string | null) => void;
+  setPendingAutoSubtitleProjectId: (request: PendingAutoSubtitleRequest | null) => void;
   setSubtitleSource: (source: SubtitleSource) => void;
   subtitleSource: SubtitleSource;
   handleGenerateSubtitles: () => Promise<unknown> | unknown;
@@ -184,10 +187,20 @@ export function usePendingAutoSubtitleGeneration({
   setSubtitleSource,
   subtitleSource,
 }: PendingAutoSubtitleOptions) {
+  const armedOwner = useRef<PendingAutoSubtitleRequest | null>(null);
+  const generationTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (generationTimer.current !== null) window.clearTimeout(generationTimer.current);
+  }, []);
   useEffect(() => {
     if (!pendingAutoSubtitleProjectId) return;
-    if (currentProjectId !== pendingAutoSubtitleProjectId) return;
+    if (!pendingAutoSubtitleProjectId.isCurrent()) {
+      setPendingAutoSubtitleProjectId(null);
+      return;
+    }
+    if (currentProjectId !== pendingAutoSubtitleProjectId.projectId) return;
     if (!currentRawVideoPath || isGeneratingSubtitles) return;
+    armedOwner.current = pendingAutoSubtitleProjectId;
     setPendingAutoSubtitleProjectId(null);
     setActivePanel("subtitles");
     setSubtitleSource("video");
@@ -205,9 +218,12 @@ export function usePendingAutoSubtitleGeneration({
 
   useEffect(() => {
     if (!pendingAutoSubtitleArmed || subtitleSource !== "video") return;
+    const owner = armedOwner.current;
     setPendingAutoSubtitleArmed(false);
-    window.setTimeout(() => {
-      void handleGenerateSubtitles();
+    if (generationTimer.current !== null) window.clearTimeout(generationTimer.current);
+    generationTimer.current = window.setTimeout(() => {
+      generationTimer.current = null;
+      if (owner?.isCurrent()) void handleGenerateSubtitles();
     }, 150);
   }, [
     handleGenerateSubtitles,

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"cancel_in_flight","result":"call_cancelled"},
+    {"event":"response_after_cancellation","result":"closed_without_delivery"},
+    {"event":"cancel_during_response_read","result":"call_cancelled_and_response_closed"},
+    {"event":"failure_after_cancellation","result":"ignored"},
+    {"event":"response_parse_failure","result":"failure_delivered_and_closed"},
+    {"event":"successful_response","result":"delivered_and_closed"},
+    {"event":"request_failure","result":"failure_delivered"}
+  ]
+}

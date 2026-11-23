@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTtsState } from "./state";
 import type { CatalogOption } from "./types";
+import { useDragHold } from "./useDragHold";
+import { MaterialSymbol } from "./MaterialSymbol";
 
 // NOTE: every element carries a semantic `tts-*` className (kebab-case) for
 // DevTools debugging, in addition to the Tailwind utility classes. The `tts-*`
@@ -133,16 +135,13 @@ export function Button({
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
+    <MaterialSymbol
+      name="keyboardArrowDown"
       className={clsx(
         "tts-select-chevron h-3 w-3 shrink-0 text-muted transition-transform duration-150",
         open && "rotate-180",
       )}
-      fill="currentColor"
-    >
-      <path d="m12 15.375l-6-6l1.4-1.4l4.6 4.6l4.6-4.6l1.4 1.4z" />
-    </svg>
+    />
   );
 }
 
@@ -200,6 +199,13 @@ export function Select<T extends string>({
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
+    // The fixed list would detach from a trigger that scrolls away, but
+    // scrolling the long list itself (or revealing its selected row) must not
+    // close it.
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node && listRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (triggerRef.current?.contains(t) || listRef.current?.contains(t)) return;
@@ -213,12 +219,12 @@ export function Select<T extends string>({
     };
     document.addEventListener("mousedown", onDown, true);
     document.addEventListener("keydown", onKey, true);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", close, true);
     return () => {
       document.removeEventListener("mousedown", onDown, true);
       document.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close, true);
     };
   }, [open]);
@@ -289,13 +295,7 @@ export function Select<T extends string>({
                 >
                   <span className="min-w-0 flex-1 truncate">{o.label}</span>
                   {active && (
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="tts-select-check h-3 w-3 shrink-0 text-accent"
-                      fill="currentColor"
-                    >
-                      <path d="m9.55 18l-5.7-5.7l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4z" />
-                    </svg>
+                    <MaterialSymbol name="check" className="tts-select-check h-3 w-3 shrink-0 text-accent" />
                   )}
                 </button>
               );
@@ -338,6 +338,7 @@ export function NumberRange({
   onChange: (v: number) => void;
   name?: string;
 }) {
+  const drag = useDragHold(value);
   return (
     <div
       className={clsx(
@@ -350,12 +351,17 @@ export function NumberRange({
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={drag.value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          drag.hold(next);
+          onChange(next);
+        }}
+        {...drag.releaseHandlers}
         className="tts-range-input seek-bar flex-1"
       />
       <span className="tts-range-value min-w-[3.25ch] text-right font-mono text-xs tabular-nums text-muted">
-        {value}
+        {drag.value}
         {suffix ?? ""}
       </span>
     </div>

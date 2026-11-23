@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from "react";
 import { VideoSegment } from "@/types/video";
 import { clampToTrimSegments } from "@/lib/trimSegments";
+import { readTimelinePlaybackTime } from "@/lib/timelinePlaybackClock";
 
 interface PlayheadProps {
   currentTime: number;
@@ -25,19 +26,22 @@ export const Playhead: React.FC<PlayheadProps> = ({
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
-  const useVideoSync = isPlaying && !disableVideoSync;
+  // During playback a RAF loop moves the playhead at frame rate from the active
+  // clock: the <video> element, or the timeline-only playback clock when there is
+  // no video clock. While paused or seeking, React `currentTime` drives position.
+  const useFrameSync = isPlaying;
 
-  // During playback: RAF loop reads video.currentTime directly for 60fps movement.
-  // During pause/seek: React prop `currentTime` drives position (lower frequency is fine).
   useEffect(() => {
-    if (!useVideoSync || !videoRef.current || !ref.current || duration <= 0)
-      return;
-
+    if (!useFrameSync || !ref.current || duration <= 0) return;
     const video = videoRef.current;
+    if (!disableVideoSync && !video) return;
     const el = ref.current;
+    const readTime = disableVideoSync
+      ? readTimelinePlaybackTime
+      : () => video?.currentTime ?? 0;
 
     const tick = () => {
-      const clamped = clampToTrimSegments(video.currentTime, segment, duration);
+      const clamped = clampToTrimSegments(readTime(), segment, duration);
       const pct = Math.max(0, Math.min(100, (clamped / duration) * 100));
       el.style.left = `${pct}%`;
       rafRef.current = requestAnimationFrame(tick);
@@ -45,7 +49,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
     rafRef.current = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(rafRef.current);
-  }, [duration, segment, useVideoSync, videoRef]);
+  }, [disableVideoSync, duration, segment, useFrameSync, videoRef]);
 
   // When not playing, sync from React state
   const safeTime = clampToTrimSegments(currentTime, segment, duration);
@@ -59,7 +63,7 @@ export const Playhead: React.FC<PlayheadProps> = ({
       ref={ref}
       className="playhead absolute top-0 bottom-0 w-4 pointer-events-none z-40"
       style={{
-        left: useVideoSync ? undefined : left,
+        left: useFrameSync ? undefined : left,
         transform: "translateX(-50%)",
       }}
     >

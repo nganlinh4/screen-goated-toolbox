@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test",
     "postinstall": "node ../scripts/ensure-rolldown-native.mjs",
     "prebuild": "node ../scripts/ensure-rolldown-native.mjs",
     "build": "tsc --noEmit && vite build",

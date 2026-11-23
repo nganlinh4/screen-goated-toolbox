@@ -3,17 +3,6 @@ use std::fmt::Display;
 
 const GT_NARRATION_TEST_FLAG: &str = "--gt-narration-test";
 
-pub(crate) fn is_requested(args: &StartupArgs) -> bool {
-    args.has(crate::api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG)
-        || args.has(GT_NARRATION_TEST_FLAG)
-        || super::replay::is_requested(args)
-}
-
-pub(crate) fn run_pre_boot(args: &StartupArgs) -> Option<i32> {
-    args.has(crate::api::realtime_audio::sherpa_onnx::ffi_tts::SHERPA_TTS_LOAD_PROBE_FLAG)
-        .then(crate::api::realtime_audio::sherpa_onnx::ffi_tts::run_load_probe_process)
-}
-
 pub(crate) fn run_after_bootstrap(args: &StartupArgs) -> Option<i32> {
     if let Some(input_wav) = args.value(GT_NARRATION_TEST_FLAG) {
         let target_language = args
@@ -41,37 +30,24 @@ fn report_result<E: Display>(result: Result<(), E>, label: &str) -> i32 {
 mod tests {
     use super::*;
 
-    fn args(raw: &[&str]) -> StartupArgs {
-        let mut full = vec!["sgt.exe"];
-        full.extend_from_slice(raw);
-        StartupArgs::for_test(&full)
-    }
-
     #[test]
     fn computer_control_flags_are_not_headless_entrances() {
-        for flag in [
-            "--computer-control-probe",
-            "--computer-control-run",
-            "--cc-coord-test",
-            "--cc-uia-dump",
-            "--cc-vision-test",
-            "--cc-cursor-demo",
-            "--cc-grid-test",
-            "--cc-uia-task",
-            "--cc-mcp-test",
-            "--cc-system-query-test",
-            "--cc-task-trace",
-        ] {
-            assert!(!is_requested(&args(&[flag])), "flag={flag}");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../parity-fixtures/phone-control/external-control.json"
+        ))
+        .expect("external-control fixture is JSON");
+        let flags = fixture["removedComputerControlCommandLineFlags"]
+            .as_array()
+            .expect("the fixture lists the removed Computer Control flags");
+        assert!(!flags.is_empty());
+        for flag in flags {
+            let flag = flag.as_str().expect("each removed flag is a string");
+            let args = StartupArgs::for_test(&["sgt.exe", flag, "input"]);
+            assert_eq!(
+                run_after_bootstrap(&args),
+                None,
+                "post-bootstrap flag={flag}"
+            );
         }
-    }
-
-    #[test]
-    fn unrelated_headless_modes_remain_available() {
-        assert!(is_requested(&args(&[GT_NARRATION_TEST_FLAG, "input.wav"])));
-        assert!(is_requested(&args(&[
-            super::super::replay::EXPORT_REPLAY_FLAG,
-            "replay.json",
-        ])));
     }
 }

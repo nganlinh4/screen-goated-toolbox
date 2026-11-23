@@ -12,6 +12,7 @@ const ACTIVATION_POLL_INTERVAL: Duration = Duration::from_millis(30);
 pub(super) struct Observation {
     pub world: Option<WorldState>,
     pub observation_error: Option<String>,
+    pub coverage_error: Option<Value>,
     pub foreground_changed: bool,
     pub title_changed: bool,
     pub structure_changed: bool,
@@ -48,8 +49,8 @@ pub(super) fn observe_after_action(
     verb: Verb,
     before_surface: &Value,
 ) -> Observation {
-    observe_after_action_with(surface, before, target, verb, before_surface, || {
-        super::super::uia::input_target_snapshot()
+    observe_after_action_with(surface, before, target, verb, before_surface, |surface| {
+        surface.input_snapshot()
     })
 }
 
@@ -59,17 +60,21 @@ fn observe_after_action_with(
     target: &IndexedElement,
     verb: Verb,
     before_surface: &Value,
-    mut snapshot: impl FnMut() -> Value,
+    mut snapshot: impl FnMut(&mut dyn Surface) -> Value,
 ) -> Observation {
     let poll = requires_context_change(verb, target, &before.identity);
     let deadline = Instant::now() + ACTIVATION_VERIFY_TIMEOUT;
     let before_structure = world_structure(before);
     loop {
-        let (world, observation_error) = match surface.observe() {
-            Ok(world) => (Some(world), None),
-            Err(error) => (None, Some(error.to_string())),
+        let (world, observation_error, coverage_error) = match surface.observe() {
+            Ok(world) => (Some(world), None, None),
+            Err(error) => (
+                None,
+                Some(error.to_string()),
+                super::super::browser::frame_coverage_error(&error),
+            ),
         };
-        let after_surface = snapshot();
+        let after_surface = snapshot(surface);
         let foreground_changed = foreground_changed(before_surface, &after_surface);
         let world_location_changed = world
             .as_ref()
@@ -91,6 +96,7 @@ fn observe_after_action_with(
             return Observation {
                 world,
                 observation_error,
+                coverage_error,
                 foreground_changed,
                 title_changed,
                 structure_changed,
@@ -149,7 +155,9 @@ mod tests {
             role: role.to_string(),
             name: name.to_string(),
             value: None,
+            value_preview: None,
             editable: role == "textbox",
+            protected: false,
             state: None,
             enabled: true,
             required: false,
@@ -234,7 +242,7 @@ mod tests {
             unreachable!()
         }
 
-        fn read_back(&mut self, _el: &IndexedElement) -> ReadBack {
+        fn read_back(&mut self, _el: &IndexedElement, _expected: &SurfaceIdentity) -> ReadBack {
             ReadBack::default()
         }
     }
@@ -283,7 +291,7 @@ mod tests {
             &item,
             Verb::Activate,
             &stable,
-            || stable.clone(),
+            |_| stable.clone(),
         );
 
         assert!(observed.context_changed);
@@ -296,7 +304,7 @@ mod tests {
         let before = surface.before.clone();
         let stable = serde_json::json!({"hwnd": 1, "pid": 2, "title": "same"});
         let observed =
-            observe_after_action_with(&mut surface, &before, &item, Verb::Click, &stable, || {
+            observe_after_action_with(&mut surface, &before, &item, Verb::Click, &stable, |_| {
                 stable.clone()
             });
 
@@ -328,7 +336,7 @@ mod tests {
         };
         let stable = serde_json::json!({"hwnd": 1, "pid": 2, "title": "browser"});
         let observed =
-            observe_after_action_with(&mut surface, &before, &link, Verb::Click, &stable, || {
+            observe_after_action_with(&mut surface, &before, &link, Verb::Click, &stable, |_| {
                 stable.clone()
             });
 
@@ -379,7 +387,7 @@ mod tests {
             &item,
             Verb::Activate,
             &serde_json::json!({"hwnd": 1, "pid": 2, "title": "first"}),
-            || serde_json::json!({"hwnd": 3, "pid": 4, "title": "second"}),
+            |_| serde_json::json!({"hwnd": 3, "pid": 4, "title": "second"}),
         );
 
         assert!(observed.foreground_changed);

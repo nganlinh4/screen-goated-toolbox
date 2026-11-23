@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PhoneControlRuntimeStatusPublisherTest {
@@ -30,14 +31,13 @@ class PhoneControlRuntimeStatusPublisherTest {
         publisher.updateOrbPresentation(
             GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
             null,
-            preserveCurrentIconOnNull = true,
         )
 
         assertEquals(2, snapshots.size)
     }
 
     @Test
-    fun `responding icon survives repeated transcript presentation and changes once`() {
+    fun `responding uses its default icon after an override is cleared`() {
         val snapshots = mutableListOf<PhoneControlRuntimeSnapshot>()
         val publisher = PhoneControlRuntimeStatusPublisher(
             observer = PhoneControlRuntimeObserver(snapshots::add),
@@ -51,10 +51,9 @@ class PhoneControlRuntimeStatusPublisherTest {
         publisher.updateOrbPresentation(
             GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
             null,
-            preserveCurrentIconOnNull = true,
         )
 
-        assertEquals(1, snapshots.size)
-        assertEquals("sentiment_excited", snapshots.single().orbIconOverride)
+        assertEquals(2, snapshots.size)
+        assertNull(snapshots.last().orbIconOverride)
     }
 }

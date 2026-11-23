@@ -10,7 +10,6 @@ import dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlPowerPreferences
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -125,6 +124,7 @@ internal class AndroidCommandToolBackend(context: Context) : CommandToolBackend 
             args,
             cwd,
             timeoutMs,
+            beforeDispatch = { commandAuthorityPreflight() },
         )
         coroutineContext.ensureActive()
         return result.toCommandExecution()
@@ -162,47 +162,10 @@ internal suspend fun handleRunCommand(
     args: JsonObject,
     backend: CommandToolBackend,
 ): PhoneControlToolExecution {
-    val program = args.string("program")
-    val command = args.string("command")
-    if (program != null && command != null) {
-        return invalidArgs(job, "run_command", "supply program or command, not both")
+    val request = runCatching { parseCommandRequest(args) }.getOrElse {
+        return invalidArgs(job, "run_command", it.message ?: "The process request is invalid.")
     }
-    if (command != null && (args["args"] != null || args["cwd"] != null)) {
-        return invalidArgs(job, "run_command", "args and cwd require exact program mode")
-    }
-    val exactProgram = if (command != null) SHELL_PROGRAM else program
-        ?.takeIf(String::isNotBlank)
-        ?: return invalidArgs(job, "run_command", "run_command requires program or command")
-    if (exactProgram.utf8Size() > MAX_PROGRAM_BYTES || '\u0000' in exactProgram) {
-        return invalidArgs(job, "run_command", "program exceeds its bounded exact-argv contract")
-    }
-    val argv = if (command != null) {
-        val maxShellCommandBytes = MAX_TOTAL_ARG_BYTES - SHELL_COMMAND_FLAG.utf8Size()
-        if (command.isBlank() ||
-            command.utf8Size() > maxShellCommandBytes ||
-            '\u0000' in command
-        ) {
-            return invalidArgs(job, "run_command", "command exceeds its bounded shell contract")
-        }
-        listOf(SHELL_COMMAND_FLAG, command)
-    } else {
-        args.stringList("args")
-            ?: return invalidArgs(
-                job,
-                "run_command",
-                "args must be an array of at most $MAX_ARGS strings",
-            )
-    }
-    if (argv.size > MAX_ARGS || argv.any { it.utf8Size() > MAX_ARG_BYTES || '\u0000' in it }) {
-        return invalidArgs(job, "run_command", "args exceed the bounded exact-argv contract")
-    }
-    if (argv.sumOf { it.utf8Size() } > MAX_TOTAL_ARG_BYTES) {
-        return invalidArgs(job, "run_command", "process arguments exceed $MAX_TOTAL_ARG_BYTES bytes")
-    }
-    val cwd = args.string("cwd") ?: DEFAULT_COMMAND_CWD
-    if (!cwd.startsWith('/') || cwd.utf8Size() > MAX_CWD_BYTES || '\u0000' in cwd) {
-        return invalidArgs(job, "run_command", "cwd must be an absolute bounded directory path")
-    }
+    val (exactProgram, argv, cwd) = request
 
     val probes = buildMap {
         backend.providerIds.forEach { providerId ->
@@ -244,7 +207,23 @@ private fun commandProviderResult(
                 effect = effect,
                 snapshotInvalidated = dispatched,
                 freshObservationRequired = dispatched,
-                data = buildJsonObject { put("receipt", result.data) },
+                data = buildJsonObject {
+                    put("receipt", result.data)
+                    val streams = buildJsonObject {
+                        for (stream in listOf("output", "stdout", "stderr")) {
+                            val text = result.data[stream] as? JsonPrimitive
+                            if (text?.isString == true) {
+                                val raw = result.data["${stream}_bytes_base64"] as? JsonPrimitive
+                                put(stream, buildJsonObject {
+                                    put("encoding", "unknown_or_mixed")
+                                    put("text_exact", false)
+                                    put("raw_bytes_reported_by_provider", raw?.isString == true)
+                                })
+                            }
+                        }
+                    }
+                    if (streams.isNotEmpty()) put("output_evidence", streams)
+                },
             ),
             mutating = dispatched,
             refreshScreenFrame = dispatched,
@@ -334,26 +313,7 @@ private fun commandUnavailable(
     )
 }
 
-private fun JsonObject.stringList(name: String): List<String>? {
-    val value = get(name) ?: return emptyList()
-    val array = value as? JsonArray ?: return null
-    if (array.size > MAX_ARGS) return null
-    return array.map { element ->
-        (element as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.contentOrNull ?: return null
-    }
-}
-
-private fun String.utf8Size(): Int = toByteArray(Charsets.UTF_8).size
-
 private const val COMMAND_CAPABILITY = "command_execution"
 private const val NO_COMMAND_PROVIDER = "command_provider"
 private const val CONFIGURE_COMMAND_PROVIDER_STEP = "configure_command_provider"
-private const val DEFAULT_COMMAND_CWD = "/data/local/tmp"
-private const val SHELL_PROGRAM = "/system/bin/sh"
-private const val SHELL_COMMAND_FLAG = "-c"
 private const val COMMAND_TIMEOUT_MS = 60_000L
-private const val MAX_ARGS = 16
-private const val MAX_PROGRAM_BYTES = 1_024
-private const val MAX_ARG_BYTES = 4_096
-private const val MAX_TOTAL_ARG_BYTES = 16_384
-private const val MAX_CWD_BYTES = 4_096

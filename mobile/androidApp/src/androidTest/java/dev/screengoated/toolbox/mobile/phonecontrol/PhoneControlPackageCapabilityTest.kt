@@ -79,7 +79,8 @@ class PhoneControlPackageCapabilityTest {
         val expectedTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
         assertEquals(expectedTypes, service.foregroundServiceType)
         assertTrue(
             packageInfo.requestedPermissions.orEmpty().contains(Manifest.permission.SYSTEM_ALERT_WINDOW),

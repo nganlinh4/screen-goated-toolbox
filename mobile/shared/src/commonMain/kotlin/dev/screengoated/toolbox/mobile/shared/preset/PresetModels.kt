@@ -64,6 +64,7 @@ data class Preset(
     val isFavorite: Boolean = false,
     val isUpcoming: Boolean = false,
     val windowGeometry: WindowGeometry? = null,
+    val graphExplicit: Boolean = false,
 ) {
     fun name(lang: String): String = when (lang) {
         "vi" -> nameVi
@@ -100,6 +101,7 @@ fun textBlock(
     languageVars = langVars.toMap(),
 )
 
+// Like the Windows BlockBuilder, image, audio and input-adapter blocks do not stream by default.
 fun imageBlock(
     model: String,
     prompt: String,
@@ -110,6 +112,7 @@ fun imageBlock(
     model = model,
     prompt = prompt,
     languageVars = langVars.toMap(),
+    streamingEnabled = false,
 )
 
 fun audioBlock(
@@ -122,11 +125,13 @@ fun audioBlock(
     model = model,
     prompt = prompt,
     languageVars = langVars.toMap(),
+    streamingEnabled = false,
 )
 
 fun inputAdapter() = ProcessingBlock(
     id = "input",
     blockType = BlockType.INPUT_ADAPTER,
     model = "",
+    streamingEnabled = false,
     showOverlay = false,
 )

@@ -1,6 +1,20 @@
 import "./styles.css";
 import type { HotkeyItem, TranslationGummyState } from "./types";
 import { renderTranscripts, updateTranscriptScrollAffinity } from "./transcripts";
+import { installAudioMeter } from "./audio-meter";
+import { DragHold } from "../../ui-shared/drag-hold";
+import { materialSymbolSvg } from "../../ui-shared/material-symbols";
+
+const ICON = {
+  settings: materialSymbolSvg("settings", 13),
+  volumeOn: materialSymbolSvg("volumeUp", 13),
+  volumeOff: materialSymbolSvg("volumeOff", 13),
+  minimize: materialSymbolSvg("remove", 12),
+  close: materialSymbolSvg("close", 12),
+  info: materialSymbolSvg("info", 18),
+  badgeClose: materialSymbolSvg("close", 10, "badge-x"),
+  cancel: materialSymbolSvg("close", 10),
+};
 
 const BAR_WIDTH = 8;
 const BAR_GAP = 6;
@@ -35,11 +49,14 @@ const state = {
   lastTime: 0,
   lastTranscriptKey: "__init__",
   firstDetectedLang: "",
+  deleteIcon: materialSymbolSvg("close", 12),
   dominantLang: "",       // the reliably detected ISO 639-3 code (e.g. "kor")
   dominantIsLeft: true,   // which side dominant goes to
   lastHotkeyKey: "",
   guideShown: false,
 };
+// Host snapshots carry the committed limit and must not move the thumb mid-drag.
+const transcriptLimitHold = new DragHold<number>();
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("App root not found");
@@ -51,10 +68,10 @@ app.innerHTML = `
         <canvas class="header-canvas" id="visualizerCanvas"></canvas>
       </div>
       <div class="settings-btn-wrap" id="settingsWrap">
-        <button class="icon-button" id="settingsBtn" type="button" aria-label="TTS Settings"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="m9.25 22l-.4-3.2q-.325-.125-.612-.3t-.563-.375L4.7 19.375l-2.75-4.75l2.575-1.95Q4.5 12.5 4.5 12.338v-.675q0-.163.025-.338L1.95 9.375l2.75-4.75l2.975 1.25q.275-.2.575-.375t.6-.3l.4-3.2h5.5l.4 3.2q.325.125.613.3t.562.375l2.975-1.25l2.75 4.75l-2.575 1.95q.025.175.025.338v.674q0 .163-.05.338l2.575 1.95l-2.75 4.75l-2.95-1.25q-.275.2-.575.375t-.6.3l-.4 3.2zm2.8-6.5q1.45 0 2.475-1.025T15.55 12t-1.025-2.475T12.05 8.5q-1.475 0-2.488 1.025T8.55 12t1.013 2.475T12.05 15.5"/></svg></button>
+        <button class="icon-button" id="settingsBtn" type="button" aria-label="TTS Settings">${ICON.settings}</button>
       </div>
       <div class="volume-btn-wrap" id="volumeWrap">
-        <button class="icon-button" id="volumeBtn" type="button" aria-label="Volume"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M14 20.725v-2.05q2.25-.65 3.625-2.5t1.375-4.2t-1.375-4.2T14 5.275v-2.05q3.1.7 5.05 3.138T21 11.975t-1.95 5.613T14 20.725M3 15V9h4l5-5v16l-5-5zm11 1V7.95q1.175.55 1.838 1.65T16.5 12q0 1.275-.663 2.363T14 16"/></svg></button>
+        <button class="icon-button" id="volumeBtn" type="button" aria-label="Volume">${ICON.volumeOn}</button>
         <div class="volume-popup" id="volumePopup">
           <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100" step="5">
           <span class="volume-label" id="volumeLabel">100%</span>
@@ -66,8 +83,8 @@ app.innerHTML = `
       </div>
       <div class="header-hotkey" id="hotkeyArea"></div>
       <div class="window-actions">
-        <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimize"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 13v-2h14v2z"/></svg></button>
-        <button class="icon-button" id="closeBtn" type="button" aria-label="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z"/></svg></button>
+        <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimize">${ICON.minimize}</button>
+        <button class="icon-button" id="closeBtn" type="button" aria-label="Close">${ICON.close}</button>
       </div>
     </header>
 
@@ -125,7 +142,7 @@ app.innerHTML = `
     <div class="guide-overlay" id="guideOverlay" style="display:none">
       <div class="guide-popup">
         <div class="guide-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11 17h2v-6h-2zm1.713-8.287Q13 8.425 13 8t-.288-.712T12 7t-.712.288T11 8t.288.713T12 9t.713-.288M12 22q-2.075 0-3.9-.788t-3.175-2.137T2.788 15.9T2 12t.788-3.9t2.137-3.175T8.1 2.788T12 2t3.9.788t3.175 2.137T21.213 8.1T22 12t-.788 3.9t-2.137 3.175t-3.175 2.138T12 22"/></svg>
+          ${ICON.info}
           <span id="guideTitle"></span>
         </div>
         <p class="guide-msg" id="guideMsg"></p>
@@ -194,12 +211,12 @@ function renderHotkeys(payload: TranslationGummyState) {
 
   // Hotkey badges with X
   for (let i = 0; i < hotkeys.length; i++) {
-    html += `<button class="hotkey-badge" data-remove="${i}" type="button">${escapeHtml(hotkeys[i].name)}<svg class="badge-x" width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z"/></svg></button>`;
+    html += `<button class="hotkey-badge" data-remove="${i}" type="button">${escapeHtml(hotkeys[i].name)}${ICON.badgeClose}</button>`;
   }
 
   // Capture state or Add button
   if (state.hotkeyCaptureArmed) {
-    html += `<span class="hotkey-capture">...</span><button class="hotkey-cancel" id="cancelHotkeyBtn" type="button"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z"/></svg></button>`;
+    html += `<span class="hotkey-capture">...</span><button class="hotkey-cancel" id="cancelHotkeyBtn" type="button">${ICON.cancel}</button>`;
   } else {
     html += `<button class="text-btn" id="addHotkeyBtn" type="button">${escapeHtml(payload.strings.setHotkey)}</button>`;
   }
@@ -282,8 +299,9 @@ function render(payload: TranslationGummyState) {
   el.applyBtn.hidden = !payload.dirty;
   el.applyBtn.disabled = !payload.dirty || !payload.canApply;
   el.toggleBtn.disabled = !(payload.isRunning || payload.canToggle);
-  el.transcriptLimit.value = String(payload.transcriptLimit);
-  el.transcriptLimitValue.value = String(payload.transcriptLimit);
+  const transcriptLimit = String(transcriptLimitHold.present(payload.transcriptLimit));
+  el.transcriptLimit.value = transcriptLimit;
+  el.transcriptLimitValue.value = transcriptLimit;
   el.transcriptClear.disabled = payload.transcripts.length === 0;
 
   if (document.activeElement !== el.firstLanguage) el.firstLanguage.value = payload.draft.first.language ?? "";
@@ -301,6 +319,8 @@ function render(payload: TranslationGummyState) {
     guideBtn.textContent = payload.strings.guideOk;
     guideOverlay.style.display = "";
   }
+
+  if (!volDragging) presentVolume(payload.volumePercent, payload.volumeRestorePercent);
 
   renderHotkeys(payload);
   renderTranscripts(el.transcriptBody, payload, state);
@@ -418,30 +438,32 @@ const volumeLabel = document.querySelector<HTMLElement>("#volumeLabel")!;
 let volDragging = false;
 let volBeforeMute = 100;
 let volMuted = false;
-const volIconOn = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M14 20.725v-2.05q2.25-.65 3.625-2.5t1.375-4.2t-1.375-4.2T14 5.275v-2.05q3.1.7 5.05 3.138T21 11.975t-1.95 5.613T14 20.725M3 15V9h4l5-5v16l-5-5zm11 1V7.95q1.175.55 1.838 1.65T16.5 12q0 1.275-.663 2.363T14 16"/></svg>`;
-const volIconOff = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="m19.8 22.6l-3.025-3.025q-.625.4-1.325.688t-1.45.462v-2.05q.35-.125.688-.25t.637-.3L12 14.8V20l-5-5H3V9h3.2L1.4 4.2l1.4-1.4l18.4 18.4zm-.2-5.8l-1.45-1.45q.425-.775.638-1.625t.212-1.75q0-2.35-1.375-4.2T14 5.275v-2.05q3.1.7 5.05 3.138T21 11.975q0 1.325-.363 2.55T19.6 16.8m-3.35-3.35L14 11.2V7.95q1.175.55 1.838 1.65T16.5 12q0 .375-.062.738t-.188.712M12 9.2L9.4 6.6L12 4z"/></svg>`;
+
 
 function updateVolIcon() {
-  volumeBtn.innerHTML = volMuted ? volIconOff : volIconOn;
+  volumeBtn.innerHTML = volMuted ? ICON.volumeOff : ICON.volumeOn;
+}
+
+function presentVolume(vol: number, restorePercent = volBeforeMute) {
+  vol = Number.isFinite(vol) ? Math.max(0, Math.min(100, Math.round(vol))) : 100;
+  const wasMuted = volMuted;
+  volMuted = vol === 0;
+  volBeforeMute = vol > 0 ? vol : Number.isFinite(restorePercent) && restorePercent > 0
+    ? Math.min(100, Math.max(1, Math.round(restorePercent))) : 100;
+  if (volumeSlider.value !== String(vol)) volumeSlider.value = String(vol);
+  setText(volumeLabel, `${vol}%`);
+  if (wasMuted !== volMuted) updateVolIcon();
 }
 
 function applyVolume(vol: number) {
-  volumeSlider.value = String(vol);
-  volumeLabel.textContent = `${vol}%`;
-  updateVolIcon();
-  void invoke("set_tts_volume", { volume: vol });
+  presentVolume(vol);
+  void invoke("set_tts_volume", { volume: Number(volumeSlider.value) });
 }
 
 volumeBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  if (volMuted) {
-    volMuted = false;
-    applyVolume(volBeforeMute || 100);
-  } else {
-    volBeforeMute = parseInt(volumeSlider.value, 10) || 100;
-    volMuted = true;
-    applyVolume(0);
-  }
+  presentVolume(volMuted ? volBeforeMute : 0);
+  void invoke("toggle_tts_mute");
 });
 
 volumeWrap.addEventListener("mouseenter", () => { volumeWrap.classList.add("vol-open"); });
@@ -453,11 +475,7 @@ window.addEventListener("mouseup", () => {
   if (!volumeWrap.matches(":hover")) volumeWrap.classList.remove("vol-open");
 });
 volumeSlider.addEventListener("input", () => {
-  const vol = parseInt(volumeSlider.value, 10);
-  volMuted = vol === 0;
-  volumeLabel.textContent = `${vol}%`;
-  updateVolIcon();
-  void invoke("set_tts_volume", { volume: vol });
+  applyVolume(Number(volumeSlider.value));
 });
 
 // Guide dialog (first-time only)
@@ -475,10 +493,18 @@ el.closeBtn.addEventListener("click", () => void invoke("close_window"));
 el.applyBtn.addEventListener("click", () => void invoke("apply"));
 el.toggleBtn.addEventListener("click", () => void invoke("toggle_run"));
 el.transcriptLimit.addEventListener("input", () => {
+  transcriptLimitHold.hold(Number(el.transcriptLimit.value));
   el.transcriptLimitValue.value = el.transcriptLimit.value;
 });
 el.transcriptLimit.addEventListener("change", () => {
+  transcriptLimitHold.release();
   void invoke("set_transcript_limit", { limit: Number(el.transcriptLimit.value) });
+});
+// A drag released on its starting value fires no change event.
+el.transcriptLimit.addEventListener("blur", () => {
+  if (!transcriptLimitHold.active) return;
+  transcriptLimitHold.release();
+  if (state.payload) render(state.payload);
 });
 el.transcriptClear.addEventListener("click", () => void invoke("clear_transcripts"));
 
@@ -510,5 +536,6 @@ bindDraftInput(el.secondAccent, "second", "accent");
 bindDraftInput(el.secondTone, "second", "tone");
 
 window.__TG_SET_STATE = (payload: TranslationGummyState) => render(payload);
+installAudioMeter(window, () => state.payload);
 if (state.payload) render(state.payload);
 requestAnimationFrame(drawVisualizer);

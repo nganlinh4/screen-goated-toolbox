@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Video, Trash2, Play, X, Upload, AudioLines } from '@/components/ui/MaterialIcon';
 import { Project } from "@/types/video";
 import { projectManager } from "@/lib/projectManager";
@@ -7,6 +7,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { ConfirmDialog } from "./dialogs";
 import { formatDuration } from "./projectsViewUtils";
 import { useProjectsAnimations } from "./projectsViewAnimations";
+import { useProjectLimitControl } from "./projectsViewLimit";
 
 // Re-export types for backwards compatibility
 export type {
@@ -52,9 +53,25 @@ export function ProjectsView({
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+  // Enter commits and then the unmounting input blurs; only the first commit writes.
+  const renameSettledRef = useRef(true);
+  const {
+    draftLimit,
+    sliderHandlers: limitSliderHandlers,
+    pendingReduction,
+    confirmReduction,
+    cancelReduction,
+  } = useProjectLimitControl({ projects, currentProjectId, onProjectsChange, onDeleteProject });
   const containerRef = useRef<HTMLDivElement>(null);
   const { t } = useSettings();
   const isPickerMode = pickerMode !== "load";
+
+  useEffect(() => {
+    const refreshProjects = () => onProjectsChange();
+    window.addEventListener("sr-project-retention-changed", refreshProjects);
+    return () => window.removeEventListener("sr-project-retention-changed", refreshProjects);
+  }, [onProjectsChange]);
 
   const {
     animatingId,
@@ -73,9 +90,28 @@ export function ProjectsView({
     containerRef,
   });
 
-  const handleRename = async (id: string) => {
-    await onRenameProject(id, renameValue);
+  const startRename = (id: string, name: string) => {
+    renameSettledRef.current = false;
+    setEditingNameId(id);
+    setRenameValue(name);
+  };
+
+  const cancelRename = () => {
+    renameSettledRef.current = true;
     setEditingNameId(null);
+  };
+
+  const handleRename = async (id: string) => {
+    if (renameSettledRef.current) return;
+    renameSettledRef.current = true;
+    setEditingNameId(null);
+    await onRenameProject(id, renameValue);
+  };
+
+  const confirmDelete = async () => {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (target) await onDeleteProject(target.id);
   };
 
   const handleClearAll = async () => {
@@ -157,7 +193,7 @@ export function ProjectsView({
           <div className="projects-limit-control flex items-center gap-4 shrink-0 whitespace-nowrap">
             {!isPickerMode && (
               <>
-                <label htmlFor="projects-limit" className="text-[10px] text-[var(--outline)]">
+                <label htmlFor="projects-limit" className="text-xs text-[var(--on-surface-variant)]">
                   {t.max}
                 </label>
                 <input
@@ -166,15 +202,12 @@ export function ProjectsView({
                   type="range"
                   min="10"
                   max="100"
-                  value={projectManager.getLimit()}
-                  onChange={(e) => {
-                    projectManager.setLimit(parseInt(e.target.value));
-                    onProjectsChange();
-                  }}
-                  className="w-16"
+                  value={draftLimit}
+                  {...limitSliderHandlers}
+                  className="projects-limit-slider w-16"
                 />
-                <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-5">
-                  {projectManager.getLimit()}
+                <span className="text-xs text-[var(--on-surface)] tabular-nums w-5">
+                  {draftLimit}
                 </span>
               </>
             )}
@@ -189,6 +222,12 @@ export function ProjectsView({
             </button>
           </div>
         </div>
+
+        {!isPickerMode && projects.length > projectManager.getLimit() && (
+          <p role="status" className="projects-retention-notice px-6 text-xs text-[var(--on-surface-variant)]">
+            {t.projectLimitPreservedMedia}
+          </p>
+        )}
 
         {/* Grid */}
         <div className="projects-grid-scroll flex-1 min-h-0 overflow-y-auto thin-scrollbar px-6 py-5">
@@ -277,20 +316,23 @@ export function ProjectsView({
                             maxLength={MAX_PROJECT_NAME_LENGTH}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onBlur={() => handleRename(project.id)}
-                            onKeyDown={(e) =>
-                              e.key === "Enter" && handleRename(project.id)
-                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleRename(project.id);
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelRename();
+                              }
+                            }}
                           />
                         ) : (
-                          <p
-                            className="text-xs text-[var(--on-surface)] truncate cursor-pointer hover:text-[var(--primary-color)] transition-colors"
-                            onClick={() => {
-                              setEditingNameId(project.id);
-                              setRenameValue(project.name);
-                            }}
+                          <button
+                            type="button"
+                            aria-label={`${t.rename}: ${project.name}`}
+                            className="project-rename-trigger block w-full border-0 bg-transparent p-0 text-left text-xs text-[var(--on-surface)] truncate cursor-pointer hover:text-[var(--primary-color)] transition-colors"
+                            onClick={() => startRename(project.id, project.name)}
                           >
                             {project.name}
-                          </p>
+                          </button>
                         )}
                         <p className="text-[10px] text-[var(--outline)] mt-0.5">
                           {new Date(project.lastModified).toLocaleDateString()}
@@ -299,12 +341,12 @@ export function ProjectsView({
                       {!isPickerMode && (
                         <button
                           type="button"
-                          aria-label={`Delete project: ${project.name}`}
-                          onClick={async (e) => {
+                          aria-label={t.deleteProjectNamedLabel.replace('{name}', project.name)}
+                          onClick={(e) => {
                             e.stopPropagation();
-                            await onDeleteProject(project.id);
+                            setPendingDelete({ id: project.id, name: project.name });
                           }}
-                          className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 p-0.5 shrink-0"
+                          className="project-delete-btn ui-icon-button text-[var(--outline)] hover:text-red-400 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 p-0.5 shrink-0"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -322,6 +364,27 @@ export function ProjectsView({
         message={t.confirmClearAllDesc}
         onConfirm={handleClearAll}
         onCancel={() => setShowClearConfirm(false)}
+        confirmLabel={t.clearAll}
+      />
+      <ConfirmDialog
+        show={pendingDelete !== null}
+        title={t.confirmDeleteProjectTitle}
+        message={pendingDelete ? `${pendingDelete.name}: ${t.confirmDeleteProjectDesc}` : ""}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+        confirmLabel={t.deleteAction}
+      />
+      <ConfirmDialog
+        show={pendingReduction !== null}
+        title={t.confirmProjectLimitTitle}
+        message={pendingReduction
+          ? t.confirmProjectLimitDesc
+            .replace('{limit}', String(pendingReduction.limit))
+            .replace('{count}', String(pendingReduction.projectIds.length))
+          : ""}
+        onConfirm={() => void confirmReduction()}
+        onCancel={cancelReduction}
+        confirmLabel={t.deleteAction}
       />
     </div>
   );

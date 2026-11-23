@@ -3,6 +3,10 @@ use crate::overlay::result::SourceReplacementRegion;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+// Parent-to-child card, control, and processing rectangles use absolute
+// physical screen coordinates. The child converts them to its window's local
+// coordinates when applying a command. Image and effect cells are local to
+// their source image/effect and are not desktop coordinates.
 pub struct SceneRect {
     pub x: i32,
     pub y: i32,
@@ -144,12 +148,12 @@ pub enum ButtonAction {
     Forward,
     Speaker,
     SetOpacity { value: u8 },
-    UpdateRefineDraft { text: String },
-    SubmitRefine { text: String },
-    CancelRefine,
-    HistoryUpRefine { text: String },
-    HistoryDownRefine { text: String },
-    Mic,
+    UpdateRefineDraft { text: String, session: u64 },
+    SubmitRefine { text: String, session: u64 },
+    CancelRefine { session: u64 },
+    HistoryUpRefine { text: String, session: u64 },
+    HistoryDownRefine { text: String, session: u64 },
+    Mic { session: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -208,6 +212,8 @@ pub enum HostCommand {
         id: isize,
         text: String,
         is_insert: bool,
+        #[serde(default)]
+        edit_session: Option<String>,
     },
     ExternalDrag {
         active: bool,
@@ -218,17 +224,14 @@ pub enum HostCommand {
     Theme {
         theme: SceneTheme,
     },
+    Locale {
+        strings: std::collections::BTreeMap<String, String>,
+    },
     Raise {
         id: isize,
         stack_order: u64,
     },
     Remove {
-        id: isize,
-    },
-    NavigateBack {
-        id: isize,
-    },
-    NavigateForward {
         id: isize,
     },
     ApplyRevision {
@@ -237,27 +240,7 @@ pub enum HostCommand {
     Shutdown,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RendererFailureKind {
-    BrowserProcessExited,
-    RenderProcessExited,
-    RenderProcessUnresponsive,
-    FrameRenderProcessExited,
-    GpuProcessExited,
-}
-
-impl RendererFailureKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::BrowserProcessExited => "browser process exited",
-            Self::RenderProcessExited => "render process exited",
-            Self::RenderProcessUnresponsive => "render process unresponsive",
-            Self::FrameRenderProcessExited => "frame render process exited",
-            Self::GpuProcessExited => "GPU process exited",
-        }
-    }
-}
+pub use crate::overlay::compositor_renderer::RendererFailureKind;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -277,6 +260,11 @@ pub enum ChildEvent {
     Heartbeat,
     StackChanged,
     ResyncRequested,
+    /// The child withholds acknowledgements while it rebases its scene onto a
+    /// new desktop origin; never accepted from renderer page messages.
+    TopologyHold {
+        active: bool,
+    },
     RendererFailure {
         kind: RendererFailureKind,
     },
@@ -303,11 +291,6 @@ pub enum ChildEvent {
         command: String,
         id: Option<isize>,
         error: String,
-    },
-    Navigation {
-        id: isize,
-        depth: usize,
-        max_depth: usize,
     },
     NavigationRequest {
         id: isize,

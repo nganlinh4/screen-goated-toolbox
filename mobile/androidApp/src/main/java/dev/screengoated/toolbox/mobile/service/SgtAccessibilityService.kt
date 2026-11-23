@@ -1,19 +1,14 @@
 package dev.screengoated.toolbox.mobile.service
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
-import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.Toast
-import androidx.core.content.FileProvider
-import java.io.File
 
 /**
  * Accessibility service for reading selected text from any app
@@ -23,7 +18,7 @@ import java.io.File
  *
  * TEXT_SELECT flow:
  * 1. Tree scan: getSelectedText() — works for EditText, reads selection directly
- * 2. eagerCaptureSelection() — clicks system "Copy" button to populate clipboard
+ * 2. eagerCaptureSelection() — invokes the platform copy action
  * 3. ClipboardReaderActivity — async Activity reads clipboard (Android 10+ restriction)
  *
  * Works on Android 10+ (API 29+).
@@ -33,15 +28,7 @@ class SgtAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        serviceInfo = serviceInfo.apply {
-            eventTypes = AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED or
-                AccessibilityEvent.TYPE_VIEW_FOCUSED
-            feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-            notificationTimeout = 100
-        }
+        // Applies the event profile the current phone-control demand needs.
         distributionAccessibilityServiceConnected(this)
         Log.d(TAG, "Accessibility service connected")
     }
@@ -78,7 +65,7 @@ class SgtAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Click the system "Copy" button in the text selection toolbar.
+     * Invoke the platform copy action for the current selection.
      * Must be called BEFORE ClipboardReaderActivity steals focus and
      * dismisses the toolbar. Populates the system clipboard with the
      * full cross-element selection (works for WebView, Chrome, etc.).
@@ -86,25 +73,23 @@ class SgtAccessibilityService : AccessibilityService() {
     fun eagerCaptureSelection() {
         for (window in windows) {
             val root = window.root ?: continue
-            val pkg = root.packageName?.toString() ?: "?"
-            val copyNode = COPY_ACTION_LABELS.firstNotNullOfOrNull { label ->
-                findNodeByText(root, label) ?: findNodeByContentDescription(root, label)
-            }
-            if (copyNode != null) {
-                val clicked = copyNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                Log.d(TAG, "eagerCaptureSelection clicked Copy on $pkg: $clicked")
+            val pkg = root.packageName?.toString()
+            if (pkg == packageName) { continue }
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+            if (focused?.performAction(AccessibilityNodeInfo.ACTION_COPY) == true) {
+                Log.d(TAG, "eagerCaptureSelection ACTION_COPY on $pkg")
                 return
             }
         }
-        // Fallback: ACTION_COPY on focused node (works for EditText)
+        // Platform menu IDs remain stable across UI languages.
         for (window in windows) {
             val root = window.root ?: continue
             val pkg = root.packageName?.toString()
             if (pkg == packageName) { continue }
-            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (focused != null) {
-                focused.performAction(AccessibilityNodeInfo.ACTION_COPY)
-                Log.d(TAG, "eagerCaptureSelection ACTION_COPY on $pkg")
+            if (root.findAccessibilityNodeInfosByViewId("android:id/copy").any {
+                    it.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                }) {
                 return
             }
         }
@@ -174,17 +159,7 @@ class SgtAccessibilityService : AccessibilityService() {
 
     fun copyImageToClipboard(pngBytes: ByteArray): Boolean {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
-        return runCatching {
-            val dir = File(cacheDir, IMAGE_CLIPBOARD_DIR).apply { mkdirs() }
-            val file = File(dir, IMAGE_CLIPBOARD_FILE)
-            file.writeBytes(pngBytes)
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            cm.setPrimaryClip(ClipData.newUri(contentResolver, "SGT Image", uri))
-            true
-        }.getOrElse { error ->
-            Log.e(TAG, "copyImageToClipboard failed", error)
-            false
-        }
+        return publishImageClipboard(this, cm, pngBytes)
     }
 
     // ── Paste into source app ───────────────────────────────────────────────
@@ -222,30 +197,6 @@ class SgtAccessibilityService : AccessibilityService() {
         return false
     }
 
-    fun appendTextToFocusedField(
-        text: String,
-        uiLanguage: String,
-    ): Boolean {
-        if (text.isEmpty()) {
-            return false
-        }
-        for (window in windows) {
-            val root = window.root ?: continue
-            val pkg = root.packageName?.toString()
-            if (pkg == packageName) {
-                continue
-            }
-            val focused = findFocusedEditableNode(root)
-            if (focused != null) {
-                val result = appendTextToNode(focused, text)
-                Log.d(TAG, "appendTextToFocusedField on $pkg: $result")
-                return result
-            }
-        }
-        warnNoWritableTarget(uiLanguage)
-        return false
-    }
-
     // ── Private helpers ─────────────────────────────────────────────────────
 
     private fun findSelectedTextInTree(node: AccessibilityNodeInfo): String? {
@@ -261,30 +212,6 @@ class SgtAccessibilityService : AccessibilityService() {
             val child = node.getChild(i) ?: continue
             val found = findSelectedTextInTree(child)
             if (found != null) return found
-        }
-        return null
-    }
-
-    private fun findNodeByText(root: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
-        val nodes = root.findAccessibilityNodeInfosByText(text)
-        for (node in nodes) {
-            if (node.isClickable && node.text?.toString()?.trim().equals(text, ignoreCase = true)) {
-                return node
-            }
-        }
-        return null
-    }
-
-    private fun findNodeByContentDescription(root: AccessibilityNodeInfo, desc: String): AccessibilityNodeInfo? {
-        if (root.isClickable && root.contentDescription?.toString()?.trim().equals(desc, ignoreCase = true)) {
-            return root
-        }
-        for (index in 0 until root.childCount) {
-            val child = root.getChild(index) ?: continue
-            val result = findNodeByContentDescription(child, desc)
-            if (result != null) {
-                return result
-            }
         }
         return null
     }
@@ -326,13 +253,18 @@ class SgtAccessibilityService : AccessibilityService() {
         return className.contains("EditText") || className.contains("WebView")
     }
 
+    /**
+     * Plain text only. coerceToText would open a content URI on the clipboard
+     * with SGT's identity (including SGT's own FileProvider and persisted SAF
+     * grants) and the result is written into another app's field.
+     */
     private fun getClipboardText(): String? {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
         val clip = cm.primaryClip ?: return null
         if (clip.itemCount == 0) {
             return null
         }
-        return clip.getItemAt(0)?.coerceToText(this)?.toString()?.takeIf { it.isNotBlank() }
+        return clip.getItemAt(0)?.text?.toString()?.takeIf { it.isNotBlank() }
     }
 
     private fun appendTextToNode(
@@ -391,20 +323,6 @@ class SgtAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun warnNoWritableTarget(uiLanguage: String) {
-        val nowMs = SystemClock.elapsedRealtime()
-        if (nowMs - lastNoWritableTargetToastAtMs < NO_WRITABLE_TARGET_COOLDOWN_MS) {
-            return
-        }
-        lastNoWritableTargetToastAtMs = nowMs
-        val message = when (uiLanguage) {
-            "vi" -> "Tự động gõ đang bật nhưng chưa chọn ô nhập text."
-            "ko" -> "자동 입력이 켜져 있지만 텍스트 입력 칸이 선택되지 않았습니다."
-            else -> "Auto writing is active, but no text field is selected."
-        }
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-    }
-
     private val screenshotCapture by lazy { SgtAccessibilityScreenshotCapture(this) }
 
     internal fun captureScreenshot(callback: (ScreenshotCaptureResult) -> Unit) =
@@ -419,13 +337,6 @@ class SgtAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "SgtAccessibility"
-        private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
-        private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
-        private const val NO_WRITABLE_TARGET_COOLDOWN_MS = 3_000L
-        private val COPY_ACTION_LABELS = listOf("Copy", "COPY", "Sao chép", "복사")
-        @Volatile
-        private var lastNoWritableTargetToastAtMs: Long = 0L
-
         @Volatile
         var instance: SgtAccessibilityService? = null
             private set

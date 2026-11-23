@@ -99,7 +99,7 @@ function normalizeCompositionSubtitleState(
 export interface UseProjectPersistenceParams {
   currentProjectId: string | null;
   currentProjectIdRef: MutableRefObject<string | null>;
-  projects: { projects: Project[]; loadProjects: () => Promise<void> };
+  projects: { refreshProjectEntry: (projectId: string) => Promise<void> };
   currentVideo: string | null;
   currentAudio: string | null;
   currentMicAudio: string | null;
@@ -127,7 +127,8 @@ export interface UseProjectPersistenceParams {
     projectData?: Project | null,
     composition?: ProjectComposition | null,
   ) => Promise<ClipMediaAssets | null>;
-  setComposition: (c: ProjectComposition | null) => void;
+  /** Syncs the saved composition into editor state without touching undo/redo. */
+  commitPersistedComposition: (c: ProjectComposition | null) => void;
 }
 
 export function useProjectPersistence({
@@ -156,7 +157,7 @@ export function useProjectPersistence({
   isProjectTransitionRef,
   isSwitchingCompositionClipRef,
   loadClipAssets,
-  setComposition,
+  commitPersistedComposition,
 }: UseProjectPersistenceParams) {
   const projectSaveSeqRef = useRef(0);
   const persistenceInputsRef = useRef<readonly unknown[]>([]);
@@ -215,6 +216,10 @@ export function useProjectPersistence({
         options?.compositionOverride ?? liveProject?.composition ?? composition;
       const shouldSyncLiveComposition = !options?.skipLiveCompositionSync;
       const projectId = liveProject?.id ?? currentProjectData?.id ?? null;
+      if (options?.expectedProjectId && projectId !== options.expectedProjectId) {
+        if (options.throwOnError) throw new Error("Project changed before save");
+        return;
+      }
       if (
         !projectId ||
         (currentProjectIdRef.current ?? currentProjectId) !== projectId ||
@@ -234,7 +239,8 @@ export function useProjectPersistence({
         projectManager.isEditorWriteIntentLatest(writeIntent) &&
         currentProjectIdRef.current === projectId &&
         currentProjectDataRef.current?.id === projectId &&
-        persistenceTokenRef.current === persistenceToken;
+        persistenceTokenRef.current === persistenceToken &&
+        (options?.canCommit?.() ?? true);
       const includeMedia = options?.includeMedia !== false;
       const activeClipId = shouldSyncLiveComposition
         ? loadedClipId ??
@@ -463,7 +469,10 @@ export function useProjectPersistence({
           projectId,
           projectUpdates,
           writeIntent,
+          options?.canCommit ? isCurrentSave : undefined,
+          options?.onInvalidated,
         );
+        if (applied && isCurrentSave()) options?.onCommitted?.();
         if (!applied || !isCurrentSave()) {
           debugProject("persist:stale-after-write", {
             saveSeq,
@@ -472,7 +481,7 @@ export function useProjectPersistence({
           });
           return;
         }
-        setComposition(nextComposition);
+        commitPersistedComposition(nextComposition);
         debugProject("persist:committed", {
           saveSeq,
           projectId,
@@ -481,7 +490,7 @@ export function useProjectPersistence({
           canvasHeight: backgroundConfig.canvasHeight,
         });
         if (options?.refreshList !== false) {
-          await projects.loadProjects();
+          await projects.refreshProjectEntry(projectId);
           if (!isCurrentSave()) return;
           debugProject("persist:projects-refreshed", { saveSeq, projectId });
         }
@@ -522,7 +531,7 @@ export function useProjectPersistence({
       canvasRef,
       isProjectTransitionRef,
       isSwitchingCompositionClipRef,
-      setComposition,
+      commitPersistedComposition,
       logProjectSwitch,
     ],
   );

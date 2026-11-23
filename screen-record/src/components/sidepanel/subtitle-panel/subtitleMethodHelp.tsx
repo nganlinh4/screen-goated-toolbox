@@ -3,43 +3,9 @@ import type { Translations } from '@/i18n';
 import { HelpCircle } from '@/components/ui/MaterialIcon';
 import type { PanelSelectOption } from '@/components/ui/PanelSelect';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 
 const METHOD_LANGUAGE_PREVIEW_LIMIT = 14;
-
-const LOCAL_SUBTITLE_METHODS = new Set<SubtitleMethod>([
-  'qwen-local-0-6b',
-  'qwen-local-1-7b',
-  'parakeet-tdt-0-6b-v3',
-]);
-
-const PARAKEET_TDT_0_6B_V3_LANGUAGES = [
-  'Bulgarian',
-  'Croatian',
-  'Czech',
-  'Danish',
-  'Dutch',
-  'English',
-  'Estonian',
-  'Finnish',
-  'French',
-  'German',
-  'Greek',
-  'Hungarian',
-  'Italian',
-  'Latvian',
-  'Lithuanian',
-  'Maltese',
-  'Polish',
-  'Portuguese',
-  'Romanian',
-  'Slovak',
-  'Slovenian',
-  'Spanish',
-  'Swedish',
-  'Russian',
-  'Ukrainian',
-];
 
 interface SubtitleMethodCapability {
   method: SubtitleMethod;
@@ -51,7 +17,6 @@ export function subtitleMethodUsesLanguageHint(method: SubtitleMethod): boolean 
   return !(
     method === 'gemini-3-1-flash-lite'
     || method === 'gemini-3-flash-preview'
-    || method === 'parakeet-tdt-0-6b-v3'
   );
 }
 
@@ -71,12 +36,6 @@ export function getSubtitleMethodLabel(method: SubtitleMethod, t: Translations):
       return t.subtitleMethodGemini3_1FlashLite;
     case 'gemini-3-flash-preview':
       return t.subtitleMethodGemini3FlashPreview;
-    case 'qwen-local-1-7b':
-      return t.subtitleMethodQwenLocal1_7B;
-    case 'qwen-local-0-6b':
-      return t.subtitleMethodQwenLocal0_6B;
-    case 'parakeet-tdt-0-6b-v3':
-      return t.subtitleMethodParakeetTdt0_6BV3;
     case 'groq-whisper-accurate':
     default:
       return t.subtitleMethodGroqWhisperAccurate;
@@ -88,11 +47,7 @@ function summarizeLanguageSupport(method: SubtitleMethod, t: Translations): stri
     return t.subtitleMethodHelpGeminiLanguages;
   }
 
-  if (method === 'parakeet-tdt-0-6b-v3') {
-    return `${t.subtitleMethodHelpParakeetLanguages}: ${PARAKEET_TDT_0_6B_V3_LANGUAGES.join(', ')}`;
-  }
-
-  const languageLabels = getSubtitleLanguageOptionsForMethod(method)
+  const languageLabels = SUBTITLE_LANGUAGE_OPTIONS
     .filter((option) => option.value !== 'auto')
     .map((option) => option.label);
   const preview = languageLabels.slice(0, METHOD_LANGUAGE_PREVIEW_LIMIT).join(', ');
@@ -102,24 +57,16 @@ function summarizeLanguageSupport(method: SubtitleMethod, t: Translations): stri
     return preview || t.subtitleMethodHelpUnknownLanguages;
   }
 
-  const prefix = method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b'
-    ? t.subtitleMethodHelpQwenLanguages
-    : t.subtitleMethodHelpGroqLanguages;
-
-  return `${prefix}: ${preview}, ${t.subtitleMethodHelpMoreLanguages.replace('{count}', String(remaining))}`;
+  return `${t.subtitleMethodHelpGroqLanguages}: ${preview}, ${t.subtitleMethodHelpMoreLanguages.replace('{count}', String(remaining))}`;
 }
 
 function getMethodHelpContent(method: SubtitleMethod, t: Translations) {
-  const runtime = LOCAL_SUBTITLE_METHODS.has(method)
-    ? t.subtitleMethodHelpRuntimeLocal
-    : t.subtitleMethodHelpRuntimeCloud;
-
   return (
     <div className="subtitle-method-help-tooltip max-w-[280px] space-y-1 text-left leading-4">
       <div className="font-semibold text-[var(--on-surface)]">{getSubtitleMethodLabel(method, t)}</div>
       <div>
         <span className="text-[var(--on-surface-variant)]">{t.subtitleMethodHelpRuntime}: </span>
-        <span>{runtime}</span>
+        <span>{t.subtitleMethodHelpRuntimeCloud}</span>
       </div>
       <div>
         <span className="text-[var(--on-surface-variant)]">{t.subtitleMethodHelpLanguages}: </span>
@@ -127,14 +74,6 @@ function getMethodHelpContent(method: SubtitleMethod, t: Translations) {
       </div>
     </div>
   );
-}
-
-function canDisplayUnavailableLocalTool(method: SubtitleMethodCapability): boolean {
-  return (
-    method.method === 'qwen-local-0-6b'
-    || method.method === 'qwen-local-1-7b'
-    || method.method === 'parakeet-tdt-0-6b-v3'
-  ) && method.reason?.includes('Downloaded Tools') === true;
 }
 
 export function buildSubtitleMethodOptions(
@@ -155,6 +94,6 @@ export function buildSubtitleMethodOptions(
         </button>
       </Tooltip>
     ),
-    disabled: !method.available && !canDisplayUnavailableLocalTool(method),
+    disabled: !method.available,
   }));
 }

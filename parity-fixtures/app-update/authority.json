@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "public_key_hex": "044244390701e938abfe438e437449cd8100d3ac30895b2b6486a36b037b938fbe689963e87aedf361ce4a1c872398cf6d5b0a263c1122799e11a58840317224db",
+  "vectors": {
+    "valid": {
+      "payload_hex": "7b22736368656d6156657273696f6e223a312c226368616e6e656c223a22737461626c65222c2276657273696f6e223a22392e392e39222c2272656c656173654e6f746573223a222d2053796e7468657469632072656c65617365206e6f7465222c2272656c6561736555726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f7461672f76392e392e39222c22696e7374616c6c6572223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2273697a654279746573223a3132333435363738392c22736861323536223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d2c22616e64726f696446756c6c41706b223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2273697a654279746573223a39383736353433322c22736861323536223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232227d7d",
+      "signature_hex": "9a76a54a3a52bd573af601057fcc2738d27108121a06cda1ba0e43b6c8f8ad1c9fbeb3e74df303320e901ccb335ccf7f78da55fcb8b75ca9e5df3eaad56d798a",
+      "accepted": true
+    },
+    "invalid_utf8": {
+      "payload_hex": "7b22736368656d6156657273696f6e223a312c226368616e6e656c223a22737461626c65222c2276657273696f6e223a22392e392e39222c2272656c656173654e6f746573223a222d2053796e74686574696320ff2072656c65617365206e6f7465222c2272656c6561736555726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f7461672f76392e392e39222c22696e7374616c6c6572223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2273697a654279746573223a3132333435363738392c22736861323536223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d2c22616e64726f696446756c6c41706b223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2273697a654279746573223a39383736353433322c22736861323536223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232227d7d",
+      "signature_hex": "587f96899fcb04b8902d224b08ed32d51f3eefffc20b291fc5e43eda33667ea87d63d728e779c0c4e8c1894a4c523717c0f38117ae6a8dba7a2020eba6864ce1",
+      "accepted": false
+    },
+    "unsupported_schema": {
+      "payload_hex": "7b22736368656d6156657273696f6e223a322c226368616e6e656c223a22737461626c65222c2276657273696f6e223a22392e392e39222c2272656c656173654e6f746573223a222d2053796e7468657469632072656c65617365206e6f7465222c2272656c6561736555726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f7461672f76392e392e39222c22696e7374616c6c6572223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2273697a654279746573223a3132333435363738392c22736861323536223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d2c22616e64726f696446756c6c41706b223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2273697a654279746573223a39383736353433322c22736861323536223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232227d7d",
+      "signature_hex": "cd2d1e071175169ac4f5b28e0d57f16de517d1d39d6a040927f13f5d1b1bd20ae7bcf777c90c97bf82be3e603447960c7276867ed8b64f672680187fadd08405",
+      "accepted": false
+    },
+    "invalid_json": {
+      "payload_hex": "7b",
+      "signature_hex": "ac120419eb8c6db9bf8cb158f9d80d3da7e6bf900774c2ed374c60b15c202bd4726c78212a044fb59439e68b7602bcc0402a672d9430d1e21ba45ee46202f451",
+      "accepted": false
+    },
+    "empty": {
+      "payload_hex": "",
+      "signature_hex": "3f71bef0f56e62dd27fb42abc025d9bcf690565c31acbb319864cafd3a63cd46e6ebfc29313e7259afc845448d58612c2ac6584b41f1e89580aaea35fec9aa9e",
+      "accepted": false
+    },
+    "tampered_payload": {
+      "payload_hex": "7b22736368656d6156657273696f6e223a312c226368616e6e656c223a22737461626c65222c2276657273696f6e223a22392e392e39222c2272656c656173654e6f746573223a222d20416c74657265645f5f2072656c65617365206e6f7465222c2272656c6561736555726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f7461672f76392e392e39222c22696e7374616c6c6572223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e657865222c2273697a654279746573223a3132333435363738392c22736861323536223a2231313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131227d2c22616e64726f696446756c6c41706b223a7b226e616d65223a2253637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2275726c223a2268747470733a2f2f6769746875622e636f6d2f6e67616e6c696e68342f73637265656e2d676f617465642d746f6f6c626f782f72656c65617365732f646f776e6c6f61642f76392e392e392f53637265656e476f61746564546f6f6c626f785f76392e392e392e61706b222c2273697a654279746573223a39383736353433322c22736861323536223a2232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232227d7d",
+      "signature_hex": "9a76a54a3a52bd573af601057fcc2738d27108121a06cda1ba0e43b6c8f8ad1c9fbeb3e74df303320e901ccb335ccf7f78da55fcb8b75ca9e5df3eaad56d798a",
+      "accepted": false
+    }
+  },
+  "http_cases": [
+    {
+      "name": "signed_primary",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "primary",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "missing_primary",
+      "manifest_status": 404,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "fallback",
+      "requests": [
+        "manifest",
+        "fallback"
+      ]
+    },
+    {
+      "name": "primary_http_401",
+      "manifest_status": 401,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "primary_http_403",
+      "manifest_status": 403,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "primary_http_429",
+      "manifest_status": 429,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "primary_http_500",
+      "manifest_status": 500,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "primary_http_503",
+      "manifest_status": 503,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "primary_transport_failure",
+      "manifest_status": 0,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "invalid_utf8",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "invalid_utf8",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "unsupported_schema",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "unsupported_schema",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "invalid_json",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "invalid_json",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "empty",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "empty",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "tampered_payload",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "tampered_payload",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "signature_http_404",
+      "manifest_status": 200,
+      "signature_status": 404,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "signature_http_500",
+      "manifest_status": 200,
+      "signature_status": 500,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "signature_transport_failure",
+      "manifest_status": 200,
+      "signature_status": 0,
+      "vector": "valid",
+      "expected": "error",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "manifest_oversize",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "body_mode": "manifest_oversize",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "manifest_declared_oversize",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "body_mode": "manifest_declared_oversize",
+      "requests": [
+        "manifest"
+      ]
+    },
+    {
+      "name": "signature_oversize",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "body_mode": "signature_oversize",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "short_signature",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "body_mode": "short_signature",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "public_key_unavailable",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "key_mode": "public_key_unavailable",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "public_key_invalid",
+      "manifest_status": 200,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "key_mode": "public_key_invalid",
+      "requests": [
+        "manifest",
+        "signature"
+      ]
+    },
+    {
+      "name": "fallback_invalid_utf8",
+      "manifest_status": 404,
+      "signature_status": 200,
+      "vector": "valid",
+      "expected": "error",
+      "fallback_mode": "invalid_utf8",
+      "requests": [
+        "manifest",
+        "fallback"
+      ]
+    }
+  ]
+}

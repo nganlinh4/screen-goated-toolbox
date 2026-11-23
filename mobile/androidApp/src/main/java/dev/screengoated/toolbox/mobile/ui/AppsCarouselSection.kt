@@ -37,7 +37,6 @@ import dev.screengoated.toolbox.mobile.creation.CreationTool
 import dev.screengoated.toolbox.mobile.creation.creationToolReleased
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.ui.PhoneControlActivity
-import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.ui.theme.sgtColors
 
@@ -49,7 +48,6 @@ private fun appCardTag(index: Int): String = when (index) {
     4 -> "app-card-dj"
     5 -> "app-card-image-to-3d"
     6 -> "app-card-image-to-svg"
-    7 -> "app-card-image-creator"
     else -> "app-card-placeholder-$index"
 }
 
@@ -61,29 +59,25 @@ internal val appSlots = listOf(
     AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotAmber }),  // Be a DJ — amber
     AppSlot(MaterialShapes.Cookie4Sided, { it.appSlotTeal }),   // Image to 3D — mint
     AppSlot(MaterialShapes.Clover4Leaf,  { it.appSlotBlue }),   // Image to SVG — cobalt
-    AppSlot(MaterialShapes.SemiCircle,   { it.appSlotCoral }),  // Create/edit image — coral
 )
 
 internal fun releasedAppSlotIndices(): List<Int> = appSlots.indices.filter { index ->
     when (index) {
         6 -> creationToolReleased(CreationTool.IMAGE_TO_SVG)
-        7 -> creationToolReleased(CreationTool.IMAGE_CREATOR)
         else -> true
     }
 }
 
 @Composable
 internal fun AppsCarouselSection(
-    state: LiveSessionState,
+    liveSessionRunning: Boolean,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
     onDownloaderClick: () -> Unit = {},
     onDjClick: () -> Unit = {},
     onTranslationGummyClick: () -> Unit = {},
     onImageTo3dClick: () -> Unit = {},
     onImageToSvgClick: () -> Unit = {},
-    onImageCreatorClick: () -> Unit = {},
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -94,16 +88,14 @@ internal fun AppsCarouselSection(
     if (isLandscape) {
         AppsHorizontalCarousel(
             visibleSlotIndices,
-            state,
+            liveSessionRunning,
             locale,
             onSessionToggle,
-            canToggle,
             onDownloaderClick,
             onDjClick,
             onTranslationGummyClick,
             onImageTo3dClick,
             onImageToSvgClick,
-            onImageCreatorClick,
             onPagerSwipeLockChanged,
             sharedTransitionScope,
             animatedVisibilityScope,
@@ -111,16 +103,14 @@ internal fun AppsCarouselSection(
     } else {
         AppsVerticalCarousel(
             visibleSlotIndices,
-            state,
+            liveSessionRunning,
             locale,
             onSessionToggle,
-            canToggle,
             onDownloaderClick,
             onDjClick,
             onTranslationGummyClick,
             onImageTo3dClick,
             onImageToSvgClick,
-            onImageCreatorClick,
             sharedTransitionScope,
             animatedVisibilityScope,
         )
@@ -130,16 +120,14 @@ internal fun AppsCarouselSection(
 @Composable
 private fun AppsItemContent(
     index: Int,
-    state: LiveSessionState,
+    liveSessionRunning: Boolean,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
     onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -166,13 +154,12 @@ private fun AppsItemContent(
                     4 -> Modifier.clickable(onClick = onDjClick)
                     5 -> Modifier.clickable(onClick = onImageTo3dClick)
                     6 -> Modifier.clickable(onClick = onImageToSvgClick)
-                    7 -> Modifier.clickable(onClick = onImageCreatorClick)
                     else -> Modifier
                 },
             ),
     ) {
         when (index) {
-            0 -> LiveTranslateCarouselTile(state = state, locale = locale, onSessionToggle = onSessionToggle, canToggle = canToggle)
+            0 -> LiveTranslateCarouselTile(isRunning = liveSessionRunning, locale = locale, onSessionToggle = onSessionToggle)
             1 -> {
                 val isRunning = PhoneControlService.state.value.running
                 SessionAppCarouselTile(
@@ -187,7 +174,6 @@ private fun AppsItemContent(
                             context.startActivity(PhoneControlActivity.activationIntent(context))
                         }
                     },
-                    canToggle = true,
                     turnOnLabel = locale.turnOn,
                     turnOffLabel = locale.turnOff,
                     toggleTag = "phone-control-toggle",
@@ -198,7 +184,6 @@ private fun AppsItemContent(
             4 -> AppTile(slot = appSlots[4], title = locale.appDjTitle, drawableRes = R.drawable.ms_album)
             5 -> AppTile(slot = appSlots[5], title = locale.appImageTo3dTitle, drawableRes = R.drawable.ms_deployed_code)
             6 -> AppTile(slot = appSlots[6], title = locale.appImageToSvgTitle, drawableRes = R.drawable.ms_draw_collage)
-            7 -> AppTile(slot = appSlots[7], title = locale.appImageCreatorTitle, drawableRes = R.drawable.ms_image)
             else -> EmptyAppTile(slot = appSlots[index])
         }
     }
@@ -207,16 +192,14 @@ private fun AppsItemContent(
 @Composable
 private fun AppsVerticalCarousel(
     visibleSlotIndices: List<Int>,
-    state: LiveSessionState,
+    liveSessionRunning: Boolean,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
     onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
 ) {
@@ -244,16 +227,14 @@ private fun AppsVerticalCarousel(
             Box(modifier = Modifier.fillMaxSize().maskClip(MaterialTheme.shapes.extraLarge)) {
                 AppsItemContent(
                     index,
-                    state,
+                    liveSessionRunning,
                     locale,
                     onSessionToggle,
-                    canToggle,
                     onDownloaderClick,
                     onDjClick,
                     onTranslationGummyClick,
                     onImageTo3dClick,
                     onImageToSvgClick,
-                    onImageCreatorClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )
@@ -267,16 +248,14 @@ private fun AppsVerticalCarousel(
 @Composable
 private fun AppsHorizontalCarousel(
     visibleSlotIndices: List<Int>,
-    state: LiveSessionState,
+    liveSessionRunning: Boolean,
     locale: MobileLocaleText,
     onSessionToggle: () -> Unit,
-    canToggle: Boolean,
     onDownloaderClick: () -> Unit,
     onDjClick: () -> Unit,
     onTranslationGummyClick: () -> Unit,
     onImageTo3dClick: () -> Unit,
     onImageToSvgClick: () -> Unit,
-    onImageCreatorClick: () -> Unit,
     onPagerSwipeLockChanged: (Boolean) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope?,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope?,
@@ -314,16 +293,14 @@ private fun AppsHorizontalCarousel(
             ) {
                 AppsItemContent(
                     index,
-                    state,
+                    liveSessionRunning,
                     locale,
                     onSessionToggle,
-                    canToggle,
                     onDownloaderClick,
                     onDjClick,
                     onTranslationGummyClick,
                     onImageTo3dClick,
                     onImageToSvgClick,
-                    onImageCreatorClick,
                     sharedTransitionScope,
                     animatedVisibilityScope,
                 )

@@ -54,6 +54,7 @@ internal val DialogCloseMorphPair = ExpressiveMorphPair(
 @Composable
 internal fun ExpressiveDialogSurface(
     title: String,
+    closeLabel: String,
     @androidx.annotation.DrawableRes icon: Int,
     accent: Color,
     morphPair: ExpressiveMorphPair,
@@ -174,6 +175,7 @@ internal fun ExpressiveDialogSurface(
                         }
                         ExpressiveDialogCloseButton(
                             accent = accent,
+                            label = closeLabel,
                             onClick = onDismiss,
                         )
                     }
@@ -243,6 +245,7 @@ internal fun ExpressiveDialogActionChip(
 @Composable
 private fun ExpressiveDialogCloseButton(
     accent: Color,
+    label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -274,7 +277,7 @@ private fun ExpressiveDialogCloseButton(
     ) {
         Icon(
             painter = painterResource(R.drawable.ms_close),
-            contentDescription = null,
+            contentDescription = label,
             tint = lerp(
                 MaterialTheme.colorScheme.onSurfaceVariant,
                 accent,

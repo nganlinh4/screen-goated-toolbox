@@ -5,8 +5,7 @@ pub fn trimmed_language_hint(language_hint: Option<&str>) -> Option<&str> {
 }
 
 pub fn normalize_subtitle_text(text: &str) -> String {
-    strip_qwen_control_tokens(text)
-        .split_whitespace()
+    text.split_whitespace()
         .filter(|token| !(token.starts_with('<') && token.ends_with('>')))
         .collect::<Vec<_>>()
         .join(" ")
@@ -16,20 +15,11 @@ pub fn normalize_subtitle_text(text: &str) -> String {
 
 pub fn normalize_groq_language_hint(language_hint: Option<&str>) -> Option<String> {
     if let Some(entry) = normalize_language_alias(language_hint) {
-        return crate::config::speech_languages::whisper_language_code(Some(entry.groq_code))
+        return crate::config::speech_languages::whisper_language_code(Some(entry))
             .map(ToOwned::to_owned);
     }
     let primary = normalized_language_primary(language_hint)?;
     crate::config::speech_languages::whisper_language_code(Some(&primary)).map(ToOwned::to_owned)
-}
-
-pub fn normalize_qwen_language_hint(language_hint: Option<&str>) -> Option<String> {
-    normalize_qwen_supported_language(language_hint)
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            normalize_language_alias(language_hint).map(|entry| entry.qwen_name.to_string())
-        })
-        .or_else(|| trimmed_language_hint(language_hint).map(ToOwned::to_owned))
 }
 
 pub fn ends_sentence(text: &str) -> bool {
@@ -80,11 +70,6 @@ fn should_attach_without_space(token: &str, previous: Option<&str>) -> bool {
     false
 }
 
-struct LanguageAlias {
-    groq_code: &'static str,
-    qwen_name: &'static str,
-}
-
 fn normalized_language_primary(language_hint: Option<&str>) -> Option<String> {
     let normalized = trimmed_language_hint(language_hint)?
         .trim()
@@ -93,356 +78,80 @@ fn normalized_language_primary(language_hint: Option<&str>) -> Option<String> {
     Some(normalized.split('-').next().unwrap_or("").to_string())
 }
 
-
-fn normalize_qwen_supported_language(language_hint: Option<&str>) -> Option<&'static str> {
-    let normalized = trimmed_language_hint(language_hint)?
-        .trim()
-        .to_ascii_lowercase()
-        .replace('_', "-");
-    match normalized.as_str() {
-        "qwen-dialect-anhui" | "anhui" => return Some("Anhui"),
-        "qwen-dialect-dongbei" | "dongbei" => return Some("Dongbei"),
-        "qwen-dialect-fujian" | "fujian" => return Some("Fujian"),
-        "qwen-dialect-gansu" | "gansu" => return Some("Gansu"),
-        "qwen-dialect-guizhou" | "guizhou" => return Some("Guizhou"),
-        "qwen-dialect-hebei" | "hebei" => return Some("Hebei"),
-        "qwen-dialect-henan" | "henan" => return Some("Henan"),
-        "qwen-dialect-hubei" | "hubei" => return Some("Hubei"),
-        "qwen-dialect-hunan" | "hunan" => return Some("Hunan"),
-        "qwen-dialect-jiangxi" | "jiangxi" => return Some("Jiangxi"),
-        "qwen-dialect-ningxia" | "ningxia" => return Some("Ningxia"),
-        "qwen-dialect-shandong" | "shandong" => return Some("Shandong"),
-        "qwen-dialect-shaanxi" | "shaanxi" => return Some("Shaanxi"),
-        "qwen-dialect-shanxi" | "shanxi" => return Some("Shanxi"),
-        "qwen-dialect-sichuan" | "sichuan" => return Some("Sichuan"),
-        "qwen-dialect-tianjin" | "tianjin" => return Some("Tianjin"),
-        "qwen-dialect-yunnan" | "yunnan" => return Some("Yunnan"),
-        "qwen-dialect-zhejiang" | "zhejiang" => return Some("Zhejiang"),
-        "qwen-dialect-cantonese-hk" | "cantonese-hk" | "hong-kong-cantonese" => {
-            return Some("Cantonese (Hong Kong)");
-        }
-        "qwen-dialect-cantonese-gd" | "cantonese-gd" | "guangdong-cantonese" => {
-            return Some("Cantonese (Guangdong)");
-        }
-        "qwen-dialect-wu" | "wu" | "shanghainese" => return Some("Wu language"),
-        "qwen-dialect-minnan" | "minnan" | "hokkien" => return Some("Minnan language"),
-        _ => {}
-    }
-    let primary = normalized.split('-').next().unwrap_or("");
-    Some(match primary {
-        "ar" | "ara" | "arabic" => "Arabic",
-        "cs" | "ces" | "cze" | "czech" => "Czech",
-        "da" | "dan" | "danish" => "Danish",
-        "de" | "deu" | "ger" | "german" => "German",
-        "el" | "ell" | "gre" | "greek" => "Greek",
-        "en" | "eng" | "english" => "English",
-        "es" | "spa" | "spanish" => "Spanish",
-        "fa" | "pes" | "per" | "fas" | "persian" | "farsi" => "Persian",
-        "fi" | "fin" | "finnish" => "Finnish",
-        "fil" | "tl" | "tgl" | "tagalog" | "filipino" => "Filipino",
-        "fr" | "fra" | "fre" | "french" => "French",
-        "hi" | "hin" | "hindi" => "Hindi",
-        "hu" | "hun" | "hungarian" => "Hungarian",
-        "id" | "ind" | "indonesian" => "Indonesian",
-        "it" | "ita" | "italian" => "Italian",
-        "ja" | "jpn" | "japanese" => "Japanese",
-        "ko" | "kor" | "korean" => "Korean",
-        "mk" | "mkd" | "macedonian" => "Macedonian",
-        "ms" | "msa" | "may" | "malay" => "Malay",
-        "nl" | "nld" | "dut" | "dutch" => "Dutch",
-        "pl" | "pol" | "polish" => "Polish",
-        "pt" | "por" | "portuguese" => "Portuguese",
-        "ro" | "ron" | "rum" | "romanian" => "Romanian",
-        "ru" | "rus" | "russian" => "Russian",
-        "sv" | "swe" | "swedish" => "Swedish",
-        "th" | "tha" | "thai" => "Thai",
-        "tr" | "tur" | "turkish" => "Turkish",
-        "vi" | "vie" | "vietnamese" => "Vietnamese",
-        "yue" | "cantonese" => "Cantonese",
-        "zh" | "zho" | "cmn" | "chinese" | "mandarin" => "Chinese",
-        _ => return None,
-    })
-}
-
-fn normalize_language_alias(language_hint: Option<&str>) -> Option<LanguageAlias> {
+fn normalize_language_alias(language_hint: Option<&str>) -> Option<&'static str> {
     let normalized = trimmed_language_hint(language_hint)?
         .trim()
         .to_ascii_lowercase()
         .replace('_', "-");
     let primary = normalized.split('-').next().unwrap_or("");
     Some(match primary {
-        "afr" | "afrikaans" => LanguageAlias {
-            groq_code: "af",
-            qwen_name: "Afrikaans",
-        },
-        "sq" | "sqi" | "albanian" => LanguageAlias {
-            groq_code: "sq",
-            qwen_name: "Albanian",
-        },
-        "en" | "eng" | "english" => LanguageAlias {
-            groq_code: "en",
-            qwen_name: "English",
-        },
-        "az" | "aze" | "azerbaijani" => LanguageAlias {
-            groq_code: "az",
-            qwen_name: "Azerbaijani",
-        },
-        "be" | "bel" | "belarusian" => LanguageAlias {
-            groq_code: "be",
-            qwen_name: "Belarusian",
-        },
-        "bn" | "ben" | "bengali" => LanguageAlias {
-            groq_code: "bn",
-            qwen_name: "Bengali",
-        },
-        "bg" | "bul" | "bulgarian" => LanguageAlias {
-            groq_code: "bg",
-            qwen_name: "Bulgarian",
-        },
-        "my" | "mya" | "burmese" | "myanmar" => LanguageAlias {
-            groq_code: "my",
-            qwen_name: "Burmese",
-        },
-        "ca" | "cat" | "catalan" => LanguageAlias {
-            groq_code: "ca",
-            qwen_name: "Catalan",
-        },
-        "hr" | "hrv" | "croatian" => LanguageAlias {
-            groq_code: "hr",
-            qwen_name: "Croatian",
-        },
-        "cs" | "ces" | "cze" | "czech" => LanguageAlias {
-            groq_code: "cs",
-            qwen_name: "Czech",
-        },
-        "da" | "dan" | "danish" => LanguageAlias {
-            groq_code: "da",
-            qwen_name: "Danish",
-        },
-        "nl" | "nld" | "dut" | "dutch" => LanguageAlias {
-            groq_code: "nl",
-            qwen_name: "Dutch",
-        },
-        "eo" | "epo" | "esperanto" => LanguageAlias {
-            groq_code: "eo",
-            qwen_name: "Esperanto",
-        },
-        "et" | "est" | "estonian" => LanguageAlias {
-            groq_code: "et",
-            qwen_name: "Estonian",
-        },
-        "eu" | "eus" | "baq" | "basque" => LanguageAlias {
-            groq_code: "eu",
-            qwen_name: "Basque",
-        },
-        "fa" | "pes" | "per" | "fas" | "persian" | "farsi" => LanguageAlias {
-            groq_code: "fa",
-            qwen_name: "Persian",
-        },
-        "fi" | "fin" | "finnish" => LanguageAlias {
-            groq_code: "fi",
-            qwen_name: "Finnish",
-        },
-        "ko" | "kor" | "korean" => LanguageAlias {
-            groq_code: "ko",
-            qwen_name: "Korean",
-        },
-        "ja" | "jpn" | "japanese" => LanguageAlias {
-            groq_code: "ja",
-            qwen_name: "Japanese",
-        },
-        "zh" | "zho" | "cmn" | "chinese" | "mandarin" => LanguageAlias {
-            groq_code: "zh",
-            qwen_name: "Chinese",
-        },
-        "es" | "spa" | "spanish" => LanguageAlias {
-            groq_code: "es",
-            qwen_name: "Spanish",
-        },
-        "vi" | "vie" | "vietnamese" => LanguageAlias {
-            groq_code: "vi",
-            qwen_name: "Vietnamese",
-        },
-        "fr" | "fra" | "fre" | "french" => LanguageAlias {
-            groq_code: "fr",
-            qwen_name: "French",
-        },
-        "ka" | "kat" | "geo" | "georgian" => LanguageAlias {
-            groq_code: "ka",
-            qwen_name: "Georgian",
-        },
-        "de" | "deu" | "ger" | "german" => LanguageAlias {
-            groq_code: "de",
-            qwen_name: "German",
-        },
-        "el" | "ell" | "gre" | "greek" => LanguageAlias {
-            groq_code: "el",
-            qwen_name: "Greek",
-        },
-        "gu" | "guj" | "gujarati" => LanguageAlias {
-            groq_code: "gu",
-            qwen_name: "Gujarati",
-        },
-        "he" | "heb" | "hebrew" => LanguageAlias {
-            groq_code: "he",
-            qwen_name: "Hebrew",
-        },
-        "hi" | "hin" | "hindi" => LanguageAlias {
-            groq_code: "hi",
-            qwen_name: "Hindi",
-        },
-        "hu" | "hun" | "hungarian" => LanguageAlias {
-            groq_code: "hu",
-            qwen_name: "Hungarian",
-        },
-        "pt" | "por" | "portuguese" => LanguageAlias {
-            groq_code: "pt",
-            qwen_name: "Portuguese",
-        },
-        "ru" | "rus" | "russian" => LanguageAlias {
-            groq_code: "ru",
-            qwen_name: "Russian",
-        },
-        "it" | "ita" | "italian" => LanguageAlias {
-            groq_code: "it",
-            qwen_name: "Italian",
-        },
-        "kn" | "kan" | "kannada" => LanguageAlias {
-            groq_code: "kn",
-            qwen_name: "Kannada",
-        },
-        "la" | "lat" | "latin" => LanguageAlias {
-            groq_code: "la",
-            qwen_name: "Latin",
-        },
-        "lv" | "lav" | "latvian" => LanguageAlias {
-            groq_code: "lv",
-            qwen_name: "Latvian",
-        },
-        "lt" | "lit" | "lithuanian" => LanguageAlias {
-            groq_code: "lt",
-            qwen_name: "Lithuanian",
-        },
-        "ml" | "mal" | "malayalam" => LanguageAlias {
-            groq_code: "ml",
-            qwen_name: "Malayalam",
-        },
-        "mr" | "mar" | "marathi" => LanguageAlias {
-            groq_code: "mr",
-            qwen_name: "Marathi",
-        },
-        "mk" | "mkd" | "macedonian" => LanguageAlias {
-            groq_code: "mk",
-            qwen_name: "Macedonian",
-        },
-        "ne" | "nep" | "nepali" => LanguageAlias {
-            groq_code: "ne",
-            qwen_name: "Nepali",
-        },
-        "nb" | "nob" | "bokmal" | "bokmål" | "norwegian bokmal" | "norwegian bokmål" => {
-            LanguageAlias {
-                groq_code: "no",
-                qwen_name: "Norwegian Bokmål",
-            }
-        }
-        "nn" | "nno" | "norwegian nynorsk" | "nynorsk" => LanguageAlias {
-            groq_code: "nn",
-            qwen_name: "Norwegian Nynorsk",
-        },
-        "or" | "ori" | "oriya" | "odia" => LanguageAlias {
-            groq_code: "or",
-            qwen_name: "Oriya",
-        },
-        "pa" | "pan" | "punjabi" => LanguageAlias {
-            groq_code: "pa",
-            qwen_name: "Punjabi",
-        },
-        "pl" | "pol" | "polish" => LanguageAlias {
-            groq_code: "pl",
-            qwen_name: "Polish",
-        },
-        "ro" | "ron" | "rum" | "romanian" => LanguageAlias {
-            groq_code: "ro",
-            qwen_name: "Romanian",
-        },
-        "sr" | "srp" | "serbian" => LanguageAlias {
-            groq_code: "sr",
-            qwen_name: "Serbian",
-        },
-        "si" | "sin" | "sinhala" => LanguageAlias {
-            groq_code: "si",
-            qwen_name: "Sinhala",
-        },
-        "sk" | "slk" | "slo" | "slovak" => LanguageAlias {
-            groq_code: "sk",
-            qwen_name: "Slovak",
-        },
-        "sl" | "slv" | "slovenian" => LanguageAlias {
-            groq_code: "sl",
-            qwen_name: "Slovenian",
-        },
-        "so" | "som" | "somali" => LanguageAlias {
-            groq_code: "so",
-            qwen_name: "Somali",
-        },
-        "sv" | "swe" | "swedish" => LanguageAlias {
-            groq_code: "sv",
-            qwen_name: "Swedish",
-        },
-        "ta" | "tam" | "tamil" => LanguageAlias {
-            groq_code: "ta",
-            qwen_name: "Tamil",
-        },
-        "tl" | "tgl" | "tagalog" => LanguageAlias {
-            groq_code: "tl",
-            qwen_name: "Tagalog",
-        },
-        "te" | "tel" | "telugu" => LanguageAlias {
-            groq_code: "te",
-            qwen_name: "Telugu",
-        },
-        "ar" | "ara" | "arabic" => LanguageAlias {
-            groq_code: "ar",
-            qwen_name: "Arabic",
-        },
-        "tr" | "tur" | "turkish" => LanguageAlias {
-            groq_code: "tr",
-            qwen_name: "Turkish",
-        },
-        "th" | "tha" | "thai" => LanguageAlias {
-            groq_code: "th",
-            qwen_name: "Thai",
-        },
-        "id" | "ind" | "indonesian" => LanguageAlias {
-            groq_code: "id",
-            qwen_name: "Indonesian",
-        },
-        "uk" | "ukr" | "ukrainian" => LanguageAlias {
-            groq_code: "uk",
-            qwen_name: "Ukrainian",
-        },
-        "ur" | "urd" | "urdu" => LanguageAlias {
-            groq_code: "ur",
-            qwen_name: "Urdu",
-        },
-        "uz" | "uzb" | "uzbek" => LanguageAlias {
-            groq_code: "uz",
-            qwen_name: "Uzbek",
-        },
-        "yi" | "yid" | "yiddish" => LanguageAlias {
-            groq_code: "yi",
-            qwen_name: "Yiddish",
-        },
+        "afr" | "afrikaans" => "af",
+        "sq" | "sqi" | "albanian" => "sq",
+        "en" | "eng" | "english" => "en",
+        "az" | "aze" | "azerbaijani" => "az",
+        "be" | "bel" | "belarusian" => "be",
+        "bn" | "ben" | "bengali" => "bn",
+        "bg" | "bul" | "bulgarian" => "bg",
+        "my" | "mya" | "burmese" | "myanmar" => "my",
+        "ca" | "cat" | "catalan" => "ca",
+        "hr" | "hrv" | "croatian" => "hr",
+        "cs" | "ces" | "cze" | "czech" => "cs",
+        "da" | "dan" | "danish" => "da",
+        "nl" | "nld" | "dut" | "dutch" => "nl",
+        "eo" | "epo" | "esperanto" => "eo",
+        "et" | "est" | "estonian" => "et",
+        "eu" | "eus" | "baq" | "basque" => "eu",
+        "fa" | "pes" | "per" | "fas" | "persian" | "farsi" => "fa",
+        "fi" | "fin" | "finnish" => "fi",
+        "ko" | "kor" | "korean" => "ko",
+        "ja" | "jpn" | "japanese" => "ja",
+        "zh" | "zho" | "cmn" | "chinese" | "mandarin" => "zh",
+        "es" | "spa" | "spanish" => "es",
+        "vi" | "vie" | "vietnamese" => "vi",
+        "fr" | "fra" | "fre" | "french" => "fr",
+        "ka" | "kat" | "geo" | "georgian" => "ka",
+        "de" | "deu" | "ger" | "german" => "de",
+        "el" | "ell" | "gre" | "greek" => "el",
+        "gu" | "guj" | "gujarati" => "gu",
+        "he" | "heb" | "hebrew" => "he",
+        "hi" | "hin" | "hindi" => "hi",
+        "hu" | "hun" | "hungarian" => "hu",
+        "pt" | "por" | "portuguese" => "pt",
+        "ru" | "rus" | "russian" => "ru",
+        "it" | "ita" | "italian" => "it",
+        "kn" | "kan" | "kannada" => "kn",
+        "la" | "lat" | "latin" => "la",
+        "lv" | "lav" | "latvian" => "lv",
+        "lt" | "lit" | "lithuanian" => "lt",
+        "ml" | "mal" | "malayalam" => "ml",
+        "mr" | "mar" | "marathi" => "mr",
+        "mk" | "mkd" | "macedonian" => "mk",
+        "ne" | "nep" | "nepali" => "ne",
+        "nb" | "nob" | "bokmal" | "bokmål" | "norwegian bokmal" | "norwegian bokmål" => "no",
+        "nn" | "nno" | "norwegian nynorsk" | "nynorsk" => "nn",
+        "or" | "ori" | "oriya" | "odia" => "or",
+        "pa" | "pan" | "punjabi" => "pa",
+        "pl" | "pol" | "polish" => "pl",
+        "ro" | "ron" | "rum" | "romanian" => "ro",
+        "sr" | "srp" | "serbian" => "sr",
+        "si" | "sin" | "sinhala" => "si",
+        "sk" | "slk" | "slo" | "slovak" => "sk",
+        "sl" | "slv" | "slovenian" => "sl",
+        "so" | "som" | "somali" => "so",
+        "sv" | "swe" | "swedish" => "sv",
+        "ta" | "tam" | "tamil" => "ta",
+        "tl" | "tgl" | "tagalog" => "tl",
+        "te" | "tel" | "telugu" => "te",
+        "ar" | "ara" | "arabic" => "ar",
+        "tr" | "tur" | "turkish" => "tr",
+        "th" | "tha" | "thai" => "th",
+        "id" | "ind" | "indonesian" => "id",
+        "uk" | "ukr" | "ukrainian" => "uk",
+        "ur" | "urd" | "urdu" => "ur",
+        "uz" | "uzb" | "uzbek" => "uz",
+        "yi" | "yid" | "yiddish" => "yi",
         _ => return None,
     })
-}
-
-fn strip_qwen_control_tokens(text: &str) -> String {
-    text.replace("<asr_text>", " ")
-        .replace("</asr_text>", " ")
-        .replace("<|endoftext|>", " ")
-        .replace("<|im_end|>", " ")
-        .replace("<|im_start|>", " ")
 }
 
 #[cfg(test)]
@@ -461,7 +170,10 @@ mod tests {
         for language in (0..10000).filter_map(isolang::Language::from_usize) {
             let label = language.to_name();
             if let Some(code) = normalize_groq_language_hint(Some(label)) {
-                assert!(whisper_language_code(Some(&code)).is_some(), "{label}: {code}");
+                assert!(
+                    whisper_language_code(Some(&code)).is_some(),
+                    "{label}: {code}"
+                );
             }
         }
         assert_eq!(normalize_groq_language_hint(Some("auto")), None);

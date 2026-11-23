@@ -1,7 +1,6 @@
 //! The ordinary OCR events and unit partition, retained with their exact source frame.
 use super::super::{contract::DetectedTextRegion, detector, incremental, units};
 use anyhow::{Context, Result};
-use image::ImageEncoder as _;
 use sgt_screen_text_detector_protocol::{recognition::Reading, stream::Event};
 use std::{
     sync::{Arc, atomic::AtomicBool},
@@ -18,37 +17,36 @@ pub(super) struct Group {
     pub sources: Arc<[DetectedTextRegion]>,
     pub unit: units::Unit,
 }
+#[derive(Clone)]
 pub(super) struct Frame {
+    pub capture_id: u64,
     pub origin: (i32, i32),
     pub image: Arc<image::RgbaImage>,
     pub groups: Vec<Group>,
-    pub uncertain: Vec<super::super::contract::NormalizedBounds>,
+    pub uncertain: Vec<super::super::source_bounds::SourceBounds>,
     pub observed_at: Instant,
 }
 
-pub(super) fn read(image: &image::RgbaImage, cancel: &AtomicBool) -> Result<Observation> {
-    let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(
-        &mut png,
-        image::codecs::png::CompressionType::Fast,
-        image::codecs::png::FilterType::Sub,
-    )
-    .write_image(
-        image.as_raw(),
-        image.width(),
-        image.height(),
-        image::ExtendedColorType::Rgba8,
-    )?;
+pub(super) fn read(image: &image::RgbaImage, cancel: &Arc<AtomicBool>) -> Result<Observation> {
+    let payload = super::super::image_payload::prepare_png(image, cancel)?;
     let mut events = Vec::new();
-    detector::incremental::detect(&png, image.width(), image.height(), cancel, |event| {
-        events.push(event);
-        Ok(())
-    })?;
+    detector::incremental::detect(
+        &payload.bytes,
+        payload.width,
+        payload.height,
+        cancel,
+        |mut event| {
+            payload.map_event(&mut event);
+            events.push(event);
+            Ok(())
+        },
+    )?;
     Ok(Observation { events })
 }
 
 pub(super) fn prepare(
     image: Arc<image::RgbaImage>,
+    capture_id: u64,
     observation: &Observation,
     observed_at: Instant,
     origin: (i32, i32),
@@ -67,7 +65,7 @@ pub(super) fn prepare(
         .iter()
         .map(|r| incremental::candidate(r, image.width(), image.height()))
         .collect::<Result<Vec<_>>>()?;
-    let mut plan = units::Plan::new(&image, &mut sources, layout);
+    let mut plan = units::Plan::new(&image, &mut sources, layout)?;
     for event in &observation.events {
         if let Event::Reading { completion } = event {
             let index = sources
@@ -106,6 +104,7 @@ pub(super) fn prepare(
         });
     }
     Ok(Arc::new(Frame {
+        capture_id,
         origin,
         image,
         groups,

@@ -18,6 +18,7 @@ export function collectNodes(): AppNodes {
     polycountRange: query("#polycountRange"),
     polycountValue: query("#polycountValue"),
     modeButtons: [...document.querySelectorAll<HTMLButtonElement>("[data-generation-mode]")],
+    savedMode: query("#savedMode"),
     autoSegmentSection: query("#autoSegmentSection"),
     initialTopology: query("#initialTopology"),
     initialTopologySection: query("#initialTopologySection"),

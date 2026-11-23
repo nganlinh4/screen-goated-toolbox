@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useVideoPlayback, useRecording } from "@/hooks/useVideoState";
-import type { BackgroundConfig, MousePosition, VideoSegment, WebcamConfig } from "@/types/video";
+import type { BackgroundConfig, MousePosition, ProjectComposition, VideoSegment, WebcamConfig } from "@/types/video";
+import { getCompositionClipRenderSegment } from '@/lib/compositionSubtitles';
 
 interface UseMediaEngineParams {
   segment: VideoSegment | null;
+  composition?: ProjectComposition | null;
   backgroundConfig: BackgroundConfig;
   webcamConfig: WebcamConfig;
   isCropping: boolean;
@@ -14,6 +16,7 @@ interface UseMediaEngineParams {
 
 export function useMediaEngine({
   segment,
+  composition,
   backgroundConfig,
   webcamConfig,
   isCropping,
@@ -23,9 +26,17 @@ export function useMediaEngine({
 }: UseMediaEngineParams) {
   // mousePositionsRef is a stable ref shared between useVideoPlayback and the layout effect
   const mousePositionsRef = useRef<MousePosition[]>([]);
+  const subtitleClipOwnerRef = useRef<MutableRefObject<string | null> | null>(null);
+  const bindSubtitleClipOwner = useCallback((owner: MutableRefObject<string | null>) => {
+    subtitleClipOwnerRef.current = owner;
+  }, []);
+  const subtitleClipId = subtitleClipOwnerRef.current?.current ?? null;
+  const renderSegment = useMemo(() => segment
+    ? getCompositionClipRenderSegment(composition, subtitleClipId, segment) : null,
+  [composition, segment, subtitleClipId]);
 
   const playback = useVideoPlayback({
-    segment,
+    segment: renderSegment,
     backgroundConfig,
     webcamConfig,
     mousePositionsRef,
@@ -144,6 +155,7 @@ export function useMediaEngine({
     tempCanvasRef,
     videoControllerRef,
     renderFrame,
+    bindSubtitleClipOwner,
     togglePlayback,
     seek,
     flushSeek,

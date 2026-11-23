@@ -23,6 +23,8 @@ type PipelineArg<K extends keyof UseCompositionPipelineParams> =
   UseCompositionPipelineParams[K];
 
 export interface AppCompositionExportControllerArgs {
+  bindVisualTransition?: (transition: MutableRefObject<boolean>) => void;
+  bindSubtitleClipOwner?: (owner: MutableRefObject<string | null>) => void;
   applyLoadedBackgroundConfig: PipelineArg<"applyLoadedBackgroundConfig">;
   audioFilePath: string;
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -99,6 +101,8 @@ export interface AppCompositionExportControllerArgs {
 
 export function useAppCompositionExportController(args: AppCompositionExportControllerArgs) {
   const {
+    bindVisualTransition,
+    bindSubtitleClipOwner,
     applyLoadedBackgroundConfig,
     audioFilePath,
     audioRef,
@@ -172,9 +176,11 @@ export function useAppCompositionExportController(args: AppCompositionExportCont
     setComposition,
     setCompositionSilently,
     currentProjectData,
+    currentProjectDataRef,
     setCurrentProjectData,
     segment,
     backgroundConfig,
+    webcamConfig,
     mousePositions,
     duration,
     currentRawVideoPath,
@@ -215,6 +221,8 @@ export function useAppCompositionExportController(args: AppCompositionExportCont
     togglePlayback,
   });
 
+  bindSubtitleClipOwner?.(compositionPipeline.loadedClipIdRef);
+  bindVisualTransition?.(compositionPipeline.isSwitchingCompositionClipRef);
   useTimelineAdaptiveThumbnails({
     timelineCanvasWidthPx,
     segment,

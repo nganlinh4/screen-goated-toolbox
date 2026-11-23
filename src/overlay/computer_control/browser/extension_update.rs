@@ -29,7 +29,9 @@ fn last_attempt() -> &'static Mutex<Option<Attempt>> {
 }
 
 pub(super) fn available() -> bool {
-    capabilities::update_staged() && capabilities::supports(capabilities::RUNTIME_RELOAD)
+    capabilities::update_staged()
+        && capabilities::supports(capabilities::RUNTIME_RELOAD)
+        && capabilities::supports(capabilities::EFFECT_ADMISSION)
 }
 
 pub(super) fn request_if_staged() -> anyhow::Result<Option<ReloadRequest>> {
@@ -52,10 +54,26 @@ pub(super) fn request_if_staged() -> anyhow::Result<Option<ReloadRequest>> {
     });
     drop(last);
 
-    let result = bridge::rpc("runtime", json!({"action": "reload"}))?;
+    let epoch = bridge::connection_epoch();
+    let token = super::crypto::random_hex(16)?;
+    let receipt = super::reload_receipt::ReloadReceipt::register(token.clone(), epoch)?;
+    let deadline =
+        Instant::now() + super::readiness::bounded_request_timeout(Duration::from_secs(15));
+    let result = bridge::rpc("runtime", json!({"action": "reload", "effectToken": token}));
+    if let Err(error) = result
+        && super::bridge_wait::dispatch_effect(&error) == Some(false)
+    {
+        return Err(error);
+    }
+    let new_epoch = receipt.wait(deadline).map_err(|_| anyhow::anyhow!(
+        "browser extension reload has not been confirmed; wait for it to reconnect or reload it on the extensions page"
+    ))?;
     anyhow::ensure!(
-        result.get("reloading").and_then(serde_json::Value::as_bool) == Some(true),
-        "browser extension did not acknowledge its staged reload"
+        bridge::connection_epoch() == new_epoch
+            && bridge::is_connected()
+            && capabilities::protocol_version() >= target_protocol
+            && super::effect_barrier::ready(),
+        "browser extension reconnected without confirming the staged version; retry setup"
     );
     telemetry::event(
         "browser_extension_self_reload_requested",

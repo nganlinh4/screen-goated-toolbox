@@ -208,6 +208,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn host_cancellation_wrapper_preserves_each_batch_certainty_case() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../parity-fixtures/phone-control/batch-effect-certainty.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let receipts: Vec<Value> = case["statuses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|status| match status.as_str() {
+                    Some("verified") => {
+                        json!({"effect_verified":true,"effect_may_have_occurred":true})
+                    }
+                    Some("proven_no_effect") => {
+                        json!({"effect_verified":false,"effect_may_have_occurred":false})
+                    }
+                    Some("may_have_occurred") => {
+                        json!({"effect_verified":false,"effect_may_have_occurred":true})
+                    }
+                    _ => json!({}),
+                })
+                .collect();
+            let action =
+                json!({"effect_scope":"batch","receipts":receipts,"raw":{"effect_verified":true}});
+            let (response, frame) = cancelled_after_dispatch(action, true);
+            assert!(frame.is_none());
+            assert_eq!(
+                EffectStatus::from_value(&response).code(),
+                case["expected"].as_str().unwrap(),
+                "{case}"
+            );
+            assert_eq!(response["effect_status"], case["expected"]);
+        }
+    }
+
+    #[test]
     fn cancellation_after_verified_mutation_keeps_receipt() {
         let (response, _) = cancelled_after_dispatch(
             json!({

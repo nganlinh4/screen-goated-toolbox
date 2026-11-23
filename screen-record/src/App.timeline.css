@@ -407,6 +407,11 @@
     color: var(--timeline-mic-audio-color);
 }
 
+/* Keyboard focus: timeline blocks clip their content, so their ring sits inside the edge. */
+.timeline-block:focus-visible {
+    outline-offset: -2px;
+}
+
 .timeline-control-point[data-state="active"] {
     scale: 1.2;
     box-shadow: var(--shadow-elevation-2);

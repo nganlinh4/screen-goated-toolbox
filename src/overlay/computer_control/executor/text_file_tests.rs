@@ -156,8 +156,11 @@ fn delimited_edit_preserves_shape_and_formula_evidence() {
     assert_eq!(result["structure"]["structural_change_confirmed"], false);
 }
 
+#[path = "text_file_exact_tests.rs"]
+mod exact_tests;
+
 #[test]
-fn ordinary_row_update_auto_preserves_opaque_formula_bytes() {
+fn ordinary_row_update_rejects_changed_formula_without_partial_write() {
     let original = b"name,status,total\r\nalpha,Unknown,\"=B2*12\"\r\n";
     let fixture = Fixture::named("fixture.csv", original);
     let result = edit(
@@ -168,18 +171,15 @@ fn ordinary_row_update_auto_preserves_opaque_formula_bytes() {
             "expected_count": 1
         }]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["formula_cells_auto_preserved"], 1);
-    assert_eq!(result["formula_replacement_groups_rewritten"], 1);
-    assert_eq!(result["structure"]["formulas_preserved"], true);
     assert_eq!(
-        fs::read(&fixture.path).unwrap(),
-        b"name,status,total\r\nalpha,Ready,\"=B2*12\"\r\n"
+        result["code"], "ERR_TEXT_FILE_FORMULA_MIXED_EDIT",
+        "{result}"
     );
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
-fn ordinary_row_update_repairs_an_unquoted_unchanged_formula_tail() {
+fn ordinary_row_update_rejects_malformed_formula_tail() {
     let original = b"name,status,eligible\r\nalpha,Unknown,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\n";
     let fixture = Fixture::named("fixture.csv", original);
     let result = edit(
@@ -190,19 +190,12 @@ fn ordinary_row_update_repairs_an_unquoted_unchanged_formula_tail() {
             "expected_count": 1
         }]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["formula_cells_auto_preserved"], 1);
-    assert_eq!(result["formula_replacement_groups_rewritten"], 1);
-    assert_eq!(result["structure"]["record_shape_preserved"], true);
-    assert_eq!(result["structure"]["formulas_preserved"], true);
-    assert_eq!(
-        fs::read(&fixture.path).unwrap(),
-        b"name,status,eligible\r\nalpha,Ready,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\n"
-    );
+    assert_ne!(result["ok"], true, "{result}");
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
-fn ordinary_data_row_drops_only_redundant_trailing_empty_fields() {
+fn ordinary_data_row_rejects_added_trailing_empty_fields() {
     let original = b"Label,Pending\r\n";
     let fixture = Fixture::named("fixture.csv", original);
     let result = edit(
@@ -213,14 +206,15 @@ fn ordinary_data_row_drops_only_redundant_trailing_empty_fields() {
             "expected_count": 1
         }]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["trailing_empty_fields_omitted"], 2);
-    assert_eq!(result["structure"]["record_shape_preserved"], true);
-    assert_eq!(fs::read(&fixture.path).unwrap(), b"Label,Ready\r\n");
+    assert_eq!(
+        result["code"], "ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL",
+        "{result}"
+    );
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
-fn ordinary_data_row_serializes_commas_in_the_changed_trailing_value() {
+fn ordinary_data_row_rejects_unquoted_new_columns() {
     let original = b"Field,Value\r\nRationale,Unknown\r\n";
     let fixture = Fixture::named("fixture.csv", original);
     let result = edit(
@@ -231,13 +225,11 @@ fn ordinary_data_row_serializes_commas_in_the_changed_trailing_value() {
             "expected_count": 1
         }]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["trailing_value_fields_repaired"], 2);
-    assert_eq!(result["structure"]["record_shape_preserved"], true);
     assert_eq!(
-        fs::read(&fixture.path).unwrap(),
-        b"Field,Value\r\nRationale,\"Supports families, shared vaults, and recovery\"\r\n"
+        result["code"], "ERR_TEXT_FILE_STRUCTURE_CHANGE_REQUIRES_EXPLICIT_TOOL",
+        "{result}"
     );
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
@@ -260,7 +252,7 @@ fn ordinary_data_row_does_not_fold_a_preserved_last_field_into_a_new_column() {
 }
 
 #[test]
-fn ordinary_multi_row_edit_repairs_formula_quoting_and_empty_suffixes_atomically() {
+fn ordinary_multi_row_edit_rejects_formula_and_shape_changes_atomically() {
     let original =
         b"name,status,eligible\r\nalpha,Unknown,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\nLabel,Pending\r\n";
     let fixture = Fixture::named("fixture.csv", original);
@@ -279,19 +271,12 @@ fn ordinary_multi_row_edit_repairs_formula_quoting_and_empty_suffixes_atomically
             }
         ]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["formula_cells_auto_preserved"], 1);
-    assert_eq!(result["trailing_empty_fields_omitted"], 2);
-    assert_eq!(result["structure"]["record_shape_preserved"], true);
-    assert_eq!(result["structure"]["formulas_preserved"], true);
-    assert_eq!(
-        fs::read(&fixture.path).unwrap(),
-        b"name,status,eligible\r\nalpha,Ready,\"=AND(B2>0,C2=\"\"Yes\"\")\"\r\nLabel,Ready\r\n"
-    );
+    assert_ne!(result["ok"], true, "{result}");
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
-fn ordinary_table_work_omits_a_separate_formula_replacement_group() {
+fn ordinary_table_work_rejects_a_separate_formula_replacement_group() {
     let original = b"name\tstatus\ttotal\nalpha\tUnknown\t=B2*12\n";
     let fixture = Fixture::named("fixture.tsv", original);
     let result = edit(
@@ -301,15 +286,11 @@ fn ordinary_table_work_omits_a_separate_formula_replacement_group() {
             {"old_text": "=B2*12", "new_text": "=99", "expected_count": 1}
         ]),
     );
-    assert_eq!(result["ok"], true, "{result}");
-    assert_eq!(result["requested_replacement_groups"], 2);
-    assert_eq!(result["replacement_groups"], 1);
-    assert_eq!(result["formula_only_groups_omitted"], 1);
-    assert_eq!(result["formula_cells_auto_preserved"], 1);
     assert_eq!(
-        fs::read(&fixture.path).unwrap(),
-        b"name\tstatus\ttotal\nalpha\tReady\t=B2*12\n"
+        result["code"], "ERR_TEXT_FILE_FORMULA_MIXED_EDIT",
+        "{result}"
     );
+    assert_eq!(fs::read(&fixture.path).unwrap(), original);
 }
 
 #[test]
@@ -581,7 +562,7 @@ fn effect_receipts_distinguish_precommit_rejection_from_ambiguous_commit() {
             EffectStatus::ProvenNoEffect
         );
     }
-    let ambiguous = ambiguous_commit(path, "unprovable", false, true, None, None);
+    let ambiguous = ambiguous_commit(path, "unprovable", false, true, None, None, None);
     assert_eq!(ambiguous["tool_mutated_file"], false);
     assert_eq!(ambiguous["effect_may_have_occurred"], true);
     assert_eq!(

@@ -28,10 +28,13 @@ import { TrimTrack } from "./TrimTrack";
 import { WebcamVisibilityTrack } from "./WebcamVisibilityTrack";
 import { ZoomDebugOverlay } from "./ZoomDebugOverlay";
 import { ZoomTrack } from "./ZoomTrack";
+import type { TimelineKeyboardEdits } from "./useTimelineKeyboardEdits";
+import type { ClipAudioView } from "@/hooks/useClipAudioView";
 
 interface TimelineTrackStackProps {
   segment: VideoSegment | null;
-  setSegment: (segment: VideoSegment | null) => void;
+  /** Accepts functional updates so each lane edit changes only its own field of the latest segment. */
+  setSegment: (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void;
   duration: number;
   thumbnails: string[];
   editingKeyframeId: number | null;
@@ -58,6 +61,7 @@ interface TimelineTrackStackProps {
   currentRawMicAudioPath: string;
   audioSegments?: ImportedAudioSegment[];
   narrationSegments?: NarrationSegment[];
+  audioTimeView?: ClipAudioView | null;
   liveNarrationProjectId?: string | null;
   selectedAudioSegmentIds?: ReadonlySet<string>;
   selectedAudioSegmentRange?: TrackSelectionRange | null;
@@ -109,6 +113,7 @@ interface TimelineTrackStackProps {
   onTextSplit: ComponentProps<typeof TextTrack>["onTextSplit"];
   onTextDuplicate: ComponentProps<typeof TextTrack>["onTextDuplicate"];
   onTextDragStart: ComponentProps<typeof TextTrack>["onHandleDragStart"];
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddText?: ComponentProps<typeof TextTrack>["onAddText"];
   onDeleteTextSegments: ComponentProps<typeof TextTrack>["onDeleteTextSegments"];
   onTextSelectionChange?: ComponentProps<typeof TextTrack>["onSelectionChange"];
@@ -159,6 +164,7 @@ function TimelineTrackStackImpl({
   currentRawMicAudioPath,
   audioSegments,
   narrationSegments,
+  audioTimeView,
   liveNarrationProjectId,
   selectedAudioSegmentIds,
   selectedAudioSegmentRange,
@@ -207,6 +213,7 @@ function TimelineTrackStackImpl({
   onTextSplit,
   onTextDuplicate,
   onTextDragStart,
+  keyboardEdits,
   onAddText,
   onDeleteTextSegments,
   onTextSelectionChange,
@@ -237,16 +244,16 @@ function TimelineTrackStackImpl({
             editingKeyframeId={editingKeyframeId}
             onKeyframeClick={onKeyframeClick}
             onKeyframeDragStart={onZoomDragStart}
+            keyboardEdits={keyboardEdits}
             onUpdateInfluencePoints={(points) => {
-              const nextSegment = {
-                ...segment,
+              setSegment((current) => current && {
+                ...current,
                 zoomInfluencePoints: points,
-              };
-              if (points.length === 0) nextSegment.smoothMotionPath = [];
-              setSegment(nextSegment);
+                ...(points.length === 0 ? { smoothMotionPath: [] } : {}),
+              });
             }}
             onUpdateBlocks={(zoomBlocks) => {
-              setSegment({ ...segment, zoomBlocks });
+              setSegment((current) => current && { ...current, zoomBlocks });
             }}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
@@ -264,7 +271,7 @@ function TimelineTrackStackImpl({
             segment={segment}
             duration={duration}
             onUpdateSpeedPoints={(points) => {
-              setSegment({ ...segment, speedPoints: points });
+              setSegment((current) => current && { ...current, speedPoints: points });
             }}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
@@ -276,6 +283,7 @@ function TimelineTrackStackImpl({
         {showImportedAudio && (
           <ImportedAudioTrack
             segments={audioSegments ?? []}
+            timeView={audioTimeView}
             duration={duration}
             onSegmentClick={onAudioSegmentClick}
             onUpdateSegment={onUpdateAudioSegment}
@@ -306,10 +314,11 @@ function TimelineTrackStackImpl({
             viewMode={volumeViewEnabled ? "volume" : "compact"}
             onUpdateDeviceAudioPoints={(points) => {
               saveUniformAudioDefault("device", points);
-              setSegment({ ...segment, deviceAudioPoints: points });
+              setSegment((current) => current && { ...current, deviceAudioPoints: points });
             }}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
+            getPlayheadTime={keyboardEdits?.getPlayheadTime}
           />
         ) : (
           <div className="device-audio-track-empty timeline-track-empty h-7" />
@@ -324,10 +333,11 @@ function TimelineTrackStackImpl({
             viewMode={volumeViewEnabled ? "volume" : "compact"}
             onUpdateMicAudioPoints={(points) => {
               saveUniformAudioDefault("mic", points);
-              setSegment({ ...segment, micAudioPoints: points });
+              setSegment((current) => current && { ...current, micAudioPoints: points });
             }}
             beginBatch={beginBatch}
             commitBatch={commitBatch}
+            getPlayheadTime={keyboardEdits?.getPlayheadTime}
           />
         ) : (
           <div className="mic-audio-track-empty timeline-track-empty h-7" />
@@ -340,6 +350,7 @@ function TimelineTrackStackImpl({
             isAvailable={isWebcamAvailable}
             onWebcamClick={onWebcamClick}
             onHandleDragStart={onWebcamDragStart}
+            keyboardEdits={keyboardEdits}
             onAddWebcamSegment={(atTime) => {
               if (!segment || !isWebcamAvailable || typeof atTime !== "number") return;
               const segDur = Math.min(2, Math.max(0.3, duration * 0.08));
@@ -377,6 +388,7 @@ function TimelineTrackStackImpl({
         {showNarration && (
           <NarrationTrack
             segments={narrationSegments ?? []}
+            timeView={audioTimeView}
             liveProjectId={liveNarrationProjectId}
             duration={duration}
             isPlaying={!!isPlaying}
@@ -409,6 +421,7 @@ function TimelineTrackStackImpl({
             onSubtitleSplit={onSubtitleSplit}
             onSubtitleDuplicate={onSubtitleDuplicate}
             onHandleDragStart={onSubtitleDragStart}
+            keyboardEdits={keyboardEdits}
             onAddSubtitle={onAddSubtitle}
             onDeleteSubtitleSegments={onDeleteSubtitleSegments}
             onSelectionChange={onSubtitleSelectionChange}
@@ -437,6 +450,7 @@ function TimelineTrackStackImpl({
             onTextSplit={onTextSplit}
             onTextDuplicate={onTextDuplicate}
             onHandleDragStart={onTextDragStart}
+            keyboardEdits={keyboardEdits}
             onAddText={onAddText}
             onDeleteTextSegments={onDeleteTextSegments}
             onSelectionChange={onTextSelectionChange}
@@ -456,6 +470,7 @@ function TimelineTrackStackImpl({
             editingKeystrokeSegmentId={editingKeystrokeSegmentId}
             onKeystrokeClick={onKeystrokeClick}
             onHandleDragStart={onKeystrokeDragStart}
+            keyboardEdits={keyboardEdits}
             onAddKeystrokeSegment={onAddKeystrokeSegment}
             onKeystrokeHover={onKeystrokeHover}
             onDeleteKeystrokeSegments={onDeleteKeystrokeSegments}
@@ -473,6 +488,7 @@ function TimelineTrackStackImpl({
             duration={duration}
             onPointerClick={onPointerClick}
             onHandleDragStart={onPointerDragStart}
+            keyboardEdits={keyboardEdits}
             onAddPointerSegment={onAddPointerSegment}
             onPointerHover={onPointerHover}
             onDeletePointerSegments={onDeletePointerSegments}
@@ -490,6 +506,7 @@ function TimelineTrackStackImpl({
             duration={duration}
             thumbnails={thumbnails}
             onTrimDragStart={onTrimDragStart}
+            keyboardEdits={keyboardEdits}
             onTrimSplit={onTrimSplit}
             onTrimAddSegment={onTrimAddSegment}
             isDraggingTrim={

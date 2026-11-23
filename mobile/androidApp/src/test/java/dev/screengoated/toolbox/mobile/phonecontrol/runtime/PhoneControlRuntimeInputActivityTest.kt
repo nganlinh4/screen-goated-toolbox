@@ -7,6 +7,20 @@ import org.junit.Test
 
 class PhoneControlRuntimeInputActivityTest {
     @Test
+    fun `raw voiced activity reports continuation across burst boundaries`() {
+        val voiced = mutableListOf<Boolean>()
+        val activity = PhoneControlRuntimeInputActivity(
+            onSpeechStarted = {}, onSpeechEnded = { _, _, _ -> }, onLevel = {},
+            onVoicedActivity = voiced::add,
+        )
+        activity.observe(SPEECH_RMS_THRESHOLD, 100L)
+        activity.observe(SPEECH_RMS_THRESHOLD, 150L)
+        activity.observe(0f, 700L)
+        activity.observe(SPEECH_RMS_THRESHOLD, 800L)
+        assertEquals(listOf(true, false, true), voiced)
+    }
+
+    @Test
     fun `orb signal matches Windows PCM16 voice floor and gain`() {
         assertEquals(0f, phoneControlOrbAudioLevel(SPEECH_RMS_THRESHOLD - 0.00001f))
         assertEquals(0.03f, phoneControlOrbAudioLevel(SPEECH_RMS_THRESHOLD), 0.00001f)

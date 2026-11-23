@@ -1,29 +1,29 @@
 //! Keyboard action handlers for the Computer Control executor: `type_text`
-//! (clipboard-paste fast path, slow human typing, or instant Unicode batch) and
+//! (slow human typing or Unicode input) and
 //! `key_combination` (named-key / chord parsing). The raw `SendInput` key builders
 //! live in the parent module and are reached via `super::`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F2,
-    VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12, VK_HOME, VK_LEFT,
-    VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
-};
+use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT, VIRTUAL_KEY, VK_RETURN};
 
 use super::super::human_input::{self, HumanProfile, Outcome};
+
+pub(super) mod key_tokens;
+mod target_lease;
+use key_tokens::parse_key_sequence;
+use target_lease::{TargetLease, focus_anchor};
 
 pub(super) fn type_text(
     args: &Value,
     profile: &HumanProfile,
     cancel: &AtomicBool,
 ) -> Result<Value> {
-    super::super::uia::focus_foreground(); // text must land on the on-screen window
     if cancel.load(Ordering::Relaxed) {
         return Ok(super::aborted());
     }
@@ -36,50 +36,19 @@ pub(super) fn type_text(
     let text = raw.to_string();
     let enter = press_enter_requested(args);
     let n = text.chars().count();
+    let total_units = text.encode_utf16().count();
+    let started_units = Cell::new(0usize);
     super::verify_expected_keyboard_target(args)?;
-    // PASTE longer text via the clipboard instead of a keystroke per character
-    // (slow for paragraphs, mangles non-ASCII). Save/restore the user's clipboard.
-    // Short inputs still type, to leave the clipboard alone and play nice with
-    // type-as-you-search fields.
-    let saved = super::super::clipboard::get_text();
-    // Only take the paste fast-path when the clipboard holds NO non-text data we
-    // can't restore (an image, copied files). If any such format is present we type
-    // instead - even when text ALSO exists, because re-setting our saved text would
-    // EmptyClipboard the rich formats and silently downgrade them to plain text.
-    let would_clobber = super::super::clipboard::has_nontext();
-    if n > 12 && !would_clobber {
-        super::super::clipboard::set_text(&text);
-        let cancelled_before_paste = human_input::sleep_cancellable(30, cancel);
-        let paste_result = if cancelled_before_paste {
-            Ok(())
-        } else {
-            send_ctrl_v(args)
-        };
-        let cancelled_after_paste = if paste_result.is_ok() && !cancelled_before_paste {
-            human_input::sleep_cancellable(140, cancel)
-        } else {
-            false
-        };
-        restore_clipboard(&saved);
-        paste_result?;
-        if cancelled_before_paste {
-            return Ok(super::aborted());
-        }
-        if cancelled_after_paste {
-            return Ok(aborted_typing(n, false));
-        }
-        if enter {
-            send_key_tap(args, VK_RETURN)?;
-        }
-        return Ok(json!({"ok": true, "typed_chars": n, "method": "paste", "submitted": enter}));
-    }
     // Slow, human-paced per-key typing ONLY when explicitly asked for (a rare field
     // that demands paced keystrokes). It is NOT tied to the cursor profile: a
     // humanized cursor should still type instantly - pacing a 66-char path to 20s is
-    // pointless. Default falls through to the instant batch below.
+    // pointless. Default falls through to Unicode input below.
     let slow = args.get("slow").and_then(Value::as_bool).unwrap_or(false);
     if slow && n > 0 {
-        super::verify_expected_keyboard_target(args)?;
+        let lease = RefCell::new(TargetLease::new(
+            || super::verify_expected_keyboard_target(args),
+            focus_anchor,
+        ));
         let failure: RefCell<Option<anyhow::Error>> = RefCell::new(None);
         let r = human_input::human_type(
             &text,
@@ -89,12 +58,15 @@ pub(super) fn type_text(
                 if failure.borrow().is_some() {
                     return false;
                 }
-                if let Err(error) = super::verify_expected_keyboard_target(args) {
+                if let Err(error) = lease.borrow_mut().check() {
                     *failure.borrow_mut() = Some(error);
                     return false;
                 }
                 match super::send(&[super::key_unicode(unit, false)]) {
-                    Ok(()) => true,
+                    Ok(()) => {
+                        started_units.set(started_units.get() + 1);
+                        true
+                    }
                     Err(error) => {
                         let _ = super::release(&[super::key_unicode(unit, true)]);
                         *failure.borrow_mut() = Some(error.into());
@@ -106,7 +78,7 @@ pub(super) fn type_text(
                 if failure.borrow().is_some() {
                     return false;
                 }
-                if let Err(error) = super::verify_expected_keyboard_target(args) {
+                if let Err(error) = lease.borrow_mut().check() {
                     let _ = super::release(&[super::key_unicode(unit, true)]);
                     *failure.borrow_mut() = Some(error);
                     return false;
@@ -122,46 +94,107 @@ pub(super) fn type_text(
             },
         );
         if let Some(error) = failure.into_inner() {
-            return Err(error);
+            return Err(typing_error(error, started_units.get(), total_units));
         }
         if r == Outcome::Aborted {
-            return Ok(aborted_typing(n, true));
+            return Ok(aborted_typing(n, started_units.get(), total_units));
         }
         if cancel.load(Ordering::Relaxed) {
-            return Ok(aborted_typing(n, false));
+            return Ok(aborted_typing(n, started_units.get(), total_units));
         }
         if enter {
-            send_key_tap(args, VK_RETURN)?;
+            send_key_tap(args, VK_RETURN)
+                .map_err(|error| typing_error(error, started_units.get(), total_units))?;
         }
         return Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}));
     }
-    let units: Vec<u16> = text.encode_utf16().collect();
-    for unit in units {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(aborted_typing(n, true));
-        }
-        send_key_edges(
-            args,
-            &[super::key_unicode(unit, false)],
-            &[super::key_unicode(unit, true)],
-        )?;
-        sleep(Duration::from_millis(2));
+    let mut lease = TargetLease::new(
+        || super::verify_expected_keyboard_target(args),
+        focus_anchor,
+    );
+    if let Some(dispatched) = type_unicode_units(
+        &text,
+        cancel,
+        |unit| send_unicode_unit(&mut || lease.check(), unit, &started_units),
+        || sleep(Duration::from_millis(2)),
+    )
+    .map_err(|error| typing_error(error, started_units.get(), total_units))?
+    {
+        debug_assert_eq!(dispatched, started_units.get());
+        return Ok(aborted_typing(n, started_units.get(), total_units));
     }
     if cancel.load(Ordering::Relaxed) {
-        return Ok(aborted_typing(n, false));
+        return Ok(aborted_typing(n, started_units.get(), total_units));
     }
     if enter {
-        send_key_tap(args, VK_RETURN)?;
+        send_key_tap(args, VK_RETURN)
+            .map_err(|error| typing_error(error, started_units.get(), total_units))?;
     }
     Ok(json!({"ok": true, "typed_chars": n, "submitted": enter}))
 }
 
-/// Press Ctrl+V (paste) — Ctrl down, V down, V up, Ctrl up.
-fn send_ctrl_v(args: &Value) -> Result<()> {
-    let v = VIRTUAL_KEY(0x56); // 'V'
-    let downs = [super::key_vk(VK_CONTROL, false), super::key_vk(v, false)];
-    let ups = [super::key_vk(v, true), super::key_vk(VK_CONTROL, true)];
-    send_key_edges(args, &downs, &ups)
+fn send_unicode_unit(
+    guard: &mut dyn FnMut() -> Result<()>,
+    unit: u16,
+    started_units: &Cell<usize>,
+) -> Result<()> {
+    let downs = [super::key_unicode(unit, false)];
+    let ups = [super::key_unicode(unit, true)];
+    dispatch_guarded_key_edges(
+        guard,
+        || {
+            super::send(&downs)?;
+            started_units.set(started_units.get() + 1);
+            Ok(())
+        },
+        || (),
+        || super::send(&ups).map_err(Into::into),
+        || {
+            let _ = super::release(&ups);
+        },
+    )
+}
+
+#[derive(Debug)]
+pub(super) struct TypingProgress {
+    pub started_units: usize,
+    pub total_units: usize,
+}
+
+impl std::fmt::Display for TypingProgress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "text input failed after starting {} of {} UTF-16 units",
+            self.started_units, self.total_units
+        )
+    }
+}
+
+fn typing_error(error: anyhow::Error, started_units: usize, total_units: usize) -> anyhow::Error {
+    error.context(TypingProgress {
+        started_units,
+        total_units,
+    })
+}
+
+// Never stage text through the shared clipboard: a paste can be processed after
+// any attempted restoration, so neither clipboard identity nor user state can
+// be preserved reliably for an asynchronous target.
+fn type_unicode_units(
+    text: &str,
+    cancel: &AtomicBool,
+    mut send_unit: impl FnMut(u16) -> Result<()>,
+    mut pause: impl FnMut(),
+) -> Result<Option<usize>> {
+    for (dispatched, unit) in text.encode_utf16().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            return Ok(Some(dispatched));
+        }
+        send_unit(unit)?;
+        pause();
+    }
+    Ok(None)
 }
 
 fn send_key_edges(args: &Value, downs: &[INPUT], ups: &[INPUT]) -> Result<()> {
@@ -180,7 +213,6 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
     if cancel.load(Ordering::Relaxed) {
         return Ok(super::aborted());
     }
-    super::super::uia::focus_foreground(); // keys must land on the on-screen window
     let combo = args
         .get("keys")
         .and_then(Value::as_str)
@@ -215,32 +247,6 @@ pub(super) fn key_combination(args: &Value, cancel: &AtomicBool) -> Result<Value
         "held_ms": hold_ms,
         "sequence_groups": sequence.len(),
     }))
-}
-
-fn parse_key_sequence(combo: &str) -> Result<Vec<Vec<VIRTUAL_KEY>>> {
-    if combo.trim().is_empty() {
-        return Err(anyhow!("empty key combination"));
-    }
-    combo
-        .split(',')
-        .enumerate()
-        .map(|(group_index, group)| {
-            if group.trim().is_empty() {
-                return Err(anyhow!("empty key group at position {}", group_index + 1));
-            }
-            group
-                .split('+')
-                .map(str::trim)
-                .map(|token| {
-                    if token.is_empty() {
-                        Err(anyhow!("empty key in group {}", group_index + 1))
-                    } else {
-                        token_to_vk(token).ok_or_else(|| anyhow!("unknown key: {token}"))
-                    }
-                })
-                .collect()
-        })
-        .collect()
 }
 
 /// Press all keys down in order and release them in reverse so modifiers wrap
@@ -301,26 +307,20 @@ fn send_key_tap(args: &Value, vk: VIRTUAL_KEY) -> Result<()> {
     )
 }
 
-fn restore_clipboard(saved: &str) {
-    if saved.is_empty() {
-        super::super::clipboard::clear();
-    } else {
-        super::super::clipboard::set_text(saved);
-    }
-}
-
 fn press_enter_requested(args: &Value) -> bool {
     args.get("press_enter")
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
 
-fn aborted_typing(requested_chars: usize, partial: bool) -> Value {
+fn aborted_typing(requested_chars: usize, started_units: usize, total_units: usize) -> Value {
     json!({
         "ok": false,
         "status": "aborted_by_user",
         "requested_chars": requested_chars,
-        "typed_partial": partial,
+        "typed_partial": started_units > 0 && started_units < total_units,
+        "started_utf16_units": started_units,
+        "effect_may_have_occurred": started_units > 0,
     })
 }
 
@@ -332,86 +332,10 @@ fn aborted_keys(completed_groups: usize) -> Value {
     })
 }
 
-fn token_to_vk(token: &str) -> Option<VIRTUAL_KEY> {
-    let lower = token.to_ascii_lowercase();
-    let vk = match lower.as_str() {
-        "ctrl" | "control" => VK_CONTROL,
-        "alt" | "menu" => VK_MENU,
-        "shift" => VK_SHIFT,
-        "win" | "super" | "meta" | "cmd" => VK_LWIN,
-        "enter" | "return" => VK_RETURN,
-        "tab" => VK_TAB,
-        "esc" | "escape" => VK_ESCAPE,
-        "space" | "spacebar" => VK_SPACE,
-        "backspace" | "back" => VK_BACK,
-        "delete" | "del" => VK_DELETE,
-        "up" => VK_UP,
-        "down" => VK_DOWN,
-        "left" => VK_LEFT,
-        "right" => VK_RIGHT,
-        "home" => VK_HOME,
-        "end" => VK_END,
-        "pageup" | "pgup" => VK_PRIOR,
-        "pagedown" | "pgdn" => VK_NEXT,
-        "f1" => VK_F1,
-        "f2" => VK_F2,
-        "f3" => VK_F3,
-        "f4" => VK_F4,
-        "f5" => VK_F5,
-        "f6" => VK_F6,
-        "f7" => VK_F7,
-        "f8" => VK_F8,
-        "f9" => VK_F9,
-        "f10" => VK_F10,
-        "f11" => VK_F11,
-        "f12" => VK_F12,
-        _ => {
-            let bytes = lower.as_bytes();
-            if bytes.len() == 1 {
-                let c = bytes[0];
-                if c.is_ascii_lowercase() {
-                    return Some(VIRTUAL_KEY((c.to_ascii_uppercase()) as u16));
-                }
-                if c.is_ascii_digit() {
-                    return Some(VIRTUAL_KEY(c as u16));
-                }
-            }
-            return None;
-        }
-    };
-    Some(vk)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
-
-    #[test]
-    fn maps_letter_and_named_keys() {
-        assert_eq!(token_to_vk("c"), Some(VIRTUAL_KEY(b'C' as u16)));
-        assert_eq!(token_to_vk("Ctrl"), Some(VK_CONTROL));
-        assert_eq!(token_to_vk("enter"), Some(VK_RETURN));
-        assert_eq!(token_to_vk("F5"), Some(VK_F5));
-        assert!(token_to_vk("nope").is_none());
-    }
-
-    #[test]
-    fn parses_sequential_chords_without_changing_plus_semantics() {
-        let sequence = parse_key_sequence("Ctrl+Shift+K, Tab").unwrap();
-        assert_eq!(sequence.len(), 2);
-        assert_eq!(
-            sequence[0],
-            [VK_CONTROL, VK_SHIFT, VIRTUAL_KEY(b'K' as u16)]
-        );
-        assert_eq!(sequence[1], [VK_TAB]);
-    }
-
-    #[test]
-    fn rejects_empty_sequence_groups() {
-        let error = parse_key_sequence("A, ,B").unwrap_err();
-        assert!(error.to_string().contains("empty key group"));
-    }
 
     #[test]
     fn text_content_never_implies_submission() {
@@ -421,6 +345,79 @@ mod tests {
         assert!(press_enter_requested(
             &json!({"text": "hello\n", "press_enter": true})
         ));
+    }
+
+    #[test]
+    fn long_unicode_text_is_dispatched_exactly_as_utf16() {
+        let text = "A long input with tiếng Việt, 😀, and\nnewlines";
+        let cancel = AtomicBool::new(false);
+        let mut dispatched = Vec::new();
+        let result = type_unicode_units(
+            text,
+            &cancel,
+            |unit| {
+                dispatched.push(unit);
+                Ok(())
+            },
+            || {},
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(dispatched, text.encode_utf16().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn unicode_dispatch_stops_on_cancellation_or_failure() {
+        let cancel = AtomicBool::new(false);
+        let mut dispatched = Vec::new();
+        let result = type_unicode_units(
+            "long text with multiple units",
+            &cancel,
+            |unit| {
+                dispatched.push(unit);
+                cancel.store(true, Ordering::Relaxed);
+                Ok(())
+            },
+            || {},
+        )
+        .unwrap();
+        assert_eq!(result, Some(1));
+        assert_eq!(dispatched, [b'l' as u16]);
+
+        cancel.store(false, Ordering::Relaxed);
+        let mut attempts = 0;
+        let result = type_unicode_units(
+            "multiple units",
+            &cancel,
+            |_| {
+                attempts += 1;
+                Err(anyhow!("dispatch failed"))
+            },
+            || panic!("failed dispatch must not continue"),
+        );
+        assert!(result.is_err());
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn slow_typing_cancelled_before_first_key_reports_no_effect() {
+        let cancel = AtomicBool::new(true);
+        let started = Cell::new(0);
+        let outcome = human_input::human_type(
+            "multiple units",
+            &HumanProfile::instant(),
+            &cancel,
+            &|_| {
+                started.set(started.get() + 1);
+                true
+            },
+            &|_| panic!("no key was pressed"),
+        );
+        assert_eq!(outcome, Outcome::Aborted);
+        let receipt = aborted_typing(14, started.get(), 14);
+        assert_eq!(receipt["typed_partial"], false);
+        assert_eq!(receipt["effect_may_have_occurred"], false);
+        assert_eq!(receipt["started_utf16_units"], 0);
     }
 
     #[test]

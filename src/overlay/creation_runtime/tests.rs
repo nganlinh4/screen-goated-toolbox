@@ -37,7 +37,6 @@ fn stopped_preparation_does_not_hide_unavailability() {
 fn readiness_parser_accepts_only_the_public_state_contract() {
     assert!(supported_readiness_tool("3d"));
     assert!(supported_readiness_tool("svg"));
-    assert!(!supported_readiness_tool("image"));
     assert!(!supported_readiness_tool("unknown"));
     assert_eq!(
         parse_readiness(br#"{"ok":true,"result":{"state":"ready"}}"#).as_deref(),
@@ -56,19 +55,11 @@ fn readiness_parser_accepts_only_the_public_state_contract() {
 }
 
 #[test]
-fn every_demand_maintains_the_global_three_slot_reserve() {
-    assert_eq!(desired_readiness_capacity(0), 3);
-    assert_eq!(desired_readiness_capacity(1), 3);
-    assert_eq!(desired_readiness_capacity(2), 3);
-    assert_eq!(desired_readiness_capacity(100), 3);
-}
-
-#[test]
 fn an_old_readiness_worker_cannot_remove_its_replacement() {
     let task = |stopped| {
         Arc::new(ReadinessTask {
             stop: Arc::new(AtomicBool::new(stopped)),
-            desired: AtomicUsize::new(4),
+            rerun: AtomicBool::new(false),
             install_if_missing: AtomicBool::new(false),
         })
     };

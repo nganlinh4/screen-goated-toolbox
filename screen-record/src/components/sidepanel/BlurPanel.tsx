@@ -26,7 +26,7 @@ export function BlurPanel({ backgroundConfig, setBackgroundConfig, beginBatch, c
               <Slider
                 min={0} max={100} step={1}
                 value={backgroundConfig[key] ?? def}
-                onPointerDown={beginBatch} onPointerUp={commitBatch}
+                onGestureStart={beginBatch} onGestureEnd={commitBatch}
                 onChange={(val) => setBackgroundConfig(prev => ({ ...prev, [key]: val }))}
                 className="motion-blur-range"
               />

@@ -1,9 +1,10 @@
 import type { MutableRefObject, RefObject } from "react";
+import type { SubtitleSourceSnapshot } from "@/hooks/subtitleSourceOwnership";
 import type { ActivePanel } from "@/components/sidepanel/index";
 import type { KeystrokeEditFrame } from "@/components/PreviewCanvas";
 import type { ProjectsPreviewTargetSnapshot } from "@/components/ProjectsView";
 import type { CanvasModeToggleProps } from "@/components/CanvasModeToggle";
-import type { Hotkey, MonitorInfo, WindowInfo } from "@/hooks/useAppHooks";
+import type { Hotkey, MonitorInfo } from "@/hooks/useAppHooks";
 import type { useSettingsProvider } from "@/hooks/useSettings";
 import type { SubtitleMethod } from "@/hooks/useSubtitleGeneration";
 import type {
@@ -40,8 +41,12 @@ import type {
 type SettingsState = ReturnType<typeof useSettingsProvider>;
 
 export interface AppViewProps {
+  onPopulateS2sSubtitles?: import('@/hooks/useCompositionSubtitleEditor').S2sSubtitleWriter;
+  getNarrationSourceSnapshot: () => SubtitleSourceSnapshot;
+  renderedProjectEpoch: number;
   // Identity / panels
   activeClipId: string | null;
+  loadedClipId: string | null;
   activePanel: ActivePanel;
   setActivePanel: (panel: ActivePanel) => void;
 
@@ -52,6 +57,7 @@ export interface AppViewProps {
   composition: ProjectComposition | null;
   setComposition: CompositionSetter;
   currentProjectData: Project | null;
+  currentProjectIdRef: MutableRefObject<string | null>;
   projects: ProjectsState;
   projectPickerMode: "insertBefore" | "insertAfter" | null;
   setProjectPickerMode: (mode: "insertBefore" | "insertAfter" | null) => void;
@@ -115,7 +121,6 @@ export interface AppViewProps {
   captureSource: "monitor" | "window";
   captureFps: number | null;
   monitors: MonitorInfo[];
-  windows: WindowInfo[];
   recordingAudioSelection: RecordingAudioSelection;
   isSelectingRecordingAudioApp: boolean;
   handleToggleRecordingDeviceAudio: (enabled: boolean) => void;
@@ -124,12 +129,6 @@ export interface AppViewProps {
   handleRequestRecordingAudioAppSelection: () => void;
   handleSelectMonitorCapture: (monitorId: string, fps: number | null) => void;
   handleSelectWindowCapture: (fps: number | null) => void;
-  handleSelectWindowForRecording: (
-    windowId: string,
-    captureMethod: "game" | "window",
-  ) => void;
-  showWindowSelect: boolean;
-  setShowWindowSelect: (show: boolean) => void;
 
   // Raw video
   currentRawVideoPath: string;
@@ -191,7 +190,7 @@ export interface AppViewProps {
   handleDeleteKeyframe: () => void;
   zoomFactor: number;
   setZoomFactor: (factor: number) => void;
-  throttledUpdateZoom: (updates: {
+  updateZoom: (updates: {
     zoomFactor?: number;
     positionX?: number;
     positionY?: number;

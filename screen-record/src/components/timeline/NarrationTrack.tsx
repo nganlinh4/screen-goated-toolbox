@@ -1,16 +1,14 @@
 import React, { useMemo, useState } from "react";
+import { useSettings } from "@/hooks/useSettings";
 import type { AudioGainPoint, NarrationSegment } from "@/types/video";
 import type { TrackSelectionRange } from "@/lib/timelineSegmentSelection";
 import { useTrackRangeSelect } from "./useTrackRangeSelect";
 import { getVolumeEnvelopeAtTime } from "./adjustableLineUtils";
-import {
-  buildContentMaskStyle,
-  getOverlapRange,
-  isSegmentStackedAbove,
-  rangesOverlap,
-} from "./subtitleTrackLayout";
+import { computeSegmentStackOverlaps } from "./segmentStackOverlaps";
 import { TrackVolumeCurve } from "./TrackVolumeCurve";
 import { useAudioSegmentTimelineEdit } from "./useAudioSegmentTimelineEdit";
+import { useAudioTrackTimeView } from "./audioTrackTimeView";
+import type { ClipAudioView } from "@/hooks/useClipAudioView";
 import { AudioWaveformLayer } from "./AudioWaveformLayer";
 import {
   SegmentBlocksCanvas,
@@ -51,6 +49,8 @@ interface NarrationTrackProps {
   onCommitSegments?: () => void;
   canvasWidthPx?: number;
   visibleTimeRange?: TimelineVisibleRange | null;
+  /** Multi-clip projects: maps this project-time lane onto the loaded clip's timeline. */
+  timeView?: ClipAudioView | null;
 }
 
 const MIN_VISIBLE_SEC = 0.05;
@@ -75,27 +75,42 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
   selectedRange: externalSelectedRange,
   onSelectionChange,
   onRangeChange,
-  onUpdateSegment,
+  onUpdateSegment: onUpdateProjectSegment,
   viewMode = "compact",
   clearSignal,
   onEmptyClick,
-  volumePoints,
-  onUpdateVolumePoints,
+  volumePoints: projectVolumePoints,
+  onUpdateVolumePoints: onUpdateProjectVolumePoints,
   beginBatch,
   commitBatch,
   onCommitSegments,
   canvasWidthPx = 0,
   visibleTimeRange,
+  timeView,
 }) => {
   countFrontendRender("NarrationTrack");
+  const { t } = useSettings();
   const safeDuration = Math.max(duration, 0.001);
   const [frontSegmentId, setFrontSegmentId] = useState<string | null>(null);
   const liveNarrationState = useLiveNarrationState(liveProjectId);
   const hasLiveNarration = liveNarrationState.segments.length > 0;
-  const displayedSegments = useMemo(
+  const projectSegments = useMemo(
     () => materializeNarrationGroupTakes(mergeLiveNarrationSegments(segments, liveNarrationState)),
     [liveNarrationState, segments],
   );
+  const {
+    segments: displayedSegments,
+    onUpdateSegment,
+    volumePoints,
+    onUpdateVolumePoints,
+  } = useAudioTrackTimeView({
+    view: timeView,
+    segments: projectSegments,
+    duration,
+    onUpdateSegment: onUpdateProjectSegment,
+    volumePoints: projectVolumePoints,
+    onUpdateVolumePoints: onUpdateProjectVolumePoints,
+  });
   const segmentById = useMemo(
     () => new Map(displayedSegments.map((segment) => [segment.id, segment])),
     [displayedSegments],
@@ -172,6 +187,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     handleAudioSegmentPointerDown,
     handleAudioSegmentPointerMove,
     handleAudioSegmentPointerUp,
+    getAudioSegmentKeys,
   } = useAudioSegmentTimelineEdit<NarrationSegment>({
     duration,
     onUpdateSegment,
@@ -217,6 +233,15 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
     onSegmentClick?.(hit.id);
   };
 
+  // One sweep per render window instead of an O(N^2) scan inside each segment.
+  const stackOverlaps = useMemo(
+    () => computeSegmentStackOverlaps(renderWindow.domSegments, (index) => {
+      const other = renderWindow.domSegments[index];
+      return frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
+    }),
+    [effectiveSelectedIds, frontSegmentId, renderWindow.domSegments],
+  );
+
   return (
     <div
       ref={trackRef}
@@ -253,21 +278,7 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
         const leftPct = Math.min(100, Math.max(0, (seg.startTime / safeDuration) * 100));
         const isSelected = effectiveSelectedIds.has(seg.id);
         const isFront = frontSegmentId === seg.id;
-        const stackRank = isFront ? 3 : isSelected ? 2 : 1;
-        const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
-          if (other.id === renderSegment.id || !rangesOverlap(renderSegment, other)) return false;
-          const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
-          return !isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank);
-        });
-        const overlapRanges = renderWindow.domSegments
-          .map((other, otherIndex) => {
-            if (other.id === renderSegment.id) return null;
-            const otherRank = frontSegmentId === other.id ? 3 : effectiveSelectedIds.has(other.id) ? 2 : 1;
-            if (!isSegmentStackedAbove(renderSegmentIndex, stackRank, otherIndex, otherRank)) return null;
-            return getOverlapRange(renderSegment, other);
-          })
-          .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
-        const contentMaskStyle = buildContentMaskStyle(overlapRanges);
+        const { hasCoveredSegmentUnderneath, contentMaskStyle } = stackOverlaps[renderSegmentIndex];
         const widthPx = (visible / safeDuration) * Math.max(canvasWidthPx, 1);
         const showSpeedBadge = Math.abs(rate - 1) > 0.001;
         const isEstimatedAlignment =
@@ -281,17 +292,20 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
           viewMode === "volume" &&
           widthPx >= MIN_WAVEFORM_SEGMENT_PX &&
           (!denseMode || isSelected || renderWindow.canvasSegments.some((entry) => entry.id === seg.id));
+        const keys = getAudioSegmentKeys(seg, {
+          name: `${t.tabNarration} "${seg.name}"`,
+          startLabel: t.timelineSegmentStart,
+          endLabel: t.timelineSegmentEnd,
+          visibleSec: visible,
+          onActivate: () => { addSegmentSelection(seg.id); setFrontSegmentId(seg.id); onSegmentClick?.(seg.id); },
+          onDelete: onDeleteSegments && (() => onDeleteSegments(isSelected ? [...effectiveSelectedIds] : [seg.id])),
+        });
         return (
           <div
             key={seg.id}
+            {...keys.body}
             className="narration-track-segment timeline-block absolute h-full cursor-move overflow-hidden group"
             data-narration-segment-id={seg.id}
-            data-start-time={seg.startTime}
-            data-in-point={seg.inPoint}
-            data-out-point={seg.outPoint}
-            data-playback-rate={rate}
-            data-duration={seg.duration}
-            data-timeline-duration={safeDuration}
             data-tone={hasTimingConflict ? "warning" : "secondary"}
             data-selected={isSelected ? "true" : undefined}
             data-timing-conflict={hasTimingConflict ? "true" : undefined}
@@ -329,8 +343,8 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
             onPointerUp={handleAudioSegmentPointerUp}
             onPointerCancel={handleAudioSegmentPointerUp}
           >
-            <div className="narration-track-segment-trim-start absolute inset-y-0 left-0 z-[2] w-2 cursor-ew-resize" />
-            <div className="narration-track-segment-trim-end absolute inset-y-0 right-0 z-[2] w-2 cursor-ew-resize" />
+            <div className="narration-track-segment-trim-start absolute inset-y-0 left-0 z-[2] w-2 cursor-ew-resize" {...keys.start} />
+            <div className="narration-track-segment-trim-end absolute inset-y-0 right-0 z-[2] w-2 cursor-ew-resize" {...keys.end} />
             {shouldRenderWaveform ? (
               <AudioWaveformLayer
                 sourcePath={seg.rawAudioPath}
@@ -359,9 +373,9 @@ export const NarrationTrack: React.FC<NarrationTrackProps> = ({
                 {isEstimatedAlignment && (
                   <span
                     className="narration-track-segment-alignment-badge ml-auto rounded-sm bg-amber-500/25 px-1 text-[9px] font-semibold leading-3 text-amber-200"
-                    title="Estimated boundary"
+                    title={t.narrationEstimatedBoundary}
                   >
-                    est
+                    {t.narrationEstimatedBadge}
                   </span>
                 )}
               </div>

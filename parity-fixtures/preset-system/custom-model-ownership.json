@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"mutate_input_after_publish", "expected":"published_snapshot_unchanged"},
+    {"event":"mutate_returned_snapshot", "expected":"rejected"},
+    {"event":"publish_replacement", "expected":"new_snapshot_visible"},
+    {"event":"mutate_old_snapshot_after_replacement", "expected":"current_snapshot_unchanged"}
+  ]
+}

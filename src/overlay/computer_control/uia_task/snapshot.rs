@@ -8,6 +8,7 @@ use base64::{Engine as _, engine::general_purpose};
 pub(in crate::overlay::computer_control) struct SnapshotFrame {
     pub b64: String,
     pub source: FrameSource,
+    /// Capture start, so an older in-flight image cannot satisfy a new input epoch.
     pub captured_at: Instant,
     pub byte_count: usize,
 }
@@ -24,13 +25,13 @@ pub(in crate::overlay::computer_control) fn snapshot(
         surface,
         super::super::controller::world::SurfaceIdentity::Browser { .. }
     );
-    let captured_at = Instant::now();
+    let captured_at = capture_t0;
     let capture_ms = capture_t0.elapsed().as_millis();
     let encode_t0 = Instant::now();
     let (elements, accessibility_observed) = if browser_structured {
         (Vec::new(), true)
     } else {
-        match uia::enumerate_best_effort(target) {
+        match uia::enumerate_for_snapshot(target) {
             Ok(elements) => (elements, true),
             Err(_) => (Vec::new(), false),
         }
@@ -39,7 +40,7 @@ pub(in crate::overlay::computer_control) fn snapshot(
     let show_grid =
         !browser_structured && accessibility_observed && !has_accessible_action(&elements, view);
     let grid = Grid::from_env();
-    let (jpeg, _) = session::encode_view(
+    let (jpeg, view) = session::encode_view(
         &cap,
         view,
         VIEW_SHORT,
@@ -51,12 +52,13 @@ pub(in crate::overlay::computer_control) fn snapshot(
     let artifact_name = if frame_id == 1 || frame_id.is_multiple_of(30) {
         let name = format!("live-frame-{frame_id:06}.jpg");
         let path = super::super::telemetry::trace_dir().join(&name);
-        match std::fs::write(&path, &jpeg) {
-            Ok(()) => Some(name),
-            Err(error) => {
+        match super::super::session_retention::persist(|| std::fs::write(&path, &jpeg)) {
+            Some(Ok(())) => Some(name),
+            Some(Err(error)) => {
                 super::super::telemetry::artifact_write_failed("live_frame", &path, None, &error);
                 None
             }
+            None => None,
         }
     } else {
         None
@@ -81,7 +83,11 @@ pub(in crate::overlay::computer_control) fn snapshot(
     );
     Ok(SnapshotFrame {
         b64: general_purpose::STANDARD.encode(&jpeg),
-        source: FrameSource { frame_id, surface },
+        source: FrameSource {
+            frame_id,
+            surface,
+            view,
+        },
         captured_at,
         byte_count: jpeg.len(),
     })

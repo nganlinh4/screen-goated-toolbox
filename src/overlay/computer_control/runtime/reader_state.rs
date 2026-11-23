@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use super::super::{turn_policy, uia_task};
@@ -89,7 +89,7 @@ impl Pending {
         if had_job {
             self.cancelled = true;
             if let Some(cancel) = &self.cancel {
-                cancel.store(true, Ordering::SeqCst);
+                super::super::executor::request_job_cancel(cancel);
             }
         }
         had_job
@@ -107,12 +107,12 @@ impl Pending {
 /// Mutable reader-side session state threaded through `handle_event`.
 #[derive(Default)]
 pub(super) struct Reader {
+    pub(super) frame_delivery: super::frame_cache::FrameDelivery,
+    pub(super) memory: super::session_memory::ConversationMemory,
+    pub(super) connection_health: super::reconnect_gate::ConnectionHealth,
     pub(super) pending: Pending,
-    /// The model's spoken output since the last tool call - its "intent" context.
+    /// Spoken output since the last tool call, used for latency diagnostics.
     pub(super) reasoning: String,
-    /// The model's SILENT thinking (includeThoughts) since the last tool call - the
-    /// preferred intent source: captured even when the model says nothing aloud.
-    pub(super) thinking: String,
     /// Committed user goal assembled from bounded unresolved user-turn history.
     /// Model output may explain its rationale, but cannot replace this value.
     pub(super) last_cmd: String,
@@ -130,18 +130,21 @@ pub(super) struct Reader {
     /// A mutating call was interrupted without a delivered receipt. Further
     /// mutations stay blocked until its worker settles and fresh observational
     /// capability state reaches the replacement turn or transport.
-    pub(super) reconciliation_required: bool,
+    pub(super) reconciliation: super::reconciliation::Reconciliation,
     pub(super) turn_research_count: u32,
     pub(super) model_generation_index: u32,
     pub(super) usage_event_index: u32,
     pub(super) turn_tool_response_bytes: usize,
     pub(super) turn_element_chars: usize,
-    pub(super) turn_stall_count: u32,
     pub(super) turn_summary_emitted: bool,
     /// Authorization/lifecycle mode for the current user turn.
     pub(super) turn_mode: turn_policy::TurnMode,
     /// Policy-owned responses waiting for the socket loop to send.
     pub(super) immediate_tool_responses: VecDeque<super::reader_policy::ImmediateToolResponse>,
+    /// Provider-cancelled call ids; a later call reusing one never runs.
+    pub(super) cancelled_tool_ids: super::tool_call_ids::CancelledToolIds,
+    /// Set when a call was rejected because the response queue was full.
+    pub(super) tool_response_queue_overflowed: bool,
     /// Exact latest frame successfully sent to the Live model.
     pub(super) source_frame: Option<uia_task::FrameSource>,
     pub(super) assistant_utterance_id: Option<u64>,
@@ -176,8 +179,7 @@ pub(super) struct Reader {
     pub(super) pending_tool_boundary_seen: bool,
     pub(super) terminal_dropped_events: u32,
     /// Effectful model output rejected after the accepted terminal boundary.
-    /// Kept separate from harmless protocol chatter so scripted acceptance can
-    /// prove that no late speech or tool call escaped the closed generation.
+    /// Kept separate from harmless protocol chatter in closure diagnostics.
     pub(super) terminal_effectful_dropped_events: u32,
     /// A successful terminal tool owns one final model generation. Its speech
     /// may finish, but no tool from that generation may execute.
@@ -203,7 +205,7 @@ pub(super) struct Reader {
     /// treating each new frame as a cue to keep acting.
     pub(super) active: bool,
     /// Latest queued turn-resource cleanup not yet acknowledged by the executor.
-    /// This delays scripted idleness only; it never blocks live user input.
+    /// Queued text waits for this turn's resource cleanup to settle.
     pub(super) turn_cleanup_pending: Option<u64>,
     /// Rolling conversation history (alternating "User:"/"Assistant:" lines). The
     /// preview model rejects sessionResumption, so on a dropped connection we
@@ -232,7 +234,6 @@ pub(super) struct Reader {
     pub(super) tool_calls: u32,
     pub(super) think_total_ms: u128,
     pub(super) spoke_count: u32,
-    pub(super) stall_count: u32,
 }
 
 #[cfg(test)]

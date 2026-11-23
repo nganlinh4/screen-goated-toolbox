@@ -6,11 +6,10 @@ pub mod auto_copy_badge;
 pub(crate) mod display_placement;
 pub mod html_components;
 pub mod realtime_webview;
-#[path = "../../../../src/overlay/shell_policy.rs"]
-pub mod shell_policy;
 #[path = "../../../../src/overlay/screen_record/mod.rs"]
 pub mod screen_record;
-pub mod tts_playground;
+#[path = "../../../../src/overlay/shell_policy.rs"]
+pub mod shell_policy;
 pub mod utils;
 #[path = "../../../../src/overlay/webview_diagnostics.rs"]
 pub mod webview_diagnostics;

@@ -11,7 +11,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_live_toggle: "Live",
         model_priority_live_toggle_hint: "Thêm các mô hình live đang hoạt động tốt vào chuỗi ưu tiên này",
         model_priority_chosen_model: "Mô hình đã chọn",
-        model_priority_fixed_hint: "luôn thử đầu tiên",
+        model_priority_chosen_hint: "Các mô hình ở trên được thử trước mô hình đã chọn trong từng thiết lập.",
         model_priority_add_model: "+ Thêm mô hình",
         model_priority_auto: "Tự động",
         model_priority_auto_hint: "tiếp tục theo thứ tự fallback thông minh",
@@ -30,5 +30,11 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         custom_models_vision_type: "Hình ảnh",
         custom_models_search: "Tìm kiếm",
         custom_models_enabled: "Bật",
+        custom_models_ollama_scanning: "Đang quét Ollama...",
+        custom_models_ollama_disabled: "Hãy bật Ollama ở phần Mã API trước.",
+        custom_models_ollama_done_fmt: "Đã quét Ollama: {count} mô hình trong cache.",
+        custom_models_openrouter_count_fmt: "OpenRouter · {count} mô hình",
+        custom_models_select_model: "Chọn mô hình...",
+        performance_not_measured: "Chưa đo hiệu năng",
     }
 }

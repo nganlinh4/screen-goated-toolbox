@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::time::{Duration, Instant};
 
 use super::frame_identity::StableDocumentIdentity;
+use super::frame_url::equivalent as urls_equivalent;
 
 const READINESS_TIMEOUT: Duration = Duration::from_secs(8);
 const READINESS_POLL: Duration = Duration::from_millis(100);
@@ -26,11 +27,15 @@ pub(in crate::overlay::computer_control) fn await_readable_document_on_tab(
         ) {
             Ok(identity) => match read_readiness(tab_id) {
                 Ok(readiness) if is_ready_for(&readiness, &identity.url) => {
-                    match super::frame_identity::validate_document_identity_on_tab(
+                    match super::frame_identity::acquire_stable_document_identity_on_tab(
                         tab_id,
-                        &identity.document_id,
+                        Some(&identity.loader_id),
+                        true,
                     ) {
-                        Ok(()) => return Ok(identity),
+                        Ok(confirmed) if same_ready_document(&identity, &confirmed) => {
+                            return Ok(confirmed);
+                        }
+                        Ok(_) => "document or URL changed while checking readiness".to_string(),
                         Err(error) => error.to_string(),
                     }
                 }
@@ -57,6 +62,10 @@ pub(in crate::overlay::computer_control) fn await_readable_document_on_tab(
             anyhow::bail!("browser document readiness was cancelled");
         }
     }
+}
+
+fn same_ready_document(before: &StableDocumentIdentity, after: &StableDocumentIdentity) -> bool {
+    before == after
 }
 
 fn read_readiness(tab_id: i64) -> Result<DocumentReadiness> {
@@ -91,16 +100,6 @@ fn is_ready_for(readiness: &DocumentReadiness, committed_url: &str) -> bool {
         && urls_equivalent(&readiness.url, committed_url)
 }
 
-fn urls_equivalent(left: &str, right: &str) -> bool {
-    if left == right {
-        return true;
-    }
-    match (url::Url::parse(left), url::Url::parse(right)) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +132,29 @@ mod tests {
     #[test]
     fn malformed_readiness_is_not_silently_accepted() {
         assert!(readiness_from_value(&json!({"readyState": "complete"})).is_err());
+    }
+
+    #[test]
+    fn readiness_keeps_fragment_identity() {
+        let ready = DocumentReadiness {
+            ready_state: "complete".into(),
+            has_body: true,
+            url: "https://example.test/#one".into(),
+        };
+        assert!(is_ready_for(&ready, "https://example.test/#one"));
+        assert!(!is_ready_for(&ready, "https://example.test/#two"));
+    }
+
+    #[test]
+    fn readiness_confirmation_rejects_same_document_fragment_drift() {
+        let before = StableDocumentIdentity {
+            document_id: "doc".into(),
+            loader_id: "loader".into(),
+            url: "https://example.test/#one".into(),
+        };
+        let mut after = before.clone();
+        assert!(same_ready_document(&before, &after));
+        after.url = "https://example.test/#two".into();
+        assert!(!same_ready_document(&before, &after));
     }
 }

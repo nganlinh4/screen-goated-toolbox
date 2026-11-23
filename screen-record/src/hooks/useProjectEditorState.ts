@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type Dispatch,
@@ -14,10 +15,12 @@ import type {
 } from "@/types/video";
 import type { PersistOptions } from "@/hooks/useSequenceComposition";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
+import { useSynchronizedState } from "@/hooks/useSynchronizedState";
+import { invalidateSubtitleSaveEditor, registerSubtitleSaveEditor } from "@/hooks/subtitleCompletedPersistence";
 
 export function useProjectEditorState() {
-  const [segment, rawSetSegment] = useState<VideoSegment | null>(null);
-  const [webcamConfig, rawSetWebcamConfig] = useState<WebcamConfig>(() =>
+  const [segment, setSegmentState] = useState<VideoSegment | null>(null);
+  const [webcamConfig, rawSetWebcamConfig, webcamConfigRef] = useSynchronizedState<WebcamConfig>(() =>
     cloneWebcamConfig(DEFAULT_WEBCAM_CONFIG),
   );
   const [currentRecordingMode, rawSetCurrentRecordingMode] =
@@ -27,13 +30,18 @@ export function useProjectEditorState() {
   );
   const [composition, setCompositionState] =
     useState<ProjectComposition | null>(null);
-  const [currentRawMicAudioPath, rawSetCurrentRawMicAudioPath] = useState("");
+  const [currentRawMicAudioPath, rawSetCurrentRawMicAudioPath, currentRawMicAudioPathRef] = useSynchronizedState(() => "");
   const [currentRawWebcamVideoPath, rawSetCurrentRawWebcamVideoPath] =
     useState("");
 
   const segmentRef = useRef<VideoSegment | null>(null);
   const onProjectLoadedRef = useRef<(project: Project) => void>(null!);
   const currentProjectIdRef = useRef<string | null>(null);
+  useEffect(() => registerSubtitleSaveEditor(currentProjectIdRef), []);
+  const rawSetSegment = useCallback<Dispatch<SetStateAction<VideoSegment | null>>>((value) => {
+    invalidateSubtitleSaveEditor(currentProjectIdRef);
+    setSegmentState(value);
+  }, []);
   const currentProjectDataRef = useRef<Project | null>(null);
   const compositionRef = useRef<ProjectComposition | null>(null);
   const isPlayingRef = useRef(false);
@@ -46,6 +54,7 @@ export function useProjectEditorState() {
 
   const setCurrentProjectData = useCallback<Dispatch<SetStateAction<Project | null>>>(
     (value) => {
+      invalidateSubtitleSaveEditor(currentProjectIdRef);
       const next = typeof value === "function"
         ? value(currentProjectDataRef.current)
         : value;
@@ -59,6 +68,7 @@ export function useProjectEditorState() {
 
   const rawSetComposition = useCallback<Dispatch<SetStateAction<ProjectComposition | null>>>(
     (value) => {
+      invalidateSubtitleSaveEditor(currentProjectIdRef);
       const next = typeof value === "function"
         ? value(compositionRef.current)
         : value;
@@ -82,6 +92,7 @@ export function useProjectEditorState() {
     currentProjectDataRef,
     currentProjectIdRef,
     currentRawMicAudioPath,
+    currentRawMicAudioPathRef,
     currentRawWebcamVideoPath,
     currentRecordingMode,
     isPlaceholderBackedProject: Boolean(
@@ -109,5 +120,6 @@ export function useProjectEditorState() {
     segmentRef,
     setCurrentProjectData,
     webcamConfig,
+    webcamConfigRef,
   };
 }

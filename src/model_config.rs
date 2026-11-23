@@ -35,7 +35,7 @@ pub enum OrdinaryReasoningPolicy {
 mod vision_profile;
 pub use vision_profile::{
     StructuredOutputPolicy, VisionInputOrder, VisionMediaResolutionPolicy, VisionRequestProfile,
-    VisionSamplingPolicy,
+    VisionSamplingPolicy, supports_strict_json_schema,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +67,6 @@ pub struct ModelConfig {
     #[cfg(not(feature = "recorder-worker"))]
     pub source: ModelSource,
     pub supports_search_override: Option<bool>,
-    #[cfg(not(feature = "recorder-worker"))]
     pub search_tool_enabled_by_default: bool,
     pub intelligence_tier: Option<u8>,
     pub typical_latency_ms: Option<u32>,
@@ -115,7 +114,6 @@ impl ModelConfig {
             #[cfg(not(feature = "recorder-worker"))]
             source: ModelSource::BuiltIn,
             supports_search_override: Some(supports_search),
-            #[cfg(not(feature = "recorder-worker"))]
             search_tool_enabled_by_default: _search_tool_enabled_by_default,
             intelligence_tier: Some(intelligence_tier),
             typical_latency_ms: Some(typical_latency_ms),
@@ -177,6 +175,8 @@ mod presentation;
 pub use presentation::sort_models_for_display;
 #[path = "model_config/ollama.rs"]
 mod ollama;
+#[cfg(all(test, not(feature = "recorder-worker")))]
+pub(crate) use ollama::DiscoveredForTest;
 pub use ollama::trigger_ollama_model_scan;
 #[cfg(not(feature = "recorder-worker"))]
 pub use ollama::{is_ollama_scan_in_progress, ollama_cached_model_count};
@@ -198,13 +198,29 @@ pub fn get_all_models() -> &'static [ModelConfig] {
     &ALL_MODELS[..]
 }
 
+/// Catalog rows keyed by the id the availability feed derives for them, built
+/// once so resolving a feed id never hashes the whole catalog per lookup.
+#[cfg(not(feature = "recorder-worker"))]
+fn catalog_model_by_discovered_id(id: &str) -> Option<&'static ModelConfig> {
+    static INDEX: LazyLock<std::collections::HashMap<String, usize>> = LazyLock::new(|| {
+        let mut index = std::collections::HashMap::new();
+        for (position, model) in get_all_models().iter().enumerate() {
+            let derived =
+                crate::model_feed::store::discovered_id(&model.provider, &model.full_name);
+            // The first row wins, as the linear scan it replaces did.
+            index.entry(derived).or_insert(position);
+        }
+        index
+    });
+    INDEX.get(id).map(|&position| &get_all_models()[position])
+}
+
 /// Canonical provider name for prose surfaces: the usage dashboard, API-key
 /// notifications, and provider-attributed error text. These exact strings are
 /// locked by the API-key notification parity fixture.
 ///
 /// `openai` and `anthropic` are not catalog providers, but they appear in
 /// upstream error payloads and need the same spelling everywhere.
-#[cfg(not(feature = "recorder-worker"))]
 pub fn provider_full_name(provider: &str) -> &str {
     match provider {
         "google" | "gemini-live" => "Gemini",
@@ -214,23 +230,10 @@ pub fn provider_full_name(provider: &str) -> &str {
         "nvidia" => "NVIDIA",
         "ollama" => "Ollama",
         "qrserver" => "QR",
-        "parakeet" => "Parakeet",
-        "qwen3" => "Qwen Local",
         "taalas" => "Taalas",
         "openai" => "OpenAI",
         "anthropic" => "Anthropic",
         other => other,
-    }
-}
-
-/// Short provider name for compact surfaces such as the result badge and the
-/// custom-models dialog. Identical to [`provider_full_name`] except for the local
-/// runtimes, which collapse to a single label rather than naming each engine.
-#[cfg(not(feature = "recorder-worker"))]
-pub fn provider_display_name(provider: &str) -> &str {
-    match provider {
-        "parakeet" | "qwen3" => "Local",
-        other => provider_full_name(other),
     }
 }
 
@@ -281,21 +284,12 @@ pub fn get_model_by_id_with_custom(
     }
 
     #[cfg(not(feature = "recorder-worker"))]
-    if let Some(model) = get_all_models()
-        .iter()
-        .find(|model| {
-            crate::model_feed::store::discovered_id(&model.provider, &model.full_name) == id
-        })
-        .cloned()
-    {
-        return Some(model);
+    if let Some(model) = catalog_model_by_discovered_id(id) {
+        return Some(model.clone());
     }
 
     #[cfg(not(feature = "recorder-worker"))]
-    if let Some(model) = crate::model_feed::store::discovered_models()
-        .into_iter()
-        .find(|model| model.id == id)
-    {
+    if let Some(model) = crate::model_feed::store::find_discovered_model(id) {
         return Some(model);
     }
 
@@ -356,12 +350,7 @@ pub fn apply_live_generation_config(generation_config: &mut serde_json::Value, a
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn normalize_realtime_transcription_model_id(model_id: &str) -> String {
-    let normalized = generated_normalize_realtime_transcription_model_id(model_id);
-    if normalized.starts_with("moonshine-") {
-        DEFAULT_REALTIME_TRANSCRIPTION_MODEL.to_string()
-    } else {
-        normalized.to_string()
-    }
+    generated_normalize_realtime_transcription_model_id(model_id).to_string()
 }
 
 #[cfg(not(feature = "recorder-worker"))]
@@ -382,10 +371,16 @@ pub fn realtime_transcription_live_protocol(model_id: &str) -> Option<&'static s
 
 #[cfg(not(feature = "recorder-worker"))]
 pub fn is_gemini_live_translate_model_id(model_id: &str) -> bool {
+    // Endpoint protocol and the logical row's speech-output capability are
+    // separate facts: an input-only row may share a translation endpoint.
     get_all_models()
         .iter()
         .find(|model| model.id == model_id)
-        .filter(|model| model.provider == "gemini-live" && model.model_type == ModelType::Audio)
+        .filter(|model| {
+            model.provider == "gemini-live"
+                && model.model_type == ModelType::Audio
+                && GENERATED_REALTIME_S2S_MODEL_IDS.contains(&model.id.as_str())
+        })
         .and_then(|model| live_endpoint_profile(&model.full_name))
         .is_some_and(|profile| profile.protocol == Some("live-translate"))
 }
@@ -403,6 +398,14 @@ pub fn tts_gemini_model_options() -> &'static [(&'static str, &'static str)] {
 #[cfg(not(feature = "recorder-worker"))]
 pub fn realtime_transcription_model_options() -> &'static [(&'static str, &'static str)] {
     GENERATED_REALTIME_TRANSCRIPTION_OPTIONS
+}
+
+/// Whether a realtime transcription selector transcribes only an explicitly
+/// chosen source language, so Live Translate must offer that choice.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn realtime_transcription_requires_source_language(model_id: &str) -> bool {
+    GENERATED_REALTIME_SOURCE_LANGUAGE_MODEL_IDS
+        .contains(&normalize_realtime_transcription_model_id(model_id).as_str())
 }
 
 pub fn normalize_tts_gemini_model(api_model: &str) -> &'static str {
@@ -434,6 +437,12 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     models
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Merged catalogs built on this thread, so tests can bound per-frame work.
+    pub(crate) static CATALOG_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Every model this app can route to right now.
 ///
 /// Four sources, merged in one place: the compiled catalog, the user's own
@@ -444,6 +453,8 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
 pub fn get_all_models_with_custom(
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> Vec<ModelConfig> {
+    #[cfg(test)]
+    CATALOG_BUILDS.with(|builds| builds.set(builds.get() + 1));
     let mut models: Vec<ModelConfig> = ALL_MODELS.iter().cloned().collect();
 
     models.extend(
@@ -520,7 +531,6 @@ pub fn custom_model_definition_to_config(
         #[cfg(not(feature = "recorder-worker"))]
         source: ModelSource::User,
         supports_search_override: custom.supports_search,
-        #[cfg(not(feature = "recorder-worker"))]
         search_tool_enabled_by_default: false,
         intelligence_tier: None,
         typical_latency_ms: None,
@@ -537,7 +547,17 @@ pub fn model_supports_search_by_provider_and_name(provider: &str, full_name: &st
         .unwrap_or(false)
 }
 
-pub fn model_supports_search_by_id_with_custom(
+/// Whether the ordinary text adapter can honor this model's explicit search request.
+pub fn model_supports_text_search(model: &ModelConfig) -> bool {
+    model.model_type == ModelType::Text
+        && matches!(model.provider.as_str(), "google" | "groq")
+        && model.supports_search_override.unwrap_or_else(|| {
+            model_supports_search_by_provider_and_name(&model.provider, &model.full_name)
+        })
+}
+
+#[cfg(all(test, not(feature = "recorder-worker")))]
+fn model_supports_search_by_id_with_custom(
     id: &str,
     custom_models: &[crate::config::types::CustomModelDefinition],
 ) -> bool {

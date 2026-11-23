@@ -65,8 +65,8 @@ fn replay_structured_translation_modes() -> Result<()> {
                     .map(|member| -> Result<_> {
                         Ok(DetectedTextRegion {
                             id: member["slot"].as_u64().context("slot")? as u16 + 1,
-                            bounds: serde_json::from_value::<[u16; 4]>(member["box_2d"].clone())?
-                                .into(),
+                            bounds: crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                                serde_json::from_value::<[u16; 4]>(member["box_2d"].clone())?.into(), 1000, 1000)?,
                             source_text: member["text"].as_str().context("text")?.to_owned(),
                             source_alternatives: vec![],
                             recognition: Default::default(),
@@ -135,7 +135,7 @@ fn replay_structured_translation_modes() -> Result<()> {
                         let mut first_validated = None;
                         let mut chunks = 0;
                         let start = Instant::now();
-                        let response = send_standard_payload(key, &payload, true, transport, |chunk| {
+                        let response = send_standard_payload(key, &payload, transport, |chunk| {
                             first_chunk.get_or_insert(start.elapsed().as_secs_f64());
                             chunks += 1;
                             for (_, region) in parser.push(chunk) {

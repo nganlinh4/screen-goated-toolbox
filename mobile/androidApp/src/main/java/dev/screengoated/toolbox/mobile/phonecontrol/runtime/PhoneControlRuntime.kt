@@ -3,7 +3,6 @@ package dev.screengoated.toolbox.mobile.phonecontrol.runtime
 import android.content.Context
 import android.os.SystemClock
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog as Log
-import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRepository
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.browser.PhoneControlBrowserLifecycle
@@ -20,7 +19,6 @@ import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePhase
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecyclePolicy
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveServerFrame
-import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionFailure
 import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackGate
 import dev.screengoated.toolbox.mobile.shared.live.openGeminiLiveConnectedSession
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
@@ -52,7 +50,7 @@ internal class PhoneControlRuntime(
     private val contractAssets: PhoneControlContractAssets,
     private val capabilityContext: () -> String,
     memoryRepository: PhoneControlMemoryRepository,
-    dispatchBoundary: PhoneControlToolDispatchBoundary,
+    private val dispatchBoundary: PhoneControlToolDispatchBoundary,
     observer: PhoneControlRuntimeObserver,
     additionalTurnRecorders: List<PhoneControlTurnRecorder> = emptyList(),
     private val onUserInterfaceGoalFinished: (PhoneControlUiGoalCompletion) -> Unit = {},
@@ -130,25 +128,12 @@ internal class PhoneControlRuntime(
         observer = observer,
         isTransportReady = transportReady::get,
     )
-    private val orbEmotion = PhoneControlOrbEmotionController(
-        scope = scope,
-        classifier = TaalasPhoneControlEmotionClassifier(httpClient),
-        publishIcon = { icon ->
-            statusPublisher.updateOrbPresentation(
-                GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
-                icon,
-            )
-        },
-    )
     @Volatile
     private var resumptionHandle: String? = null
     private val memoryTurnRecorder = PhoneControlMemoryTurnRecorder(memoryRepository)
-    private val turnRecorder = PhoneControlPresentationAwareTurnRecorder(
-        PhoneControlDiagnosticTurnRecorder(
-            CompositePhoneControlTurnRecorder(
-                listOf(memoryTurnRecorder) + additionalTurnRecorders,
-            ),
-        ),
+    private val turnRecorder = phoneControlSessionTurnRecorder(
+        PhoneControlDiagnosticTurnRecorder(memoryTurnRecorder),
+        additionalTurnRecorders,
         { userInterfaceGoals.conversationSurfaceSuppressed },
     )
     private val turnCoordinator = PhoneControlTurnCoordinator(
@@ -173,18 +158,11 @@ internal class PhoneControlRuntime(
                 if (!userInterfaceGoals.conversationSurfaceSuppressed) statusPublisher.updateCaption(input = text)
             },
             outputCaption = { text ->
-                orbEmotion.observeReply(text)
                 statusPublisher.updateCaption(output = text)
             },
             assistantContentEnabled = { !userInterfaceGoals.conversationSurfaceSuppressed },
             orbPresentation = { stateLabel, iconOverride ->
-                orbEmotion.observePresentation(stateLabel)
-                statusPublisher.updateOrbPresentation(
-                    stateLabel,
-                    iconOverride,
-                    preserveCurrentIconOnNull =
-                        stateLabel == GeneratedPhoneControlContract.ORB_STATE_RESPONDING,
-                )
+                statusPublisher.updateOrbPresentation(stateLabel, iconOverride)
             },
             phase = statusPublisher::publishTurnPhase,
             refresh = { screenRefreshRequests.trySend(Unit) },
@@ -207,10 +185,12 @@ internal class PhoneControlRuntime(
         PhoneControlRuntimeInputActivity(
             onSpeechStarted = { epoch ->
                 Log.i(TAG, "microphone_speech_started epoch=$epoch")
+            },
+            onVoicedActivity = { started ->
                 val output = audioPlayer.debugSnapshot()
                 val assistantPlaybackActive = output.active || output.pendingFrames > 0L
-                turnCoordinator.userSpeechStarted(assistantPlaybackActive)
-                if (!assistantPlaybackActive) screenRefreshRequests.trySend(Unit)
+                val refresh = turnCoordinator.userSpeechActivity(assistantPlaybackActive, started)
+                if (refresh) screenRefreshRequests.trySend(Unit)
             },
             onSpeechEnded = { epoch, elapsedMs, audioFrames ->
                 Log.i(
@@ -244,6 +224,7 @@ internal class PhoneControlRuntime(
             onInputSent = lifecycle::inputSent,
             onInputActivity = lifecycle::inputActivity,
             onFreshScreenDelivered = turnCoordinator::freshScreenEvidenceDelivered,
+            onUserInterfaceGoalSent = turnCoordinator::userInterfaceGoalSent,
         )
     }
     private val screenStreamer = PhoneControlScreenStreamer(
@@ -362,9 +343,9 @@ internal class PhoneControlRuntime(
     fun stop() {
         stopRequested.set(true)
         running.set(false)
-        sessionJob?.cancel()
+        val job = sessionJob
         sessionJob = null
-        releaseResources()
+        stopAfterSessionJob(job, ::releaseResources)
     }
 
     fun submitUserInterfaceGoal(
@@ -463,7 +444,7 @@ internal class PhoneControlRuntime(
                     )
                     lifecycle.transportFailed(connection.generation)
                 }
-                is GeminiLiveReceiveResult.Failed -> observeReceiveFailure(connection, received.failure)
+                is GeminiLiveReceiveResult.Failed -> observePhoneControlReceiveFailure(lifecycle, connection, received.failure)
             }
         }
         if (!stopRequested.get() && lifecycle.state.phase == GeminiLiveLifecyclePhase.FAILED) {
@@ -577,18 +558,6 @@ internal class PhoneControlRuntime(
         completion?.let(onUserInterfaceGoalFinished)
     }
 
-    private suspend fun observeReceiveFailure(
-        connection: GeminiLiveLifecycleConnection,
-        failure: GeminiLiveSessionFailure,
-    ) {
-        Log.w(TAG, "transport_receive_failed type=${failure::class.simpleName}")
-        if (failure is GeminiLiveSessionFailure.Server) {
-            lifecycle.serverError(connection.generation, failure.retryable)
-        } else {
-            lifecycle.transportFailed(connection.generation)
-        }
-    }
-
     private fun releaseResources() {
         if (!resourcesReleased.compareAndSet(false, true)) return
         Log.i(
@@ -601,6 +570,7 @@ internal class PhoneControlRuntime(
         transportReady.set(false)
         userInterfaceGoals.clear()
         protectedCheckpointGoalId.set(NO_PROTECTED_CHECKPOINT_GOAL)
+        runCatching(dispatchBoundary::close).onFailure { Log.e(TAG, "artifact_session_release_failed", it) }
         memoryTurnRecorder.finalizeSession()
         turnCoordinator.stop()
         audioFrames.close()

@@ -100,7 +100,6 @@ class CreationJobRetentionTest {
                 tool = "svg",
                 operation = "generate",
                 imagePath = "creation/job-inputs/$id/0.img",
-                imagePaths = listOf("creation/job-inputs/$id/0.img"),
                 outputPath = "creation/staging/svg/$id.svg",
                 outputName = "$id.svg",
             )
@@ -130,7 +129,6 @@ class CreationJobRetentionTest {
             tool = "3d",
             operation = "generate",
             imagePath = "creation/job-inputs/$id/0.img",
-            imagePaths = listOf("creation/job-inputs/$id/0.img"),
             outputPath = "creation/staging/3d/$id.glb",
             outputName = "$id.glb",
         )
@@ -170,7 +168,7 @@ class CreationJobRetentionTest {
 
         val kept = retainedCreationJobIds(records, emptySet(), maximumTerminalJobs = 192)
 
-        assertEquals(150, kept.size)
+        assertEquals(CreationTool.entries.size * 50, kept.size)
         assertEquals(records.map(CreationJobRetentionRecord::id).toSet(), kept)
     }
 

@@ -9,6 +9,7 @@ mod model_catalog;
 mod overlay;
 mod preset_basics;
 mod preset_editor;
+mod preset_names;
 mod realtime;
 mod screen_translate;
 mod shell;
@@ -32,6 +33,7 @@ pub use model_catalog::ModelCatalogLocaleText;
 pub use overlay::OverlayLocaleText;
 pub use preset_basics::PresetBasicsLocaleText;
 pub use preset_editor::PresetEditorLocaleText;
+pub use preset_names::get_localized_preset_name;
 pub use realtime::RealtimeLocaleText;
 pub use screen_translate::ScreenTranslateLocaleText;
 pub use shell::ShellLocaleText;
@@ -53,12 +55,30 @@ mod vi;
 #[cfg(test)]
 mod tests;
 
+/// A UI language with its own strings; any other code falls back to English.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UiLanguage {
+    En,
+    Ko,
+    Vi,
+}
+
+impl UiLanguage {
+    fn from_code(lang_code: &str) -> Self {
+        match lang_code {
+            "vi" => Self::Vi,
+            "ko" => Self::Ko,
+            _ => Self::En,
+        }
+    }
+}
+
 impl LocaleText {
     pub fn get(lang_code: &str) -> Self {
-        match lang_code {
-            "vi" => vi::get(),
-            "ko" => ko::get(),
-            _ => en::get(),
+        match UiLanguage::from_code(lang_code) {
+            UiLanguage::Vi => vi::get(),
+            UiLanguage::Ko => ko::get(),
+            UiLanguage::En => en::get(),
         }
     }
 

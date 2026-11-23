@@ -1,32 +1,29 @@
 //! TTS (Text-to-Speech) related configuration types.
 
-mod step_audio;
-
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "recorder-worker")]
-pub use step_audio::StepAudioVoiceConfig;
-pub use step_audio::{
-    StepAudioEditSettings, StepAudioReferenceVoice, StepAudioSettings, step_audio_tts_text_issue,
-};
 
 // ============================================================================
 // TTS METHOD
 // ============================================================================
 
+/// Saved TTS provider. Retired local providers (Fish Audio S2 Pro, Step Audio
+/// EditX, Magpie, Kokoro, VieNeu, Voxtral and Supertonic 3) load as the default
+/// provider so older configuration files stay readable.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub enum TtsMethod {
     #[default]
+    #[serde(
+        alias = "FishAudioS2Pro",
+        alias = "StepAudioEditX",
+        alias = "MagpieMultilingual",
+        alias = "Kokoro",
+        alias = "VieneuTts",
+        alias = "VoxtralTts",
+        alias = "Supertonic"
+    )]
     GeminiLive, // Premium (Gemini Live)
-    GoogleTranslate,    // Fast (Google Translate)
-    EdgeTTS,            // Good (Edge TTS)
-    FishAudioS2Pro,     // Deprecated/hidden: removed because S2 Pro needs 24GB+ VRAM
-    StepAudioEditX,     // Step Audio EditX (managed local sidecar)
-    MagpieMultilingual, // NVIDIA Magpie-Multilingual 357M (local NIM-style server)
-    Kokoro,             // Kokoro 82M v1.0 (Kokoro-FastAPI OpenAI-compat)
-    Supertonic,         // Supertonic 3 (local sherpa-onnx)
-    VieneuTts,          // VieNeu-TTS v2 (Vietnamese-first local clone TTS)
-    VoxtralTts,         // Legacy value retained only for config deserialization.
+    GoogleTranslate, // Fast (Google Translate)
+    EdgeTTS,         // Good (Edge TTS)
 }
 
 // ============================================================================
@@ -49,13 +46,9 @@ pub struct TtsPlaygroundSettings {
     pub edge_pitch: i32,
     pub edge_rate: i32,
     pub edge_settings: EdgeTtsSettings,
-    pub step_audio_settings: StepAudioSettings,
-    pub magpie_settings: MagpieSettings,
-    pub kokoro_settings: KokoroSettings,
-    pub supertonic_settings: SupertonicSettings,
-    pub vieneu_settings: VieneuSettings,
-    pub voxtral_settings: VoxtralSettings,
-    pub step_audio_edit_settings: StepAudioEditSettings,
+    /// Source clip for the speech-to-speech mode.
+    #[serde(alias = "step_audio_edit_settings")]
+    pub source_audio: TtsPlaygroundSourceAudio,
     pub draft_text: String,
     pub recent_clip_limit: usize,
 }
@@ -75,26 +68,29 @@ impl Default for TtsPlaygroundSettings {
             edge_pitch: 0,
             edge_rate: 0,
             edge_settings: EdgeTtsSettings::default(),
-            step_audio_settings: StepAudioSettings::default(),
-            magpie_settings: MagpieSettings::default(),
-            kokoro_settings: KokoroSettings::default(),
-            supertonic_settings: SupertonicSettings::default(),
-            vieneu_settings: VieneuSettings::default(),
-            voxtral_settings: VoxtralSettings::default(),
-            step_audio_edit_settings: StepAudioEditSettings::default(),
+            source_audio: TtsPlaygroundSourceAudio::default(),
             draft_text: "Write anything here and test how it sounds.".to_string(),
             recent_clip_limit: 10,
         }
     }
 }
 
+/// Speech-to-speech source clip. Older files stored it inside the retired
+/// Step Audio edit settings, whose other fields are ignored on load.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct TtsPlaygroundSourceAudio {
+    pub source_audio_path: String,
+}
+
+/// Playground mode. The retired Step Audio edit and reference-library modes
+/// load as plain text-to-speech.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub enum TtsPlaygroundMode {
     #[default]
+    #[serde(alias = "AudioEdit", alias = "ReferenceLibrary")]
     TtsClone,
     SpeechToSpeech,
-    AudioEdit,
-    ReferenceLibrary,
 }
 
 // ============================================================================
@@ -194,240 +190,4 @@ pub fn default_tts_language_conditions() -> Vec<TtsLanguageCondition> {
         "Vietnamese",
         "Speak in a \"giọng miền Tây\" accent.",
     )]
-}
-
-// ============================================================================
-// OFFLINE OPEN-WEIGHTS TTS PROVIDERS
-// ============================================================================
-//
-// These providers run fully on-device with model weights downloaded from
-// Hugging Face (or ModelScope as the gated-region mirror) into the same cache
-// directory layout used by Parakeet/Qwen3 ASR. No paid cloud APIs, no Bearer
-// tokens — only voice/speed knobs and language hints that the local
-// ONNX/Sherpa inference path consumes directly.
-//
-// Kokoro 82M v1.0 and Supertonic 3 run through sherpa-onnx. Magpie and Step
-// Audio EditX run through managed Python sidecars because their public
-// checkpoints depend on Python-native inference stacks.
-
-/// Kokoro 82M v1.0 — runs locally via sherpa-onnx OfflineTts using model
-/// files downloaded into `dirs::data_dir()/screen-goated-toolbox/models/kokoro/`.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(default)]
-pub struct KokoroSettings {
-    /// Voice id baked into the Kokoro voices.bin (e.g. `af_heart`, `am_adam`,
-    /// `bf_emma`, `jf_alpha`). Empty string falls back to `af_heart`.
-    pub voice: String,
-    /// Speed multiplier (0.5 – 2.0; 1.0 = natural).
-    pub speed: f32,
-    /// BCP-47 language hint for phonemizer routing inside sherpa-onnx
-    /// (e.g. `en-us`, `ja`, `zh`, `es`). Empty string lets the model auto-detect.
-    pub lang: String,
-    /// Number of CPU threads to give the ONNX runtime. 2 is the sherpa-onnx
-    /// default and works well for Kokoro on consumer CPUs.
-    pub num_threads: i32,
-    /// Per-language Kokoro voice routing. Language codes use ISO 639-3 to
-    /// match the existing app language detection path.
-    pub voice_configs: Vec<KokoroVoiceConfig>,
-}
-
-impl Default for KokoroSettings {
-    fn default() -> Self {
-        Self {
-            voice: "af_heart".to_string(),
-            speed: 1.0,
-            lang: String::new(),
-            num_threads: 2,
-            voice_configs: default_kokoro_voice_configs(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct KokoroVoiceConfig {
-    pub language_code: String,
-    pub language_name: String,
-    pub voice_id: String,
-}
-
-impl KokoroVoiceConfig {
-    pub fn new(language_code: &str, language_name: &str, voice_id: &str) -> Self {
-        Self {
-            language_code: language_code.to_string(),
-            language_name: language_name.to_string(),
-            voice_id: voice_id.to_string(),
-        }
-    }
-}
-
-pub fn default_kokoro_voice_configs() -> Vec<KokoroVoiceConfig> {
-    vec![
-        KokoroVoiceConfig::new("eng", "English", "af_heart"),
-        KokoroVoiceConfig::new("cmn", "Mandarin Chinese", "zf_xiaoxiao"),
-        KokoroVoiceConfig::new("jpn", "Japanese", "jf_alpha"),
-        KokoroVoiceConfig::new("spa", "Spanish", "ef_dora"),
-        KokoroVoiceConfig::new("fra", "French", "ff_siwis"),
-        KokoroVoiceConfig::new("hin", "Hindi", "hf_alpha"),
-        KokoroVoiceConfig::new("ita", "Italian", "if_sara"),
-        KokoroVoiceConfig::new("por", "Portuguese", "pf_dora"),
-    ]
-}
-
-/// Supertonic 3 — local multilingual TTS via sherpa-onnx OfflineTts.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(default)]
-pub struct SupertonicSettings {
-    /// Legacy fallback speaker index inside `voice.bin`.
-    pub speaker_id: i32,
-    /// Speed multiplier (0.5 – 2.0; 1.0 = natural).
-    pub speed: f32,
-    /// Generation denoising steps. sherpa-onnx defaults to 5.
-    pub num_steps: i32,
-    /// Number of CPU threads to give the ONNX runtime.
-    pub num_threads: i32,
-    /// Legacy fixed ISO 639-1 language code. Empty means detect per request.
-    pub lang: String,
-    /// Per-language Supertonic voice routing. Language codes are normalized at
-    /// runtime, so both ISO 639-1 and app language-detection codes work.
-    pub voice_configs: Vec<SupertonicVoiceConfig>,
-    /// Silence inserted between internally chunked text segments.
-    pub silence_duration: f32,
-    /// Deterministic seed. `-1` lets sherpa choose a random seed.
-    pub seed: i32,
-}
-
-impl Default for SupertonicSettings {
-    fn default() -> Self {
-        Self {
-            speaker_id: 0,
-            speed: 1.0,
-            num_steps: 5,
-            num_threads: 2,
-            lang: String::new(),
-            voice_configs: default_supertonic_voice_configs(),
-            silence_duration: 0.3,
-            seed: -1,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SupertonicVoiceConfig {
-    pub language_code: String,
-    pub language_name: String,
-    pub voice_id: String,
-}
-
-impl SupertonicVoiceConfig {
-    pub fn new(language_code: &str, language_name: &str, voice_id: &str) -> Self {
-        Self {
-            language_code: language_code.to_string(),
-            language_name: language_name.to_string(),
-            voice_id: voice_id.to_string(),
-        }
-    }
-}
-
-pub fn default_supertonic_voice_configs() -> Vec<SupertonicVoiceConfig> {
-    vec![
-        SupertonicVoiceConfig::new("en", "English", "M1"),
-        SupertonicVoiceConfig::new("vi", "Vietnamese", "F1"),
-        SupertonicVoiceConfig::new("ko", "Korean", "F2"),
-        SupertonicVoiceConfig::new("ja", "Japanese", "F3"),
-        SupertonicVoiceConfig::new("es", "Spanish", "M2"),
-        SupertonicVoiceConfig::new("fr", "French", "F4"),
-        SupertonicVoiceConfig::new("pt", "Portuguese", "M3"),
-    ]
-}
-
-/// VieNeu-TTS v2 — Vietnamese-first local TTS with zero-shot reference cloning.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(default)]
-pub struct VieneuSettings {
-    /// Runtime/model variant id from `tts_catalog::VIENEU_VARIANTS`.
-    pub variant: String,
-    /// SDK emotion preset. Current public SDK exposes `natural` and `storytelling`.
-    pub emotion: String,
-    /// Selected shared reference voice id. Empty uses the model's default voice.
-    pub reference_voice_id: String,
-    /// Use ad-hoc reference audio instead of the shared reference library.
-    pub use_custom_reference: bool,
-    pub reference_audio_path: String,
-    /// Exact transcript of the reference audio. Required for standard/fast modes.
-    pub reference_text: String,
-    pub reference_label: String,
-}
-
-impl Default for VieneuSettings {
-    fn default() -> Self {
-        Self {
-            variant: crate::config::tts_catalog::default_vieneu_variant_id().to_string(),
-            emotion: "natural".to_string(),
-            reference_voice_id: String::new(),
-            use_custom_reference: false,
-            reference_audio_path: String::new(),
-            reference_text: String::new(),
-            reference_label: String::new(),
-        }
-    }
-}
-
-/// NVIDIA Magpie-Multilingual 357M — local managed Python/NeMo sidecar.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(default)]
-pub struct MagpieSettings {
-    /// Legacy fallback speaker id. Normal routing uses language detection and
-    /// `voice_configs`.
-    pub voice: String,
-    /// Per-language Magpie speaker routing. Language codes use ISO 639-3 to
-    /// match the existing app language detection path.
-    pub voice_configs: Vec<MagpieVoiceConfig>,
-}
-
-impl Default for MagpieSettings {
-    fn default() -> Self {
-        Self {
-            voice: String::new(),
-            voice_configs: default_magpie_voice_configs(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MagpieVoiceConfig {
-    pub language_code: String,
-    pub language_name: String,
-    pub voice_id: String,
-}
-
-impl MagpieVoiceConfig {
-    pub fn new(language_code: &str, language_name: &str, voice_id: &str) -> Self {
-        Self {
-            language_code: language_code.to_string(),
-            language_name: language_name.to_string(),
-            voice_id: voice_id.to_string(),
-        }
-    }
-}
-
-pub fn default_magpie_voice_configs() -> Vec<MagpieVoiceConfig> {
-    vec![
-        MagpieVoiceConfig::new("eng", "English", "Sofia"),
-        MagpieVoiceConfig::new("spa", "Spanish", "Sofia"),
-        MagpieVoiceConfig::new("deu", "German", "John"),
-        MagpieVoiceConfig::new("fra", "French", "Aria"),
-        MagpieVoiceConfig::new("vie", "Vietnamese", "Sofia"),
-        MagpieVoiceConfig::new("ita", "Italian", "Leo"),
-        MagpieVoiceConfig::new("cmn", "Mandarin Chinese", "Aria"),
-        MagpieVoiceConfig::new("hin", "Hindi", "Jason"),
-        MagpieVoiceConfig::new("jpn", "Japanese", "Sofia"),
-    ]
-}
-
-/// Settings retained so older saved configuration remains deserializable.
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(default)]
-pub struct VoxtralSettings {
-    /// Legacy voice id preserved during migration.
-    pub voice: String,
 }

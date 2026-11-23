@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use super::super::native_file::validate_x64_pe;
+use crate::component_registry::verified_archive::{self, FileSpec, Policy};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -44,6 +45,21 @@ pub(super) fn ensure(
         .with_context(|| format!("acquire newly installed {} component", delivery.id))
 }
 
+/// Transfers the artifact of a fresh install before the caller takes the
+/// registry mutation guard. Installs that can adopt legacy files skip it.
+pub(super) fn prefetch(
+    delivery: &ExternalToolDelivery,
+    cancelled: &AtomicBool,
+    on_event: &impl Fn(ExternalToolInstallEvent),
+) -> Result<()> {
+    if validate_install_fast(delivery).is_ok()
+        || (crate::paths::runtime_state_root().is_none() && legacy_bin_dir().is_dir())
+    {
+        return Ok(());
+    }
+    transport::prefetch(delivery, cancelled, on_event)
+}
+
 fn install_delivery(
     delivery: &ExternalToolDelivery,
     cancelled: &AtomicBool,
@@ -51,19 +67,6 @@ fn install_delivery(
 ) -> Result<()> {
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let working = crate::paths::app_runtime_local_data_dir();
-    let downloads = working.join("component-downloads");
-    staging::ensure_directory_tree(&working, &downloads).with_context(|| {
-        format!(
-            "prepare {} download directory {}",
-            delivery.id,
-            downloads.display()
-        )
-    })?;
-    let archive = downloads.join(format!(
-        "{}-{}-{sequence}.download",
-        delivery.id,
-        std::process::id()
-    ));
     let staging_parent = working.join("component-staging");
     staging::ensure_directory_tree(&working, &staging_parent).with_context(|| {
         format!(
@@ -82,8 +85,7 @@ fn install_delivery(
         .with_context(|| format!("create {} staging root {}", delivery.id, stage.display()))?;
 
     let result = (|| {
-        transport::download(delivery, &archive, cancelled, on_event)
-            .with_context(|| format!("download {} to {}", delivery.id, archive.display()))?;
+        let archive = transport::download(delivery, cancelled, on_event)?;
         on_event(ExternalToolInstallEvent::Checking);
         validate_archive(delivery, &archive)
             .with_context(|| format!("validate {} archive {}", delivery.id, archive.display()))?;
@@ -99,17 +101,11 @@ fn install_delivery(
         crate::component_registry::write_receipt(&stage, &receipt(delivery))
             .with_context(|| format!("write {} ownership receipt", delivery.id))?;
         finish_staging(delivery, &stage)
-            .with_context(|| format!("publish {} staged component", delivery.id))
+            .with_context(|| format!("publish {} staged component", delivery.id))?;
+        // A failed install keeps the received artifact for the next attempt.
+        crate::component_registry::persisted_download::discard_leftovers(delivery.id);
+        Ok(())
     })();
-    if let Err(error) = std::fs::remove_file(&archive)
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        crate::log_info!(
-            "[ExternalTools] cleanup_failed component={} path={} error={error}",
-            delivery.id,
-            archive.display()
-        );
-    }
     if stage.exists() {
         let owned = cleanup_paths(delivery, &stage);
         if let Err(error) = staging::cleanup_owned(&stage, &owned) {
@@ -189,7 +185,7 @@ fn extract_raw(
         bail!("raw external tool manifest is inconsistent");
     }
     let expected = &delivery.files[0];
-    let target = staging::prepare_target(stage, Path::new(expected.path))?;
+    let (target, _directories) = staging::prepare_target(stage, Path::new(expected.path))?;
     let mut input = std::fs::File::open(archive)
         .with_context(|| format!("open raw external tool archive {}", archive.display()))?;
     let mut output = std::fs::OpenOptions::new()
@@ -215,72 +211,37 @@ fn extract_zip(
     stage: &Path,
     cancelled: &AtomicBool,
 ) -> Result<()> {
-    let file = std::fs::File::open(archive_path)
-        .with_context(|| format!("open external tool ZIP {}", archive_path.display()))?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    if archive.len() != delivery.files.len() || archive.len() > MAX_COMPONENT_FILES {
-        bail!("external tool ZIP has an unexpected entry count");
-    }
-    let mut extracted = HashSet::new();
-    let mut expanded = 0_u64;
-    for index in 0..archive.len() {
-        if cancelled.load(Ordering::Relaxed) {
-            bail!("external tool extraction was cancelled");
-        }
-        let mut entry = archive.by_index(index)?;
-        let relative = entry
-            .enclosed_name()
-            .ok_or_else(|| anyhow!("external tool ZIP contains an unsafe path"))?
-            .to_path_buf();
-        reject_non_file_zip_entry(&entry)?;
-        let expected = delivery
-            .files
-            .iter()
-            .find(|file| Path::new(file.archive_path) == relative)
-            .ok_or_else(|| anyhow!("external tool ZIP contains an undeclared file"))?;
-        if !extracted.insert(relative) || entry.size() != expected.size_bytes {
-            bail!("external tool ZIP entry does not match its manifest");
-        }
-        expanded = expanded
-            .checked_add(entry.size())
-            .ok_or_else(|| anyhow!("external tool ZIP expands beyond its limit"))?;
-        if expanded > delivery.unpacked_size_bytes {
-            bail!("external tool ZIP expands beyond its declared size");
-        }
-        let target = staging::prepare_target(stage, Path::new(expected.path))?;
-        let mut output = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&target)
-            .with_context(|| format!("create extracted external tool {}", target.display()))?;
-        copy_bounded(
-            &mut entry,
-            &mut output,
-            expected.size_bytes,
-            cancelled,
-            |_, _| {},
-        )?;
-        output.flush()?;
-        output.sync_all()?;
-        validate_extracted(&target, expected)?;
-    }
-    if extracted.len() != delivery.files.len() || expanded != delivery.unpacked_size_bytes {
-        bail!("external tool ZIP is incomplete");
-    }
-    Ok(())
-}
-
-fn reject_non_file_zip_entry(entry: &zip::read::ZipFile<'_, std::fs::File>) -> Result<()> {
-    if entry.is_dir() {
-        bail!("external tool ZIP contains a directory entry");
-    }
-    if let Some(mode) = entry.unix_mode() {
-        let kind = mode & 0o170000;
-        if kind != 0 && kind != 0o100000 {
-            bail!("external tool ZIP contains a link or special file");
-        }
-    }
-    Ok(())
+    let files = delivery
+        .files
+        .iter()
+        .map(|file| {
+            FileSpec::mapped(
+                Path::new(file.archive_path),
+                Path::new(file.path),
+                file.size_bytes,
+                file.sha256,
+            )
+        })
+        .collect::<Vec<_>>();
+    verified_archive::extract(
+        std::fs::File::open(archive_path)?,
+        &files,
+        Policy::files(MAX_COMPONENT_FILES, delivery.unpacked_size_bytes),
+        cancelled,
+        |index, member| {
+            let expected = &delivery.files[index];
+            let (target, _directories) = staging::prepare_target(stage, Path::new(expected.path))?;
+            let mut output = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&target)?;
+            member.copy_to(&mut output, &|_| {})?;
+            output.flush()?;
+            output.sync_all()?;
+            drop(output);
+            validate_extracted(&target, expected)
+        },
+    )
 }
 
 fn validate_extracted(path: &Path, expected: &ExternalToolFile) -> Result<()> {
@@ -337,6 +298,9 @@ fn legacy_bin_dir() -> PathBuf {
 }
 
 fn adopt_legacy(delivery: &ExternalToolDelivery) -> Result<bool> {
+    if crate::paths::runtime_state_root().is_some() {
+        return Ok(false);
+    }
     let legacy = legacy_bin_dir();
     if !legacy.is_dir() {
         return Ok(false);
@@ -391,7 +355,7 @@ fn adopt_from(legacy: &Path, stage: &Path, delivery: &ExternalToolDelivery) -> R
     }
     for file in delivery.files {
         let source = legacy.join(Path::new(file.path).file_name().unwrap());
-        let target = staging::prepare_target(stage, Path::new(file.path))?;
+        let (target, _directories) = staging::prepare_target(stage, Path::new(file.path))?;
         std::fs::hard_link(&source, &target).or_else(|_| {
             std::fs::copy(&source, &target)?;
             Ok::<(), std::io::Error>(())
@@ -402,6 +366,9 @@ fn adopt_from(legacy: &Path, stage: &Path, delivery: &ExternalToolDelivery) -> R
 }
 
 fn cleanup_verified_legacy(legacy: &Path, delivery: &ExternalToolDelivery) {
+    if crate::paths::runtime_state_root().is_some() {
+        return;
+    }
     for file in delivery.files {
         let Some(name) = Path::new(file.path).file_name() else {
             continue;
@@ -497,27 +464,6 @@ fn generated_download_name(name: &str, id: &str) -> bool {
     };
     let mut pieces = body.split('-');
     matches!((pieces.next(), pieces.next(), pieces.next()), (Some(pid), Some(sequence), None) if pid.bytes().all(|byte| byte.is_ascii_digit()) && sequence.bytes().all(|byte| byte.is_ascii_digit()))
-}
-
-fn validate_x64_pe(path: &Path) -> Result<()> {
-    use std::io::{Seek as _, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
-    let mut dos = [0_u8; 64];
-    file.read_exact(&mut dos)?;
-    if &dos[..2] != b"MZ" {
-        bail!("external tool executable is not PE");
-    }
-    let offset = u32::from_le_bytes(dos[0x3c..0x40].try_into().unwrap()) as u64;
-    if offset > 1024 * 1024 {
-        bail!("external tool executable has an invalid PE offset");
-    }
-    file.seek(SeekFrom::Start(offset))?;
-    let mut header = [0_u8; 6];
-    file.read_exact(&mut header)?;
-    if &header[..4] != b"PE\0\0" || u16::from_le_bytes([header[4], header[5]]) != 0x8664 {
-        bail!("external tool executable is not Windows x64");
-    }
-    Ok(())
 }
 
 fn require_regular_directory(path: &Path) -> Result<()> {

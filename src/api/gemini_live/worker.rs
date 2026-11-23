@@ -10,29 +10,53 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+mod owned_tests;
+mod policy;
 use super::manager::GeminiLiveManager;
 use super::ready_session::{ConnectedLiveSocket, LivePoll, OpenOptions, ReadyLiveSession};
+use super::request::RequestControl;
 use super::server_frame::LiveServerFrame;
 use super::types::LiveEvent;
+use super::types::QueuedLiveRequest;
+use super::wait::MAX_CANCELLATION_POLL;
 use super::websocket::{build_live_setup, send_live_content};
+use policy::{ResponsePolicy, ResponseProgress, WaitOutcome};
 
-type WarmLiveSession = (ReadyLiveSession, String, String, String);
+/// A warm socket idle longer than this may have been silently dropped by a
+/// NAT or firewall, so it is closed and replaced by a cold connect.
+const WARM_SESSION_MAX_IDLE: Duration = Duration::from_secs(60);
+
+struct WarmLiveSession {
+    session: ReadyLiveSession,
+    api_key: String,
+    model: String,
+    instruction: String,
+    ready_at: Instant,
+}
 
 fn warm_session_matches(
     warm: &Option<WarmLiveSession>,
     api_key: &str,
     model: &str,
     instruction: &str,
+    now: Instant,
 ) -> bool {
-    matches!(warm, Some((_, key, warm_model, warm_instruction))
-    if warm_identity_matches(
-        key,
-        warm_model,
-        warm_instruction,
-        api_key,
-        model,
-        instruction,
-    ))
+    warm.as_ref().is_some_and(|warm| {
+        warm_is_fresh(warm.ready_at, now)
+            && warm_identity_matches(
+                &warm.api_key,
+                &warm.model,
+                &warm.instruction,
+                api_key,
+                model,
+                instruction,
+            )
+    })
+}
+
+fn warm_is_fresh(ready_at: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(ready_at) <= WARM_SESSION_MAX_IDLE
 }
 
 fn warm_identity_matches(
@@ -55,13 +79,18 @@ fn connect_and_setup(
     show_thinking: bool,
     setup_timeout: Duration,
     cancelled: impl FnMut() -> bool,
+    control: Option<&RequestControl>,
 ) -> anyhow::Result<ReadyLiveSession> {
-    ConnectedLiveSocket::connect(api_key)?.activate_with(
+    let connected = ConnectedLiveSocket::connect(api_key)?;
+    if let Some(control) = control {
+        control.bind_transport(&connected.shutdown_handle()?)?;
+    }
+    connected.activate_with(
         build_live_setup(model, instruction, show_thinking),
         OpenOptions {
             setup_timeout,
-            active_read_timeout: Duration::from_millis(250),
-            ..OpenOptions::default()
+            setup_read_timeout: MAX_CANCELLATION_POLL,
+            active_read_timeout: MAX_CANCELLATION_POLL,
         },
         cancelled,
     )
@@ -69,122 +98,170 @@ fn connect_and_setup(
 
 /// Stream one request over a ready socket: send the content, relay text chunks /
 /// thinking / completion as `LiveEvent`s. The socket is consumed (closed by the
-/// caller after). Returns Err only if the SOCKET itself failed before any content
-/// (so a stale warm socket can be retried cold).
+/// caller after). A stale transport before output permits one cold retry; the
+/// stale detail is reported if the retry is stale too.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ServeOutcome {
+    Completed,
+    Retired,
+    Failed,
+    Stale(String),
+}
+
+/// How one `serve` attempt waits and when it may hand back a stale transport.
+#[derive(Clone, Copy)]
+struct ServeAttempt {
+    policy: ResponsePolicy,
+    /// A pre-warmed socket that never produced a server frame is treated as
+    /// half-open, so a silent first-output timeout also permits a cold retry.
+    reused_warm: bool,
+}
+
+impl ServeAttempt {
+    fn new(reused_warm: bool) -> Self {
+        Self {
+            policy: ResponsePolicy::default(),
+            reused_warm,
+        }
+    }
+}
+
 fn serve(
     session: &mut ReadyLiveSession,
-    request: &super::types::QueuedLiveRequest,
-    manager: &GeminiLiveManager,
-) -> Result<(), ()> {
-    let send_result = send_live_content(session, &request.req.content);
-    if send_result.is_err() {
-        // No content was produced — signal the caller it can retry on a fresh socket.
-        return Err(());
+    request: &QueuedLiveRequest,
+    attempt: ServeAttempt,
+) -> ServeOutcome {
+    if request.is_cancelled_or_expired() {
+        request.control.retire();
+        return ServeOutcome::Retired;
     }
-
-    let mut thinking_sent = false;
-    let require_interaction_idle = crate::model_config::live_endpoint_profile(&request.req.model)
+    if let Err(error) = send_live_content(session, &request.req.content) {
+        if request.is_cancelled_or_expired() {
+            request.control.retire();
+            return ServeOutcome::Retired;
+        }
+        return ServeOutcome::Stale(format!("send failed: {error}"));
+    }
+    let interaction_idle = crate::model_config::live_endpoint_profile(&request.req.model)
         .is_some_and(|profile| profile.require_interaction_idle);
-    let mut content_started = false;
-    let response_start = Instant::now();
-    let response_timeout = Duration::from_secs(20);
-    let idle_finalize_after = Duration::from_millis(1200);
-    let mut last_content_at: Option<Instant> = None;
-
+    let mut progress = ResponseProgress::new(attempt.policy, interaction_idle, 0);
+    let epoch = Instant::now();
+    let mut thinking_sent = false;
+    let mut frame_seen = false;
     loop {
-        if require_interaction_idle && response_start.elapsed() >= Duration::from_secs(90) {
-            let _ = request.response_tx.send(LiveEvent::Error(
-                "Response did not reach interaction idle before deadline".to_string(),
-            ));
-            break;
+        if request.is_cancelled_or_expired() {
+            request.control.retire();
+            return ServeOutcome::Retired;
         }
-        if request.req.is_cancelled_or_expired()
-            || !manager.is_generation_valid(request.generation)
-            || manager.shutdown.load(Ordering::SeqCst)
-        {
-            break;
+        let poll_started = Instant::now();
+        let poll = session.poll();
+        if request.is_cancelled_or_expired() {
+            request.control.retire();
+            return ServeOutcome::Retired;
         }
-
-        match session.poll() {
+        let now = u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let mut complete = false;
+        let mut closed = None;
+        let mut idle = false;
+        match poll {
             Ok(LivePoll::Frame(frame)) => {
-                let (text_chunk, is_thought) = response_text(&frame);
-                if let Some(text) = text_chunk {
-                    if is_thought {
-                        if !thinking_sent && !content_started {
-                            let _ = request.response_tx.send(LiveEvent::Thinking);
+                frame_seen = true;
+                let (text, thought) = response_text(&frame);
+                if let Some(text) = text {
+                    if thought {
+                        if !thinking_sent && !progress.content_started() {
+                            if !request.publish(LiveEvent::Thinking) {
+                                return ServeOutcome::Retired;
+                            }
                             thinking_sent = true;
                         }
                     } else if !text.is_empty() {
-                        request
-                            .req
-                            .first_output_received
-                            .store(true, Ordering::SeqCst);
-                        content_started = true;
-                        last_content_at = Some(Instant::now());
-                        let _ = request.response_tx.send(LiveEvent::TextChunk(text));
+                        if !request.publish(LiveEvent::TextChunk(text.clone())) {
+                            return ServeOutcome::Retired;
+                        }
+                        progress.observe_text(now, &text);
                     }
                 }
-                if frame.finite_response_complete(require_interaction_idle) {
-                    let _ = request.response_tx.send(LiveEvent::TurnComplete);
-                    break;
-                }
+                complete = frame.finite_response_complete(interaction_idle);
             }
             Ok(LivePoll::ServerError(error)) => {
-                let _ = request.response_tx.send(LiveEvent::Error(error.message));
-                break;
+                request.publish(LiveEvent::Error(error.message));
+                return ServeOutcome::Failed;
             }
             Ok(LivePoll::PeerClosed(frame)) => {
-                if content_started && !require_interaction_idle {
-                    let _ = request.response_tx.send(LiveEvent::TurnComplete);
-                } else {
-                    let detail = frame
-                        .map(|frame| {
-                            if frame.reason.is_empty() {
-                                format!("code {}", frame.code)
-                            } else {
-                                format!("code {}: {}", frame.code, frame.reason)
-                            }
-                        })
-                        .unwrap_or_else(|| "no close details".to_string());
-                    // No content yet + socket closed: retryable if this was a warm socket.
-                    if !content_started && response_start.elapsed() < Duration::from_millis(500) {
-                        return Err(());
-                    }
-                    let _ = request.response_tx.send(LiveEvent::Error(format!(
-                        "Connection closed before response completion ({detail})"
-                    )));
-                }
-                break;
+                closed = Some(frame);
             }
-            Ok(LivePoll::Unparsed { .. }) => {}
+            Ok(LivePoll::Unparsed { .. }) => frame_seen = true,
             Ok(LivePoll::Idle) => {
-                if let Some(last) = last_content_at
-                    && !require_interaction_idle
-                    && last.elapsed() >= idle_finalize_after
-                {
-                    let _ = request.response_tx.send(LiveEvent::TurnComplete);
-                    break;
-                }
-                if !content_started && response_start.elapsed() >= response_timeout {
-                    let _ = request
-                        .response_tx
-                        .send(LiveEvent::Error("Response timeout".to_string()));
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(10));
+                idle = true;
             }
-            Err(e) => {
-                if !content_started && response_start.elapsed() < Duration::from_millis(500) {
-                    return Err(()); // stale warm socket — let caller retry cold
+            Err(error) => {
+                if stale_before_output(&progress, now, frame_seen) {
+                    return ServeOutcome::Stale(format!("read error: {error}"));
                 }
-                let _ = request
-                    .response_tx
-                    .send(LiveEvent::Error(format!("Read error: {e}")));
-                break;
+                request.publish(LiveEvent::Error(format!("Read error: {error}")));
+                return ServeOutcome::Failed;
             }
         }
+        let outcome = progress.outcome(now, complete, closed.is_some());
+        match outcome {
+            WaitOutcome::Pending => {}
+            WaitOutcome::Complete => {
+                return if request.publish(LiveEvent::TurnComplete) {
+                    ServeOutcome::Completed
+                } else {
+                    ServeOutcome::Retired
+                };
+            }
+            WaitOutcome::FirstOutputTimeout => {
+                if attempt.reused_warm && !frame_seen {
+                    return ServeOutcome::Stale(
+                        "warm session produced no server frame".to_string(),
+                    );
+                }
+                request.publish(LiveEvent::Error("Response timeout".to_string()));
+                return ServeOutcome::Failed;
+            }
+            WaitOutcome::HardTimeout => {
+                request.publish(LiveEvent::Error(
+                    "Response did not reach interaction idle before deadline".to_string(),
+                ));
+                return ServeOutcome::Failed;
+            }
+            WaitOutcome::Closed => {
+                let detail = closed
+                    .flatten()
+                    .map(|frame| format!("code {}: {}", frame.code, frame.reason))
+                    .unwrap_or_else(|| "no close details".to_string());
+                if stale_before_output(&progress, now, frame_seen) {
+                    return ServeOutcome::Stale(format!("closed ({detail})"));
+                }
+                request.publish(LiveEvent::Error(format!(
+                    "Connection closed before response completion ({detail})"
+                )));
+                return ServeOutcome::Failed;
+            }
+        }
+        if idle {
+            std::thread::sleep(Duration::from_millis(2).saturating_sub(poll_started.elapsed()));
+        }
     }
-    Ok(())
+}
+
+/// The cold retry is the last attempt, so a stale transport after it is a
+/// final failure whose close/read detail must reach the caller.
+fn report_unrecovered_stale(request: &QueuedLiveRequest, outcome: &ServeOutcome) {
+    if let ServeOutcome::Stale(detail) = outcome {
+        request.publish(LiveEvent::Error(format!(
+            "Connection failed before response: {detail}"
+        )));
+    }
+}
+
+/// A transport that failed before any server frame or output may be retried
+/// cold; one that already produced output must report the failure.
+fn stale_before_output(progress: &ResponseProgress, now_ms: u64, frame_seen: bool) -> bool {
+    !progress.content_started() && (now_ms < 500 || !frame_seen)
 }
 
 fn response_text(frame: &LiveServerFrame) -> (Option<String>, bool) {
@@ -217,16 +294,13 @@ fn response_text(frame: &LiveServerFrame) -> (Option<String>, bool) {
 
 /// Run a worker thread for the Gemini Live connection pool.
 pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
-    std::thread::sleep(Duration::from_millis(50)); // stagger startup
-    // A single pre-warmed socket for the last (model, instruction) we served.
+    std::thread::sleep(Duration::from_millis(50));
     let mut warm: Option<WarmLiveSession> = None;
-
     loop {
         if manager.shutdown.load(Ordering::SeqCst) {
             break;
         }
-
-        let queued_request = {
+        let request = {
             let mut queue = manager.work_queue.lock().unwrap();
             while queue.is_empty() && !manager.shutdown.load(Ordering::SeqCst) {
                 queue = manager.work_signal.wait(queue).unwrap();
@@ -236,106 +310,106 @@ pub fn run_live_worker(manager: Arc<GeminiLiveManager>) {
             }
             queue.pop_front()
         };
-        let Some(request) = queued_request else {
-            continue;
-        };
-
-        if !manager.is_generation_valid(request.generation) || request.req.is_cancelled_or_expired()
-        {
-            let _ = request
-                .response_tx
-                .send(LiveEvent::Error("Request cancelled".to_string()));
+        let Some(request) = request else { continue };
+        if request.is_cancelled_or_expired() {
+            request.control.retire();
             continue;
         }
-
         let api_key = request.req.api_key.clone();
         let model = request.req.model.clone();
         let instruction = request.req.instruction.clone();
-        let instr_opt = (!instruction.trim().is_empty()).then_some(instruction.as_str());
-        let setup_timeout = request
-            .req
-            .remaining()
-            .unwrap_or(Duration::from_secs(15))
-            .min(Duration::from_secs(15))
-            .max(Duration::from_millis(1));
-
-        // Reuse the pre-warmed socket if it matches this (model, instruction);
-        // otherwise connect cold. On a stale warm socket, fall back to cold once.
-        let warm_match = warm_session_matches(&warm, &api_key, &model, &instruction);
-        let mut session = if warm_match {
-            warm.take().map(|(session, _, _, _)| session).unwrap()
-        } else {
-            warm = None; // wrong model/instruction — drop the warm one
-            match connect_and_setup(
-                &api_key,
-                &model,
-                instr_opt,
-                request.req.show_thinking,
-                setup_timeout,
-                || request.req.is_cancelled_or_expired(),
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = request
-                        .response_tx
-                        .send(LiveEvent::Error(format!("Connection failed: {e}")));
-                    continue;
-                }
-            }
-        };
-
-        if serve(&mut session, &request, &manager).is_err() {
-            // Warm socket was stale: reconnect cold and serve once more.
-            let _ = session.close();
-            let retry_setup_timeout = request
+        let instruction_option = (!instruction.trim().is_empty()).then_some(instruction.as_str());
+        let connect_request = || {
+            let timeout = request
                 .req
                 .remaining()
                 .unwrap_or(Duration::from_secs(15))
                 .min(Duration::from_secs(15))
                 .max(Duration::from_millis(1));
-            match connect_and_setup(
+            connect_and_setup(
                 &api_key,
                 &model,
-                instr_opt,
+                instruction_option,
                 request.req.show_thinking,
-                retry_setup_timeout,
-                || request.req.is_cancelled_or_expired(),
-            ) {
-                Ok(mut fresh) => {
-                    let _ = serve(&mut fresh, &request, &manager);
-                    let _ = fresh.close();
-                }
-                Err(e) => {
-                    let _ = request
-                        .response_tx
-                        .send(LiveEvent::Error(format!("Connection failed: {e}")));
+                timeout,
+                || request.is_cancelled_or_expired(),
+                Some(&request.control),
+            )
+        };
+        let reused_warm =
+            warm_session_matches(&warm, &api_key, &model, &instruction, Instant::now());
+        let mut session = if reused_warm {
+            let ready = warm.take().unwrap().session;
+            match ready
+                .shutdown_handle()
+                .and_then(|socket| request.control.bind_transport(&socket))
+            {
+                Ok(()) => ready,
+                Err(_) => {
+                    request.control.retire();
+                    continue;
                 }
             }
         } else {
+            if let Some(mut expired) = warm.take() {
+                let _ = expired.session.close();
+            }
+            match connect_request() {
+                Ok(ready) => ready,
+                Err(error) => {
+                    request.publish(LiveEvent::Error(format!("Connection failed: {error}")));
+                    continue;
+                }
+            }
+        };
+        let mut outcome = serve(&mut session, &request, ServeAttempt::new(reused_warm));
+        if matches!(outcome, ServeOutcome::Stale(_)) && !request.is_cancelled_or_expired() {
             let _ = session.close();
+            outcome = match connect_request() {
+                Ok(fresh) => {
+                    session = fresh;
+                    serve(&mut session, &request, ServeAttempt::new(false))
+                }
+                Err(error) => {
+                    request.publish(LiveEvent::Error(format!("Connection failed: {error}")));
+                    ServeOutcome::Failed
+                }
+            };
         }
-
-        // Pre-warm the next socket during the gap before the next call — but ONLY
-        // for the stateless, instruction-less vision case (CC fires these in a
-        // loop). Skip it for instruction-bearing uses (e.g. the help assistant) so
-        // we don't leave idle sockets open or warm a one-off call.
-        if !manager.shutdown.load(Ordering::SeqCst)
+        report_unrecovered_stale(&request, &outcome);
+        let _ = session.close();
+        drop(session);
+        let show_thinking = request.req.show_thinking;
+        let control = request.control.clone();
+        let prewarm = outcome == ServeOutcome::Completed
+            && control.generation_is_current()
             && !request.req.is_cancelled_or_expired()
-            && instr_opt.is_none()
-        {
-            warm = connect_and_setup(
+            && instruction_option.is_none();
+        // Release the caller's channel before the pre-warm so nothing waits
+        // behind the next socket's setup.
+        drop(request);
+        // The next warm socket belongs to the pool, not the completed response.
+        warm = if prewarm {
+            connect_and_setup(
                 &api_key,
                 &model,
                 None,
-                request.req.show_thinking,
+                show_thinking,
                 Duration::from_secs(15),
-                || false,
+                || !control.generation_is_current(),
+                None,
             )
             .ok()
-            .map(|session| (session, api_key, model, instruction));
+            .map(|session| WarmLiveSession {
+                session,
+                api_key,
+                model,
+                instruction,
+                ready_at: Instant::now(),
+            })
         } else {
-            warm = None;
-        }
+            None
+        };
     }
 }
 
@@ -378,6 +452,17 @@ mod tests {
         };
 
         assert_eq!(response_text(&frame), (Some("reasoning".to_string()), true));
+    }
+
+    #[test]
+    fn warm_session_expires_after_idle_ttl() {
+        let ready_at = Instant::now();
+        assert!(warm_is_fresh(ready_at, ready_at + WARM_SESSION_MAX_IDLE));
+        assert!(!warm_is_fresh(
+            ready_at,
+            ready_at + WARM_SESSION_MAX_IDLE + Duration::from_millis(1)
+        ));
+        assert!(!warm_session_matches(&None, "k", "m", "i", ready_at));
     }
 
     #[test]

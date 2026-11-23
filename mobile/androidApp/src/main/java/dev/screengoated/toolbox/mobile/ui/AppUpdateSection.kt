@@ -135,7 +135,7 @@ internal fun AppUpdateSection(
                         onClick = {
                             if (isPlayFlavor) {
                                 updateController.startUpdate(updateFlowLauncher)
-                            } else if (!openAppUpdate(context, state)) {
+                            } else if (!openAppUpdate(context, updateController.state.value)) {
                                 Toast.makeText(
                                     context,
                                     locale.updateFailedLabel,
@@ -150,7 +150,14 @@ internal fun AppUpdateSection(
                     UpdateProgressRow(label = locale.updateDownloadingLabel)
                 }
 
+                AppUpdateStatus.INSTALLING -> {
+                    UpdateProgressRow(label = locale.updateInstallingLabel)
+                }
+
                 AppUpdateStatus.DOWNLOADED -> {
+                    state.errorMessage?.let { message ->
+                        Text(text="${locale.updateFailedLabel} $message",color=MaterialTheme.colorScheme.error)
+                    }
                     Text(
                         text = locale.updateDownloadedLabel,
                         style = MaterialTheme.typography.titleSmall,

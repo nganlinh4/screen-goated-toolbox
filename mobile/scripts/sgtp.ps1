@@ -31,48 +31,14 @@ function Get-RepoRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 }
 
-function Get-DefaultConfig {
-    $repoRoot = Get-RepoRoot
-    return @{
-        mode = "tcpip"
-        host = "192.168.219.122"
-        port = 5555
-        packageName = "dev.screengoated.toolbox.mobile.debug"
-        apkPath = (Join-Path $repoRoot "mobile\androidApp\build\outputs\apk\full\debug\androidApp-full-debug.apk")
-    }
-}
-
-function Get-ConfigPath {
-    return (Join-Path (Join-Path (Get-RepoRoot) "mobile") ".sgtp.json")
-}
-
-function Get-LegacyConfigPath {
-    return (Join-Path (Join-Path (Get-RepoRoot) "mobile") ".adb-phone.json")
-}
+. (Join-Path $PSScriptRoot "sgtp-config.ps1")
 
 function Load-Config {
-    $path = Get-ConfigPath
-    $legacyPath = Get-LegacyConfigPath
-    $config = Get-DefaultConfig
-    if (-not (Test-Path $path) -and (Test-Path $legacyPath)) {
-        $path = $legacyPath
-    }
-    if (Test-Path $path) {
-        $stored = Get-Content $path -Raw | ConvertFrom-Json
-        foreach ($property in $stored.PSObject.Properties) {
-            $config[$property.Name] = $property.Value
-        }
-    }
-    return $config
+    return Read-SgtpConfig (Get-RepoRoot)
 }
 
 function Save-Config($config) {
-    $path = Get-ConfigPath
-    ($config | ConvertTo-Json) | Set-Content -Path $path -Encoding UTF8
-    $legacyPath = Get-LegacyConfigPath
-    if ((Test-Path $legacyPath) -and ($legacyPath -ne $path)) {
-        Remove-Item $legacyPath -Force
-    }
+    Write-SgtpConfig $config
 }
 
 function Invoke-AdbCapture([string[]]$Arguments) {

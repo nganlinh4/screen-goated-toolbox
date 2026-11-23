@@ -59,6 +59,35 @@ class CatalogBenchmarkShardTests(unittest.TestCase):
         self.assertEqual(nvidia["models"], "")
         self.assertEqual(nvidia["suites"], "ocr")
 
+    def test_requested_models_match_by_internal_or_api_id(self):
+        model = next(
+            row
+            for row in MODULE.build_shards(self.catalog, set(), {"text", "coordinate", "ocr"})
+            if row["provider"] not in MODULE.PROVIDER_WIDE_SHARDS
+        )
+        model_id = model["catalog_models"].split(",")[0]
+        full_name = next(row["full_name"] for row in self.catalog["models"] if row["id"] == model_id)
+        for requested in ({model_id}, {full_name}, {model_id, full_name}):
+            shards = MODULE.build_shards(self.catalog, requested, {"text", "coordinate", "ocr"})
+            self.assertIn(model_id, shards[0]["catalog_models"].split(","))
+
+    def test_unmatched_requested_models_fail_with_the_unmatched_list(self):
+        model_id = next(
+            row["catalog_models"].split(",")[0]
+            for row in MODULE.build_shards(self.catalog, set(), {"text", "coordinate", "ocr"})
+        )
+        disabled = next(row["id"] for row in self.catalog["models"] if not row.get("enabled"))
+        with self.assertRaises(ValueError) as raised:
+            MODULE.build_shards(
+                self.catalog,
+                {model_id, "not-a-catalog-model", disabled},
+                {"text", "coordinate", "ocr"},
+            )
+        message = str(raised.exception)
+        self.assertIn("not-a-catalog-model", message)
+        self.assertIn(disabled, message)
+        self.assertNotIn(f"'{model_id}'", message)
+
 
 if __name__ == "__main__":
     unittest.main()

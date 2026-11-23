@@ -53,27 +53,13 @@ pub fn dialog_body(ui: &mut egui::Ui, theme: &AppTheme, body: &str) {
     );
 }
 
-/// Default hold before an item hands the slot over.
-pub const CROSSFADE_HOLD_SECONDS: f64 = 1.5;
 /// Crossfade length at each handover, inside the slot's own time.
 const CROSSFADE_FADE_SECONDS: f64 = 0.25;
 
 /// Which of `count` items a shared slot shows right now, and how opaque it is.
 ///
-/// Use where several pieces of text compete for one line: each holds for
-/// `CROSSFADE_HOLD_SECONDS` then fades through transparent into the next.
-/// Every caller reads the same clock, so a table of rotating cells turns over
-/// on one beat instead of shimmering cell by cell. Repaints are scheduled —
-/// every frame while fading, then asleep until the next handover — so a static
-/// moment costs nothing.
-///
+/// Each item holds for `hold` seconds and fades through transparent into the next.
 /// Apply the opacity with [`egui::Color32::gamma_multiply`].
-pub fn crossfade_phase(ui: &egui::Ui, count: usize) -> (usize, f32) {
-    crossfade_phase_held(ui, count, CROSSFADE_HOLD_SECONDS)
-}
-
-/// [`crossfade_phase`] with an explicit hold, for slots that carry longer text
-/// and need more reading time than a table cell does.
 pub fn crossfade_phase_held(ui: &egui::Ui, count: usize, hold: f64) -> (usize, f32) {
     if count < 2 {
         return (0, 1.0);

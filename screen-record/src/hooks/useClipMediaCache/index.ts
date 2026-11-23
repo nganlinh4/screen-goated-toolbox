@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type MutableRefObject } from "react";
+import { useRef, useEffect, useCallback, type MutableRefObject } from "react";
 import {
   BackgroundConfig,
   MousePosition,
@@ -13,6 +13,7 @@ import { projectManager } from "@/lib/projectManager";
 import { getCompositionClip } from "@/lib/projectComposition";
 import { getMediaServerUrl } from "@/lib/mediaServer";
 import { VideoController } from "@/lib/videoController";
+import { useSynchronizedState } from "@/hooks/useSynchronizedState";
 import * as helpers from "./helpers";
 
 export type PreloadSlotKey = "previous" | "next";
@@ -29,6 +30,7 @@ export interface UseClipMediaCacheParams {
   // composition state
   composition: ProjectComposition | null;
   currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
   // video state
   currentVideo: string | null;
   currentAudio: string | null;
@@ -69,6 +71,7 @@ export interface UseClipMediaCacheParams {
 export function useClipMediaCache({
   composition,
   currentProjectData,
+  currentProjectDataRef,
   currentVideo,
   currentAudio,
   currentMicAudio,
@@ -95,7 +98,7 @@ export function useClipMediaCache({
   setCurrentRawWebcamVideoPath,
   currentProjectId,
 }: UseClipMediaCacheParams) {
-  const [loadedClipId, setLoadedClipId] = useState<string | null>(null);
+  const [loadedClipId, setLoadedClipId, loadedClipIdRef] = useSynchronizedState<string | null>(() => null);
   const isSwitchingCompositionClipRef = useRef(false);
   const clipAssetCacheRef = useRef<Map<string, ClipMediaAssets>>(new Map());
   const clipUrlCacheRef = useRef<
@@ -379,6 +382,11 @@ export function useClipMediaCache({
           clipPreviewDuration,
           clipThumbnailPlaceholder,
           isLatestRequest,
+          resolveCurrentClip: () => {
+            const current = currentProjectDataRef.current;
+            if (!current || current.id !== project.id) return null;
+            return getCompositionClip(current.composition ?? null, clipId);
+          },
           clipUrlCacheRef,
           currentVideo,
           currentAudio,
@@ -423,6 +431,7 @@ export function useClipMediaCache({
       currentMicAudio,
       currentWebcamVideo,
       currentProjectData,
+      currentProjectDataRef,
       currentVideo,
       drawPreloadedClipFrame,
       getClipMediaUrls,
@@ -513,6 +522,7 @@ export function useClipMediaCache({
 
   return {
     loadedClipId,
+    loadedClipIdRef,
     setLoadedClipId,
     isSwitchingCompositionClipRef,
     clipAssetCacheRef,

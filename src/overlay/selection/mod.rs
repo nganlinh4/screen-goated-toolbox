@@ -2,7 +2,6 @@
 // Screen selection overlay with zoom, pan, and color picker support.
 
 mod draw_region;
-mod magnification;
 mod messages;
 mod region_editor;
 mod region_editor_paint;
@@ -53,9 +52,10 @@ pub(crate) fn draw_region() -> anyhow::Result<Option<RECT>> {
 pub(crate) fn show_image_capture_overlay(
     target: crate::overlay::image_capture_target::ImageCaptureTarget,
     hotkey_id: i32,
+    destination: crate::overlay::process::chain::AutoPasteDestination,
 ) {
     if let Ok(mut current) = CAPTURE_TARGET.lock() {
-        *current = target;
+        *current = (target, destination);
     }
     show_overlay(hotkey_id);
 }
@@ -99,9 +99,8 @@ fn show_overlay(hotkey_id: i32) -> bool {
         }
 
         // Initialize Hotkey Tracking for Continuous Mode
-        if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
-            TRIGGER_MODIFIERS = mods;
-            TRIGGER_VK_CODE = vk;
+        if let Some((_, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
+            TRIGGER_VK_CODE.store(vk, Ordering::SeqCst);
 
             if !crate::overlay::continuous_mode::is_active() {
                 let is_physically_held = (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0;
@@ -109,13 +108,12 @@ fn show_overlay(hotkey_id: i32) -> bool {
             }
         } else {
             IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-            TRIGGER_MODIFIERS = 0;
-            TRIGGER_VK_CODE = 0;
+            TRIGGER_VK_CODE.store(0, Ordering::SeqCst);
         }
 
         SELECTION_ABORT_SIGNAL.store(false, Ordering::SeqCst);
         if region_editor::active() || draw_region::active() {
-            TRIGGER_VK_CODE = 0;
+            TRIGGER_VK_CODE.store(0, Ordering::SeqCst);
             IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
         let instance = GetModuleHandleW(None).unwrap();
@@ -177,8 +175,9 @@ fn show_overlay(hotkey_id: i32) -> bool {
         }
 
         // Re-check physical key state AFTER hook is installed
-        if TRIGGER_VK_CODE != 0 {
-            let is_still_held = (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+        let trigger = TRIGGER_VK_CODE.load(Ordering::SeqCst);
+        if trigger != 0 {
+            let is_still_held = (GetAsyncKeyState(trigger as i32) as u16 & 0x8000) != 0;
             if !is_still_held {
                 IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }

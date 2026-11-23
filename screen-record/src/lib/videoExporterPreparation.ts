@@ -7,6 +7,7 @@ import type {
   VideoSegment,
   WebcamConfig,
 } from '@/types/video';
+import type { RenderReference } from './renderer/renderScale';
 
 export interface ExportPreparationContext {
   segment: VideoSegment | null;
@@ -21,6 +22,8 @@ export interface ExportPreparationContext {
   sourceHeight: number;
   width: number;
   height: number;
+  /** The preview canvas whose pixels style lengths are authored in. */
+  reference: RenderReference;
   fps: number;
   targetVideoBitrateKbps: number;
   trimBounds: { trimStart: number; trimEnd: number };

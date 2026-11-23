@@ -1,4 +1,5 @@
-use super::process::{LaunchResources, create_kill_on_close_job, spawn_worker, terminate_job};
+use super::process::{LaunchResources, spawn_worker};
+use crate::process_job::{Input, OwnedProcess};
 use anyhow::{Context, Result, bail};
 use sgt_screen_text_detector_protocol::{
     recognition::CaptureReadings,
@@ -6,78 +7,87 @@ use sgt_screen_text_detector_protocol::{
 };
 use std::io::{BufReader, BufWriter, Read as _};
 use std::os::windows::ffi::OsStrExt as _;
-use std::process::{Child, ChildStdin};
 use std::sync::{
-    Arc, LazyLock, Mutex,
+    Arc, LazyLock,
     atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver},
 };
 use std::time::{Duration, Instant};
 
-static CLIENT: LazyLock<Mutex<Option<Client>>> = LazyLock::new(|| Mutex::new(None));
+static CLIENT: LazyLock<super::client_slot::ClientSlot<Client>> =
+    LazyLock::new(super::client_slot::ClientSlot::new);
 
 pub(crate) fn prepare(cancelled: Arc<AtomicBool>) {
+    let Some(mut client) = CLIENT.begin_prepare(Arc::clone(&cancelled)) else {
+        return;
+    };
     std::thread::spawn(move || {
         crate::log_info!("[Screen Translate] incremental preparation queued");
-        let mut client = CLIENT.lock().unwrap_or_else(|e| e.into_inner());
-        if client.is_none() {
-            match Client::start(&cancelled) {
-                Ok(value) => *client = Some(value),
-                Err(error) => {
-                    crate::log_info!("[Screen Translate] incremental preparation failed: {error:#}")
+        match Client::start(&cancelled) {
+            Ok(value) => {
+                client.value = Some(value);
+                if !cancelled.load(Ordering::Acquire) {
+                    client.retain();
                 }
             }
+            Err(error) if !cancelled.load(Ordering::Acquire) => {
+                crate::log_info!("[Screen Translate] incremental preparation failed: {error:#}")
+            }
+            Err(_) => {}
         }
     });
 }
 
 pub(crate) fn stop() {
-    CLIENT.lock().unwrap_or_else(|e| e.into_inner()).take();
+    CLIENT.stop();
 }
 
 pub(crate) fn detect(
     jpeg: &[u8],
     width: u32,
     height: u32,
-    cancelled: &AtomicBool,
+    cancelled: &Arc<AtomicBool>,
     mut event: impl FnMut(Event) -> Result<()>,
 ) -> Result<()> {
-    let mut slot = CLIENT.lock().unwrap_or_else(|e| e.into_inner());
-    if slot.is_none() {
-        *slot = Some(Client::start(cancelled)?);
+    super::super::image_payload::validate_detector_input(jpeg, width, height)?;
+    let mut slot = CLIENT.acquire(Arc::clone(cancelled))?;
+    if slot.value.is_none() {
+        slot.value = Some(Client::start(cancelled)?);
     }
     let result = slot
+        .value
         .as_mut()
         .expect("initialized client")
         .capture(jpeg, width, height, cancelled, &mut event);
-    if result.is_err() && !slot.as_ref().is_some_and(|client| client.cancel_drained) {
-        slot.take();
+    if result.is_ok()
+        || slot
+            .value
+            .as_ref()
+            .is_some_and(|client| client.terminal_drained)
+    {
+        slot.retain();
     }
     result
 }
 
 struct Client {
-    child: Child,
-    stdin: BufWriter<ChildStdin>,
+    child: OwnedProcess,
+    stdin: BufWriter<Input>,
     responses: Receiver<Result<(u64, Event), String>>,
-    job: std::os::windows::io::OwnedHandle,
-    _resources: LaunchResources,
+    _resources: Arc<LaunchResources>,
     next_id: u64,
-    cancel_drained: bool,
+    terminal_drained: bool,
 }
 
 impl Client {
-    fn start(cancelled: &AtomicBool) -> Result<Self> {
-        let resources = LaunchResources::ensure(cancelled)?;
-        if resources.detector.version() != stream::WORKER_VERSION {
-            bail!("incremental worker delivery mismatch");
-        }
+    fn start(cancelled: &Arc<AtomicBool>) -> Result<Self> {
+        let resources = Arc::new(LaunchResources::ensure(cancelled)?);
         let language = crate::APP
             .lock()
             .map(|app| app.config.ui_language.clone())
             .unwrap_or_else(|_| "en".to_string());
         let locale = crate::gui::locale::LocaleText::get(&language).screen_translate;
-        let warmup_progress = super::client::WarmupProgress::start(
+        let warmup_progress = super::warmup::WarmupProgress::start(
             locale.screen_translate_title,
             locale.screen_translate_preparing,
         );
@@ -91,22 +101,13 @@ impl Client {
             detector_model: wide(&models.join("detector.onnx")),
             reader_catalog: wide(&models.join("readers.json")),
         };
-        let mut child = spawn_worker(&resources)?;
-        let job = match create_kill_on_close_job(&child) {
-            Ok(job) => job,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
-        };
+        let mut child = spawn_worker(resources.clone(), cancelled)?;
         let (Some(stdin), Some(stdout), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+            (child.take_stdin(), child.take_stdout(), child.take_stderr())
         else {
-            terminate_job(&job);
-            let _ = child.wait();
             bail!("worker pipes missing");
         };
+        child.resume()?;
         let (sender, responses) = mpsc::sync_channel(8);
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -148,17 +149,16 @@ impl Client {
             child,
             stdin: BufWriter::new(stdin),
             responses,
-            job,
             _resources: resources,
             next_id: 2,
-            cancel_drained: false,
+            terminal_drained: false,
         };
         stream::write_request(&mut client.stdin, 1, &Request::Hello(hello))?;
         match client.receive(1, Instant::now() + Duration::from_secs(180), cancelled)? {
             Event::Ready {
                 nonce: echoed,
                 version,
-            } if echoed == nonce && version == stream::WORKER_VERSION => {
+            } if echoed == nonce && version == client._resources.detector.version() => {
                 warmup_progress.finish();
                 Ok(client)
             }
@@ -175,7 +175,11 @@ impl Client {
         cancelled: &AtomicBool,
         on_event: &mut impl FnMut(Event) -> Result<()>,
     ) -> Result<()> {
-        self.cancel_drained = false;
+        self.terminal_drained = false;
+        if cancelled.load(Ordering::Acquire) {
+            self.terminal_drained = true;
+            bail!("incremental OCR cancelled before submission");
+        }
         let id = self.next_id;
         self.next_id = self
             .next_id
@@ -212,11 +216,15 @@ impl Client {
                         .take()
                         .context("capture completed without geometry")?
                         .finish()?;
+                    self.terminal_drained = true;
                     on_event(event)?;
                     return Ok(());
                 }
-                Event::Error { message } => bail!("incremental OCR: {message}"),
-                Event::Cancelled => bail!("incremental OCR cancelled"),
+                Event::Error { message } => {
+                    self.terminal_drained = true;
+                    bail!("incremental OCR: {message}");
+                }
+                Event::Cancelled => bail!("unexpected incremental OCR cancellation"),
                 _ => bail!("invalid incremental OCR event sequence"),
             }
             on_event(event)?;
@@ -227,7 +235,7 @@ impl Client {
         loop {
             if cancelled.load(Ordering::Acquire) {
                 let _ = stream::write_request(&mut self.stdin, id, &Request::Cancel);
-                self.cancel_drained = self.drain_cancel(id);
+                self.terminal_drained = drain_cancel(&self.responses, id, Duration::from_secs(2));
                 bail!("incremental OCR cancelled");
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -248,31 +256,56 @@ impl Client {
             }
         }
     }
+}
 
-    fn drain_cancel(&self, id: u64) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return false;
+fn drain_cancel(
+    responses: &Receiver<Result<(u64, Event), String>>,
+    id: u64,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        match responses.recv_timeout(remaining) {
+            Ok(Ok((
+                response_id,
+                Event::Cancelled | Event::Finished { .. } | Event::Error { .. },
+            ))) if response_id == id => {
+                return true;
             }
-            match self.responses.recv_timeout(remaining) {
-                Ok(Ok((response_id, Event::Cancelled | Event::Finished { .. })))
-                    if response_id == id =>
-                {
-                    return true;
-                }
-                Ok(Ok((response_id, Event::Reading { .. } | Event::Geometry { .. })))
-                    if response_id == id => {}
-                _ => return false,
-            }
+            Ok(Ok((response_id, Event::Reading { .. } | Event::Geometry { .. })))
+                if response_id == id => {}
+            _ => return false,
         }
     }
 }
 
 impl Drop for Client {
     fn drop(&mut self) {
-        terminate_job(&self.job);
-        let _ = self.child.wait();
+        let _ = self.child.stop_within(Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_drain_reuses_only_matching_terminal_events() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok((
+            7,
+            Event::Error {
+                message: "request rejected".into(),
+            },
+        )))
+        .unwrap();
+        assert!(drain_cancel(&rx, 7, Duration::from_millis(10)));
+        tx.send(Ok((8, Event::Finished { count: 0 }))).unwrap();
+        assert!(!drain_cancel(&rx, 7, Duration::from_millis(10)));
+        assert!(!drain_cancel(&rx, 7, Duration::from_millis(1)));
     }
 }

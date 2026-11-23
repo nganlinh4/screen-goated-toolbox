@@ -40,6 +40,12 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_SHOW_IMAGE_BADGE => {
+                if !image_badge_message_is_current(
+                    true,
+                    IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst),
+                ) {
+                    return LRESULT(0);
+                }
                 let _ = KillTimer(Some(hwnd), 2);
                 let text = get_localized_image_badge_text(&current_language());
                 crate::overlay::status_compositor::image_badge_show(cursor_rect(), text);
@@ -47,6 +53,12 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
                 LRESULT(0)
             }
             WM_APP_HIDE_IMAGE_BADGE => {
+                if !image_badge_message_is_current(
+                    false,
+                    IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst),
+                ) {
+                    return LRESULT(0);
+                }
                 crate::overlay::status_compositor::image_badge_hide();
                 let _ = SetTimer(Some(hwnd), 2, 150, None);
                 LRESULT(0)
@@ -92,6 +104,10 @@ pub(super) unsafe extern "system" fn tag_wnd_proc(
     }
 }
 
+fn image_badge_message_is_current(show: bool, desired_visible: bool) -> bool {
+    show == desired_visible
+}
+
 fn current_language() -> String {
     APP.try_lock()
         .map(|app| app.config.ui_language.clone())
@@ -127,5 +143,18 @@ fn hide_controller_if_idle(hwnd: HWND) {
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
+    }
+}
+
+#[cfg(test)]
+mod image_badge_tests {
+    use super::image_badge_message_is_current;
+
+    #[test]
+    fn stale_show_and_hide_do_not_override_current_visibility() {
+        assert!(!image_badge_message_is_current(true, false));
+        assert!(!image_badge_message_is_current(false, true));
+        assert!(image_badge_message_is_current(true, true));
+        assert!(image_badge_message_is_current(false, false));
     }
 }

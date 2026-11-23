@@ -56,10 +56,9 @@ pub(super) fn restart_now() -> ProcessState {
         READY_GENERATION.store(0, Ordering::SeqCst);
         READY_SINCE_MS.store(0, Ordering::SeqCst);
         let _ = write_to(&mut renderer.stdin, &HostCommand::Shutdown);
-        if let Err(error) = crate::overlay::compositor_process::retire_renderer_tree(
-            &mut renderer.child,
-            &renderer._job,
-        ) {
+        if let Err(error) =
+            crate::overlay::compositor_process::retire_renderer_tree(&mut renderer.child)
+        {
             crate::log_info!("[Compositor] restart deferred until browser job exits: {error:#}");
             *PROCESS.lock().unwrap() = old;
             STARTING.store(false, Ordering::SeqCst);

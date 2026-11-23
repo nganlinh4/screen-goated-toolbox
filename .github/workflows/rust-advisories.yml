@@ -1,0 +1,59 @@
+name: Rust Advisories
+
+on:
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.gitignore'
+      - 'scripts/check_native.py'
+      - 'scripts/check_rust_advisories.py'
+      - 'scripts/dev_cache_paths.py'
+      - '.github/workflows/rust-advisories.yml'
+  push:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.gitignore'
+      - 'scripts/check_native.py'
+      - 'scripts/check_rust_advisories.py'
+      - 'scripts/dev_cache_paths.py'
+      - '.github/workflows/rust-advisories.yml'
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rustsec:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/bin/cargo-audit.exe
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: windows-cargo-audit-0.22.2
+      - name: Install pinned advisory scanner
+        run: |
+          $version = cargo audit --version 2>$null
+          if ($LASTEXITCODE -ne 0 -or $version -ne 'cargo-audit 0.22.2') {
+            cargo install cargo-audit --version 0.22.2 --locked --force
+            if ($LASTEXITCODE -ne 0) { throw 'Advisory scanner installation failed' }
+          }
+      - name: Scan host and native lockfiles
+        run: python -m scripts.check_rust_advisories

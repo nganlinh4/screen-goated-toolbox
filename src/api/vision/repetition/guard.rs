@@ -1,4 +1,4 @@
-use super::{repetition_onset, repetition_onset_with_evidence};
+use super::{repetition_onset, scan_for_onset};
 
 /// Watches a streamed reply and replaces it once it starts repeating.
 ///
@@ -10,6 +10,9 @@ pub(crate) struct RepetitionGuard {
     seen: String,
     salvaged: Option<String>,
     checked_len: usize,
+    /// The scanned prefix is full and was judged clean; later chunks cannot
+    /// change that verdict, so streaming stops rescanning until `finish`.
+    prefix_judged: bool,
 }
 
 pub(crate) enum GuardAction {
@@ -27,7 +30,7 @@ impl RepetitionGuard {
             return GuardAction::Suppress;
         }
         self.seen.push_str(chunk);
-        if self.seen.len() < self.checked_len + CHECK_INTERVAL {
+        if self.prefix_judged || self.seen.len() < self.checked_len + CHECK_INTERVAL {
             return GuardAction::Paint;
         }
         self.checked_len = self.seen.len();
@@ -37,7 +40,9 @@ impl RepetitionGuard {
             .seen
             .rfind(char::is_whitespace)
             .map_or("", |end| &self.seen[..end]);
-        match repetition_onset_with_evidence(complete, STREAMING_MIN_EVIDENCE) {
+        let scan = scan_for_onset(complete, STREAMING_MIN_EVIDENCE);
+        self.prefix_judged = scan.saturated && scan.onset.is_none();
+        match scan.onset {
             Some(onset) => {
                 let salvaged = complete[..onset].trim_end().to_string();
                 self.salvaged = Some(salvaged.clone());
@@ -52,6 +57,7 @@ impl RepetitionGuard {
         self.seen.push_str(text);
         self.salvaged = None;
         self.checked_len = 0;
+        self.prefix_judged = false;
     }
 
     pub(crate) fn finish(mut self, streamed: String) -> String {
@@ -63,4 +69,13 @@ impl RepetitionGuard {
             None => streamed,
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn prefix_judged(&self) -> bool {
+        self.prefix_judged
+    }
 }
+
+#[cfg(test)]
+#[path = "guard/tests.rs"]
+mod tests;

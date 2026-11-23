@@ -7,6 +7,7 @@
 //! supply the `parts` array (text, text+image, ...) and their error labeling.
 
 use crate::api::client::{UREQ_RESPONSE_AGENT, UREQ_STREAM_RESPONSE_AGENT};
+use crate::api::gemini_live::setup::MediaResolution;
 use crate::gui::locale::LocaleText;
 use anyhow::Result;
 use std::io::{BufReader, Read};
@@ -23,23 +24,6 @@ const MAX_GEMINI_ERROR_CHARS: usize = 2_048;
 const MAX_GEMINI_RETRIES: usize = 2;
 const MAX_GEMINI_RETRY_DELAY: Duration = Duration::from_secs(8);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GeminiMediaResolution {
-    Low,
-    Medium,
-    High,
-}
-
-impl GeminiMediaResolution {
-    fn wire_value(self) -> &'static str {
-        match self {
-            Self::Low => "MEDIA_RESOLUTION_LOW",
-            Self::Medium => "MEDIA_RESOLUTION_MEDIUM",
-            Self::High => "MEDIA_RESOLUTION_HIGH",
-        }
-    }
-}
-
 pub struct GeminiGenerateRequest<'a> {
     pub parts: serde_json::Value,
     pub model: &'a str,
@@ -51,7 +35,8 @@ pub struct GeminiGenerateRequest<'a> {
     pub map_auth_errors: bool,
     pub request_timeout: Option<crate::api::client::RequestTimeouts>,
     pub response_schema: Option<&'a serde_json::Value>,
-    pub media_resolution: Option<GeminiMediaResolution>,
+    pub audio_transcription_config: Option<&'a serde_json::Value>,
+    pub media_resolution: Option<MediaResolution>,
     pub enable_google_search: bool,
     pub retry_observer: Option<&'a mut dyn FnMut(Duration)>,
 }
@@ -110,12 +95,19 @@ where
         map_auth_errors,
         request_timeout,
         response_schema,
+        audio_transcription_config,
         media_resolution,
         enable_google_search,
         mut retry_observer,
     } = request;
+    anyhow::ensure!(
+        !cancel_token
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::Relaxed)),
+        "Cancelled"
+    );
     let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
-        streaming,
+        streaming || audio_transcription_config.is_some(),
         request_timeout,
         cancel_token,
     );
@@ -127,6 +119,7 @@ where
         response_schema,
         media_resolution,
         enable_google_search,
+        audio_transcription_config,
     );
 
     // Optional provider tools are deliberately absent. Supporting a tool is a
@@ -153,12 +146,21 @@ where
             break response;
         }
         if map_auth_errors && matches!(status, 401 | 403) {
-            return Err(anyhow::anyhow!("INVALID_API_KEY"));
+            return Err(anyhow::anyhow!("INVALID_API_KEY:gemini"));
         }
 
         let header_delay = retry_after_seconds(response.headers());
         let body = read_error_body(response);
         let error = GeminiHttpError::parse(status, &body, header_delay);
+        if map_auth_errors && error.is_invalid_api_key() {
+            return Err(anyhow::anyhow!("INVALID_API_KEY:gemini"));
+        }
+        if response_schema.is_some() && error.rejects_response_schema() {
+            return Err(anyhow::anyhow!(
+                "STRUCTURED_OUTPUT_REJECTED:google:{}",
+                error.display()
+            ));
+        }
         if error.retryable()
             && crate::api::client::retry_policy::provider_retries_allowed()
             && retry_attempt < MAX_GEMINI_RETRIES
@@ -216,6 +218,12 @@ where
             anyhow::anyhow!("PROVIDER_RESPONSE_INVALID:Malformed provider response: {e}")
         })?;
         let result = completion::parse(&root)?;
+        anyhow::ensure!(
+            !cancel_token
+                .as_ref()
+                .is_some_and(|token| token.load(Ordering::Relaxed)),
+            "Cancelled"
+        );
         on_chunk(&result.content);
         Ok(result)
     }
@@ -225,8 +233,9 @@ fn gemini_payload(
     parts: serde_json::Value,
     model: &str,
     response_schema: Option<&serde_json::Value>,
-    media_resolution: Option<GeminiMediaResolution>,
+    media_resolution: Option<MediaResolution>,
     enable_google_search: bool,
+    audio_transcription_config: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "contents": [{
@@ -238,13 +247,18 @@ fn gemini_payload(
         payload["tools"] = serde_json::json!([{"google_search": {}}]);
     }
     let mut gen_config = serde_json::Map::new();
-    if let Some(thinking_config) = crate::api::gemini_thinking_config(model) {
+    if let Some(config) = audio_transcription_config {
+        gen_config.insert("audioTranscriptionConfig".to_string(), config.clone());
+    }
+    if audio_transcription_config.is_none()
+        && let Some(thinking_config) = crate::api::gemini_thinking_config(model)
+    {
         gen_config.insert("thinkingConfig".to_string(), thinking_config);
     }
     if let Some(resolution) = media_resolution {
         gen_config.insert(
             "mediaResolution".to_string(),
-            serde_json::json!(resolution.wire_value()),
+            serde_json::json!(resolution.api_value()),
         );
     }
     // Structured output is opt-in twice: the caller supplies a schema and the
@@ -274,8 +288,13 @@ struct GeminiHttpError {
     api_status: Option<String>,
     message: String,
     details: Option<String>,
+    reasons: Vec<String>,
+    fields: Vec<String>,
     retry_after: Option<Duration>,
 }
+
+/// `google.rpc.ErrorInfo` reasons that identify the credential itself.
+const INVALID_KEY_REASONS: [&str; 2] = ["API_KEY_INVALID", "API_KEY_EXPIRED"];
 
 impl GeminiHttpError {
     fn parse(status: u16, body: &str, header_delay: Option<Duration>) -> Self {
@@ -302,13 +321,53 @@ impl GeminiHttpError {
         let details = details_value
             .filter(|value| !value.is_null())
             .and_then(|value| serde_json::to_string(value).ok());
+        let detail_items = details_value
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let reasons = detail_items
+            .iter()
+            .filter_map(|detail| detail.get("reason")?.as_str())
+            .map(str::to_string)
+            .collect();
+        let fields = detail_items
+            .iter()
+            .filter_map(|detail| detail.get("fieldViolations")?.as_array())
+            .flatten()
+            .filter_map(|violation| violation.get("field")?.as_str())
+            .map(str::to_string)
+            .collect();
         Self {
             status,
             api_status,
             message,
             details,
+            reasons,
+            fields,
             retry_after,
         }
+    }
+
+    fn is_invalid_api_key(&self) -> bool {
+        self.reasons
+            .iter()
+            .any(|reason| INVALID_KEY_REASONS.contains(&reason.as_str()))
+    }
+
+    /// A 400 is a structured-output rejection only when the provider points at
+    /// the response schema; other invalid arguments keep their own meaning.
+    fn rejects_response_schema(&self) -> bool {
+        fn names_schema(text: &str) -> bool {
+            let normalized: String = text
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            normalized.contains("responseschema") || normalized.contains("responsejsonschema")
+        }
+        self.status == 400
+            && !self.is_invalid_api_key()
+            && (self.fields.iter().any(|field| names_schema(field)) || names_schema(&self.message))
     }
 
     fn retryable(&self) -> bool {
@@ -409,113 +468,4 @@ fn truncate_chars(value: String, max_chars: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ordinary_generation_never_implicitly_enables_provider_tools() {
-        let payload = gemini_payload(
-            serde_json::json!([{"text": "plain request"}]),
-            "gemini-future-model",
-            None,
-            None,
-            false,
-        );
-        assert!(payload.get("tools").is_none());
-    }
-
-    #[test]
-    fn explicit_search_generation_enables_only_google_search() {
-        let payload = gemini_payload(
-            serde_json::json!([{"text": "current information"}]),
-            "gemini-3.1-flash-lite",
-            None,
-            None,
-            true,
-        );
-        assert_eq!(payload["tools"], serde_json::json!([{"google_search": {}}]));
-    }
-
-    #[test]
-    fn media_resolution_is_an_explicit_generation_policy() {
-        let payload = gemini_payload(
-            serde_json::json!([{"text": "plain request"}]),
-            "gemini-3.5-flash-lite",
-            None,
-            Some(GeminiMediaResolution::Low),
-            false,
-        );
-        assert_eq!(
-            payload["generationConfig"]["mediaResolution"],
-            "MEDIA_RESOLUTION_LOW"
-        );
-    }
-
-    #[test]
-    fn structured_output_requires_both_schema_and_catalog_support() {
-        let schema = serde_json::json!({
-            "type": "object",
-            "properties": { "text": { "type": "string" } },
-            "required": ["text"]
-        });
-        let gemma = gemini_payload(
-            serde_json::json!([{"text": "extract"}]),
-            "gemma-4-31b-it",
-            Some(&schema),
-            None,
-            false,
-        );
-        let flash = gemini_payload(
-            serde_json::json!([{"text": "extract"}]),
-            "gemini-3.5-flash-lite",
-            Some(&schema),
-            None,
-            false,
-        );
-        assert_eq!(
-            gemma["generationConfig"]["responseMimeType"],
-            "application/json"
-        );
-        assert_eq!(gemma["generationConfig"]["responseJsonSchema"], schema);
-        assert_eq!(
-            flash["generationConfig"]["responseMimeType"],
-            "application/json"
-        );
-        assert_eq!(flash["generationConfig"]["responseJsonSchema"], schema);
-    }
-
-    #[test]
-    fn structured_error_keeps_quota_metadata_and_retry_delay() {
-        let error = GeminiHttpError::parse(
-            429,
-            r#"{"error":{"status":"RESOURCE_EXHAUSTED","message":"quota exhausted","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"2.25s"},{"metadata":{"quotaMetric":"generate_content","model":"future-model"}}]}}"#,
-            None,
-        );
-        let message = error.display();
-        assert!(message.contains("HTTP 429 RESOURCE_EXHAUSTED"));
-        assert!(message.contains("retry_after_ms=2250"));
-        assert!(message.contains("quotaMetric"));
-        assert!(message.contains("future-model"));
-    }
-
-    #[test]
-    fn retry_policy_is_transient_and_bounded() {
-        assert!(GeminiHttpError::parse(503, "", None).retryable());
-        assert!(!GeminiHttpError::parse(400, "", None).retryable());
-        for attempt in 0..10 {
-            assert!(gemini_retry_delay(attempt, None) <= MAX_GEMINI_RETRY_DELAY);
-        }
-    }
-
-    #[test]
-    fn explicit_long_retry_delay_is_preserved_for_fail_fast_fallback() {
-        let delay = Duration::from_secs(45);
-        let error = GeminiHttpError::parse(429, "{}", Some(delay));
-        assert_eq!(error.retry_after, Some(delay));
-        assert!(
-            error
-                .retry_after
-                .is_some_and(|value| value > MAX_GEMINI_RETRY_DELAY)
-        );
-    }
-}
+mod tests;

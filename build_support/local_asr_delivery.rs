@@ -5,28 +5,21 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 const DEFAULT_MANIFEST: &str = "component-delivery/windows/local-asr-v1.json";
-const COMPONENTS: &[(&str, &[&str])] = &[
-    (
-        "local-asr-worker",
-        &[
-            "bin/x64/sgt-local-asr-worker.exe",
-            "licenses/parakeet-rs-LICENSE.txt",
-        ],
-    ),
-    (
-        "onnx-directml-runtime",
-        &[
-            "bin/x64/onnxruntime.dll",
-            "bin/x64/onnxruntime_providers_shared.dll",
-            "bin/x64/DirectML.dll",
-            "licenses/onnxruntime-LICENSE.txt",
-            "licenses/onnxruntime-ThirdPartyNotices.txt",
-            "licenses/directml-LICENSE-CODE.txt",
-            "licenses/directml-LICENSE.txt",
-            "licenses/directml-ThirdPartyNotices.txt",
-        ],
-    ),
-];
+/// The contract keeps its historical local-ASR name; it now delivers only the
+/// ONNX Runtime + DirectML component used by the screen-translate worker.
+const COMPONENTS: &[(&str, &[&str])] = &[(
+    "onnx-directml-runtime",
+    &[
+        "bin/x64/onnxruntime.dll",
+        "bin/x64/onnxruntime_providers_shared.dll",
+        "bin/x64/DirectML.dll",
+        "licenses/onnxruntime-LICENSE.txt",
+        "licenses/onnxruntime-ThirdPartyNotices.txt",
+        "licenses/directml-LICENSE-CODE.txt",
+        "licenses/directml-LICENSE.txt",
+        "licenses/directml-ThirdPartyNotices.txt",
+    ],
+)];
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
@@ -70,7 +63,7 @@ fn delivery_source(path: &Path, channel: crate::delivery_channel::DeliveryChanne
     assert_eq!(
         entries.len(),
         COMPONENTS.len(),
-        "{} must deliver both local ASR components",
+        "{} must deliver exactly the ONNX runtime component",
         path.display()
     );
 

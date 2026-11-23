@@ -80,8 +80,12 @@ export function resolveWebcamLayoutRect(
   webcamAspectRatio: number | null | undefined,
   zoomFactor: number,
   webcamAvailable: boolean = true,
+  renderScale: number = 1,
 ): WebcamLayoutRect {
   const config = cloneWebcamConfig(webcamConfig);
+  // Inset, roundness and shadow are authored in preview-canvas pixels.
+  const roundnessPx = Math.max(0, config.roundnessPx) * renderScale;
+  const shadowPx = Math.max(0, config.shadowPx) * renderScale;
   const aspectRatio =
     webcamAspectRatio && webcamAspectRatio > 0
       ? webcamAspectRatio
@@ -94,8 +98,8 @@ export function resolveWebcamLayoutRect(
       y: 0,
       width: 0,
       height: 0,
-      roundnessPx: config.roundnessPx,
-      shadowPx: config.shadowPx,
+      roundnessPx,
+      shadowPx,
       mirror: config.mirror,
     };
   }
@@ -109,7 +113,7 @@ export function resolveWebcamLayoutRect(
     width = height * aspectRatio;
   }
 
-  const inset = Math.max(12, config.insetPx);
+  const inset = Math.max(12, config.insetPx) * renderScale;
   const x =
     config.position === "bottomLeft" || config.position === "topLeft"
       ? inset
@@ -125,8 +129,8 @@ export function resolveWebcamLayoutRect(
     y,
     width,
     height,
-    roundnessPx: Math.max(0, config.roundnessPx),
-    shadowPx: Math.max(0, config.shadowPx),
+    roundnessPx,
+    shadowPx,
     mirror: config.mirror,
   };
 }
@@ -172,6 +176,7 @@ export function buildBakedWebcamFrames(
   webcamAspectRatio: number | null | undefined,
   zoomSampler: (time: number) => number,
   fps: number = DEFAULT_FPS,
+  renderScale: number = 1,
 ): BakedWebcamFrame[] {
   const frames: BakedWebcamFrame[] = [];
   for (const frame of iterateBakedWebcamFrames(
@@ -182,6 +187,7 @@ export function buildBakedWebcamFrames(
       webcamAspectRatio,
       zoomSampler,
       fps,
+      renderScale,
     )) {
     if (frames.length >= MAX_COLLECTED_WEBCAM_FRAMES) {
       throw new Error(
@@ -201,6 +207,7 @@ export function* iterateBakedWebcamFrames(
   webcamAspectRatio: number | null | undefined,
   zoomSampler: (time: number) => number,
   fps: number = DEFAULT_FPS,
+  renderScale: number = 1,
 ): Generator<BakedWebcamFrame> {
   for (const { sourceTime: time } of iterateExportSourceTimes(segment, fps)) {
     const layout = resolveWebcamLayoutRect(
@@ -210,6 +217,7 @@ export function* iterateBakedWebcamFrames(
       webcamAspectRatio,
       zoomSampler(time),
       segment.webcamAvailable !== false,
+      renderScale,
     );
     const visibility = getWebcamVisibility(
       time,
@@ -228,6 +236,8 @@ export function* iterateBakedWebcamFrames(
       roundnessPx: Number(animatedLayout.roundnessPx.toFixed(3)),
       shadowPx: Number(animatedLayout.shadowPx.toFixed(3)),
       mirror: animatedLayout.mirror,
+      // The native shader scales its fixed shadow-offset floor by this.
+      renderScale,
     };
   }
 }

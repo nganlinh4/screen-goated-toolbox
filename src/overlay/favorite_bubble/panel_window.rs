@@ -94,7 +94,7 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
     let html = if let Ok(app) = APP.lock() {
         let is_dark = app.config.theme_mode.is_dark();
         // Update static state to match initial generation
-        LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+        record_panel_theme(is_dark);
         generate_panel_html(
             &app.config.presets,
             &app.config.ui_language,
@@ -130,7 +130,6 @@ pub(super) fn create_panel_webview(panel_hwnd: HWND) {
             } else {
                 WebViewBuilder::new()
             };
-            let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
 
             // Store HTML in font server and get URL for same-origin font loading
             let page_url =
@@ -242,6 +241,17 @@ fn handle_ipc_message(body: &str, panel_hwnd: HWND) {
     }
 }
 
+/// Runs a queued panel refresh only while the panel is still open. Refreshes
+/// are posted (the first one 600 ms after the panel is created), so the user
+/// may close the panel before one arrives; refreshing then would show it again.
+fn refresh_if_open(refresh: impl FnOnce()) -> bool {
+    if !IS_EXPANDED.load(Ordering::SeqCst) {
+        return false;
+    }
+    refresh();
+    true
+}
+
 pub(super) unsafe extern "system" fn panel_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -263,26 +273,19 @@ pub(super) unsafe extern "system" fn panel_wnd_proc(
             }
             WM_REFRESH_PANEL => {
                 let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
-
-                if let Ok(app) = APP.lock() {
-                    let is_dark = app.config.theme_mode.is_dark();
-
-                    // Set expanded to true so it moves with bubble
-                    IS_EXPANDED.store(true, Ordering::SeqCst);
-
-                    super::panel::refresh_panel_layout_and_content(
-                        bubble_hwnd,
-                        hwnd,
-                        &app.config.presets,
-                        &app.config.ui_language,
-                        is_dark,
-                    );
-                }
-                // Lock released here
-
-                // Correctly call update_bubble_visual outside the lock
-                update_bubble_visual(bubble_hwnd);
-
+                refresh_if_open(|| {
+                    if let Ok(app) = APP.lock() {
+                        super::panel::refresh_panel_layout_and_content(
+                            bubble_hwnd,
+                            hwnd,
+                            &app.config.presets,
+                            &app.config.ui_language,
+                            app.config.theme_mode.is_dark(),
+                        );
+                    }
+                    // The config lock is released before the bubble repaints.
+                    update_bubble_visual(bubble_hwnd);
+                });
                 LRESULT(0)
             }
             WM_NCCALCSIZE => {
@@ -294,5 +297,26 @@ pub(super) unsafe extern "system" fn panel_wnd_proc(
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IS_EXPANDED, refresh_if_open};
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_queued_refresh_never_reopens_a_closed_panel() {
+        // The creation-time refresh arrives after the user closed the panel.
+        IS_EXPANDED.store(false, Ordering::SeqCst);
+        let mut refreshed = false;
+        assert!(!refresh_if_open(|| refreshed = true));
+        assert!(!refreshed, "the closed panel was shown again");
+        assert!(!IS_EXPANDED.load(Ordering::SeqCst));
+
+        IS_EXPANDED.store(true, Ordering::SeqCst);
+        assert!(refresh_if_open(|| refreshed = true));
+        assert!(refreshed);
+        IS_EXPANDED.store(false, Ordering::SeqCst);
     }
 }

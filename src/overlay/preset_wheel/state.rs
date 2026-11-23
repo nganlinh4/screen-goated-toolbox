@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
 use std::sync::{LazyLock, Mutex, Once};
 
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
@@ -17,6 +17,13 @@ pub(crate) const WHEEL_HEIGHT: i32 = 700;
 
 pub(crate) static WHEEL_RESULT: AtomicI32 = AtomicI32::new(-1);
 pub(crate) static WHEEL_ACTIVE: AtomicBool = AtomicBool::new(false);
+pub(crate) static WHEEL_REQUEST_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+pub(crate) static WHEEL_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+pub(crate) static WHEEL_PAGE_READY_ID: AtomicU64 = AtomicU64::new(0);
+pub(crate) static WHEEL_READY_ID: AtomicU64 = AtomicU64::new(0);
+pub(crate) static WHEEL_PROTOCOL_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static WHEEL_LIVENESS: Mutex<super::liveness::WheelLiveness> =
+    Mutex::new(super::liveness::WheelLiveness::new());
 
 pub(crate) static WHEEL_HWND: AtomicIsize = AtomicIsize::new(0);
 pub(crate) static OVERLAY_HWND: AtomicIsize = AtomicIsize::new(0);

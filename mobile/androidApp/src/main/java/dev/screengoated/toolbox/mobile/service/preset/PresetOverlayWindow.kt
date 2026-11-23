@@ -17,31 +17,7 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.overlay.overlayWebViewWindowFlags
-
-internal data class PresetOverlayWindowSpec(
-    val width: Int,
-    val height: Int,
-    val x: Int,
-    val y: Int,
-    val focusable: Boolean,
-    val showImeOnFocus: Boolean = false,
-    val watchOutsideTouch: Boolean = false,
-    val assetPage: String? = null,
-    val htmlContent: String? = null,
-    val baseUrl: String = "file:///android_asset/preset_overlay/",
-    val clipToOutline: Boolean = true,
-    val touchRegionsOnly: Boolean = false,
-)
-
-internal data class OverlayNavigationFailure(
-    val url: String?,
-    val description: String,
-)
-
-private sealed interface OverlayRecoverySource {
-    data class Asset(val assetPage: String) : OverlayRecoverySource
-    data class Html(val htmlContent: String, val baseUrl: String) : OverlayRecoverySource
-}
+import dev.screengoated.toolbox.mobile.preset.INPUT_AUDIO_PREVIEW_PLACEHOLDER
 
 @SuppressLint("SetJavaScriptEnabled")
 internal class PresetOverlayWindow(
@@ -56,11 +32,19 @@ internal class PresetOverlayWindow(
     private val appContext = context.applicationContext
     private val logTag: String = "PresetOverlay"
     private val supportsFocus = spec.focusable
+    private val resultWindowId = spec.resultWindowId
+    private val resultIsDark = spec.resultIsDark
+    private val resultCapabilityNotice = ResultCapabilityNotice(context, spec.resultCapabilityMessage)
+    private val resultScripts = TrustedResultScripts()
+    private val resultAssetPolicy = if (resultWindowId != null) ResultAssetPolicy(context) else null
+    private var untrustedResult = false
+    private var trustedResultBridgeAvailable = false
+    private var resultHistoryOffset = 0
     private var currentFocusable = spec.focusable
     private val showImeOnFocus = spec.showImeOnFocus
     private val watchOutsideTouch = spec.watchOutsideTouch
     private val cornerRadiusPx = context.resources.displayMetrics.density * 18f
-    private val managedLoadTracker = OverlayManagedLoadTracker()
+    private var managedLoadTracker = OverlayManagedLoadTracker()
     private val layoutParams = WindowManager.LayoutParams().apply {
         copyFrom(
             WindowManager.LayoutParams(
@@ -86,6 +70,11 @@ internal class PresetOverlayWindow(
     private var touchAccepted = false
     private val rootView = object : FrameLayout(context) {
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN && resultWindowId != null &&
+                (untrustedResult || !trustedResultBridgeAvailable || !isTrustedResultUrl(webView.url))
+            ) {
+                onMessage(org.json.JSONObject().put("type", "activateResultWindow").put("windowId", resultWindowId).toString())
+            }
             if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
                 onOutsideTouch()
                 return false
@@ -132,7 +121,6 @@ internal class PresetOverlayWindow(
 
     private var webView = createManagedWebView()
     private var inputFocusCoordinator = createInputFocusCoordinator()
-
     init {
         rootView.addView(
             webView,
@@ -143,7 +131,6 @@ internal class PresetOverlayWindow(
             spec.assetPage != null -> loadAssetPage(spec.assetPage)
         }
     }
-
     fun show() {
         if (attached) {
             if (currentFocusable) {
@@ -157,7 +144,6 @@ internal class PresetOverlayWindow(
             inputFocusCoordinator.requestInitialFocus()
         }
     }
-
     fun bringToFront(refocusIme: Boolean = false) {
         if (!attached) {
             return
@@ -170,7 +156,6 @@ internal class PresetOverlayWindow(
             inputFocusCoordinator.refocus(refocusIme)
         }
     }
-
     fun hide() {
         if (!attached) {
             return
@@ -187,12 +172,11 @@ internal class PresetOverlayWindow(
     fun setSuppressed(suppressed: Boolean) {
         rootView.visibility = if (suppressed) View.INVISIBLE else View.VISIBLE
     }
-
     fun destroy() {
+        resultAssetPolicy?.audioPreview?.replace(null)
         hide()
         webView.destroy()
     }
-
     fun updateBounds(bounds: OverlayBounds) {
         layoutParams.x = bounds.x
         layoutParams.y = bounds.y
@@ -219,53 +203,56 @@ internal class PresetOverlayWindow(
         )
     }
 
-    fun currentBounds(): OverlayBounds {
-        return OverlayBounds(
-            x = layoutParams.x,
-            y = layoutParams.y,
-            width = layoutParams.width,
-            height = layoutParams.height,
-        )
-    }
+    fun currentBounds(): OverlayBounds = OverlayBounds(
+        x = layoutParams.x, y = layoutParams.y,
+        width = layoutParams.width, height = layoutParams.height,
+    )
 
     fun loadAssetPage(assetPage: String) {
+        resultAssetPolicy?.audioPreview?.replace(null)
         recoverySource = OverlayRecoverySource.Asset(assetPage)
         pageReady = false
         managedLoadTracker.begin(prefix = "file:///android_asset/preset_overlay/")
         webView.loadUrl("file:///android_asset/preset_overlay/$assetPage")
     }
-
     fun loadHtmlContent(
         htmlContent: String,
         baseUrl: String = "file:///android_asset/preset_overlay/",
         clearHistoryAfterLoad: Boolean = false,
         rememberForRecovery: Boolean = true,
+        untrustedContent: Boolean = false,
+        audioPreview: ByteArray? = null,
     ) {
-        Log.d(logTag, "loadHtmlContent baseUrl=$baseUrl len=${htmlContent.length}")
+        if (needsFreshResultView(resultWindowId != null, untrustedResult, untrustedContent)) {
+            replaceResultView(untrustedContent, 0)
+        }
+        val actualBaseUrl = if (resultWindowId != null && !untrustedContent) RESULT_TRUSTED_URL else baseUrl
         if (rememberForRecovery) {
             recoverySource = OverlayRecoverySource.Html(
                 htmlContent = htmlContent,
                 baseUrl = baseUrl,
+                untrusted = untrustedContent,
+                audioPreview = audioPreview,
             )
         }
         pageReady = false
-        managedLoadTracker.begin(prefix = baseUrl, clearHistoryAfterLoad = clearHistoryAfterLoad)
+        managedLoadTracker.begin(prefix = actualBaseUrl, clearHistoryAfterLoad = clearHistoryAfterLoad)
         webView.loadDataWithBaseURL(
-            baseUrl,
-            htmlContent,
+            actualBaseUrl,
+            (if (resultWindowId != null && !untrustedContent) resultScripts.prepare(htmlContent) else htmlContent)
+                .replace(INPUT_AUDIO_PREVIEW_PLACEHOLDER, resultAssetPolicy?.audioPreview?.replace(audioPreview) ?: INPUT_AUDIO_PREVIEW_PLACEHOLDER),
             "text/html",
             "utf-8",
             null,
         )
     }
-
     fun stopLoading() {
         runCatching { webView.stopLoading() }
     }
-
     fun runScript(script: String) {
+        if (resultWindowId != null && untrustedResult) return
         if (pageReady) {
-            webView.evaluateJavascript(script, null)
+            if (resultWindowId == null || isTrustedResultUrl(webView.url)) webView.evaluateJavascript(if (resultWindowId == null) script else resultScripts.wrap(script), null)
         } else {
             pendingScripts += script
         }
@@ -275,12 +262,16 @@ internal class PresetOverlayWindow(
         script: String,
         onResult: (String?) -> Unit,
     ) {
+        if (resultWindowId != null && (untrustedResult || !isTrustedResultUrl(webView.url))) {
+            onResult(null)
+            return
+        }
         if (pageReady) {
-            webView.evaluateJavascript(script, onResult)
+            webView.evaluateJavascript(if (resultWindowId == null) script else resultScripts.wrap(script), onResult)
         } else {
             rootView.post {
-                if (pageReady) {
-                    webView.evaluateJavascript(script, onResult)
+                if (pageReady && (resultWindowId == null || (!untrustedResult && isTrustedResultUrl(webView.url)))) {
+                    webView.evaluateJavascript(if (resultWindowId == null) script else resultScripts.wrap(script), onResult)
                 } else {
                     onResult(null)
                 }
@@ -336,9 +327,6 @@ internal class PresetOverlayWindow(
     }
 
     fun setWindowAlpha(alpha: Float) {
-        // Apply opacity on the View layer, NOT layoutParams.alpha.
-        // Android's tapjacking protection blocks touch on windows with
-        // layoutParams.alpha < ~0.5, making the overlay uninteractable.
         rootView.alpha = alpha.coerceIn(0.1f, 1.0f)
     }
 
@@ -356,37 +344,24 @@ internal class PresetOverlayWindow(
     }
 
     fun currentUrl(): String? = webView.url
-
     fun goBack() {
-        Log.d(logTag, "goBack canGoBack=${webView.canGoBack()} url=${webView.url}")
         if (webView.canGoBack()) {
             webView.goBack()
         }
     }
 
     fun goForward() {
-        Log.d(logTag, "goForward canGoForward=${webView.canGoForward()} url=${webView.url}")
         if (webView.canGoForward()) {
             webView.goForward()
         }
-    }
-
-    fun goBackInPageHistory() {
-        Log.d(logTag, "goBackInPageHistory url=${webView.url}")
-        runScript("history.back();")
-    }
-
-    fun goForwardInPageHistory() {
-        Log.d(logTag, "goForwardInPageHistory url=${webView.url}")
-        runScript("history.forward();")
     }
 
     fun historyState(): OverlayHistoryState {
         val list = runCatching { webView.copyBackForwardList() }.getOrNull()
         val currentItem = list?.currentItem
         return OverlayHistoryState(
-            currentIndex = list?.currentIndex ?: 0,
-            lastIndex = ((list?.size ?: 1) - 1).coerceAtLeast(0),
+            currentIndex = (list?.currentIndex ?: 0) + resultHistoryOffset,
+            lastIndex = ((list?.size ?: 1) - 1).coerceAtLeast(0) + resultHistoryOffset,
             currentUrl = currentItem?.url ?: webView.url,
         )
     }
@@ -397,8 +372,9 @@ internal class PresetOverlayWindow(
         }
         val scripts = pendingScripts.toList()
         pendingScripts.clear()
+        if (resultWindowId != null && (untrustedResult || !isTrustedResultUrl(webView.url))) return
         scripts.forEach { script ->
-            webView.evaluateJavascript(script, null)
+            webView.evaluateJavascript(if (resultWindowId == null) script else resultScripts.wrap(script), null)
         }
     }
 
@@ -431,6 +407,8 @@ internal class PresetOverlayWindow(
                     baseUrl = source.baseUrl,
                     clearHistoryAfterLoad = true,
                     rememberForRecovery = false,
+                    untrustedContent = source.untrusted,
+                    audioPreview = source.audioPreview,
                 )
             }
         }
@@ -449,42 +427,98 @@ internal class PresetOverlayWindow(
     }
 
     private fun createManagedWebView(): WebView {
+        val untrustedView = untrustedResult
+        val viewTracker = managedLoadTracker
+        val gestureGate = ResultDocumentGestureGate()
         return WebView(webViewContext).apply {
+            val targetView = this
             configureOverlayWebView(this, supportsFocus)
+            if (untrustedView) settings.allowFileAccess = false
             webChromeClient = object : WebChromeClient() {}
             webViewClient = createOverlayWebViewClient(
                 appContext = appContext,
                 logTag = logTag,
-                tracker = managedLoadTracker,
+                tracker = viewTracker,
                 onMessageLog = { Log.d(logTag, it) },
                 onRenderProcessGone = { deadView, detail ->
                     recoverFromRenderProcessGone(deadView, detail)
                 },
                 onMainFrameNavigationFailure = { failure ->
-                    recoverFromNavigationFailure(failure)
-                    onNavigationFailureListener?.invoke(failure)
-                },
-                onPageFinished = { url ->
-                    pageReady = true
-                    recoveryAttemptInFlight = false
-                    flushPendingScripts()
-                    onPageFinishedListener?.invoke(url)
-                },
-            )
-            addJavascriptInterface(
-                object {
-                    @android.webkit.JavascriptInterface
-                    fun postMessage(message: String) {
-                        post {
-                            if (!handleOverlayHostMessage(appContext, message, logTag)) {
-                                onMessage(message)
-                            }
-                        }
+                    if (targetView === webView) {
+                        recoverFromNavigationFailure(failure)
+                        onNavigationFailureListener?.invoke(failure)
                     }
                 },
-                "sgtAndroid",
+                onPageFinished = { url ->
+                    if (targetView === webView) {
+                        pageReady = true
+                        recoveryAttemptInFlight = false
+                        flushPendingScripts()
+                        onPageFinishedListener?.invoke(url)
+                    }
+                },
+                onMainFrameNavigation = { source, request ->
+                    revokePreviewOnNavigation(source === webView, resultAssetPolicy?.audioPreview)
+                    val url = request.url.toString()
+                    if (resultWindowId != null && !untrustedView &&
+                        (request.url.scheme == "http" || request.url.scheme == "https") &&
+                        !isTrustedResultUrl(url)
+                    ) {
+                        rootView.post {
+                            if (source === webView) {
+                                replaceResultView(true, 1)
+                                webView.loadUrl(url)
+                            }
+                        }
+                        true
+                    } else false
+                },
+                interceptRequest = { request -> resultAssetPolicy?.intercept(request, !untrustedView) },
+                pageWorldBridge = resultWindowId == null,
+                onPageStarted = { view ->
+                    if (view === webView) {
+                        pageReady = false
+                        if (resultWindowId != null) pendingScripts.clear()
+                        if (!gestureGate.onDocumentStarted() && untrustedView) { resultAssetPolicy?.audioPreview?.replace(null); resultCapabilityNotice.report(false) }
+                    }
+                },
             )
+            if (resultWindowId != null) {
+                if (untrustedView) {
+                    val installed = installUntrustedResultGestureBridge(this, resultWindowId, resultIsDark) { message ->
+                        if (untrustedResult && gestureGate.allows(targetView === webView, pageReady)) {
+                            onMessage(message)
+                        }
+                    }
+                    resultCapabilityNotice.report(installed)
+                } else {
+                    trustedResultBridgeAvailable = installTrustedResultBridge(
+                        this, { it === webView && !untrustedResult }, ::dispatchBridgeMessage,
+                    )
+                    resultCapabilityNotice.report(trustedResultBridgeAvailable)
+                }
+            } else installPageWorldBridge(this, ::dispatchBridgeMessage)
         }
+    }
+
+    private fun dispatchBridgeMessage(message: String) {
+        if (!handleOverlayHostMessage(appContext, message, logTag)) onMessage(message)
+    }
+
+    private fun replaceResultView(untrusted: Boolean, historyOffset: Int) {
+        val old = webView
+        pageReady = false
+        pendingScripts.clear()
+        runCatching { old.stopLoading() }
+        rootView.removeView(old)
+        untrustedResult = untrusted
+        resultHistoryOffset = historyOffset
+        managedLoadTracker = OverlayManagedLoadTracker()
+        webView = createManagedWebView()
+        inputFocusCoordinator = createInputFocusCoordinator()
+        rootView.addView(webView, matchParentLayoutParams())
+        runCatching { old.destroy() }
+        if (attached && currentFocusable) inputFocusCoordinator.requestInitialFocus()
     }
 
     private fun createInputFocusCoordinator(): OverlayInputFocusCoordinator {
@@ -500,6 +534,10 @@ internal class PresetOverlayWindow(
         deadView: WebView?,
         detail: android.webkit.RenderProcessGoneDetail?,
     ): Boolean {
+        if (deadView != null && deadView !== webView) {
+            runCatching { deadView.destroy() }
+            return true
+        }
         val source = recoverySource
         pageReady = false
         recoveryAttemptInFlight = false
@@ -511,6 +549,7 @@ internal class PresetOverlayWindow(
         val oldView = deadView ?: webView
         runCatching { rootView.removeView(oldView) }
         if (oldView === webView) {
+            managedLoadTracker = OverlayManagedLoadTracker()
             webView = createManagedWebView()
             inputFocusCoordinator = createInputFocusCoordinator()
             rootView.addView(webView, matchParentLayoutParams())
@@ -519,7 +558,7 @@ internal class PresetOverlayWindow(
             }
             when (source) {
                 is OverlayRecoverySource.Asset -> loadAssetPage(source.assetPage)
-                is OverlayRecoverySource.Html -> loadHtmlContent(source.htmlContent, source.baseUrl)
+                is OverlayRecoverySource.Html -> loadHtmlContent(source.htmlContent, source.baseUrl, untrustedContent = source.untrusted, audioPreview = source.audioPreview)
                 null -> loadRecoveryFailureHtml(
                     OverlayNavigationFailure(
                         url = null,
@@ -532,12 +571,9 @@ internal class PresetOverlayWindow(
         return true
     }
 
-    private fun matchParentLayoutParams(): FrameLayout.LayoutParams {
-        return FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT,
-        )
-    }
+    private fun matchParentLayoutParams() = FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
+    )
 
     private fun scheduleLayoutApply() {
         if (layoutApplyScheduled) {
@@ -553,9 +589,3 @@ internal class PresetOverlayWindow(
         }
     }
 }
-
-internal data class OverlayHistoryState(
-    val currentIndex: Int,
-    val lastIndex: Int,
-    val currentUrl: String?,
-)

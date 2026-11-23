@@ -1,10 +1,20 @@
-const scene = document.getElementById('scene'); const isolatedOrigin = __SGT_ISOLATED_ORIGIN_JSON__;
+const scene = document.getElementById('scene');
 const cards = new Map();
 const cardStyleText = __SGT_CARD_CSS_JSON__; let currentThemeCss = '';
 let highestStackOrder = 0;
 let activeFit = null; const pendingFits = new Map();
 let fitFrame = null;
 let sharedCardSheet = null;
+let frameDiagnosticStart = 0;
+let frameDiagnosticCount = 0;
+function allowFrameDiagnostic() {
+  const now = performance.now();
+  if (now - frameDiagnosticStart >= 1000) {
+    frameDiagnosticStart = now;
+    frameDiagnosticCount = 0;
+  }
+  return ++frameDiagnosticCount <= 100;
+}
 function reportCardDiagnostic(id, entry, phase, details) {
   details = details || {};
   window.ipc.postMessage(JSON.stringify({
@@ -41,7 +51,7 @@ function publishSelectionCopy(event, id) {
   if (!text) return;
   event.preventDefault();
   window.ipc.postMessage(JSON.stringify({
-    action: 'copy_selection', hwnd: String(id), text: text
+    action: 'copy_selection', hwnd: String(id), text: text, topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1'
   }));
 }
 function ensureCard(id) {
@@ -62,9 +72,10 @@ function ensureCard(id) {
   shadow.appendChild(bodyElement);
   const frame = document.createElement('iframe');
   frame.className = 'result-frame';
+  frame.name = 'sgt-result-card-' + key;
   frame.hidden = true;
   frame.referrerPolicy = 'no-referrer';
-  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock allow-presentation');
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-pointer-lock allow-presentation');
   const backdrop = document.createElement('img');
   backdrop.className = 'region-backdrop';
   backdrop.hidden = true;
@@ -96,8 +107,6 @@ function ensureCard(id) {
     contentPhase: 'document',
     streaming: false,
     visible: false,
-    navigationDepth: 0,
-    navigationUrls: [],
     refining: false, navigationLoading: false, externalNavigation: false,
     streamingEnabled: true,
     contentRevision: 0, appliedContentRevision: 0, revision: 0, resizeFit: 0,
@@ -126,13 +135,14 @@ function ensureCard(id) {
   entry.resizeRuntime = window.__SGT_CARD_RESIZE__.attach(entry);
   function activateIsolatedBridge() {
     if (entry.mode !== 'isolated') return;
-    if (entry.ready || entry.navigationDepth !== 0) return;
+    if (entry.ready) return;
     entry.ready = true;
     entry.fontReady = true;
+    postCardMessage(entry, { type: 'topology_epoch', epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1' });
     if (currentThemeCss) postCardMessage(entry, { type: 'theme_update', css: currentThemeCss });
     postCardMessage(entry, { type: 'activate_font' });
     const flushed = flushPendingContent(entry);
-    if (entry.visible && entry.navigationDepth === 0 && !flushed) {
+    if (entry.visible && !flushed) {
       queueFit(entry, entry.streaming);
     }
   }
@@ -142,11 +152,11 @@ function ensureCard(id) {
     reportCardDiagnostic(id, entry, 'document_loaded', {
       payloadLen: entry.document ? entry.document.length : 0
     });
-    activateIsolatedBridge();
+    if (entry.commandPort) activateIsolatedBridge();
   });
   card.addEventListener('pointerdown', function() {
     raiseCard(entry);
-    window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id) }));
+    window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id), topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1' }));
   }, true);
   shadow.addEventListener('click', function(event) {
     const path = event.composedPath ? event.composedPath() : [];
@@ -164,13 +174,16 @@ function ensureCard(id) {
   return entry;
 }
 function postCardMessage(entry, message) {
-  if (entry.mode !== 'isolated' || !entry.ready || entry.navigationDepth !== 0) return false;
+  if (entry.mode !== 'isolated' || !entry.ready) return false;
   message.card_id = entry.card.dataset.id;
   if (entry.commandPort) entry.commandPort.postMessage(message);
   else if (entry.frame.contentWindow) entry.frame.contentWindow.postMessage(message, '*');
   else return false;
   return true;
 }
+window.__SGT_NOTIFY_CARDS_TOPOLOGY__ = function(epoch) {
+  for (const entry of cards.values()) postCardMessage(entry, { type: 'topology_epoch', epoch: String(epoch) });
+};
 function cancelActiveFit(entry) {
   if (entry.directState.fit._sgtVisualSettle) entry.directState.fit._sgtVisualSettle.cancel();
   pendingFits.delete(entry.card.dataset.id);
@@ -180,7 +193,7 @@ function cancelActiveFit(entry) {
   scheduleFit();
 }
 function queueFit(entry, streaming) {
-  if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0 || !String(entry.body || '').trim()) return;
+  if (!entry.ready || !entry.fontReady || !entry.visible || !String(entry.body || '').trim()) return;
   const key = entry.card.dataset.id;
   const current = pendingFits.get(key);
   const next = {
@@ -243,7 +256,7 @@ function scheduleFit() {
     if (!selected) return;
     pendingFits.delete(selectedKey);
     const entry = selected.entry;
-    if (!entry.ready || !entry.fontReady || !entry.visible || entry.navigationDepth !== 0
+    if (!entry.ready || !entry.fontReady || !entry.visible
         || selected.revision !== entry.revision
         || selected.contentRevision !== (entry.mode === 'direct' ? entry.appliedContentRevision : entry.contentRevision)) {
       scheduleFit();
@@ -370,6 +383,7 @@ function loadIsolatedDocument(entry, documentHtml) {
   entry.ready = false;
   entry.fontReady = false;
   entry.revision++;
+  entry.authorInteractiveReported = false;
   entry.loadedDocument = documentKey(documentHtml);
   if (entry.commandPort) entry.commandPort.close();
   entry.commandPort = null;
@@ -379,8 +393,7 @@ function loadIsolatedDocument(entry, documentHtml) {
     payloadLen: documentHtml ? documentHtml.length : 0
   });
   entry.frame.removeAttribute('src');
-  entry.frame.srcdoc = documentHtml.replace('__SGT_CARD_FRAME_IDENTITY__',
-    entry.card.dataset.id + ':' + entry.revision);
+  entry.frame.srcdoc = '<!--sgt-card:' + entry.card.dataset.id + ':' + entry.revision + '-->' + documentHtml;
   if (!entry.frame.isConnected) {
     (entry.sourceReplacement ? entry.visualSurface : entry.card).appendChild(entry.frame);
   }
@@ -390,7 +403,7 @@ function selectSurface(entry, documentHtml) {
   entry.document = documentHtml;
   if (documentHtml === null) {
     if (entry.mode !== 'direct') useDirectSurface(entry);
-  } else if (entry.mode !== 'isolated' || changed || entry.navigationDepth > 0) {
+  } else if (entry.mode !== 'isolated' || changed) {
     loadIsolatedDocument(entry, documentHtml);
   }
 }
@@ -508,77 +521,3 @@ function updateGeometry(model) {
   syncSourceBackdrop(entry);
   activateCard(entry, becameVisible);
 }
-function reportNavigation(id, entry) {
-  window.ipc.postMessage(JSON.stringify({
-    type: 'navigation', id: Number(id), depth: entry.navigationDepth,
-    max_depth: entry.navigationUrls.length
-  }));
-}
-function navigateTo(entry, url) {
-  window.ipc.postMessage(JSON.stringify({
-    type: 'navigation_request', id: Number(entry.card.dataset.id), url: String(url)
-  }));
-}
-window.addEventListener('message', function(event) {
-  if (!event.data) return;
-  const id = String(event.data.card_id || '');
-  const entry = cards.get(id);
-  if (!entry || entry.mode !== 'isolated') return;
-  if (event.source !== entry.frame.contentWindow) return;
-  if (Number(event.data.document_revision || 0) !== entry.revision) return;
-    if (event.data.type === 'fit_diagnostic') {
-      window.ipc.postMessage(JSON.stringify({ type: 'fit_diagnostic', id: Number(id), payload: event.data.payload }));
-    } else if (event.data.type === 'frame_request') {
-      const handle = Number(event.data.handle || 0);
-      const documentRevision = entry.revision;
-      requestAnimationFrame(function(timestamp) {
-        if (entry.revision !== documentRevision) return;
-        postCardMessage(entry, { type: 'frame_tick', handle: handle, timestamp: timestamp });
-      });
-    } else if (event.data.type === 'fit_request') {
-      queueFit(entry, event.data.streaming);
-    } else if (event.data.type === 'fit_complete') {
-      completeFit(entry);
-    } else if (event.data.type === 'card_diagnostic') {
-      const revision = Number(event.data.content_revision || 0);
-      if (event.data.phase === 'bridge_ready') {
-        entry.commandPort = event.ports && event.ports[0] ? event.ports[0] : null;
-        if (entry.commandPort) entry.commandPort.start();
-        entry.activateIsolatedBridge();
-      }
-      if (String(event.data.phase || '').startsWith('font_ready_')) {
-        entry.fontReady = true;
-        const flushed = flushPendingContent(entry);
-        if (entry.visible && entry.navigationDepth === 0 && !flushed) {
-          queueFit(entry, entry.streaming);
-        }
-      }
-      if (!revision || revision === entry.contentRevision) {
-        const phase = event.data.phase || 'bridge_unknown';
-        const details = {
-          revision: revision || entry.contentRevision,
-          payloadLen: event.data.payload_len,
-          textLen: event.data.text_len,
-          opacity: event.data.opacity,
-          error: event.data.error
-        };
-        if (!deferIsolatedSettledPaint(entry, phase, details)) {
-          reportCardDiagnostic(id, entry, phase, details);
-        }
-        if (phase === 'interactive_document_alive') {
-          const surface = isolatedSurfaceVisibility(entry);
-          reportCardDiagnostic(id, entry, surface.visible ? 'interactive_surface_visible'
-            : 'interactive_surface_rejected', { error: surface.error });
-        }
-      }
-    } else if (event.data.type === 'card_interaction') {
-      raiseCard(entry);
-      window.ipc.postMessage(JSON.stringify({ type: 'interaction', id: Number(id) }));
-    } else if (event.data.type === 'copy_selection') {
-      window.ipc.postMessage(JSON.stringify({
-        action: 'copy_selection', hwnd: id, text: String(event.data.text || '')
-      }));
-    } else if (event.data.type === 'card_navigation') {
-      navigateTo(entry, event.data.url);
-    }
-});

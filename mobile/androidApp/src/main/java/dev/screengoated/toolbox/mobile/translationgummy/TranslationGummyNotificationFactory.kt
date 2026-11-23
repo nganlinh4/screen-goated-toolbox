@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.service.ForegroundNotificationIds
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 
 class TranslationGummyNotificationFactory(
@@ -68,7 +69,7 @@ class TranslationGummyNotificationFactory(
     }
 
     companion object {
-        const val NOTIFICATION_ID = 42067
+        const val NOTIFICATION_ID = ForegroundNotificationIds.TRANSLATION_GUMMY
         private const val CHANNEL_ID = "sgt_translation_gummy"
     }
 }

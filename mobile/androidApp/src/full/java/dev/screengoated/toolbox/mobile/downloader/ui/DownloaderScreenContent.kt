@@ -61,6 +61,7 @@ import androidx.core.content.FileProvider
 import dev.screengoated.toolbox.mobile.downloader.DownloadPhase
 import dev.screengoated.toolbox.mobile.downloader.DownloadType
 import dev.screengoated.toolbox.mobile.downloader.DownloaderViewModel
+import dev.screengoated.toolbox.mobile.downloader.qualityChoices
 import dev.screengoated.toolbox.mobile.ui.UtilityExpressiveCard
 import dev.screengoated.toolbox.mobile.ui.UtilityHeaderRow
 
@@ -81,7 +82,7 @@ internal fun SessionContent(
         MaterialTheme.colorScheme.tertiary
     }
     val preferredVideoFormat = if (session.downloadType == DownloadType.VIDEO) {
-        session.selectedFormat ?: state.settings.lastVideoFormat
+        session.selectedFormat
     } else {
         null
     }
@@ -183,34 +184,28 @@ internal fun SessionContent(
         }
 
         // Quality + Subtitle row
-        val hasQuality = session.downloadType == DownloadType.VIDEO &&
-            (session.availableFormats.isNotEmpty() || preferredVideoFormat != null)
-        val hasSubs = state.settings.useSubtitles && session.availableSubtitles.isNotEmpty()
+        val hasQuality = session.downloadType == DownloadType.VIDEO
+        val hasSubs = state.settings.useSubtitles && (!hasQuality || session.availableSubtitles.isNotEmpty())
+        val scanAction = if (session.inputUrl.isNotBlank() && !session.isAnalyzing &&
+            session.phase != DownloadPhase.DOWNLOADING
+        ) locale.downloader.scanFormats to viewModel::scanFormats else null
         if (hasQuality || hasSubs) {
             UtilityExpressiveCard(accent = MaterialTheme.colorScheme.secondary) {
-                UtilityHeaderRow(
-                    icon = R.drawable.ms_tune,
-                    title = locale.dlAdvanced,
-                    accent = MaterialTheme.colorScheme.secondary,
-                    supporting = listOfNotNull(
-                        if (hasQuality) locale.dlQualityLabel else null,
-                        if (hasSubs) locale.dlSubtitleLabel else null,
-                    ).joinToString(" • "),
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (hasQuality) {
                         Box(Modifier.weight(1f)) {
-                            val qualityOptions = (listOf(locale.dlBest) +
-                                listOfNotNull(preferredVideoFormat) +
-                                session.availableFormats).distinct()
+                            val qualityOptions = listOf(locale.dlBest) +
+                                qualityChoices(preferredVideoFormat, session.availableFormats)
                             DropdownSelector(
                                 label = locale.dlQualityLabel,
                                 options = qualityOptions,
                                 selected = preferredVideoFormat ?: locale.dlBest,
                                 onSelect = { viewModel.setFormat(if (it == locale.dlBest) null else it) },
+                                optionLabel = { if (it == locale.dlBest) it else locale.downloader.preferQuality(it) },
+                                extraAction = scanAction,
                             )
                         }
                     }
@@ -221,23 +216,20 @@ internal fun SessionContent(
                                 options = listOf(locale.dlAuto) + session.availableSubtitles,
                                 selected = session.selectedSubtitle ?: locale.dlAuto,
                                 onSelect = { viewModel.setSubtitle(if (it == locale.dlAuto) null else it) },
+                                extraAction = scanAction.takeUnless { hasQuality },
                             )
                         }
                     }
                 }
-            }
-        } else if (
-            state.settings.useSubtitles &&
-            !session.isAnalyzing &&
-            session.inputUrl.isNotBlank() &&
-            session.lastUrlAnalyzed.isNotBlank()
-        ) {
-            UtilityExpressiveCard(accent = MaterialTheme.colorScheme.secondary) {
-                Text(
-                    locale.dlSubsNoneFound,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (state.settings.useSubtitles && !session.isAnalyzing &&
+                    session.lastUrlAnalyzed.isNotBlank() && session.availableSubtitles.isEmpty()
+                ) {
+                    Text(
+                        locale.dlSubsNoneFound,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -337,6 +329,9 @@ internal fun SessionContent(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                        }
+                        session.finishedQuality?.let { quality ->
+                            Text("${quality}p", style = MaterialTheme.typography.bodySmall)
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalButton(

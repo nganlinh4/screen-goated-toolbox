@@ -71,10 +71,34 @@ pub(super) fn validate_saved(record: &CompanionRecord) -> Result<String, String>
     {
         return Err("Creation companion state is invalid.".to_string());
     }
-    super::publication::output_identity(Path::new(&record.output_path))
+    crate::overlay::creation_path::normalized_absolute(Path::new(&record.output_path))
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn validate_assignment(
+    delivery: &PublishedDelivery,
+    companion: &PublishedCompanion,
+) -> Result<(), String> {
+    validate_assignment_structure(delivery, companion)?;
+    let staging = Path::new(&companion.staging_path);
+    let output = Path::new(&companion.output_path);
+    let metadata = std::fs::symlink_metadata(staging)
+        .map_err(|_| "Creation companion staging result is unavailable.".to_string())?;
+    if !metadata.file_type().is_file() || metadata.len() == 0 {
+        return Err("Creation companion staging result is invalid.".to_string());
+    }
+    let mut header = [0_u8; 21];
+    std::fs::File::open(staging)
+        .and_then(|mut file| file.read_exact(&mut header))
+        .map_err(|_| "Creation companion staging result is invalid.".to_string())?;
+    if &header != b"Kaydara FBX Binary  \0" {
+        return Err("Creation companion staging result is invalid.".to_string());
+    }
+    super::publication::output_identity(output)?;
+    Ok(())
+}
+
+pub(super) fn validate_assignment_structure(
     delivery: &PublishedDelivery,
     companion: &PublishedCompanion,
 ) -> Result<(), String> {
@@ -92,22 +116,27 @@ fn validate_assignment(
         .extension()
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.eq_ignore_ascii_case("fbx"));
-    if !valid_name || !same_staging_parent || !same_output_parent || !matching_stem || !fbx {
+    if delivery.product != "3d"
+        || !valid_name
+        || !same_staging_parent
+        || !same_output_parent
+        || !matching_stem
+        || !fbx
+        || staging.file_name().and_then(|value| value.to_str())
+            != Some(companion.output_name.as_str())
+        || companion.output_path.len() > super::MAX_PATH_BYTES
+        || companion.staging_path.len() > super::MAX_PATH_BYTES
+    {
         return Err("Creation companion assignment is invalid.".to_string());
     }
-    let metadata = std::fs::symlink_metadata(staging)
-        .map_err(|_| "Creation companion staging result is unavailable.".to_string())?;
-    if !metadata.file_type().is_file() || metadata.len() == 0 {
-        return Err("Creation companion staging result is invalid.".to_string());
-    }
-    let mut header = [0_u8; 21];
-    std::fs::File::open(staging)
-        .and_then(|mut file| file.read_exact(&mut header))
-        .map_err(|_| "Creation companion staging result is invalid.".to_string())?;
-    if &header != b"Kaydara FBX Binary  \0" {
-        return Err("Creation companion staging result is invalid.".to_string());
-    }
-    super::publication::output_identity(output)?;
+    crate::overlay::creation_path::normalized_absolute(output)?;
+    crate::overlay::creation_path::normalized_absolute(staging)?;
+    crate::overlay::creation_output::assigned_path(
+        output
+            .parent()
+            .ok_or("Creation companion assignment is invalid.")?,
+        &companion.output_name,
+    )?;
     Ok(())
 }
 
@@ -154,14 +183,66 @@ pub(super) fn cancel(record: &CompanionRecord) -> Result<(), String> {
         return Ok(());
     };
     let path = Path::new(&record.output_path);
+    super::publication::output_identity(path)?;
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err("Creation companion destination is unavailable.".to_string()),
         Ok(_) => {
-            let file = super::publication::lock_owned_path(path, Some(identity), false, true)?;
+            let mut file = super::publication::lock_owned_path(path, Some(identity), false, true)?;
+            verify_cleanup_content(record, &mut file)?;
             super::publication::delete_owned(&file, path)
         }
     }
+}
+
+fn verify_cleanup_content(
+    record: &CompanionRecord,
+    target: &mut std::fs::File,
+) -> Result<(), String> {
+    let changed = || "Creation companion bytes changed; cleanup is pending.".to_string();
+    let length = target.metadata().map_err(|_| changed())?.len();
+    if length == 0 {
+        return Ok(());
+    }
+    if length > record.artifact_size_bytes {
+        return Err(changed());
+    }
+    if length == record.artifact_size_bytes {
+        let artifact =
+            crate::overlay::generation_history::inspect_delivery_artifact(&record.output_path)?;
+        return if artifact.sha256 == record.artifact_sha256 {
+            Ok(())
+        } else {
+            Err(changed())
+        };
+    }
+    let mut source =
+        super::publication::lock_owned_path(Path::new(&record.staging_path), None, false, false)?;
+    let artifact =
+        crate::overlay::generation_history::inspect_delivery_artifact(&record.staging_path)?;
+    if artifact.size_bytes != record.artifact_size_bytes
+        || artifact.sha256 != record.artifact_sha256
+        || artifact.file_identity != crate::overlay::creation_file_identity::from_file(&source)?
+    {
+        return Err(changed());
+    }
+    let mut left = [0_u8; 64 * 1024];
+    let mut right = [0_u8; 64 * 1024];
+    let mut remaining = length;
+    while remaining != 0 {
+        let count = remaining.min(left.len() as u64) as usize;
+        target
+            .read_exact(&mut left[..count])
+            .map_err(|_| changed())?;
+        source
+            .read_exact(&mut right[..count])
+            .map_err(|_| changed())?;
+        if left[..count] != right[..count] {
+            return Err(changed());
+        }
+        remaining -= count as u64;
+    }
+    Ok(())
 }
 
 pub(super) fn cleanup_staging(record: &CompanionRecord) -> Result<(), String> {
@@ -194,6 +275,91 @@ pub(super) fn metadata(record: &DeliveryRecord) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unavailable_destination_cleanup_requires_unchanged_full_or_partial_companion() {
+        for (target, source, remove) in [
+            (b"".as_slice(), None, true),
+            (b"generated".as_slice(), None, true),
+            (b"gene".as_slice(), Some(b"generated".as_slice()), true),
+            (b"edit".as_slice(), Some(b"generated".as_slice()), false),
+            (b"gene".as_slice(), Some(b"changed!!".as_slice()), false),
+            (b"gene".as_slice(), None, false),
+        ] {
+            let root = std::env::temp_dir().join(
+                crate::overlay::creation_identity::random_id("sgt-companion-proof-").unwrap(),
+            );
+            std::fs::create_dir(&root).unwrap();
+            let staging = root.join("source.fbx");
+            let output = root.join("result.fbx");
+            std::fs::write(&staging, b"generated").unwrap();
+            let artifact = crate::overlay::generation_history::inspect_delivery_artifact(
+                &staging.to_string_lossy(),
+            )
+            .unwrap();
+            match source {
+                Some(bytes) => std::fs::write(&staging, bytes).unwrap(),
+                None => std::fs::remove_file(&staging).unwrap(),
+            }
+            std::fs::write(&output, target).unwrap();
+            let record = CompanionRecord {
+                output_name: "result.fbx".into(),
+                staging_path: staging.to_string_lossy().into_owned(),
+                output_path: output.to_string_lossy().into_owned(),
+                artifact_size_bytes: artifact.size_bytes,
+                artifact_sha256: artifact.sha256,
+                file_identity: Some(
+                    crate::overlay::creation_file_identity::from_path(&output).unwrap(),
+                ),
+            };
+            let result = cancel(&record);
+            let remaining = std::fs::read(&output).ok();
+            std::fs::remove_dir_all(&root).unwrap();
+            assert_eq!(
+                result.is_ok(),
+                remove,
+                "target {target:?}, source {source:?}: {result:?}"
+            );
+            assert_eq!(
+                remaining.as_deref(),
+                if remove { None } else { Some(target) }
+            );
+        }
+    }
+
+    #[test]
+    fn unavailable_destination_cleanup_preserves_changed_companion_bytes() {
+        let root = std::env::temp_dir()
+            .join(crate::overlay::creation_identity::random_id("sgt-companion-cleanup-").unwrap());
+        std::fs::create_dir(&root).unwrap();
+        let source = root.join("source.fbx");
+        let output = root.join("result.fbx");
+        std::fs::write(&source, b"generated").unwrap();
+        std::fs::write(&output, b"generated").unwrap();
+        let artifact = crate::overlay::generation_history::inspect_delivery_artifact(
+            &source.to_string_lossy(),
+        )
+        .unwrap();
+        let record = CompanionRecord {
+            output_name: "result.fbx".to_string(),
+            staging_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            artifact_size_bytes: artifact.size_bytes,
+            artifact_sha256: artifact.sha256,
+            file_identity: Some(
+                crate::overlay::creation_file_identity::from_path(&output).unwrap(),
+            ),
+        };
+        std::fs::write(&output, b"changed!!").unwrap();
+        let result = cancel(&record);
+        let remaining = std::fs::read(&output).ok();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(
+            result.is_err(),
+            "Changed bytes were treated as unchanged ownership"
+        );
+        assert_eq!(remaining.as_deref(), Some(b"changed!!".as_slice()));
+    }
 
     #[test]
     fn companion_publication_keeps_the_quad_download_under_owned_identity() {

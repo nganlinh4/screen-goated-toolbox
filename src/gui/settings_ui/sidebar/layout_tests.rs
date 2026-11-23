@@ -31,8 +31,11 @@ fn handle_centers(ctx: &egui::Context, config: &Config) -> Vec<(String, f32, f32
     config
         .presets
         .iter()
-        .filter_map(|preset| {
-            let id = egui::Id::new("preset-drag-handle").with(&preset.id);
+        .enumerate()
+        .filter_map(|(index, preset)| {
+            let id = egui::Id::new("preset-drag-handle")
+                .with(&preset.id)
+                .with(index);
             let rect = ctx.read_response(id)?.rect;
             Some((preset.id.clone(), rect.center().x, rect.center().y))
         })
@@ -65,6 +68,22 @@ fn every_lane_puts_its_row_icons_on_the_same_line() {
 }
 
 #[test]
+fn duplicate_preset_ids_have_distinct_interactive_rows() {
+    let mut config = Config::default();
+    let preset = config
+        .presets
+        .iter()
+        .find(|preset| !preset.is_upcoming)
+        .unwrap()
+        .clone();
+    config.presets = vec![preset.clone(), preset];
+    let ctx = lay_out_sidebar(&mut config);
+    let centers = handle_centers(&ctx, &config);
+    assert_eq!(centers.len(), 2);
+    assert_ne!(centers[0].2, centers[1].2);
+}
+
+#[test]
 fn rows_within_a_lane_keep_one_pitch_all_the_way_to_its_add_button() {
     let mut config = Config::default();
     let ctx = lay_out_sidebar(&mut config);
@@ -91,8 +110,10 @@ fn rows_within_a_lane_keep_one_pitch_all_the_way_to_its_add_button() {
 fn dump_row_geometry() {
     let mut config = Config::default();
     let ctx = lay_out_sidebar(&mut config);
-    for preset in &config.presets {
-        let id = egui::Id::new("preset-drag-handle").with(&preset.id);
+    for (index, preset) in config.presets.iter().enumerate() {
+        let id = egui::Id::new("preset-drag-handle")
+            .with(&preset.id)
+            .with(index);
         if let Some(r) = ctx.read_response(id) {
             println!(
                 "{:<34} x {:7.2}..{:7.2}  y {:7.2}..{:7.2}  h {:5.2}",

@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.service.tryStartForegroundService
+import dev.screengoated.toolbox.mobile.service.stopForUnavailableSecureStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,7 +26,12 @@ class TranslationGummyService : androidx.lifecycle.LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        appContainer = (application as SgtMobileApplication).appContainer
+        val container = (application as SgtMobileApplication).appContainerOrNull
+        if (container == null) {
+            stopForUnavailableSecureStore()
+            return
+        }
+        appContainer = container
         repository = appContainer.translationGummyRepository
         runtime = appContainer.translationGummyRuntime
         notifications = TranslationGummyNotificationFactory(this, repository::localeText)
@@ -47,6 +53,10 @@ class TranslationGummyService : androidx.lifecycle.LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (!::runtime.isInitialized) {
+            stopForUnavailableSecureStore(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> stopSession()
             ACTION_RESTART -> restartSession()
@@ -56,7 +66,7 @@ class TranslationGummyService : androidx.lifecycle.LifecycleService() {
     }
 
     override fun onDestroy() {
-        runtime.stop()
+        if (::runtime.isInitialized) runtime.stop()
         serviceScope.cancel()
         super.onDestroy()
     }

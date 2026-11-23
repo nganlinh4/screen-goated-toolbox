@@ -1,7 +1,8 @@
 use crate::config::Config;
+use crate::config::types::{MAX_HISTORY_LIMIT, MIN_HISTORY_LIMIT};
 use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
-use crate::history::{HistoryItem, HistoryManager, HistoryType};
+use crate::history::{HistoryItem, HistoryManager};
 use eframe::egui;
 
 pub fn render_history_panel(
@@ -39,10 +40,26 @@ pub fn render_history_panel(
                         .size(14.0),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .add(egui::Slider::new(&mut config.max_history_items, 10..=200))
-                        .changed()
-                    {
+                    let draft_id = ui.make_persistent_id("history_limit_draft");
+                    let mut draft = ui.data(|data| {
+                        data.get_temp::<HistoryLimitDraft>(draft_id)
+                            .unwrap_or(HistoryLimitDraft {
+                                value: config.max_history_items,
+                                dragging: false,
+                            })
+                    });
+                    if !draft.dragging {
+                        draft.value = config.max_history_items;
+                    }
+                    let response = ui.add(egui::Slider::new(
+                        &mut draft.value,
+                        MIN_HISTORY_LIMIT..=MAX_HISTORY_LIMIT,
+                    ));
+                    let pointer_down = response.is_pointer_button_down_on();
+                    let commit = draft.update(response.changed(), pointer_down);
+                    ui.data_mut(|data| data.insert_temp(draft_id, draft));
+                    if commit && config.max_history_items != draft.value {
+                        config.max_history_items = draft.value;
                         history_manager.request_prune(config.max_history_items);
                         crate::overlay::generation_history::request_prune(config.max_history_items);
                         crate::overlay::input_history::request_prune(config.max_history_items);
@@ -103,7 +120,7 @@ pub fn render_history_panel(
                     .on_hover_text(text.overlay.history_open_media_folder_tooltip)
                     .clicked()
                 {
-                    let config_dir = crate::paths::app_config_dir().join("history_media");
+                    let config_dir = crate::paths::app_runtime_config_dir().join("history_media");
                     let _ = std::fs::create_dir_all(&config_dir);
                     let _ = open::that(config_dir);
                 }
@@ -122,6 +139,7 @@ pub fn render_history_panel(
                     {
                         history_manager.clear_all();
                         crate::overlay::input_history::clear_all();
+                        crate::overlay::computer_control::clear_retained_history();
                     }
                 });
             });
@@ -129,12 +147,21 @@ pub fn render_history_panel(
 
     ui.add_space(8.0);
 
-    let items = history_manager.items.lock().unwrap().clone();
-    let q = search_query.to_lowercase();
-    let filtered: Vec<&HistoryItem> = items
-        .iter()
-        .filter(|i| q.is_empty() || i.text.to_lowercase().contains(&q) || i.timestamp.contains(&q))
-        .collect();
+    if history_manager.persistence_failed() {
+        let message = if history_manager.load_failed() {
+            text.workspace.history_load_failed
+        } else {
+            text.workspace.history_write_failed
+        };
+        ui.colored_label(ui.visuals().error_fg_color, message);
+    }
+    if history_manager.load_failed() {
+        return changed;
+    }
+    let content_key = history_manager.content_key();
+    let filtered = FILTERED.with_borrow_mut(|cache| {
+        cache.get(content_key, search_query, || history_manager.snapshot())
+    });
 
     if filtered.is_empty() {
         ui.centered_and_justified(|ui| {
@@ -149,99 +176,124 @@ pub fn render_history_panel(
             ui.set_height(list_h);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                let mut id_to_delete = None;
-
-                for item in filtered {
-                    // Distinct but subtle colors based on item type
-                    let item_bg = match item.item_type {
-                        HistoryType::Image => {
-                            if is_dark {
-                                // Subtle blue tint for images
-                                egui::Color32::from_rgba_unmultiplied(30, 38, 52, 235)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(240, 245, 255, 255)
-                            }
-                        }
-                        HistoryType::Text => {
-                            if is_dark {
-                                // Subtle green tint for text
-                                egui::Color32::from_rgba_unmultiplied(30, 42, 38, 235)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(240, 252, 245, 255)
-                            }
-                        }
-                        HistoryType::Audio => {
-                            if is_dark {
-                                // Subtle orange/amber tint for audio
-                                egui::Color32::from_rgba_unmultiplied(42, 36, 30, 235)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(255, 250, 240, 255)
-                            }
-                        }
-                    };
-
-                    egui::Frame::new()
-                        .fill(item_bg)
-                        .stroke(card_stroke)
-                        .inner_margin(8.0)
-                        .corner_radius(8.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                let icon = match item.item_type {
-                                    HistoryType::Image => Icon::Image,
-                                    HistoryType::Audio => Icon::Microphone,
-                                    HistoryType::Text => Icon::Text,
-                                };
-                                draw_icon_static(ui, icon, Some(crate::gui::icons::ICON_SM));
-                                ui.label(egui::RichText::new(&item.timestamp).size(10.0).weak());
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if icon_button(ui, Icon::DeleteLarge)
-                                            .on_hover_text(text.overlay.history_delete_tooltip)
-                                            .clicked()
-                                        {
-                                            id_to_delete = Some(item.id);
-                                        }
-
-                                        if icon_button(ui, Icon::Copy)
-                                            .on_hover_text(text.overlay.history_copy_text_tooltip)
-                                            .clicked()
-                                        {
-                                            crate::gui::utils::copy_to_clipboard_text(&item.text);
-                                        }
-
-                                        if !item.media_path.is_empty() {
-                                            let btn_text = match item.item_type {
-                                                HistoryType::Image => text.workspace.view_image_btn,
-                                                HistoryType::Audio => {
-                                                    text.workspace.listen_audio_btn
-                                                }
-                                                HistoryType::Text => text.workspace.view_text_btn,
-                                            };
-                                            if ui.button(btn_text).clicked() {
-                                                let config_dir = crate::paths::app_config_dir()
-                                                    .join("history_media");
-                                                let path = config_dir.join(&item.media_path);
-                                                let _ = open::that(path);
-                                            }
-                                        }
-                                    },
-                                );
-                            });
-
-                            ui.label(egui::RichText::new(&item.text).size(13.0));
-                        });
-                    ui.add_space(4.0);
-                }
-
-                if let Some(id) = id_to_delete {
-                    history_manager.delete(id);
-                }
+                super::history_list::render_history_rows(
+                    ui,
+                    &filtered,
+                    content_key,
+                    history_manager,
+                    text,
+                    &super::history_list::ListStyle {
+                        is_dark,
+                        card_stroke,
+                    },
+                );
             });
         });
     }
 
     changed
+}
+
+thread_local! {
+    static FILTERED: std::cell::RefCell<FilteredHistory> =
+        std::cell::RefCell::new(FilteredHistory::default());
+}
+
+/// The search result for one (history content, query) pair. Copying and
+/// lowercasing every item is done once per change, not once per frame.
+#[derive(Default)]
+struct FilteredHistory {
+    key: Option<(u64, String)>,
+    items: std::rc::Rc<Vec<HistoryItem>>,
+}
+
+impl FilteredHistory {
+    fn get(
+        &mut self,
+        content_key: u64,
+        query: &str,
+        snapshot: impl FnOnce() -> Vec<HistoryItem>,
+    ) -> std::rc::Rc<Vec<HistoryItem>> {
+        let current = self
+            .key
+            .as_ref()
+            .is_some_and(|(key, cached)| *key == content_key && cached == query);
+        if !current {
+            let lowercase = query.to_lowercase();
+            let items = snapshot()
+                .into_iter()
+                .filter(|item| item.matches_query(&lowercase))
+                .collect();
+            self.items = std::rc::Rc::new(items);
+            self.key = Some((content_key, query.to_owned()));
+        }
+        self.items.clone()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HistoryLimitDraft {
+    value: usize,
+    dragging: bool,
+}
+
+impl HistoryLimitDraft {
+    fn update(&mut self, changed: bool, pointer_down: bool) -> bool {
+        let released = self.dragging && !pointer_down;
+        self.dragging = pointer_down;
+        released || (changed && !pointer_down)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FilteredHistory, HistoryLimitDraft, MAX_HISTORY_LIMIT, MIN_HISTORY_LIMIT};
+    use crate::history::{HistoryItem, HistoryType};
+
+    fn item(id: i64, text: &str) -> HistoryItem {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "timestamp": "2026-01-01 00:00",
+            "item_type": "Text",
+            "text": text,
+            "media_path": "",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn history_search_is_recomputed_only_when_content_or_query_changes() {
+        let mut cache = FilteredHistory::default();
+        let mut snapshots = 0;
+        let mut take = |items: Vec<HistoryItem>| {
+            snapshots += 1;
+            items
+        };
+        let all = vec![item(1, "Alpha"), item(2, "beta")];
+        assert_eq!(cache.get(7, "ALP", || take(all.clone())).len(), 1);
+        assert_eq!(cache.get(7, "ALP", || take(all.clone())).len(), 1);
+        assert_eq!(cache.get(7, "", || take(all.clone())).len(), 2);
+        assert_eq!(
+            cache.get(8, "", || take(vec![item(3, "gamma")]))[0].text,
+            "gamma"
+        );
+        assert_eq!(snapshots, 3);
+        assert_eq!(cache.items[0].item_type, HistoryType::Text);
+    }
+
+    #[test]
+    fn history_limit_drag_commits_only_after_release() {
+        let mut draft = HistoryLimitDraft {
+            value: MAX_HISTORY_LIMIT,
+            dragging: false,
+        };
+        draft.value = MIN_HISTORY_LIMIT;
+        assert!(!draft.update(true, true));
+        draft.value = 150;
+        assert!(!draft.update(true, true));
+        assert!(draft.update(false, false));
+        assert!(!draft.update(false, false));
+        draft.value = 151;
+        assert!(draft.update(true, false));
+    }
 }

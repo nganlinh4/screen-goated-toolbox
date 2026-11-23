@@ -280,6 +280,7 @@ fn apply_native_state(command: &HostCommand) {
         }
         HostCommand::RecordingShow { rect } => {
             let recording = scene.recording.get_or_insert_with(|| RecordingScene {
+                session_id: String::new(),
                 rect: *rect,
                 visible: true,
                 state: "warmup".to_string(),
@@ -402,6 +403,7 @@ fn move_recording_drag() {
         recording.rect = rect;
     }
     super::first_frame::sync_input_window(Some(&RecordingScene {
+        session_id: String::new(),
         rect,
         visible: true,
         state: String::new(),
@@ -426,16 +428,19 @@ fn finish_recording_drag() -> bool {
 }
 
 fn begin_recording_interaction(hwnd: HWND) {
-    if let Some(target) = super::input::target_at_cursor() {
-        super::input::begin_button(hwnd, target);
-    } else if let Some(rect) = SCENE
+    let recording = SCENE
         .lock()
         .unwrap()
         .recording
         .as_ref()
-        .map(|recording| recording.rect)
-    {
-        super::input::begin(hwnd, rect);
+        .filter(|recording| recording.visible)
+        .cloned();
+    if let Some(recording) = recording {
+        if let Some(target) = super::input::target_at_cursor() {
+            super::input::begin_button(hwnd, target, recording.session_id);
+        } else {
+            super::input::begin(hwnd, recording.rect);
+        }
     }
     update_recording_pointer_feedback();
 }
@@ -445,10 +450,12 @@ fn finish_recording_interaction() {
         finish_recording_drag();
     } else if super::input::button_pressed() {
         match super::input::finish_button() {
-            Some(super::input::RecordingTarget::Pause) => {
-                emit_event(ChildEvent::RecordingPauseToggle)
+            Some((super::input::RecordingTarget::Pause, session_id)) => {
+                emit_event(ChildEvent::RecordingPauseToggle { session_id })
             }
-            Some(super::input::RecordingTarget::Cancel) => emit_event(ChildEvent::RecordingCancel),
+            Some((super::input::RecordingTarget::Cancel, session_id)) => {
+                emit_event(ChildEvent::RecordingCancel { session_id })
+            }
             None => {}
         }
     }

@@ -24,7 +24,8 @@ pub(super) fn render_web_apps_card(ui: &mut egui::Ui, text: &LocaleText) {
             &ModelRowSpec {
                 model_probe: PROBE_PROMPT_DJ_WEB,
                 model_title: managed.tool_prompt_dj_interface,
-                model_download_title: crate::overlay::prompt_dj::web_asset_download_title(),
+                progress_key: crate::component_registry::web_assets::WebAssetComponent::PromptDj
+                    .id(),
                 model_notice: no_notice,
                 is_model_downloaded: crate::overlay::prompt_dj::are_web_assets_installed,
                 model_dir: crate::overlay::prompt_dj::web_assets_dir,
@@ -42,7 +43,8 @@ pub(super) fn render_web_apps_card(ui: &mut egui::Ui, text: &LocaleText) {
             &ModelRowSpec {
                 model_probe: PROBE_TTS_PLAYGROUND_WEB,
                 model_title: managed.tool_tts_playground_interface,
-                model_download_title: crate::overlay::tts_playground::web_asset_download_title(),
+                progress_key:
+                    crate::component_registry::web_assets::WebAssetComponent::TtsPlayground.id(),
                 model_notice: no_notice,
                 is_model_downloaded: crate::overlay::tts_playground::are_web_assets_installed,
                 model_dir: crate::overlay::tts_playground::web_assets_dir,

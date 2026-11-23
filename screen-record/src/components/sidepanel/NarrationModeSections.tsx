@@ -1,5 +1,6 @@
 import { RotateCcw } from '@/components/ui/MaterialIcon';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { LabelledField } from '@/components/ui/FieldLabelContext';
 import { Slider } from '@/components/ui/Slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useSettings } from '@/hooks/useSettings';
@@ -31,6 +32,8 @@ type NarrationMode = 'subtitles' | 's2s';
 type DirectVoiceMethod = 's2s' | 'gemini-translate';
 
 interface S2sState {
+  applyRetryable: boolean;
+  handleRetry: () => void;
   canGenerate: boolean;
   handleCancel: () => void;
   handleGenerate: () => void;
@@ -39,6 +42,8 @@ interface S2sState {
 }
 
 interface SubtitleNarrationState {
+  applyRetryable: boolean;
+  handleRetryNarration: () => void;
   canGenerateNarration: boolean;
   handleCancelNarration: () => void;
   handleGenerateNarration: () => void;
@@ -161,40 +166,47 @@ export function NarrationModeSections({
             {t.narrationModeS2s}
           </div>
           <div className="narration-direct-method-row mb-2 flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.narrationTtsModel}
-            </span>
-            <PanelSelect
-              value={directVoiceMethod}
-              options={directVoiceMethodOptions}
-              onChange={(value) => setDirectVoiceMethod(value as DirectVoiceMethod)}
-              triggerClassName="narration-direct-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-direct-method-menu"
-            />
+            <LabelledField
+              label={t.narrationTtsModel}
+              labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+            >
+              <PanelSelect
+                value={directVoiceMethod}
+                options={directVoiceMethodOptions}
+                onChange={(value) => setDirectVoiceMethod(value as DirectVoiceMethod)}
+                disabled={s2s.isGenerating}
+                triggerClassName="narration-direct-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-direct-method-menu"
+              />
+            </LabelledField>
           </div>
           <div className="narration-s2s-source-row mb-2 flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.subtitleSource}
-            </span>
-            <PanelSelect
-              value={selectedSource}
-              options={s2sSourceOptions}
-              onChange={(value) => onSourceChange(value as SubtitleSource)}
-              triggerClassName="narration-s2s-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-s2s-source-menu"
-            />
+            <LabelledField
+              label={t.subtitleSource}
+              labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+            >
+              <PanelSelect
+                value={selectedSource}
+                options={s2sSourceOptions}
+                onChange={(value) => onSourceChange(value as SubtitleSource)}
+                triggerClassName="narration-s2s-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-s2s-source-menu"
+              />
+            </LabelledField>
           </div>
           <div className="narration-s2s-language-row mb-2 flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.narrationS2sTarget}
-            </span>
-            <PanelSelect
-              value={s2sTargetLanguage}
-              options={s2sLanguageOptions}
-              onChange={setS2sTargetLanguage}
-              triggerClassName="narration-s2s-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-s2s-language-menu"
-            />
+            <LabelledField
+              label={t.narrationS2sTarget}
+              labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+            >
+              <PanelSelect
+                value={s2sTargetLanguage}
+                options={s2sLanguageOptions}
+                onChange={setS2sTargetLanguage}
+                triggerClassName="narration-s2s-language-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-s2s-language-menu"
+              />
+            </LabelledField>
           </div>
           {directVoiceMethod === 'gemini-translate' ? (
             // Gemini Translate segments by audio (VAD), so the word-grouping knob
@@ -240,7 +252,15 @@ export function NarrationModeSections({
             </div>
           )}
           <div className="narration-s2s-actions grid grid-cols-2 gap-1.5">
-            <button
+            {s2s.applyRetryable ? <button
+              type="button"
+              onClick={s2s.handleRetry}
+              data-tone="primary"
+              data-emphasis="strong"
+              className="narration-s2s-retry-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium"
+            >
+              {t.subtitleNarrationRetryApply}
+            </button> : <button
               type="button"
               disabled={!s2s.canGenerate}
               onClick={s2s.handleGenerate}
@@ -249,7 +269,7 @@ export function NarrationModeSections({
               className="narration-s2s-generate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium"
             >
               {hasSubtitleRange ? t.subtitleGenerateForRange : t.subtitleNarrationGenerate}
-            </button>
+            </button>}
             <button
               type="button"
               disabled={!s2s.isGenerating}
@@ -269,16 +289,18 @@ export function NarrationModeSections({
       {narrationMode === 'subtitles' && (
         <>
           <div className="narration-panel-source-row flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.narrationSourceTrack}
-            </span>
-            <PanelSelect
-              value={selectedSourceTrackId}
-              options={sourceTrackOptions}
-              onChange={(value) => setSelectedSourceTrackId(value)}
-              triggerClassName="narration-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-source-menu"
-            />
+            <LabelledField
+              label={t.narrationSourceTrack}
+              labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+            >
+              <PanelSelect
+                value={selectedSourceTrackId}
+                options={sourceTrackOptions}
+                onChange={(value) => setSelectedSourceTrackId(value)}
+                triggerClassName="narration-source-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-source-menu"
+              />
+            </LabelledField>
           </div>
 
           <div className="narration-panel-generate rounded-xl border border-outline/35 bg-surface-container-high/45 p-2.5">
@@ -339,7 +361,15 @@ export function NarrationModeSections({
               />
             </div>
             <div className="narration-panel-actions grid grid-cols-2 gap-1.5">
-              <button
+              {narration.applyRetryable ? <button
+                type="button"
+                onClick={narration.handleRetryNarration}
+                data-tone="primary"
+                data-emphasis="strong"
+                className="narration-panel-retry-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
+              >
+                {t.subtitleNarrationRetryApply}
+              </button> : <button
                 type="button"
                 disabled={!narration.canGenerateNarration || !selectedMethodSupported}
                 onClick={narration.handleGenerateNarration}
@@ -348,7 +378,7 @@ export function NarrationModeSections({
                 className="narration-panel-generate-button ui-action-button flex h-8 items-center justify-center rounded-lg px-2.5 text-[11px] font-medium leading-tight"
               >
                 {generateLabel}
-              </button>
+              </button>}
               <button
                 type="button"
                 disabled={!narration.isGeneratingNarration}

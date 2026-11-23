@@ -101,9 +101,6 @@ fn internal_create_window_loop() {
                     WebViewBuilder::new()
                 };
 
-                let builder =
-                    crate::overlay::html_components::font_manager::configure_webview(builder);
-
                 // Store HTML in font server and get URL for same-origin font loading
                 let badge_html = super::html::get_badge_html();
                 let page_url = crate::overlay::html_components::font_manager::store_html_page(
@@ -159,9 +156,6 @@ fn internal_create_window_loop() {
 
             // Process any notifications that were enqueued during warmup
             let _ = PostMessageW(Some(hwnd), WM_APP_PROCESS_QUEUE, WPARAM(0), LPARAM(0));
-            if ACTIVE_PROGRESS.lock().unwrap().is_some() {
-                let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_PROGRESS, WPARAM(0), LPARAM(0));
-            }
         } else {
             // Initialization failed - cleanup and exit
             let _ = DestroyWindow(hwnd);

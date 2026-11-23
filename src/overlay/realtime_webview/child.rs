@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -16,6 +17,7 @@ use super::mailbox::{CommandBuffer, PushResult};
 use super::protocol::{ChildEvent, HostCommand};
 
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 620;
+const WM_SCRIPT_COMPLETE: u32 = WM_APP + 621;
 
 static COMMANDS: LazyLock<Mutex<CommandBuffer>> =
     LazyLock::new(|| Mutex::new(CommandBuffer::default()));
@@ -23,6 +25,20 @@ static OUTPUT: LazyLock<Mutex<std::io::Stdout>> = LazyLock::new(|| Mutex::new(st
 static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 static RENDERER_READY: AtomicBool = AtomicBool::new(false);
 static REGISTER_CLASS: std::sync::Once = std::sync::Once::new();
+thread_local! {
+    static DRAINING: Cell<bool> = const { Cell::new(false) };
+    static DRAIN_AGAIN: Cell<bool> = const { Cell::new(false) };
+}
+
+struct DrainGuard;
+impl Drop for DrainGuard {
+    fn drop(&mut self) {
+        DRAINING.with(|value| value.set(false));
+        if DRAIN_AGAIN.with(|value| value.replace(false)) {
+            post_host(WM_DRAIN_COMMANDS);
+        }
+    }
+}
 
 pub(super) fn run() -> anyhow::Result<()> {
     unsafe {
@@ -114,13 +130,24 @@ pub(super) fn renderer_ready() {
     emit_event(ChildEvent::Ready);
     post_host(WM_DRAIN_COMMANDS);
     std::thread::spawn(|| {
+        let mut last_wake = std::time::Instant::now();
         while HOST_HWND.load(Ordering::SeqCst) != 0 {
             std::thread::sleep(Duration::from_secs(1));
             if HOST_HWND.load(Ordering::SeqCst) != 0 {
+                if last_wake.elapsed() > Duration::from_secs(5) {
+                    super::webview::reset_script_timeout_after_suspend();
+                } else if super::webview::script_timed_out() {
+                    crate::crash_report::exit(1, "realtime-script-timeout");
+                }
+                last_wake = std::time::Instant::now();
                 emit_event(ChildEvent::Heartbeat);
             }
         }
     });
+}
+
+pub(super) fn post_script_complete() {
+    post_host(WM_SCRIPT_COMPLETE);
 }
 
 pub(super) fn emit_event(event: ChildEvent) {
@@ -160,6 +187,10 @@ unsafe extern "system" fn window_proc(
                 drain_commands(hwnd);
                 LRESULT(0)
             }
+            WM_SCRIPT_COMPLETE => {
+                super::webview::script_complete();
+                LRESULT(0)
+            }
             WM_DISPLAYCHANGE => {
                 resize_host(hwnd);
                 LRESULT(0)
@@ -188,7 +219,13 @@ fn drain_commands(hwnd: HWND) {
     if !RENDERER_READY.load(Ordering::SeqCst) {
         return;
     }
-    for command in COMMANDS.lock().unwrap().drain() {
+    if DRAINING.with(|value| value.replace(true)) {
+        DRAIN_AGAIN.with(|value| value.set(true));
+        return;
+    }
+    let _guard = DrainGuard;
+    let commands = COMMANDS.lock().unwrap().drain();
+    for command in commands {
         if matches!(command, HostCommand::Shutdown) {
             unsafe {
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));

@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"name":"append-and-unchanged", "updates":["First", "First second", "First second"], "segments":["First", " second"]},
+    {"name":"shorter-replacement", "updates":["Long words", "New"], "segments":["Long words", "New"]},
+    {"name":"same-length-replacement", "updates":["Alpha", "Bravo"], "segments":["Alpha", "Bravo"]},
+    {"name":"longer-replacement", "updates":["Old", "Replacement"], "segments":["Old", "Replacement"]},
+    {"name":"clear-and-restart", "updates":["First", "", "First again"], "segments":["First", "First again"]},
+    {"name":"unicode-replacement", "updates":["한글", "다른", "다른 말"], "segments":["한글", "다른", " 말"]},
+    {"name":"coalesced-reset-with-same-prefix", "updates":["First", "First again"], "revisions":[0, 1], "segments":["First", "First again"]},
+    {"name":"history-threshold-counts-characters", "updates":["界界界界界界界界界界界界界界界界界界界界. End"], "segments":["界界界界界界界界界界界界界界界界界界界界. End"]},
+    {"name":"history-threshold-counts-supplementary-characters", "updates":["😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀. End"], "segments":["😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀. End"]},
+    {"name":"history-leading-boundary", "updates":[". abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"], "segments":[" abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"]}
+  ]
+}

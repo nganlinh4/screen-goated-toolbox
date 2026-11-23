@@ -1,17 +1,22 @@
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetSystemMetrics, MSG, PM_REMOVE, PeekMessageW, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, TranslateMessage, WM_CLOSE,
+
+#[path = "render_controller.rs"]
+mod controller;
+use super::render_mailbox::{self, Read, Receiver as CommandReceiver, Sender};
+#[cfg(test)]
+use controller::checked_controller;
+use controller::{
+    block_target_rect, close_source_overlay, create_controller_window, nearest_control_color,
+    pump_messages, selection_anchor,
 };
 
 use super::contract::{DetectedTextRegion, TranslationDocument, TranslationRegion};
-use super::render_scene::{PreparedBlock, PreparedScene, PreparedSource};
-use crate::overlay::result::{RefineContext, ResultControlOptions, ResultWindowParams, WindowType};
+use super::render_scene::{PreparedBlock, PreparedScene};
 use crate::overlay::selection::CapturedRegion;
 
 const CONTROL_SCALE_PERCENT: u16 = 150;
@@ -47,23 +52,81 @@ impl OverlayMotion {
     }
 }
 
+/// Setup runs platform work (scene preparation, window creation, compositor
+/// prewarm) that can stall; a job never waits on it past this bound.
+const RENDERER_SETUP_TIMEOUT: Duration = Duration::from_secs(20);
+
 pub(super) struct TranslationOverlay {
     sender: Sender<RenderCommand>,
     completion: Receiver<Result<usize, String>>,
+    ready: Receiver<Result<(), String>>,
+    is_ready: bool,
+    setup_deadline: Instant,
 }
 
 impl TranslationOverlay {
     pub(super) fn motion(&self) -> OverlayMotion {
         OverlayMotion(self.sender.clone())
     }
-    pub(super) fn send(&mut self, region: TranslationRegion) {
-        let _ = self.sender.send(RenderCommand::Region(region));
+    pub(super) fn check_ready(&mut self) -> Result<()> {
+        if !self.is_ready {
+            match self.ready.try_recv() {
+                Ok(Ok(())) => self.is_ready = true,
+                Ok(Err(error)) => anyhow::bail!(error),
+                // Dropping this overlay makes a late setup close its windows.
+                Err(TryRecvError::Empty) if Instant::now() >= self.setup_deadline => {
+                    anyhow::bail!(
+                        "screen translation renderer setup did not finish within {} seconds",
+                        RENDERER_SETUP_TIMEOUT.as_secs()
+                    )
+                }
+                Err(TryRecvError::Empty) => return Ok(()),
+                Err(TryRecvError::Disconnected) => {
+                    anyhow::bail!("screen translation renderer stopped before setup")
+                }
+            }
+        }
+        match self.completion.try_recv() {
+            Ok(Err(error)) => anyhow::bail!(error),
+            Ok(Ok(_)) => anyhow::bail!("screen translation renderer completed unexpectedly"),
+            Err(TryRecvError::Disconnected) => {
+                anyhow::bail!("screen translation renderer stopped early")
+            }
+            Err(TryRecvError::Empty) => Ok(()),
+        }
+    }
+
+    pub(super) fn wait_ready(&mut self, cancel: &AtomicBool) -> Result<()> {
+        while !self.is_ready {
+            if cancel.load(Ordering::Acquire) {
+                anyhow::bail!("screen translation cancelled");
+            }
+            self.check_ready()?;
+            if !self.is_ready {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn send(&mut self, region: TranslationRegion) -> Result<()> {
+        self.check_ready()?;
+        if self.sender.send(RenderCommand::Region(region)).is_err() {
+            if let Ok(Err(error)) = self.completion.try_recv() {
+                anyhow::bail!(error);
+            }
+            anyhow::bail!("screen translation renderer stopped early");
+        }
+        Ok(())
     }
 
     pub(super) fn complete(self, document: TranslationDocument) -> Result<usize> {
-        self.sender
-            .send(RenderCommand::Complete(document))
-            .context("screen translation renderer stopped early")?;
+        if self.sender.send(RenderCommand::Complete(document)).is_err() {
+            if let Ok(Err(error)) = self.completion.try_recv() {
+                return Err(anyhow::Error::msg(error));
+            }
+            anyhow::bail!("screen translation renderer stopped early");
+        }
         self.completion
             .recv()
             .context("screen translation renderer stopped before completion")?
@@ -80,8 +143,9 @@ pub(super) fn start(
     processing_id: Option<u64>,
 ) -> Result<TranslationOverlay> {
     let origin = (capture.left, capture.top);
-    let (command_sender, command_receiver) = std::sync::mpsc::channel();
+    let (command_sender, command_receiver) = render_mailbox::channel()?;
     let (completion_sender, completion_receiver) = std::sync::mpsc::sync_channel(1);
+    let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(1);
     let trace_id = trace_id.to_string();
     std::thread::Builder::new()
         .name("sgt-screen-translate-overlay".to_string())
@@ -94,6 +158,7 @@ pub(super) fn start(
                 trace_id,
                 command_receiver,
                 completion_sender,
+                ready_sender,
                 units,
                 processing_id,
             );
@@ -102,6 +167,9 @@ pub(super) fn start(
     Ok(TranslationOverlay {
         sender: command_sender,
         completion: completion_receiver,
+        ready: ready_receiver,
+        is_ready: false,
+        setup_deadline: Instant::now() + RENDERER_SETUP_TIMEOUT,
     })
 }
 
@@ -112,19 +180,23 @@ fn run_overlay_thread(
     capture: CapturedRegion,
     candidates: std::sync::Arc<[DetectedTextRegion]>,
     trace_id: String,
-    receiver: Receiver<RenderCommand>,
+    mut receiver: CommandReceiver<RenderCommand>,
     completion: SyncSender<Result<usize, String>>,
+    ready: SyncSender<Result<(), String>>,
     units: Option<std::sync::Arc<[super::units::Unit]>>,
     processing_id: Option<u64>,
 ) {
+    let Some(_wake_registration) = super::runtime::register_renderer_wake(job_id, &receiver.wake)
+    else {
+        return;
+    };
     let appearance_started = std::time::Instant::now();
     let mut candidates = candidates.to_vec();
     for candidate in &mut candidates {
         if candidate.appearance.is_some() {
             continue;
         }
-        let pixels =
-            super::geometry::normalized_region(candidate.bounds, capture.width, capture.height);
+        let pixels = candidate.bounds.pixels();
         candidate.appearance = super::appearance::analyze_region(&capture.image, pixels);
     }
     crate::log_info!(
@@ -135,19 +207,17 @@ fn run_overlay_thread(
         match super::render_scene::prepare_scene(job_id, &capture, &candidates, units.as_deref()) {
             Ok(prepared) => prepared,
             Err(error) => {
+                let _ = ready.send(Err(error.to_string()));
                 let _ = completion.send(Err(error.to_string()));
                 return;
             }
         };
+    if !super::runtime::is_current(job_id) {
+        return;
+    }
     crate::overlay::result::latency::mark(&trace_id, "backdrops_ready");
-    let virtual_origin = unsafe {
-        (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-        )
-    };
     let controls = TranslationControls {
-        anchor: relative_selection_anchor(origin, (capture.width, capture.height), virtual_origin),
+        anchor: selection_anchor(origin, (capture.width, capture.height)),
         color: nearest_control_color(scene.sources.values(), capture.width),
         opacity_percent: crate::APP
             .lock()
@@ -155,13 +225,20 @@ fn run_overlay_thread(
             .unwrap_or(100),
     };
     let chain_id = format!("screen-translate-{job_id}");
-    let controller = create_controller_window(
+    let controller = match create_controller_window(
         origin,
         &controls,
         &chain_id,
         &trace_id,
         !super::runtime::is_subtitle(job_id),
-    );
+    ) {
+        Ok(controller) => controller,
+        Err(error) => {
+            let _ = ready.send(Err(error.to_string()));
+            let _ = completion.send(Err(error.to_string()));
+            return;
+        }
+    };
     if let Some(id) = processing_id {
         crate::overlay::result::scene_compositor::ProcessingGlow::bind_controls(
             id,
@@ -195,6 +272,14 @@ fn run_overlay_thread(
         &trace_id,
         Some(std::sync::Arc::new(capture.image)),
     );
+    crate::overlay::result::scene_compositor::register_source_group_retirement_wake(
+        group,
+        std::sync::Arc::clone(&receiver.wake),
+    );
+    if ready.send(Ok(())).is_err() || !super::runtime::is_current(job_id) {
+        close_source_overlay(group, controller);
+        return;
+    }
     let mut blocks = scene
         .blocks
         .iter()
@@ -208,38 +293,37 @@ fn run_overlay_thread(
         .collect::<Vec<_>>();
     crate::overlay::result::latency::mark(&trace_id, "scene_prewarmed");
     let mut translations = HashMap::new();
-    let mut had_visible = false;
+    let mut completed = false;
     loop {
         pump_messages();
-        if !crate::overlay::result::scene_compositor::source_group_is_alive(group) {
-            crate::overlay::result::scene_compositor::remove_source_group(group);
-            if had_visible {
-                super::runtime::cancel_job(job_id);
-            }
+        if retire_closed_group(
+            crate::overlay::result::scene_compositor::source_group_is_alive(group),
+            || crate::overlay::result::scene_compositor::remove_source_group(group),
+            || super::runtime::cancel_job(job_id),
+        ) {
             break;
         }
         if !super::runtime::is_current(job_id) {
             close_source_overlay(group, controller);
             break;
         }
-        match receiver.recv_timeout(Duration::from_millis(8)) {
-            Ok(RenderCommand::Move(dx, dy)) => {
+        match receiver.read() {
+            Ok(Read::Item(RenderCommand::Move(dx, dy))) => {
                 crate::overlay::result::scene_compositor::move_source_group(group, dx, dy);
             }
-            Ok(RenderCommand::Region(region)) => {
+            Ok(Read::Item(RenderCommand::Region(region))) if !completed => {
                 record_translations(region, &mut translations);
-                if refresh_blocks(&mut blocks, &translations, &scene, &trace_id, true) {
-                    had_visible = true;
-                    super::runtime::register_overlay(job_id, chain_id.clone());
-                }
+                super::runtime::publish_overlay(job_id, &chain_id, || {
+                    refresh_blocks(&mut blocks, &translations, &scene, &trace_id, true)
+                });
             }
-            Ok(RenderCommand::Complete(document)) => {
+            Ok(Read::Item(RenderCommand::Complete(document))) if !completed => {
                 for region in document.regions {
                     record_translations(region, &mut translations);
                 }
-                if refresh_blocks(&mut blocks, &translations, &scene, &trace_id, false) {
-                    super::runtime::register_overlay(job_id, chain_id.clone());
-                }
+                super::runtime::publish_overlay(job_id, &chain_id, || {
+                    refresh_blocks(&mut blocks, &translations, &scene, &trace_id, false)
+                });
                 let rendered = blocks
                     .iter()
                     .filter(|block| block.rendered_segments.is_some())
@@ -253,35 +337,50 @@ fn run_overlay_thread(
                     super::runtime::cancel_job(job_id);
                     return;
                 }
-                while crate::overlay::result::scene_compositor::source_group_is_alive(group) {
-                    pump_messages();
-                    if !super::runtime::is_current(job_id) {
-                        close_source_overlay(group, controller);
-                        return;
-                    }
-                    match receiver.recv_timeout(Duration::from_millis(8)) {
-                        Ok(RenderCommand::Move(dx, dy)) => {
-                            crate::overlay::result::scene_compositor::move_source_group(
-                                group, dx, dy,
-                            );
-                        }
-                        Err(RecvTimeoutError::Disconnected) => {
-                            std::thread::sleep(Duration::from_millis(8));
-                        }
-                        _ => {}
-                    }
-                }
-                crate::overlay::result::scene_compositor::remove_source_group(group);
-                super::runtime::cancel_job(job_id);
-                return;
+                completed = true;
             }
-            Err(RecvTimeoutError::Disconnected) => {
+            Ok(Read::Disconnected) if !completed => {
                 close_source_overlay(group, controller);
                 break;
             }
-            Err(RecvTimeoutError::Timeout) => {}
+            Ok(_) => {}
+            Err(error) => {
+                fail_after_setup(
+                    &error.to_string(),
+                    |error| {
+                        let _ = completion.send(Err(error.to_string()));
+                    },
+                    || close_source_overlay(group, controller),
+                    |cause| super::runtime::fail_job(job_id, cause),
+                );
+                break;
+            }
         }
     }
+}
+
+/// A renderer that fails after setup reports its cause, then ends the job as
+/// failed (not user-cancelled): in-flight OCR and provider work stop, and the
+/// job owner shows the cause.
+fn fail_after_setup(
+    error: &str,
+    report: impl FnOnce(&str),
+    close: impl FnOnce(),
+    end_job: impl FnOnce(&str),
+) {
+    crate::log_info!("[Screen Translate] renderer failed after setup: {error}");
+    report(error);
+    close();
+    end_job(error);
+}
+
+fn retire_closed_group(alive: bool, remove: impl FnOnce(), cancel: impl FnOnce()) -> bool {
+    if alive {
+        return false;
+    }
+    remove();
+    cancel();
+    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -294,16 +393,9 @@ fn refresh_blocks(
 ) -> bool {
     let mut first_visible = false;
     for block in blocks.iter_mut() {
-        let resolved = block
-            .prepared
-            .member_ids
-            .iter()
-            .filter(|member_id| translations.contains_key(member_id))
-            .count();
-        if resolved == 0 || (require_complete && resolved != block.prepared.member_ids.len()) {
-            continue;
-        }
-        let Some(segments) = component_translation(&block.prepared, scene, translations) else {
+        let Some(segments) =
+            component_translation(&block.prepared, scene, translations, require_complete)
+        else {
             continue;
         };
         if block.rendered_segments.as_ref() == Some(&segments) {
@@ -343,7 +435,16 @@ fn component_translation(
     block: &PreparedBlock,
     scene: &PreparedScene,
     translations: &HashMap<u16, SegmentTranslation>,
+    require_complete: bool,
 ) -> Option<Vec<String>> {
+    let resolved = block
+        .member_ids
+        .iter()
+        .filter(|id| translations.contains_key(id))
+        .count();
+    if resolved == 0 || (require_complete && resolved != block.member_ids.len()) {
+        return None;
+    }
     if block.member_ids.iter().any(|id| {
         !translations.contains_key(id)
             && scene
@@ -388,125 +489,6 @@ fn component_translation(
 
 fn should_render_segment(source: &str, translated: &str) -> bool {
     !super::contract::text_is_source_equivalent(source, translated)
-}
-
-fn create_controller_window(
-    origin: (i32, i32),
-    controls: &TranslationControls,
-    chain_id: &str,
-    trace_id: &str,
-    show_controls: bool,
-) -> HWND {
-    let hwnd = crate::overlay::result::create_deferred_result_window_shell(
-        ResultWindowParams {
-            target_rect: RECT {
-                left: origin.0,
-                top: origin.1,
-                right: origin.0.saturating_add(1),
-                bottom: origin.1.saturating_add(1),
-            },
-            win_type: WindowType::Primary,
-            context: RefineContext::None,
-            model_id: String::new(),
-            provider: String::new(),
-            streaming_enabled: false,
-            start_editing: false,
-            preset_prompt: String::new(),
-            custom_bg_color: 0,
-            initial_text: String::new(),
-            preset_id: None,
-            is_chain_root: false,
-            latency_trace_id: Some(trace_id.to_string()),
-        },
-        chain_id.to_string(),
-    );
-    crate::overlay::result::configure_deferred_text_only_result_window(
-        hwnd,
-        crate::overlay::result::TextOnlyResultOptions {
-            backdrop_data_url: String::new(),
-            foreground_color: controls.color.clone(),
-            chain_id: chain_id.to_string(),
-            control_options: show_controls.then_some(ResultControlOptions {
-                anchor_rect: Some(controls.anchor),
-                control_color: Some(controls.color.clone()),
-                scale_percent: CONTROL_SCALE_PERCENT,
-                group_actions: true,
-                edit_enabled: false,
-            }),
-            preferred_font_size: None,
-            source_vertical: false,
-            source_regions: Vec::new(),
-            source_segments: Vec::new(),
-            opacity_percent: Some(controls.opacity_percent),
-        },
-        true,
-    );
-    hwnd
-}
-
-fn block_target_rect(origin: (i32, i32), group: &PreparedBlock) -> RECT {
-    let pixels = group.layout;
-    RECT {
-        left: origin.0 + pixels.x as i32,
-        top: origin.1 + pixels.y as i32,
-        right: origin.0 + (pixels.x + pixels.width) as i32,
-        bottom: origin.1 + (pixels.y + pixels.height) as i32,
-    }
-}
-
-fn close_source_overlay(
-    group: crate::overlay::result::scene_compositor::SourceGroupHandle,
-    controller: HWND,
-) {
-    crate::overlay::result::scene_compositor::remove_source_group(group);
-    unsafe {
-        let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-            Some(controller),
-            WM_CLOSE,
-            WPARAM(0),
-            LPARAM(0),
-        );
-    }
-}
-
-fn pump_messages() {
-    let mut message = MSG::default();
-    while unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() } {
-        unsafe {
-            let _ = TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
-    }
-}
-
-fn nearest_control_color<'a>(
-    regions: impl Iterator<Item = &'a PreparedSource>,
-    capture_width: u32,
-) -> String {
-    regions
-        .filter(|region| !region.foreground.is_empty())
-        .min_by_key(|region| {
-            let center_x = region.pixels.x.saturating_add(region.pixels.width / 2);
-            let center_y = region.pixels.y.saturating_add(region.pixels.height / 2);
-            let dx = u64::from(capture_width.saturating_sub(center_x));
-            let dy = u64::from(center_y);
-            dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
-        })
-        .map(|region| region.foreground.clone())
-        .unwrap_or_else(|| "#FFFFFF".to_string())
-}
-
-fn relative_selection_anchor(
-    origin: (i32, i32),
-    size: (u32, u32),
-    virtual_origin: (i32, i32),
-) -> [i32; 4] {
-    [
-        origin.0.saturating_sub(virtual_origin.0),
-        origin.1.saturating_sub(virtual_origin.1),
-        i32::try_from(size.0).unwrap_or(i32::MAX),
-        i32::try_from(size.1).unwrap_or(i32::MAX),
-    ]
 }
 
 #[cfg(test)]

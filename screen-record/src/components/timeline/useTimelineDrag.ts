@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { TrimSegment, ZoomBlock } from '@/types/video';
-import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
+import { getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
+import { withTrimSegments } from './timelineLaneEdits';
+import { zoomBlockStartRange } from './zoomBlockEdits';
 import { TimelineDragState, UseTimelineDragOptions, ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC } from './useTimelineDragTypes';
 import { splitVisibilitySegmentAtTime } from './trackDragUtils';
 import { useTrackSegmentDrag } from './useTrackSegmentDrag';
@@ -165,14 +167,11 @@ export function useTimelineDrag({
 
     const block = blocks[currentIdx];
     const width = block.endTime - block.startTime;
-    const prev = currentIdx > 0 ? blocks[currentIdx - 1] : null;
-    const next = currentIdx < blocks.length - 1 ? blocks[currentIdx + 1] : null;
 
     // Move so the block center follows the cursor, clamped to keep a sliver gap.
-    const lower = prev ? prev.endTime + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC : 0;
-    const upper = (next ? next.startTime - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC : duration) - width;
-    if (upper < lower) return; // no room to move
-    const newStart = Math.max(lower, Math.min(upper, newTime - width / 2));
+    const room = zoomBlockStartRange(blocks, currentIdx, duration, ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC);
+    if (!room) return; // no room to move
+    const newStart = Math.max(room.lower, Math.min(room.upper, newTime - width / 2));
     const newEnd = newStart + width;
 
     const movedBlock = { ...block, startTime: newStart, endTime: newEnd };
@@ -244,14 +243,7 @@ export function useTimelineDrag({
       return { ...seg };
     });
 
-    const merged = mergeTrimSegments(moved);
-    const bounds = getTrimBounds({ ...segment, trimSegments: merged }, duration);
-    setSegment({
-      ...segment,
-      trimSegments: merged,
-      trimStart: bounds.trimStart,
-      trimEnd: bounds.trimEnd,
-    });
+    setSegment(withTrimSegments(segment, mergeTrimSegments(moved), duration));
     if (videoRef.current) videoRef.current.currentTime = newTime;
   }, [isDraggingTrimStart, isDraggingTrimEnd, segment, getTimeFromClientX, setSegment, videoRef, duration]);
 
@@ -262,13 +254,7 @@ export function useTimelineDrag({
     if (!nextSegs) return;
 
     beginBatch();
-    const bounds = getTrimBounds({ ...segment, trimSegments: nextSegs }, duration);
-    setSegment({
-      ...segment,
-      trimSegments: nextSegs,
-      trimStart: bounds.trimStart,
-      trimEnd: bounds.trimEnd,
-    });
+    setSegment(withTrimSegments(segment, nextSegs, duration));
     commitBatch();
   }, [segment, duration, beginBatch, setSegment, commitBatch]);
 
@@ -301,13 +287,7 @@ export function useTimelineDrag({
       ...trimSegments,
       { id: crypto.randomUUID(), startTime, endTime },
     ]).sort((a, b) => a.startTime - b.startTime);
-    const bounds = getTrimBounds({ ...segment, trimSegments: nextSegs }, duration);
-    setSegment({
-      ...segment,
-      trimSegments: nextSegs,
-      trimStart: bounds.trimStart,
-      trimEnd: bounds.trimEnd,
-    });
+    setSegment(withTrimSegments(segment, nextSegs, duration));
     commitBatch();
   }, [segment, duration, beginBatch, setSegment, commitBatch]);
 
@@ -350,7 +330,9 @@ export function useTimelineDrag({
   const handleMouseUp = useCallback(() => {
     // Commit batch if any drag operation was active (not seek -- seek doesn't modify segment)
     if (isDraggingTrimStart || isDraggingTrimEnd || trackDrag.isDraggingTextStart || trackDrag.isDraggingTextEnd || trackDrag.isDraggingTextBody || trackDrag.isDraggingSubtitleStart || trackDrag.isDraggingSubtitleEnd || trackDrag.isDraggingSubtitleBody || trackDrag.isDraggingKeystrokeStart || trackDrag.isDraggingKeystrokeEnd || trackDrag.isDraggingKeystrokeBody || trackDrag.isDraggingPointerStart || trackDrag.isDraggingPointerEnd || trackDrag.isDraggingPointerBody || trackDrag.isDraggingWebcamStart || trackDrag.isDraggingWebcamEnd || trackDrag.isDraggingWebcamBody || isDraggingZoom) {
+      // Frames still queued for the next animation frame belong to this drag's undo step.
       if (isDraggingZoom) flushPendingZoomDragUpdate();
+      trackDrag.flushPendingSubtitleDrag();
       commitBatch();
     }
     // Flush any pending throttled seek so the final position is applied
@@ -366,7 +348,7 @@ export function useTimelineDrag({
     draggingZoomTokenRef.current = null;
     zoomDragDraftBlocksRef.current = null;
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, flushPendingZoomDragUpdate, commitBatch, onSeekEnd, trackDrag.resetTrackDragState]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, trackDrag.isDraggingTextStart, trackDrag.isDraggingTextEnd, trackDrag.isDraggingTextBody, trackDrag.isDraggingSubtitleStart, trackDrag.isDraggingSubtitleEnd, trackDrag.isDraggingSubtitleBody, trackDrag.isDraggingKeystrokeStart, trackDrag.isDraggingKeystrokeEnd, trackDrag.isDraggingKeystrokeBody, trackDrag.isDraggingPointerStart, trackDrag.isDraggingPointerEnd, trackDrag.isDraggingPointerBody, trackDrag.isDraggingWebcamStart, trackDrag.isDraggingWebcamEnd, trackDrag.isDraggingWebcamBody, isDraggingZoom, isDraggingSeek, flushPendingZoomDragUpdate, trackDrag.flushPendingSubtitleDrag, commitBatch, onSeekEnd, trackDrag.resetTrackDragState]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {
@@ -449,7 +431,8 @@ export function useTimelineDrag({
     isDraggingSeek,
   ]);
 
-  const dragState: TimelineDragState = {
+  // Memoized so the track stack memo holds across playback ticks.
+  const dragState = useMemo<TimelineDragState>(() => ({
     isDraggingTrimStart,
     isDraggingTrimEnd,
     isDraggingTextStart: trackDrag.isDraggingTextStart,
@@ -475,7 +458,33 @@ export function useTimelineDrag({
     draggingPointerId: trackDrag.draggingPointerId,
     draggingWebcamId: trackDrag.draggingWebcamId,
     draggingZoomIdx,
-  };
+  }), [
+    isDraggingTrimStart,
+    isDraggingTrimEnd,
+    trackDrag.isDraggingTextStart,
+    trackDrag.isDraggingTextEnd,
+    trackDrag.isDraggingTextBody,
+    trackDrag.isDraggingSubtitleStart,
+    trackDrag.isDraggingSubtitleEnd,
+    trackDrag.isDraggingSubtitleBody,
+    trackDrag.isDraggingKeystrokeStart,
+    trackDrag.isDraggingKeystrokeEnd,
+    trackDrag.isDraggingKeystrokeBody,
+    trackDrag.isDraggingPointerStart,
+    trackDrag.isDraggingPointerEnd,
+    trackDrag.isDraggingPointerBody,
+    trackDrag.isDraggingWebcamStart,
+    trackDrag.isDraggingWebcamEnd,
+    trackDrag.isDraggingWebcamBody,
+    isDraggingZoom,
+    isDraggingSeek,
+    trackDrag.draggingTextId,
+    trackDrag.draggingSubtitleId,
+    trackDrag.draggingKeystrokeId,
+    trackDrag.draggingPointerId,
+    trackDrag.draggingWebcamId,
+    draggingZoomIdx,
+  ]);
 
   return {
     dragState,

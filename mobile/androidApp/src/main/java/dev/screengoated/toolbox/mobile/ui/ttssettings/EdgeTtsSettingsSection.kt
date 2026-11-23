@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import dev.screengoated.toolbox.mobile.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ContainedLoadingIndicator
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.service.tts.EdgeVoiceCatalogState
+import dev.screengoated.toolbox.mobile.service.tts.VoicePreviewSamples
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings
 import dev.screengoated.toolbox.mobile.model.MobileEdgeTtsVoiceConfig
 import dev.screengoated.toolbox.mobile.model.MobileTtsCatalog
@@ -106,6 +108,10 @@ private fun EdgeVoiceRoutingCard(
     onPreviewVoice: (String, String) -> Unit,
 ) {
     var addMenuExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val samples = remember(context) {
+        VoicePreviewSamples.parse(context.assets.open("voice-preview.json").bufferedReader().use { it.readText() })
+    }
 
     ExpressiveDialogSectionCard(accent = MaterialTheme.colorScheme.secondary) {
         UtilityHeaderRow(
@@ -163,6 +169,9 @@ private fun EdgeVoiceRoutingCard(
                 locale = locale,
                 onPreview = { onPreviewVoice(config.languageCode, config.voiceName) },
             )
+            if (samples.usesFallback(config.languageCode)) {
+                Text(locale.ttsPreviewEnglishFallback, style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         BoxWithConstraints {

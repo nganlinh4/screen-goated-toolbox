@@ -31,8 +31,16 @@ mod tests {
 
     #[test]
     fn automatic_and_unsupported_languages_omit_the_hint() {
-        for value in [None, Some(""), Some("auto"), Some("unsupported")] {
-            assert_eq!(whisper_language_code(value), None);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../parity-fixtures/preset-system/speech-language.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            assert_eq!(
+                whisper_language_code(case["input"].as_str()),
+                case["expected"].as_str(),
+                "{case}"
+            );
         }
         for language in WHISPER_LANGUAGES.iter() {
             assert_eq!(

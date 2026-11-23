@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -9,20 +10,21 @@ use windows::core::{PCWSTR, w};
 use super::layout::{CardRect, CardRole, CompositorLayout};
 use super::protocol::{CardSettings, CardText, RealtimeScene};
 
-mod first_use;
 mod read_state;
-pub(crate) use first_use::run as run_first_use;
 
 pub(super) fn handle_probe(role: CardRole, body: &str) -> bool {
-    read_state::handle_probe(role, body) || first_use::handle_probe(role, body)
+    read_state::handle_probe(role, body)
 }
 
 pub(crate) fn run() -> i32 {
+    super::controller::reset_runtime_for_new_session();
     if !super::supervisor::wait_until_ready(Duration::from_secs(8)) {
         crate::debug_log::log_debug("[RealtimeSmoke] status=failed reason=renderer_not_ready");
         return 1;
     }
-    super::parent::replace_scene(smoke_scene());
+    let mut scene = smoke_scene();
+    scene.session_id = super::state::REALTIME_SESSION_ID.load(Ordering::SeqCst);
+    super::parent::replace_scene(scene);
     if !(0..100).any(|_| {
         std::thread::sleep(Duration::from_millis(20));
         unsafe {

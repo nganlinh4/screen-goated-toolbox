@@ -46,7 +46,7 @@ fn startup_animation_is_enabled_for_new_and_missing_field_configs() {
 }
 
 #[test]
-fn migrate_config_falls_back_for_missing_block_models() {
+fn migrate_config_preserves_missing_block_models() {
     let builtin = Preset {
         id: "preset_translate".to_string(),
         blocks: vec![ProcessingBlock {
@@ -71,14 +71,8 @@ fn migrate_config_falls_back_for_missing_block_models() {
 
     migrate_config(&mut config);
 
-    assert_eq!(
-        config.presets[0].blocks[0].model,
-        crate::model_config::DEFAULT_IMAGE_MODEL_ID
-    );
-    assert_eq!(
-        config.presets[1].blocks[0].model,
-        crate::model_config::DEFAULT_TEXT_MODEL_ID
-    );
+    assert_eq!(config.presets[0].blocks[0].model, "maverick");
+    assert_eq!(config.presets[1].blocks[0].model, "retired_text_model");
 }
 
 #[test]
@@ -140,7 +134,7 @@ fn migrate_config_preserves_valid_gemini_image_blocks() {
 }
 
 #[test]
-fn migrate_config_sanitizes_model_priority_chains() {
+fn migrate_config_preserves_unresolved_model_priority_chains() {
     let mut config = Config::default();
     config.model_priority_chains.image_to_text = vec![
         "google-gemini-3-1-flash-lite-vision".to_string(),
@@ -161,21 +155,24 @@ fn migrate_config_sanitizes_model_priority_chains() {
         config.model_priority_chains.image_to_text,
         vec![
             "google-gemini-3-1-flash-lite-vision".to_string(),
+            "google-gtx-translate-text".to_string(),
+            "missing-model".to_string(),
             "groq-qwen-3-8-27b-vision".to_string()
         ]
     );
     assert_eq!(
         config.model_priority_chains.text_to_text,
         vec![
-            crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string(),
+            "retired_text_model".to_string(),
             "google-gemma-4-26b-a4b-text".to_string(),
+            "qrserver-qr-scanner-vision".to_string(),
             "groq-gpt-oss-20b-text".to_string()
         ]
     );
 }
 
 #[test]
-fn migrate_config_falls_back_to_default_text_model_id() {
+fn migrate_config_preserves_unavailable_text_model_id() {
     let builtin = Preset {
         id: "preset_translate".to_string(),
         blocks: vec![ProcessingBlock {
@@ -202,17 +199,11 @@ fn migrate_config_falls_back_to_default_text_model_id() {
 
     migrate_config(&mut config);
 
-    assert_eq!(
-        config.presets[0].blocks[0].model,
-        crate::model_config::DEFAULT_TEXT_MODEL_ID
-    );
-    assert_eq!(
-        config.presets[1].blocks[0].model,
-        crate::model_config::DEFAULT_TEXT_MODEL_ID
-    );
+    assert_eq!(config.presets[0].blocks[0].model, "retired_text_model");
+    assert_eq!(config.presets[1].blocks[0].model, "retired_text_model");
     assert_eq!(
         config.model_priority_chains.text_to_text,
-        vec![crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string()]
+        vec!["retired_text_model".to_string()]
     );
 }
 

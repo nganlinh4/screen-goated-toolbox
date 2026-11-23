@@ -2,6 +2,7 @@ use crate::gui::locale::PresetEditorLocaleText;
 
 pub(super) fn get() -> PresetEditorLocaleText {
     PresetEditorLocaleText {
+        graph_invalid_readonly: "Biểu đồ có dữ liệu không hợp lệ và chỉ có thể xem. Dữ liệu đã lưu được giữ nguyên.",
         text_input_mode_label: "Phương thức:",
         text_mode_select: "Hotkey rồi bôi text",
         text_mode_type: "Hotkey rồi gõ",
@@ -25,6 +26,10 @@ pub(super) fn get() -> PresetEditorLocaleText {
         add_text_preset_btn: "+ Văn bản",
         add_image_preset_btn: "+ Ảnh",
         add_audio_preset_btn: "+ Âm thanh",
+        controller_mode_title: "Chế độ Bộ điều khiển",
+        controller_mode_description: "Đây là cấu hình MASTER. Khi kích hoạt, một bánh xe chọn sẽ xuất hiện để bạn chọn cấu hình muốn sử dụng.
+
+Chỉ cần gán một phím tắt để truy cập nhanh nhiều cấu hình khác nhau.",
         node_input_prefix: "Đầu vào:",
         node_input_audio: "Âm thanh",
         node_input_image: "Hình ảnh",
@@ -39,5 +44,16 @@ pub(super) fn get() -> PresetEditorLocaleText {
         node_menu_add_special_audio: "Thêm node Audio → Text",
         input_auto_copy_tooltip: "Tự động copy (Nguồn)",
         input_auto_speak_tooltip: "Đọc to nguồn",
+        node_model_label: "Mô hình:",
+        node_scanning_local_models: "Đang quét các model local...",
+        node_language_label: "Ngôn ngữ:",
+        node_input_language_label: "Ngôn ngữ đầu vào:",
+        node_prompt_label: "Lệnh:",
+        node_add_language: "+ Ngôn ngữ",
+        node_prompt_placeholder: "Lệnh…",
+        node_language_search: "Tìm kiếm...",
+        node_stream_on: "Stream bật",
+        node_stream_off: "Stream tắt",
+        node_delete: "Xóa node",
     }
 }

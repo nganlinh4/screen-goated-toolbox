@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "limit_bytes": 10485760,
+  "cases": [
+    {"event":"exact_limit","result":"accepted"},
+    {"event":"streamed_exact_limit","result":"accepted"},
+    {"event":"declared_oversize","result":"rejected"},
+    {"event":"streamed_oversize","result":"rejected"},
+    {"event":"shorter_than_declared","result":"rejected"}
+  ]
+}

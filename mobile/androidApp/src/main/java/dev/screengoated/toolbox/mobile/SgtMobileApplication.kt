@@ -5,45 +5,44 @@ import android.content.Context
 import dev.screengoated.toolbox.mobile.creation.worker.CreationWorkerProcess
 import dev.screengoated.toolbox.mobile.componentupdate.ComponentUpdateCatalog
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
-import dev.screengoated.toolbox.mobile.service.moonshine.MoonshineModelManager
-import dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import dev.screengoated.toolbox.mobile.storage.SecureBootstrap
 
 class SgtMobileApplication : Application() {
-    private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         CreationWorkerProcess.configureWebViewDataDirectory()
-        if (BuildConfig.FLAVOR == "full") {
-            ComponentUpdateCatalog.loadCached(this)
-        }
         installDistributionRuntime(this)
     }
 
-    lateinit var appContainer: AppContainer
-        private set
+    private val bootstrap = SecureBootstrap { AppContainer.open(this) }
+    internal val appContainerState get() = bootstrap.state
+    val appContainerOrNull: AppContainer? get() = bootstrap.current
+    val appContainer: AppContainer get() = checkNotNull(appContainerOrNull) {
+        "Encrypted settings are unavailable"
+    }
+
+    @Synchronized
+    fun retrySecureSettings(): Boolean {
+        if (bootstrap.current != null) return true
+        if (bootstrap.retry() == null) return false
+        if (BuildConfig.FLAVOR == "full") {
+            ComponentUpdateCatalog.refreshInBackground(this)
+        }
+        return true
+    }
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.FLAVOR == "full") {
+            ComponentUpdateCatalog.loadCached(this)
+        }
         if (CreationWorkerProcess.isWorkerProcess() ||
             !isPrimaryApplicationProcess(packageName, Application.getProcessName())
         ) {
             return
         }
         PhoneControlLog.initialize(this)
-        if (BuildConfig.FLAVOR == "full") {
-            ComponentUpdateCatalog.refreshInBackground(this)
-        }
-        appContainer = AppContainer(this)
-        // Resume only persisted removals; this performs no runtime download or install.
-        maintenanceScope.launch {
-            NativeLibManager.reconcilePendingRemovals(this@SgtMobileApplication)
-            MoonshineModelManager.reconcilePendingRemovals(this@SgtMobileApplication)
-        }
+        retrySecureSettings()
     }
 }
 

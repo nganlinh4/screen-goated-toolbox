@@ -59,7 +59,12 @@ impl ImageCaptureTarget {
             .unwrap_or(false)
     }
 
-    pub fn process(self, image: image::RgbaImage, rect: RECT) {
+    pub fn process(
+        self,
+        image: image::RgbaImage,
+        rect: RECT,
+        destination: crate::overlay::process::chain::AutoPasteDestination,
+    ) {
         match self {
             Self::Preset(index) => {
                 let Some((config, preset)) = crate::APP.lock().ok().and_then(|mut app| {
@@ -70,7 +75,13 @@ impl ImageCaptureTarget {
                     return;
                 };
                 std::thread::spawn(move || {
-                    crate::overlay::process::start_processing_pipeline(image, rect, config, preset);
+                    crate::overlay::process::start_processing_pipeline(
+                        image,
+                        rect,
+                        config,
+                        preset,
+                        destination,
+                    );
                 });
             }
             Self::Handler(handler) => (handler.process)(image, rect),

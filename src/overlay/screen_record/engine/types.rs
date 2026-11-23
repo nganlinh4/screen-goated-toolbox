@@ -68,6 +68,7 @@ pub static IS_RECORDING: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 /// Stores the last capture-start error so `stop_recording` can report it.
 pub static CAPTURE_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+pub static FINALIZATION_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 pub static SHOULD_STOP: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 pub static SHOULD_STOP_AUDIO: LazyLock<Arc<AtomicBool>> =
@@ -135,7 +136,6 @@ pub static LAST_CAPTURE_FRAME_WIDTH: std::sync::atomic::AtomicUsize =
 pub static LAST_CAPTURE_FRAME_HEIGHT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-pub(crate) const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 pub(crate) const DEFAULT_TARGET_FPS: u32 = 60;
 pub(crate) const ENCODER_MAX_PENDING_FRAMES: usize = 12;
 pub(crate) const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;

@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.provider
 
 import java.io.File
 import java.nio.file.Files
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.fileio.NioTestFileTransactionIo
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
@@ -35,22 +36,18 @@ class AndroidFileMutationConcurrencyTest {
         val first = artifact("first", "first bytes")
         val second = artifact("second", "second bytes")
         val artifacts = mapOf(first.id to first, second.id to second)
-        val provider = AndroidFileProvider(artifacts::get)
+        val provider = testFileProvider(artifacts::get)
         val executor = newExecutor()
 
         repeat(RACE_ITERATIONS) { iteration ->
             val destination = File(temporaryFolder.root, "shared-$iteration.bin")
-            val targetLease = targetLease(destination)
             val barrier = CyclicBarrier(3)
             val futures = listOf(first.id, second.id).map { id ->
                 executor.submit<AndroidProviderResult> {
-                    barrier.await(5, TimeUnit.SECONDS)
-                    provider.saveArtifact(
-                        id,
-                        destination.absolutePath,
-                        overwrite = false,
-                        targetLease,
-                    )
+                    provider.prepareArtifactSave(id, destination.absolutePath, overwrite = false).use { prepared ->
+                        barrier.await(5, TimeUnit.SECONDS)
+                        prepared.commit(testFileOwner(), { true })
+                    }
                 }
             }
             barrier.await(5, TimeUnit.SECONDS)
@@ -72,7 +69,7 @@ class AndroidFileMutationConcurrencyTest {
 
     @Test
     fun `same snapshot exact replacements are serialized`() {
-        val provider = AndroidFileProvider { null }
+        val provider = testFileProvider { null }
         val executor = newExecutor()
 
         repeat(RACE_ITERATIONS) { iteration ->
@@ -80,17 +77,13 @@ class AndroidFileMutationConcurrencyTest {
                 writeText("base")
             }
             val expectedSha256 = destination.readBytes().sha256()
-            val targetLease = targetLease(destination)
             val barrier = CyclicBarrier(3)
             val futures = listOf("first", "second").map { replacement ->
                 executor.submit<AndroidProviderResult> {
-                    barrier.await(5, TimeUnit.SECONDS)
-                    provider.exactReplace(
-                        destination.absolutePath,
-                        expectedSha256,
-                        listOf(ExactReplacement("base", replacement, 1)),
-                        targetLease,
-                    )
+                    provider.prepareTarget(destination.absolutePath).use { target ->
+                        barrier.await(5, TimeUnit.SECONDS)
+                        provider.exactReplace(target, expectedSha256, listOf(ExactReplacement("base", replacement, 1)), testFileOwner(), { true })
+                    }
                 }
             }
             barrier.await(5, TimeUnit.SECONDS)
@@ -107,17 +100,11 @@ class AndroidFileMutationConcurrencyTest {
     @Test
     fun `authorized missing target cannot overwrite a newly appeared file`() {
         val artifact = artifact("output", "authorized bytes")
-        val provider = AndroidFileProvider(mapOf(artifact.id to artifact)::get)
+        val provider = testFileProvider(mapOf(artifact.id to artifact)::get)
         val destination = File(temporaryFolder.root, "appeared.txt")
-        val lease = targetLease(destination)
+        val prepared = provider.prepareArtifactSave(artifact.id, destination.absolutePath, overwrite = true)
         destination.writeText("competing bytes")
-
-        val result = provider.saveArtifact(
-            artifact.id,
-            destination.absolutePath,
-            overwrite = true,
-            lease,
-        )
+        val result = prepared.use { it.commit(testFileOwner(), { true }) }
 
         val failure = assertFailure(
             result,
@@ -132,66 +119,46 @@ class AndroidFileMutationConcurrencyTest {
 
     @Test
     fun `authorized canonical target cannot drift before exact commit`() {
-        val destination = temporaryFolder.newFile("actual.txt").apply { writeText("base") }
-        val differentTarget = temporaryFolder.newFile("approved.txt").apply { writeText("base") }
-        val expectedSha256 = destination.readBytes().sha256()
-
-        val result = AndroidFileProvider { null }.exactReplace(
-            destination.absolutePath,
-            expectedSha256,
-            listOf(ExactReplacement("base", "changed", 1)),
-            targetLease(differentTarget),
-        )
-
-        assertFailure(
-            result,
-            expected(
-                "authorized canonical target cannot drift before exact commit",
-                "resultCode",
-            ),
-        )
+        val parent = temporaryFolder.newFolder("approved-parent")
+        val destination = File(parent, "document.txt").apply { writeText("base") }
+        val moved = File(temporaryFolder.root, "moved-parent")
+        val io = NioTestFileTransactionIo()
+        val provider = AndroidFileProvider(findArtifact = { null }, fileIo = io)
+        val result = provider.prepareTarget(destination.absolutePath).use { target ->
+            Files.move(parent.toPath(), moved.toPath())
+            check(parent.mkdir())
+            io.replaceIdentity(parent.absolutePath)
+            destination.writeText("base")
+            provider.exactReplace(target, "base".toByteArray().sha256(),
+                listOf(ExactReplacement("base", "changed", 1)), testFileOwner(), { true })
+        }
+        assertFailure(result, expected("authorized canonical target cannot drift before exact commit", "resultCode"))
         assertEquals("base", destination.readText())
-        assertEquals("base", differentTarget.readText())
+        assertEquals("base", File(moved, "document.txt").readText())
     }
 
     @Test
     fun `external modification after staging is rejected at commit`() {
         val destination = temporaryFolder.newFile("document.txt").apply { writeText("base") }
-        val expectedSha256 = destination.readBytes().sha256()
         val stagedReady = CountDownLatch(1)
         val externalWriteFinished = CountDownLatch(1)
-        val executor = newExecutor()
-
-        val future = executor.submit<ExpectedFileCommit> {
-            AndroidFileMutationCoordinator.withExclusivePath(destination) {
-                val staged = AndroidFileMutationCoordinator.stageSibling(
-                    destination,
-                    "tool bytes".toByteArray(),
-                )
-                try {
-                    stagedReady.countDown()
-                    check(externalWriteFinished.await(5, TimeUnit.SECONDS))
-                    AndroidFileMutationCoordinator.replaceIfExpected(
-                        destination,
-                        staged,
-                        expectedSha256,
-                    )
-                } finally {
-                    Files.deleteIfExists(staged)
-                }
-            }
+        val io = NioTestFileTransactionIo().apply {
+            beforeWrite = { stagedReady.countDown(); check(externalWriteFinished.await(5, TimeUnit.SECONDS)) }
         }
-
+        val provider = AndroidFileProvider(findArtifact = { null }, fileIo = io)
+        val target = provider.prepareTarget(destination.absolutePath)
+        val future = newExecutor().submit<AndroidProviderResult> {
+            target.use { provider.exactReplace(it, "base".toByteArray().sha256(),
+                listOf(ExactReplacement("base", "tool bytes", 1)), testFileOwner(), { true }) }
+        }
         assertTrue(stagedReady.await(5, TimeUnit.SECONDS))
         destination.writeText("external bytes")
         externalWriteFinished.countDown()
         val result = future.get(5, TimeUnit.SECONDS)
-
-        assertTrue(result is ExpectedFileCommit.Changed)
-        assertEquals(
-            expected("concurrent modifier is preserved before exact commit", "resultCode"),
-            (result as ExpectedFileCommit.Changed).code,
-        )
+        val failure = assertFailure(result, expected("concurrent modifier with retained staging is preserved before exact commit", "resultCode"))
+        assertEquals(dev.screengoated.toolbox.mobile.phonecontrol.result.EffectCertainty.MAY_HAVE_OCCURRED, failure.effect)
+        assertEquals(false, failure.data.getValue("target_effect_may_have_occurred").jsonPrimitive.boolean)
+        assertTrue(failure.data.containsKey("retained_staging_path"))
         assertEquals("external bytes", destination.readText())
         assertFalse(destination.readText() == "tool bytes")
     }
@@ -205,16 +172,6 @@ class AndroidFileMutationConcurrencyTest {
     )
 
     private fun newExecutor() = Executors.newFixedThreadPool(2).also(executors::add)
-
-    private fun targetLease(file: File): FileMutationTargetLease {
-        val target = file.canonicalFile
-        val existedBefore = target.isFile
-        return FileMutationTargetLease(
-            canonicalPath = target.absolutePath,
-            existedBefore = existedBefore,
-            expectedSha256 = if (existedBefore) target.readBytes().sha256() else null,
-        )
-    }
 
     private fun assertFailure(
         result: AndroidProviderResult,

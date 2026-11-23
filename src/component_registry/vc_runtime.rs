@@ -1,7 +1,6 @@
 //! Verified delivery foundation for the shared Windows x64 VC support runtime.
 
 use std::collections::HashSet;
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 #[cfg(not(feature = "recorder-worker"))]
@@ -17,8 +16,7 @@ use super::RemovalOutcome;
 #[cfg(not(feature = "recorder-worker"))]
 use super::receipt::file_size_matches;
 use super::receipt::{
-    ComponentReceipt, OwnedComponentFile, RECEIPT_NAME, file_matches, is_reparse_point,
-    resolve_owned_path,
+    ComponentReceipt, OwnedComponentFile, RECEIPT_NAME, file_matches, resolve_owned_path,
 };
 
 mod install;
@@ -74,63 +72,34 @@ pub(crate) struct VcRuntimeUse {
 }
 
 impl VcRuntimeUse {
+    #[cfg(not(feature = "recorder-worker"))]
     pub(crate) fn bin_dir(&self) -> &Path {
         &self.bin_dir
     }
-
-    pub(crate) fn preload(self) -> Result<LoadedVcRuntime> {
-        const LOAD_ORDER: &[&str] = &[
-            "vcruntime140.dll",
-            "vcruntime140_1.dll",
-            "vcruntime140_threads.dll",
-            "msvcp140.dll",
-            "msvcp140_1.dll",
-            "msvcp140_2.dll",
-            "msvcp140_atomic_wait.dll",
-            "msvcp140_codecvt_ids.dll",
-            "concrt140.dll",
-            "vccorlib140.dll",
-        ];
-        let mut libraries = Vec::with_capacity(LOAD_ORDER.len());
-        for name in LOAD_ORDER {
-            let path = self.bin_dir.join(name);
-            #[cfg(target_os = "windows")]
-            let library = unsafe {
-                use libloading::os::windows::{
-                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
-                };
-                libloading::os::windows::Library::load_with_flags(
-                    &path,
-                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
-                )
-                .map(libloading::Library::from)
-            }
-            .map_err(|error| anyhow!("failed to load VC support '{}': {error}", path.display()))?;
-            #[cfg(not(target_os = "windows"))]
-            let library = unsafe { libloading::Library::new(&path) }.map_err(|error| {
-                anyhow!("failed to load VC support '{}': {error}", path.display())
-            })?;
-            libraries.push(library);
-        }
-        Ok(LoadedVcRuntime {
-            _runtime: self,
-            _libraries: libraries,
-        })
-    }
-}
-
-pub(crate) struct LoadedVcRuntime {
-    _runtime: VcRuntimeUse,
-    _libraries: Vec<libloading::Library>,
 }
 
 pub(crate) fn ensure_component(on_progress: impl Fn(u64, u64)) -> Result<VcRuntimeUse> {
-    let _mutation = super::acquire_mutation_guard()?;
+    ensure_component_with_cancel(&std::sync::Arc::new(AtomicBool::new(false)), on_progress)
+}
+
+pub(crate) fn ensure_component_with_cancel(
+    cancelled: &std::sync::Arc<AtomicBool>,
+    on_progress: impl Fn(u64, u64),
+) -> Result<VcRuntimeUse> {
     let delivery = delivery()?;
+    let mut activity = None;
     if validate_install(delivery).is_err() {
-        let cancelled = std::sync::Arc::new(AtomicBool::new(false));
-        let _activity = crate::install_activity::register(cancelled.clone())?;
-        install::install(&cancelled, on_progress)?;
+        activity = Some(crate::install_activity::register(cancelled.clone())?);
+        // The transfer holds only this component's transfer guard.
+        install::prefetch(delivery, cancelled, &on_progress)?;
+    }
+    let _mutation = super::acquire_mutation_guard_cancellable(cancelled)?;
+    if validate_install(delivery).is_err() {
+        let _activity = match activity.take() {
+            Some(activity) => activity,
+            None => crate::install_activity::register(cancelled.clone())?,
+        };
+        install::install(cancelled, on_progress)?;
     }
     let lease = super::acquire(COMPONENT_ID)?;
     let root = version_root(delivery)?;
@@ -340,37 +309,15 @@ fn validate_exact_tree(root: &Path, files: &[VcRuntimeFile]) -> Result<()> {
         .map(|file| PathBuf::from(file.path))
         .collect::<HashSet<_>>();
     expected.insert(PathBuf::from(RECEIPT_NAME));
-    let mut actual = HashSet::new();
-    collect_regular_files(root, root, &mut actual, 0)?;
+    let actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "VC runtime",
+        MAX_COMPONENT_FILES + 1,
+    )?
+    .into_iter()
+    .collect::<HashSet<_>>();
     if actual != expected {
         bail!("VC runtime contains unowned files");
-    }
-    Ok(())
-}
-
-fn collect_regular_files(
-    root: &Path,
-    directory: &Path,
-    files: &mut HashSet<PathBuf>,
-    depth: usize,
-) -> Result<()> {
-    if depth > 4 || files.len() > MAX_COMPONENT_FILES {
-        bail!("VC runtime exceeds traversal limits");
-    }
-    let metadata = std::fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || is_reparse_point(&metadata) {
-        bail!("VC runtime contains an unsafe directory");
-    }
-    for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if metadata.is_dir() && !is_reparse_point(&metadata) {
-            collect_regular_files(root, &path, files, depth + 1)?;
-        } else if metadata.is_file() && !is_reparse_point(&metadata) {
-            files.insert(path.strip_prefix(root)?.to_path_buf());
-        } else {
-            bail!("VC runtime contains an unsafe entry");
-        }
     }
     Ok(())
 }
@@ -384,48 +331,18 @@ fn owned_file(file: &VcRuntimeFile) -> OwnedComponentFile {
 }
 
 fn lock_component_files(root: &Path, files: &[VcRuntimeFile]) -> Result<Vec<std::fs::File>> {
-    let mut locked = Vec::with_capacity(files.len());
-    for expected in files {
-        let path = resolve_owned_path(root, Path::new(expected.path))?;
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("VC runtime changed while acquiring its use lease");
-        }
-        let mut hasher = sha2::Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            use sha2::Digest as _;
-            hasher.update(&buffer[..read]);
-        }
-        use sha2::Digest as _;
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("VC runtime changed while acquiring its use lease");
-        }
-        locked.push(file);
-    }
-    Ok(locked)
-}
-
-fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("VC runtime use file is unsafe");
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    use std::os::windows::fs::OpenOptionsExt as _;
-    use windows::Win32::Storage::FileSystem::FILE_SHARE_READ;
-    options.share_mode(FILE_SHARE_READ.0);
-    let file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("VC runtime use file is unsafe");
-    }
-    Ok(file)
+    files
+        .iter()
+        .map(|expected| {
+            super::native_file::lock_verified(
+                root,
+                expected.path,
+                expected.size_bytes,
+                expected.sha256,
+                "VC runtime changed while acquiring its use lease",
+            )
+        })
+        .collect()
 }
 
 #[cfg(all(test, not(feature = "recorder-worker")))]

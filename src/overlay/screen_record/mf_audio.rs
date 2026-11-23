@@ -8,6 +8,9 @@ mod encoder;
 #[path = "mf_audio_symphonia.rs"]
 mod mf_audio_symphonia;
 mod pcm;
+pub(crate) mod source_read;
+#[cfg(feature = "recorder-worker")]
+mod symphonia_convert;
 
 pub use decoder::MfAudioDecoder;
 #[cfg(feature = "recorder-worker")]

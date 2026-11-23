@@ -4,11 +4,15 @@
 //! assignment is reused during recovery and is never selected by probing for
 //! the next available result name.
 
+use crate::component_registry::is_reparse_point;
+use crate::overlay::store_support::{now_ms, valid_identifier};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+mod reveal;
 mod sweep;
+pub(crate) use reveal::open_result_folder;
 pub(crate) use sweep::sweep_staging;
 #[cfg(test)]
 use sweep::{sweep_staging_at, sweep_staging_bounded_at};
@@ -57,21 +61,13 @@ impl Drop for StagingAssignment {
     }
 }
 
-fn valid_dispatch_id(dispatch_id: &str) -> bool {
-    !dispatch_id.is_empty()
-        && dispatch_id.len() <= 160
-        && dispatch_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
 pub(crate) fn assigned_name(
     source_path: &str,
     dispatch_id: &str,
     label: Option<&str>,
     extension: &str,
 ) -> Result<String, String> {
-    if !valid_dispatch_id(dispatch_id)
+    if !valid_identifier(dispatch_id)
         || extension.is_empty()
         || !extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
         || label.is_some_and(|value| {
@@ -146,7 +142,7 @@ pub(crate) fn prepare_staging(
     dispatch_id: &str,
     output_name: &str,
 ) -> Result<StagingAssignment, String> {
-    if !valid_dispatch_id(dispatch_id) {
+    if !valid_identifier(dispatch_id) {
         return Err("Creation staging assignment is invalid.".to_string());
     }
     let root = staging_root()?;
@@ -184,7 +180,8 @@ pub(crate) fn validate_staging_path(
     output_name: &str,
     path: &Path,
 ) -> Result<PathBuf, String> {
-    if !valid_dispatch_id(dispatch_id) {
+    validate_staging_assignment(dispatch_id, output_name, path)?;
+    if !valid_identifier(dispatch_id) {
         return Err("Creation staging assignment is invalid.".to_string());
     }
     let root = staging_root()?;
@@ -205,8 +202,34 @@ pub(crate) fn validate_staging_path(
     Ok(expected)
 }
 
+/// Validate saved assignment syntax without consulting the current filesystem.
+pub(crate) fn validate_staging_assignment(
+    dispatch_id: &str,
+    output_name: &str,
+    path: &Path,
+) -> Result<(), String> {
+    if !valid_identifier(dispatch_id) {
+        return Err("Creation staging assignment is invalid.".to_string());
+    }
+    let path = super::creation_path::normalized_absolute(path)?;
+    let directory = path
+        .parent()
+        .ok_or("Creation staging assignment is invalid.")?;
+    if directory.file_name().and_then(|value| value.to_str()) != Some(dispatch_id)
+        || directory
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            != Some("creation-staging")
+        || assigned_path(directory, output_name)? != path
+    {
+        return Err("Creation staging assignment is invalid.".to_string());
+    }
+    Ok(())
+}
+
 pub(crate) fn staging_path(dispatch_id: &str, output_name: &str) -> Result<PathBuf, String> {
-    if !valid_dispatch_id(dispatch_id) {
+    if !valid_identifier(dispatch_id) {
         return Err("Creation staging assignment is invalid.".to_string());
     }
     assigned_path(&staging_root()?.join(dispatch_id), output_name)
@@ -218,6 +241,15 @@ pub(crate) fn cleanup_staging(
     path: &Path,
 ) -> Result<(), String> {
     let expected = validate_staging_path(dispatch_id, output_name, path)?;
+    match std::fs::symlink_metadata(
+        expected
+            .parent()
+            .ok_or("Creation staging assignment is invalid.")?,
+    ) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("Creation staging cleanup could not inspect its entry.".to_string()),
+        Ok(_) => {}
+    }
     match std::fs::symlink_metadata(&expected) {
         Ok(metadata) if metadata.file_type().is_file() && !is_reparse_point(&metadata) => {
             std::fs::remove_file(&expected)
@@ -372,26 +404,6 @@ fn read_staging_marker(directory: &Path) -> Result<StagingMarker, String> {
         .read_to_end(&mut bytes)
         .map_err(|_| "Creation staging ownership is invalid.".to_string())?;
     serde_json::from_slice(&bytes).map_err(|_| "Creation staging ownership is invalid.".to_string())
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
-
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
 }
 
 #[cfg(test)]

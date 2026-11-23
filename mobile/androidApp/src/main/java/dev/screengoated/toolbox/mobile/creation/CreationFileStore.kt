@@ -8,7 +8,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.os.StatFs
 import java.io.File
-import java.io.InputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -23,13 +22,13 @@ internal class CreationFileStore(internal val context: Context) {
     private val jobInputs by lazy {
         CreationJobInputStore(
             File(context.filesDir, "creation/job-inputs"),
-            ::openInput,
+            this::openInput,
         ) { source, target -> linkCreationAcceptedInput(context.filesDir, source, target) }
     }
     private val presentationPreviews by lazy {
         CreationPresentationPreviewStore(
             File(context.filesDir, "creation/presentation"),
-            ::openInput,
+            this::openInput,
         )
     }
     private val pendingCleanup by lazy { CreationPendingCleanupStore(context, this) }
@@ -39,7 +38,6 @@ internal class CreationFileStore(internal val context: Context) {
         uris: List<Uri>,
         tool: CreationTool,
         maximumBatchImages: Int,
-        existingReferencePaths: List<String> = emptyList(),
     ): List<String> = synchronized(creationImportAdmissionLock) {
         require(uris.isNotEmpty()) { "Choose at least one image" }
         require(
@@ -84,24 +82,7 @@ internal class CreationFileStore(internal val context: Context) {
             "The image cache is full"
         }
         val existingBytes = existingSources.sumOf { it.length().coerceAtLeast(0L) }
-        val existingReferenceBytes = if (tool == CreationTool.IMAGE_CREATOR) {
-            existingReferencePaths.fold(0L) { total, path ->
-                val sourceBytes = size(path)
-                require(sourceBytes >= 0L) { "A reference image is unavailable" }
-                creationSaturatingBytes(total, sourceBytes)
-            }
-        } else {
-            0L
-        }
-        val importBudget = (
-            if (tool == CreationTool.IMAGE_CREATOR) {
-                CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES -
-                    existingReferenceBytes
-            } else {
-                CreationContract.MAXIMUM_PICKER_AGGREGATE_BYTES
-            }
-        ).coerceAtLeast(0L)
-        require(importBudget > 0L) { "Reference images reached the size limit" }
+        val importBudget = CreationContract.MAXIMUM_PICKER_AGGREGATE_BYTES
         require(existingBytes < MAXIMUM_SOURCE_BYTES) { "The image cache is full" }
         val imported = mutableListOf<String>()
         var aggregateBytes = 0L
@@ -257,10 +238,16 @@ internal class CreationFileStore(internal val context: Context) {
     }
 
     fun pendingCleanupStore(): CreationPendingCleanupStore = pendingCleanup
-    fun updateSurfaceSources(ownerId: String, paths: Set<String>) {
+    /**
+     * Moves the owner's in-memory source leases now and returns the disk cleanup for
+     * the released paths, so a UI caller can run that IO off the main thread.
+     */
+    fun updateSurfaceSourceLeases(ownerId: String, paths: Set<String>): Runnable {
         val released = synchronized(sourceHandleLock) { sourceHandles.update(ownerId, paths) }
-        released.forEach(::deleteManagedPath)
-        reconcilePersistedUriGrants()
+        return Runnable {
+            released.forEach(::deleteManagedPath)
+            reconcilePersistedUriGrants()
+        }
     }
 
     fun releaseSurfaceSources(ownerId: String) {
@@ -283,11 +270,6 @@ internal class CreationFileStore(internal val context: Context) {
         if (!creationGenerationSourcesAreUsable(context.filesDir, leased, sourceHandles, ::exists)) {
             throw CreationSourceUnavailableException()
         }
-        val maximumSourceBytes = if (tool == CreationTool.IMAGE_CREATOR) {
-            CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES
-        } else {
-            CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES
-        }
         val sourceSnapshotBytes = sourceHandles.fold(0L) { total, path ->
             if (creationAcceptedInputCanLink(context.filesDir, path)) return@fold total
             val observed = size(path).takeIf { it >= 0L }
@@ -296,7 +278,7 @@ internal class CreationFileStore(internal val context: Context) {
                 total,
                 minOf(observed, CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES),
             )
-        }.coerceAtMost(maximumSourceBytes)
+        }.coerceAtMost(CreationContract.MAXIMUM_SOURCE_IMAGE_BYTES)
         ensureCreationStorageAvailable(tool, sourceSnapshotBytes, destination)
         return jobInputs.materialize(jobId, sourceHandles, tool)
     }
@@ -413,7 +395,6 @@ internal class CreationFileStore(internal val context: Context) {
         val requirements = creationStorageRequirements(
             sourceSnapshotBytes,
             resultBytes,
-            managedDestination = destination == null && tool == CreationTool.IMAGE_CREATOR,
             pendingInternalBytes = pending.internalBytes,
             pendingDestinationBytes = destination?.let {
                 pending.destinationBytes.getOrDefault(it, 0L)
@@ -465,33 +446,8 @@ internal class CreationFileStore(internal val context: Context) {
         runCatching { StatFs(context.filesDir.absolutePath).availableBytes }
             .getOrElse { throw CreationStorageUnavailableException() }
 
-    fun readBytes(path: String, maximum: Long): ByteArray {
-        val knownSize = size(path)
-        require(knownSize < 0 || knownSize <= maximum) { "Preview asset is too large" }
-        val input = path.creationUriOrNull()?.let(resolver::openInputStream)
-            ?: File(path).inputStream()
-        return input.use { stream -> readCreationBytesBounded(stream, maximum) }
-    }
-
-    fun writeText(path: String, value: String) {
-        val uri = path.creationUriOrNull()
-        if (uri == null) {
-            File(path).writeText(value)
-        } else {
-            requireNotNull(resolver.openOutputStream(uri, "wt")) { "Result is not writable" }
-                .bufferedWriter()
-                .use { it.write(value) }
-        }
-    }
-
     fun delete(path: String): Boolean = outputs.delete(path)
     fun openExternally(path: String) = outputs.openExternally(path)
-
-    fun openInput(path: String): InputStream =
-        path.creationUriOrNull()?.let(resolver::openInputStream)
-        ?: File(path).inputStream()
-
-    fun uploadUri(path: String): Uri = outputs.uploadUri(path)
 
     fun presentationHandle(path: String): String =
         if (path.startsWith("content://")) path else presentationPreviews.materialize(path)
@@ -501,14 +457,19 @@ internal class CreationFileStore(internal val context: Context) {
         pendingCleanup,
     )
 
-    fun materializePreview(path: String, extension: String): File {
+    /**
+     * [validateLocal] = false is for a caller that copies a local source and validates
+     * its own copy, which is the only file it serves; validating the source too would
+     * parse the same artifact twice.
+     */
+    fun materializePreview(path: String, extension: String, validateLocal: Boolean = true): File {
         val safeExtension = extension.lowercase().filter(Char::isLetterOrDigit).ifBlank { "bin" }
         val maximumBytes = creationPreviewMaximumBytes(safeExtension)
         val uri = path.creationUriOrNull()
         if (uri == null) {
             val local = File(path)
             require(local.length() <= maximumBytes) { "Preview asset is too large" }
-            validateCreationPreviewArtifact(local, safeExtension)
+            if (validateLocal) validateCreationPreviewArtifact(local, safeExtension)
             recentManagedPaths.remember(local)
             return local
         }

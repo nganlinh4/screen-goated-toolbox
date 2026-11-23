@@ -1,10 +1,13 @@
 use super::*;
 
+pub(super) mod capture_owner;
+mod connect;
 mod continuous;
 mod drain;
 mod lifecycle_adapter;
 mod text_state;
 
+use capture_owner::S2sCapture;
 use continuous::run_live_translate_continuous;
 
 pub fn run_gemini_live_s2s(
@@ -14,6 +17,7 @@ pub fn run_gemini_live_s2s(
     translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
     session_id: u64,
+    engine_revision: u64,
 ) -> Result<()> {
     let settings = load_settings()?;
     crate::log_info!(
@@ -23,81 +27,106 @@ pub fn run_gemini_live_s2s(
         settings.target_language,
         audio_source
     );
-    apply_tts_speed_for_s2s(&settings.speed);
-    let audio_buffer = Arc::new(Mutex::new(Vec::<i16>::new()));
+    if !crate::overlay::realtime_webview::state::publish_if_engine_current(
+        session_id,
+        &stop_signal,
+        engine_revision,
+        || apply_tts_speed_for_s2s(&settings.speed),
+    ) {
+        return Ok(());
+    }
     let pause = Arc::new(AtomicBool::new(false));
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
-    let _stream = if audio_source == "device" {
+    let selected_pid = if audio_source == "device" {
         let selected_pid = if selected_pid == 0 {
-            crate::overlay::realtime_webview::app_selection::show_audio_app_selector_overlay();
-            wait_for_selected_app(stop_signal.clone(), session_id)
+            if !crate::overlay::realtime_webview::state::engine_is_current(engine_revision) {
+                return Ok(());
+            }
+            crate::overlay::realtime_webview::app_selection::show_audio_app_selector_for_session(
+                session_id,
+                engine_revision,
+                stop_signal.clone(),
+                None,
+            );
+            wait_for_selected_app(stop_signal.clone(), session_id, engine_revision)
         } else {
             Some(selected_pid)
         };
-        if let Some(selected_pid) = selected_pid {
-            let capture = start_per_app_capture(
-                selected_pid,
-                audio_buffer.clone(),
-                stop_signal.clone(),
-                pause.clone(),
-            )?;
-            Some(
-                spawn_s2s_per_app_audio_pid_refresh(
-                    selected_pid,
-                    capture,
-                    audio_buffer.clone(),
-                    stop_signal.clone(),
-                    pause.clone(),
-                    session_id,
-                    settings.mode,
-                )?
-                .into(),
-            )
-        } else {
-            return Err(anyhow::anyhow!(
-                "S2S device mode needs a selected app to avoid capturing its own translated audio"
-            ));
+        if !crate::overlay::realtime_webview::state::engine_is_current(engine_revision) {
+            return Ok(());
         }
+        Some(selected_pid.ok_or_else(|| {
+            anyhow::anyhow!(
+                "S2S device mode needs a selected app to avoid capturing its own translated audio"
+            )
+        })?)
     } else {
-        Some(start_mic_capture_resilient(
-            audio_buffer.clone(),
-            stop_signal.clone(),
-            pause.clone(),
-        )?)
+        None
     };
-    if let Ok(mut s) = state.lock() {
-        s.set_transcription_method(
-            crate::api::realtime_audio::state::TranscriptionMethod::GeminiLiveS2s,
-        );
+    let mut capture = S2sCapture::open(
+        selected_pid,
+        stop_signal.clone(),
+        pause,
+        session_id,
+        engine_revision,
+        settings.mode,
+    )?;
+    if !crate::overlay::realtime_webview::state::publish_if_engine_current(
+        session_id,
+        &stop_signal,
+        engine_revision,
+        || {
+            if let Ok(mut s) = state.lock() {
+                s.set_transcription_method(
+                    crate::api::realtime_audio::state::TranscriptionMethod::GeminiLiveS2s,
+                );
+            }
+        },
+    ) {
+        return Ok(());
     }
 
     let (event_tx, event_rx) = mpsc::channel::<S2sEvent>();
+    let backlog = super::backlog::begin_run(session_id, &stop_signal, engine_revision);
     let context_memory = Arc::new(Mutex::new(S2sContextMemory::default()));
-    let coordinator_stop = stop_signal.clone();
+    let run_stop = Arc::new(AtomicBool::new(false));
+    let coordinator_stop = run_stop.clone();
+    let coordinator_session_stopped = stop_signal.clone();
     let coordinator_state = state.clone();
     let coordinator_overlay = overlay_hwnd.0 as isize;
     let coordinator_translation = translation_hwnd.map(|hwnd| hwnd.0 as isize);
     let coordinator_context = context_memory.clone();
+    let coordinator_backlog = backlog.clone();
     let mode = settings.mode;
-    std::thread::spawn(move || {
+    let coordinator = std::thread::spawn(move || {
         coordinate_output(
             event_rx,
             coordinator_stop,
+            coordinator_session_stopped,
+            session_id,
+            engine_revision,
             HWND(coordinator_overlay as *mut std::ffi::c_void),
             coordinator_translation.map(|hwnd| HWND(hwnd as *mut std::ffi::c_void)),
             coordinator_state,
             coordinator_context,
             mode,
+            coordinator_backlog,
         );
     });
+    let mut run = S2sRunWorkers {
+        stop: run_stop,
+        coordinator: Some(coordinator),
+        workers: Vec::new(),
+    };
 
     if settings.mode == S2sMode::LiveTranslate {
         return run_live_translate_continuous(
-            audio_buffer,
+            &mut capture,
             stop_signal,
             event_tx,
             overlay_hwnd,
             session_id,
+            engine_revision,
             settings,
         );
     }
@@ -107,12 +136,12 @@ pub fn run_gemini_live_s2s(
     for session_index in 0..SESSION_COUNT {
         let (segment_tx, segment_rx) = mpsc::channel::<Segment>();
         segment_senders.push(segment_tx);
-        let worker_stop = stop_signal.clone();
+        let worker_stop = run.stop.clone();
         let worker_events = event_tx.clone();
         let worker_settings = settings.clone();
         let worker_context = context_memory.clone();
         let worker_adaptive_vad = adaptive_vad.clone();
-        std::thread::spawn(move || {
+        run.workers.push(std::thread::spawn(move || {
             session_worker(
                 session_index,
                 segment_rx,
@@ -122,23 +151,47 @@ pub fn run_gemini_live_s2s(
                 worker_context,
                 worker_adaptive_vad,
             );
-        });
+        }));
     }
 
     run_vad_loop(
-        audio_buffer,
+        &mut capture,
         stop_signal,
         segment_senders,
         event_tx,
         overlay_hwnd,
         session_id,
+        engine_revision,
         adaptive_vad,
         settings.mode,
-    );
+        backlog,
+    )?;
 
     Ok(())
 }
 
+struct S2sRunWorkers {
+    stop: Arc<AtomicBool>,
+    coordinator: Option<std::thread::JoinHandle<()>>,
+    workers: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for S2sRunWorkers {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(coordinator) = self.coordinator.take() {
+            let _ = coordinator.join();
+        }
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "per-app capture refresh retains the run and capture identities"
+)]
 fn spawn_s2s_per_app_audio_pid_refresh(
     initial_pid: u32,
     capture: super::super::capture::CaptureWorker,
@@ -146,6 +199,7 @@ fn spawn_s2s_per_app_audio_pid_refresh(
     stop_signal: Arc<AtomicBool>,
     pause: Arc<AtomicBool>,
     session_id: u64,
+    engine_revision: u64,
     mode: S2sMode,
 ) -> Result<super::super::capture::CaptureWorker> {
     super::super::capture::CaptureWorker::spawn("sgt-per-app-pid-monitor", move |monitor_stop| {
@@ -156,6 +210,7 @@ fn spawn_s2s_per_app_audio_pid_refresh(
         while !stop_signal.load(Ordering::Relaxed)
             && !monitor_stop.load(Ordering::Acquire)
             && !is_stale_session(session_id)
+            && crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
             && !AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
             && !TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
         {
@@ -163,6 +218,7 @@ fn spawn_s2s_per_app_audio_pid_refresh(
             if monitor_stop.load(Ordering::Acquire)
                 || stop_signal.load(Ordering::Relaxed)
                 || is_stale_session(session_id)
+                || !crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
                 || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             {
@@ -200,17 +256,34 @@ fn spawn_s2s_per_app_audio_pid_refresh(
             if monitor_stop.load(Ordering::Acquire)
                 || stop_signal.load(Ordering::Relaxed)
                 || is_stale_session(session_id)
+                || !crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
                 || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             {
                 break;
             }
-            SELECTED_APP_PID.store(refreshed_pid, Ordering::SeqCst);
+            if !crate::overlay::realtime_webview::state::publish_if_engine_current(
+                session_id,
+                &stop_signal,
+                engine_revision,
+                || {
+                    SELECTED_APP_PID.store(refreshed_pid, Ordering::SeqCst);
+                },
+            ) {
+                break;
+            }
             match start_per_app_capture(
                 refreshed_pid,
                 audio_buffer.clone(),
                 stop_signal.clone(),
                 pause.clone(),
+                Some(
+                    crate::api::realtime_audio::capture::RealtimeCaptureOwner::new(
+                        session_id,
+                        engine_revision,
+                        stop_signal.clone(),
+                    ),
+                ),
             ) {
                 Ok(replacement) => capture = Some(replacement),
                 Err(error) => {
@@ -241,10 +314,15 @@ fn apply_tts_speed_for_s2s(speed: &str) {
         .store(mapped_speed, Ordering::SeqCst);
 }
 
-fn wait_for_selected_app(stop_signal: Arc<AtomicBool>, session_id: u64) -> Option<u32> {
+fn wait_for_selected_app(
+    stop_signal: Arc<AtomicBool>,
+    session_id: u64,
+    engine_revision: u64,
+) -> Option<u32> {
     let started = Instant::now();
     while !stop_signal.load(Ordering::SeqCst)
         && !is_stale_session(session_id)
+        && crate::overlay::realtime_webview::state::engine_is_current(engine_revision)
         && !AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
         && !TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
     {

@@ -1,16 +1,12 @@
 use eframe::egui;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-use std::process::Command;
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Dwm::{
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmExtendFrameIntoClientArea,
     DwmSetWindowAttribute,
 };
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIcon, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON, SM_CYICON,
-    SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_SETICON,
+    SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
 };
 
 // --- Clipboard Helper (Existing Code) ---
@@ -22,6 +18,7 @@ pub fn copy_to_clipboard_text(text: &str) {
 
 #[cfg(target_os = "windows")]
 pub fn is_running_as_admin() -> bool {
+    use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::Security::{
         GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
     };
@@ -35,34 +32,95 @@ pub fn is_running_as_admin() -> bool {
             let mut return_length: u32 = 0;
             let size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
 
-            if GetTokenInformation(
+            let ok = GetTokenInformation(
                 h_token,
                 TokenElevation,
                 Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
                 size,
                 &mut return_length,
             )
-            .is_ok()
-            {
-                return elevation.TokenIsElevated != 0;
-            }
+            .is_ok();
+            let _ = CloseHandle(h_token);
+            return ok && elevation.TokenIsElevated != 0;
         }
         false
     }
 }
 
+#[cfg(test)]
+mod elevation_tests {
+    use super::is_running_as_admin;
+    use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+
+    #[test]
+    fn elevation_queries_do_not_accumulate_process_handles() {
+        const CHILD: &str = "SGT_ELEVATION_HANDLE_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "gui::utils::elevation_tests::elevation_queries_do_not_accumulate_process_handles",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let count = || {
+            let mut count = 0;
+            unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) }.unwrap();
+            count
+        };
+        // Warm up thread/process-owned runtime state before measuring the loop.
+        let elevated = is_running_as_admin();
+        let before = count();
+        for _ in 0..4096 {
+            assert_eq!(is_running_as_admin(), elevated);
+        }
+        let after = count();
+        eprintln!("elevation queries=4096 handles_before={before} handles_after={after}");
+        assert!(after <= before + 2, "handle growth: {before} -> {after}");
+    }
+}
+
 // --- System Theme Detection ---
+/// The Windows "app mode": what application windows should follow.
 pub fn is_system_in_dark_mode() -> bool {
+    personalize_prefers_dark("AppsUseLightTheme")
+}
+
+/// The Windows "mode": the taskbar and tray area the tray icon sits on.
+/// It differs from the app mode under the Custom colour setting.
+pub fn is_taskbar_in_dark_mode() -> bool {
+    personalize_prefers_dark("SystemUsesLightTheme")
+}
+
+/// The tray icon must contrast with the taskbar, not with the app window.
+pub fn tray_icon_dark(theme_mode: &crate::config::ThemeMode, taskbar_dark: bool) -> bool {
+    match theme_mode {
+        crate::config::ThemeMode::System => taskbar_dark,
+        crate::config::ThemeMode::Dark => true,
+        crate::config::ThemeMode::Light => false,
+    }
+}
+
+/// 0 means dark and 1 means light; a missing value means the Windows default, dark.
+fn personalize_prefers_dark(value_name: &str) -> bool {
     #[cfg(target_os = "windows")]
     {
         use winreg::RegKey;
         use winreg::enums::*;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        // We check "SystemUsesLightTheme".
-        // 0 = Dark Mode (Standard), 1 = Light Mode.
         if let Ok(key) =
             hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
-            && let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme")
+            && let Ok(val) = key.get_value::<u32, &str>(value_name)
         {
             return val == 0;
         }
@@ -70,6 +128,7 @@ pub fn is_system_in_dark_mode() -> bool {
     }
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = value_name;
         true
     }
 }
@@ -200,179 +259,15 @@ pub fn configure_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-// --- Task Scheduler / Admin Startup (Existing Code) ---
+#[path = "utils/window_icons.rs"]
+mod window_icons;
 
-const TASK_NAME: &str = "ScreenGoatedToolbox_AutoStart";
-
-/// CREATE_NO_WINDOW - prevents console window flash when spawning child processes.
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-/// Run `schtasks` with the given args, hidden, returning whether it succeeded.
-/// Used for the bool-returning task-scheduler operations (create/delete/query).
-fn run_schtasks(args: &[&str]) -> bool {
-    let mut cmd = Command::new("schtasks");
-    cmd.args(args);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    match cmd.output() {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
-    }
-}
-
-pub fn set_admin_startup(enable: bool) -> bool {
-    if enable {
-        let exe_path = match std::env::current_exe() {
-            Ok(path) => path,
-            Err(_) => return false,
-        };
-
-        let exe_str = match exe_path.to_str() {
-            Some(s) => s,
-            None => return false,
-        };
-
-        if exe_str.is_empty() {
-            return false;
-        }
-
-        let tr = format!("\"{}\" {}", exe_str, crate::startup_launch::AUTOSTART_ARG);
-        run_schtasks(&[
-            "/create", "/tn", TASK_NAME, "/tr", &tr, "/sc", "onlogon", "/rl", "highest", "/f",
-        ])
-    } else {
-        run_schtasks(&["/delete", "/tn", TASK_NAME, "/f"])
-    }
-}
-
-pub fn is_admin_startup_enabled() -> bool {
-    // 1. Check if ANY task with our name exists
-    let exists = run_schtasks(&["/query", "/tn", TASK_NAME]);
-
-    if !exists {
-        return false;
-    }
-
-    // 2. Check if it points to US.
-    // If it points to the wrong EXE, we consider it "Not Enabled" for this build.
-    is_admin_startup_pointing_to_current_exe()
-}
-
-pub fn is_admin_startup_pointing_to_current_exe() -> bool {
-    let exe_path = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(_) => return false,
-    };
-    let exe_str = match exe_path.to_str() {
-        Some(s) => s,
-        None => return false,
-    };
-
-    let mut cmd = Command::new("schtasks");
-    cmd.args(["/query", "/tn", TASK_NAME, "/xml"]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    if let Ok(output) = cmd.output()
-        && output.status.success()
-    {
-        let xml_content = String::from_utf8_lossy(&output.stdout);
-        // The XML contains the path, likely quoted.
-        // We just check if the path substring is present.
-        // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
-        let xml_content = xml_content.to_lowercase();
-        return xml_content.contains(&exe_str.to_lowercase())
-            && xml_content.contains(crate::startup_launch::AUTOSTART_ARG);
-    }
-    false
-}
-
-// --- NATIVE ICON UPDATER (FIXED) ---
-
-fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
-    let mut bgra = data.to_vec();
-    for chunk in bgra.as_chunks_mut::<4>().0 {
-        chunk.swap(0, 2); // Swap R and B
-    }
-    bgra
-}
-
-unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> {
-    unsafe {
-        let img = image::load_from_memory(bytes).ok()?;
-
-        // High-quality resize to fix aliasing
-        let resized = img.resize_exact(
-            target_w as u32,
-            target_h as u32,
-            image::imageops::FilterType::Lanczos3,
-        );
-        let rgba = resized.to_rgba8();
-        let bgra_data = rgba_to_bgra(rgba.as_raw());
-
-        let mask_len = ((target_w * target_h) / 8) as usize;
-        let mask_bits = vec![0u8; mask_len];
-
-        // Fixed: CreateIcon returns a Result<HICON> in windows 0.48+
-        let hicon_result = CreateIcon(
-            None,
-            target_w,
-            target_h,
-            1,
-            32,
-            mask_bits.as_ptr(),
-            bgra_data.as_ptr(),
-        );
-
-        match hicon_result {
-            Ok(hicon) => {
-                // Fixed: Unwrap HICON and cast to HANDLE - in windows 0.62 HICON wraps *mut c_void
-                if hicon.is_invalid() {
-                    None
-                } else {
-                    Some(HANDLE(hicon.0))
-                }
-            }
-            Err(_) => None,
-        }
-    }
-}
+#[path = "utils/theme_change.rs"]
+mod theme_change;
+pub(crate) use theme_change::{note_setting_change, take_theme_change};
 
 pub fn set_window_icon(hwnd: HWND, is_dark_mode: bool) {
-    let icon_bytes: &[u8] = if is_dark_mode {
-        include_bytes!("../../assets/app-icon-small.png")
-    } else {
-        include_bytes!("../../assets/app-icon-small-light.png")
-    };
-
-    unsafe {
-        if !hwnd.is_invalid() {
-            let small_w = GetSystemMetrics(SM_CXSMICON);
-            let small_h = GetSystemMetrics(SM_CYSMICON);
-
-            let big_w = GetSystemMetrics(SM_CXICON);
-            let big_h = GetSystemMetrics(SM_CYICON);
-
-            if let Some(hicon_small) = create_hicon_from_bytes(icon_bytes, small_w, small_h) {
-                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                    Some(hwnd),
-                    WM_SETICON,
-                    WPARAM(ICON_SMALL as usize),
-                    LPARAM(hicon_small.0 as isize),
-                );
-            }
-
-            if let Some(hicon_big) = create_hicon_from_bytes(icon_bytes, big_w, big_h) {
-                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                    Some(hwnd),
-                    WM_SETICON,
-                    WPARAM(ICON_BIG as usize),
-                    LPARAM(hicon_big.0 as isize),
-                );
-            }
-        }
-    }
+    window_icons::set(hwnd, is_dark_mode);
 }
 
 pub fn update_window_icon_native(is_dark_mode: bool) {
@@ -419,5 +314,19 @@ pub fn apply_window_shadow_native(hwnd: HWND) {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
         );
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::tray_icon_dark;
+    use crate::config::ThemeMode;
+
+    #[test]
+    fn the_tray_icon_follows_the_taskbar_only_in_system_mode() {
+        assert!(tray_icon_dark(&ThemeMode::System, true));
+        assert!(!tray_icon_dark(&ThemeMode::System, false));
+        assert!(tray_icon_dark(&ThemeMode::Dark, false));
+        assert!(!tray_icon_dark(&ThemeMode::Light, true));
     }
 }

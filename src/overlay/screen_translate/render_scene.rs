@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use super::backdrop::{encode_data_url, reconstruct_shaped_blob};
 use super::contract::DetectedTextRegion;
-use super::geometry::{PixelRegion, normalized_region};
+use super::geometry::PixelRegion;
 use crate::overlay::selection::CapturedRegion;
 
 mod connectivity;
@@ -42,14 +42,15 @@ pub(super) fn prepare_scene(
     candidates: &[DetectedTextRegion],
     units: Option<&[super::units::Unit]>,
 ) -> Result<PreparedScene> {
+    anyhow::ensure!(
+        candidates
+            .iter()
+            .all(|candidate| candidate.bounds.image_size() == (capture.width, capture.height)),
+        "source geometry image dimensions changed"
+    );
     let located = candidates
         .iter()
-        .map(|candidate| {
-            (
-                candidate,
-                normalized_region(candidate.bounds, capture.width, capture.height),
-            )
-        })
+        .map(|candidate| (candidate, candidate.bounds.pixels()))
         .collect::<Vec<_>>();
     let all_regions = located
         .iter()

@@ -1,10 +1,8 @@
 use super::contract::{
-    DetectedTextRegion, NormalizedBounds, RecognitionEvidence, TranslationDocument,
-    TranslationRegion,
+    DetectedTextRegion, RecognitionEvidence, TranslationDocument, TranslationRegion,
 };
 use crate::overlay::selection::CapturedRegion;
 use anyhow::{Context, Result, bail};
-use image::ImageEncoder as _;
 use sgt_screen_text_detector_protocol::{
     recognition::Reading,
     stream::{Event, Region},
@@ -58,25 +56,14 @@ pub(super) fn translate_region(
         },
         settings.show_glow_box,
     )?;
-    let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(
-        &mut png,
-        image::codecs::png::CompressionType::Fast,
-        image::codecs::png::FilterType::Sub,
-    )
-    .write_image(
-        region.image.as_raw(),
-        region.width,
-        region.height,
-        image::ExtendedColorType::Rgba8,
-    )?;
+    let payload = super::image_payload::prepare_png(&region.image, &cancel)?;
     crate::overlay::result::latency::mark(&trace_id, "capture_encoded");
     let width = region.width;
     let height = region.height;
     let mut evidence = Some(super::diagnostics::RunEvidence::begin(
         &trace_id,
         &region,
-        &png,
+        &payload.bytes,
         &settings.target_language,
         &model,
         &settings.translation_prompt,
@@ -91,20 +78,26 @@ pub(super) fn translate_region(
         let ocr_sender = sender.clone();
         let ocr_cancel = Arc::clone(&work_cancel);
         scope.spawn(move || {
-            let send = |event| {
+            let send = |mut event| {
+                payload.map_event(&mut event);
                 ocr_sender
                     .send(Message::Ocr(event))
                     .map_err(|_| anyhow::anyhow!("capture consumer closed"))
             };
-            let result =
-                super::detector::incremental::detect(&png, width, height, &ocr_cancel, send);
+            let result = super::detector::incremental::detect(
+                &payload.bytes,
+                payload.width,
+                payload.height,
+                &ocr_cancel,
+                send,
+            );
             let _ = ocr_sender.send(Message::OcrDone(result.map_err(|e| e.to_string())));
         });
         let requests = workers::start(scope, &sender, &work_cancel, &trace_id, &settings);
         drop(sender);
         let mut capture = Some(region);
         let mut untranslated = Vec::new();
-        let mut overlay = None;
+        let mut overlay: Option<super::render::TranslationOverlay> = None;
         let mut candidates = Vec::new();
         let mut indices = HashMap::new();
         let mut groups = None;
@@ -125,6 +118,9 @@ pub(super) fn translate_region(
                 if cancel.load(Ordering::Acquire) || !super::runtime::is_current(job_id) {
                     bail!("screen translation cancelled");
                 }
+                if let Some(overlay) = overlay.as_mut() {
+                    overlay.check_ready()?;
+                }
                 match queued
                     .take()
                     .map(Ok)
@@ -139,14 +135,14 @@ pub(super) fn translate_region(
                             .iter()
                             .map(|r| candidate(r, width, height))
                             .collect::<Result<Vec<_>>>()?;
-                        processing.geometry(&candidates, width, height);
+                        processing.geometry(&candidates);
                         indices = candidates
                             .iter()
                             .enumerate()
                             .map(|(i, c)| (u32::from(c.id), i))
                             .collect();
                         let units =
-                            super::units::Plan::new(&capture.image, &mut candidates, &layout);
+                            super::units::Plan::new(&capture.image, &mut candidates, &layout)?;
                         processing.partition(&units.units);
                         evidence.as_ref().unwrap().units(&units.units, &layout);
                         groups = Some(coordinator::Coordinator::new(&units.candidates, &model));
@@ -205,7 +201,7 @@ pub(super) fn translate_region(
                         result.map_err(anyhow::Error::msg)?;
                         ocr_done = true;
                         crate::overlay::result::latency::mark(&trace_id, "detector_complete");
-                        evidence.as_mut().unwrap().detected(&candidates, &[]);
+                        evidence.as_mut().unwrap().detected(&candidates);
                     }
                     Ok(Message::Translated(lane, region)) => {
                         groups
@@ -226,7 +222,7 @@ pub(super) fn translate_region(
                         }
                         if let Some(overlay) = overlay.as_mut() {
                             processing.resolved(&region.member_ids);
-                            overlay.send(region);
+                            overlay.send(region)?;
                         }
                     }
                     Ok(Message::BatchDone(lane, result)) => {
@@ -261,6 +257,9 @@ pub(super) fn translate_region(
                     if let Some(dispatch) =
                         groups.take_ready(unit_candidates, std::time::Instant::now())
                     {
+                        if let Some(overlay) = overlay.as_mut() {
+                            overlay.wait_ready(&cancel)?;
+                        }
                         batch_sequence += 1;
                         crate::overlay::result::latency::mark(&trace_id, "translation_dispatched");
                         requests[dispatch.lane]
@@ -334,7 +333,7 @@ pub(super) fn translate_region(
             && let Some(evidence) = evidence.take()
         {
             let mut evidence = evidence;
-            evidence.detected(&candidates, &[]);
+            evidence.detected(&candidates);
             evidence.fail("incremental_pipeline", error);
         }
         result
@@ -342,34 +341,9 @@ pub(super) fn translate_region(
 }
 
 pub(super) fn candidate(region: &Region, width: u32, height: u32) -> Result<DetectedTextRegion> {
-    let x = |value: f32| ((value / width as f32 * 1000.0).round() as u16).min(1000);
-    let y = |value: f32| ((value / height as f32 * 1000.0).round() as u16).min(1000);
-    let left = region.quad.iter().map(|p| x(p[0])).min().unwrap().min(999);
-    let right = region
-        .quad
-        .iter()
-        .map(|p| x(p[0]))
-        .max()
-        .unwrap()
-        .max(left.saturating_add(1))
-        .min(1000);
-    let top = region.quad.iter().map(|p| y(p[1])).min().unwrap().min(999);
-    let bottom = region
-        .quad
-        .iter()
-        .map(|p| y(p[1]))
-        .max()
-        .unwrap()
-        .max(top.saturating_add(1))
-        .min(1000);
     Ok(DetectedTextRegion {
         id: region.id.try_into()?,
-        bounds: NormalizedBounds {
-            left,
-            top,
-            right,
-            bottom,
-        },
+        bounds: super::source_bounds::SourceBounds::from_quad(&region.quad, width, height)?,
         source_text: String::new(),
         source_alternatives: Vec::new(),
         recognition: RecognitionEvidence {

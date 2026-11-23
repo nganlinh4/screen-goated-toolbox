@@ -39,8 +39,10 @@ pub(super) fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), 
     let gpu_fence = D3D11GpuFence::new(d3d11_device, d3d11_context)?;
 
     // Cast to ID3D11DeviceContext4 for cross-API fence signaling.
-    let d3d11_context4: Option<ID3D11DeviceContext4> =
-        d3d11_fence.and_then(|_| d3d11_context.cast::<ID3D11DeviceContext4>().ok());
+    let d3d11_context4: Option<ID3D11DeviceContext4> = d3d11_fence
+        .map(|_| d3d11_context.cast::<ID3D11DeviceContext4>())
+        .transpose()
+        .map_err(|error| format!("D3D11 fence signaling context unavailable: {error}"))?;
 
     let mut fence_value: u64 = 0;
 
@@ -152,7 +154,7 @@ pub(super) fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), 
                 // NVDEC runs on a separate HW engine from the VP -- without this fence,
                 // the decoder can overwrite source NV12 textures while VP is still reading.
                 if !pending_samples.is_empty() {
-                    gpu_fence.signal_and_wait()?;
+                    gpu_fence.signal_and_wait_cancellable(cancel_flag)?;
                     pending_samples.clear();
                 }
                 // Sort descending; pop() then gives the frame with the lowest PTS.
@@ -327,18 +329,20 @@ pub(super) fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), 
         }
 
         // Acquire keyed mutex for the shared decode ring slot (CPU-side ownership).
-        // The guard releases the slot on every exit path (including the Signal `?`
-        // below), so a fence-signal failure can't leave it locked and hang the
-        // render thread's next acquire forever.
-        let slot_guard = if keyed_mutexes.is_empty() {
+        // Once a copy is submitted, a failure cannot prove that the GPU stopped
+        // using the surface. Keep the slot quarantined until pipeline teardown.
+        let mut slot_guard = if keyed_mutexes.is_empty() {
             None
         } else {
             Some(
-                KeyedMutexGuard::acquire(&keyed_mutexes[ring_idx], 0)
+                KeyedMutexGuard::acquire(&keyed_mutexes[ring_idx], 0, cancel_flag)
                     .map_err(|e| format!("AcquireSync dec[{ring_idx}]: {e}"))?,
             )
         };
 
+        if let Some(guard) = slot_guard.as_mut() {
+            guard.quarantine();
+        }
         // Copy VP output to shared decode ring slot.
         unsafe {
             d3d11_context.CopyResource(&shared_resources[ring_idx], &vp_resources[cur_vp_slot]);
@@ -357,10 +361,12 @@ pub(super) fn run_decode_thread(context: DecodeThreadContext<'_>) -> Result<(), 
         }
 
         // GPU fence: ensure CopyResource + Signal are committed to GPU queue.
-        gpu_fence.signal_and_wait()?;
+        gpu_fence.signal_and_wait_cancellable(cancel_flag)?;
 
         // Release keyed mutex -- D3D11 is done writing, render thread can acquire.
-        drop(slot_guard);
+        if let Some(guard) = slot_guard {
+            guard.release_after_completion()?;
+        }
 
         let frame_dur = frame_t0.elapsed().as_secs_f64();
         if frame_dur > 0.5 {

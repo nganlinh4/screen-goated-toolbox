@@ -28,17 +28,16 @@ import {
   smoothMousePositions,
 } from "@/lib/renderer/cursorDynamics";
 import type { BackgroundConfig, MousePosition, VideoSegment } from "@/types/video";
+import { getVideoPlacementRect } from "@/lib/videoGeometry";
 
 const FIXTURE_DIR = path.resolve(
   __dirname,
   "../../../parity-fixtures/render-camera-cursor",
 );
 
-// Mirrors the Rust generate_camera_path SOURCE-time sampler: contain-fit is an
-// identity here (canvas dims == cropped source dims), so posX/posY land in [0,1]
-// anchor space exactly like the Rust calculate_zoom_state path.
-function sampleCameraState(t: number, seg: VideoSegment, view: number) {
-  const s = calculateCurrentZoomStateInternal(t, seg, view, view);
+function sampleCameraState(t: number, seg: VideoSegment, view: number, geometry?: CameraGeometry) {
+  const s = calculateCurrentZoomStateInternal(t, seg, geometry?.viewW ?? view, geometry?.viewH ?? view,
+    geometry?.srcCropW, geometry?.srcCropH, geometry?.scale);
   return {
     zoom: round(s.zoomFactor),
     posX: round(s.positionX),
@@ -52,6 +51,7 @@ function round(v: number): number {
 }
 
 const VIEW = 1000;
+type CameraGeometry = { viewW: number; viewH: number; srcCropW: number; srcCropH: number; scale: number };
 
 function autoSegment(over: Partial<VideoSegment>): VideoSegment {
   return {
@@ -134,8 +134,9 @@ describe("generate render-camera-cursor golden", () => {
     const cameraCases: Array<{
       name: string;
       view: number;
+      geometry?: CameraGeometry;
       segment: Record<string, unknown>;
-      samples: Array<{ t: number; zoom: number; posX: number; posY: number }>;
+      samples: Array<{ t: number; zoom: number; posX: number; posY: number; bounds?: number[] }>;
     }> = [];
 
     // 1. Constant auto-zoom path (no blocks).
@@ -283,6 +284,58 @@ describe("generate render-camera-cursor golden", () => {
         view: VIEW,
         segment: cameraSegmentJson(seg),
         samples: times.map((t) => ({ t, ...sampleCameraState(t, seg, VIEW) })),
+      });
+    }
+
+    // Scaled placement, differing canvas aspect, crop offsets, and targets outside the crop.
+    for (const [name, geometry, followCursor] of [
+      ["scaled_auto_landscape", { viewW: 1600, viewH: 900, srcCropW: 800, srcCropH: 600, scale: 0.9 }, false],
+      ["scaled_follow_portrait", { viewW: 720, viewH: 1280, srcCropW: 800, srcCropH: 600, scale: 0.75 }, true],
+    ] as const) {
+      const seg = autoSegment({
+        crop: { x: 0.1, y: 0.2, width: 0.8, height: 0.6 },
+        smoothMotionPath: [
+          { time: 0, x: 50, y: 100, zoom: 2 },
+          { time: 10, x: 850, y: 750, zoom: 2.5 },
+        ],
+        zoomBlocks: followCursor ? [
+          blk({ startTime: 1, endTime: 9, easeIn: 2, easeOut: 2, zoomFactor: 2.2, followCursor: true }),
+        ] : [],
+      });
+      cameraCases.push({
+        name, view: VIEW, geometry, segment: cameraSegmentJson(seg),
+        samples: [0, 2, 3, 5, 8, 10].map((t) => ({ t, ...sampleCameraState(t, seg, VIEW, geometry) })),
+      });
+    }
+
+    // Follow-cursor auto movement transitions into a fixed manual zoom.
+    {
+      const geometry = { viewW: 1600, viewH: 900, srcCropW: 800, srcCropH: 600, scale: 0.9 };
+      const seg = autoSegment({
+        crop: { x: 0.1, y: 0.2, width: 0.8, height: 0.6 },
+        smoothMotionPath: [
+          { time: 0, x: 180, y: 350, zoom: 2 },
+          { time: 10, x: 740, y: 650, zoom: 2.4 },
+        ],
+        zoomBlocks: [
+          blk({ startTime: 1, endTime: 4, easeIn: 1, easeOut: 1, zoomFactor: 2.2, followCursor: true, directTransitionToNext: true }),
+          blk({ startTime: 6, endTime: 9, easeIn: 1, easeOut: 1, zoomFactor: 1.6, positionX: 0.85, positionY: 0.25 }),
+        ],
+      });
+      const rect = getVideoPlacementRect(geometry.viewW, geometry.viewH, geometry.srcCropW, geometry.srcCropH, geometry.scale);
+      cameraCases.push({
+        name: "scaled_follow_to_fixed_transition", view: VIEW, geometry, segment: cameraSegmentJson(seg),
+        // Off-grid times (between 4 fps export frames) lock per-sample camera
+        // evaluation: export must not interpolate between baked grid frames.
+        samples: [0, 1.3, 1.5, 2.15, 3, 3.5, 3.85, 4, 4.6, 5, 5.45, 6, 6.5, 6.9, 7, 8, 9.5].map((t) => {
+          const state = sampleCameraState(t, seg, VIEW, geometry);
+          return { t, ...state, bounds: [
+            ((1 - state.zoom) * state.posX + state.zoom * rect.left / geometry.viewW),
+            ((1 - state.zoom) * state.posY + state.zoom * rect.top / geometry.viewH),
+            state.zoom * rect.width / geometry.viewW,
+            state.zoom * rect.height / geometry.viewH,
+          ] };
+        }),
       });
     }
 

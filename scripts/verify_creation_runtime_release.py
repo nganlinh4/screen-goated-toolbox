@@ -23,9 +23,7 @@ RUNTIME_BUNDLES = (
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ARTIFACT_BYTES = 8 * 1024 * 1024 * 1024
 MAX_ANDROID_ARTIFACT_BYTES = 256 * 1024 * 1024
-EXPECTED_FEATURES = frozenset(
-    ("image_to_3d", "image_to_svg", "image_creator")
-)
+EXPECTED_FEATURES = frozenset(("image_to_3d", "image_to_svg"))
 ASSET_NAME_FORMATS = {
     "windows": "sgt-creation-runtime-windows-x64-{digest}.exe",
     "android.full": "sgt-creation-runtime-android-arm64-{digest}.zip",
@@ -50,7 +48,7 @@ def validate_features(value: object) -> None:
     if set(value) != EXPECTED_FEATURES:
         raise RuntimeError(
             "combined creation-runtime delivery features must contain exactly "
-            "image_to_3d, image_to_svg, and image_creator"
+            "image_to_3d and image_to_svg"
         )
 
 

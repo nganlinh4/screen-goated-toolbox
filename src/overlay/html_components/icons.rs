@@ -1,141 +1,262 @@
-pub fn get_icon_svg(name: &str) -> &'static str {
-    match name {
-        "music_note" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor"><path d="M400-120q-66 0-113-47t-47-113q0-66 47-113t113-47q23 0 42.5 5.5T480-418v-382q0-17 11.5-28.5T520-840h160q17 0 28.5 11.5T720-800v80q0 17-11.5 28.5T680-680H560v400q0 66-47 113t-113 47Z"/></svg>"#
+//! Icons embedded in overlay HTML. An enum, so a misspelled icon fails to
+//! compile instead of rendering an empty button.
+
+// The recorder worker compiles this module for the auto-copy badge alone.
+#[cfg_attr(feature = "recorder-worker", allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayIcon {
+    Mic,
+    SpeakerGroup,
+    VolumeUp,
+    Dictionary,
+    Filter,
+    ContentCopy,
+    Remove,
+    Add,
+    Subtitles,
+    Translate,
+    ExpandLess,
+    ResizeCorner,
+    Apps,
+    PlayArrow,
+    Close,
+    Pause,
+    Check,
+    Download,
+    Send,
+    ArrowBack,
+    ArrowForward,
+    Undo,
+    Redo,
+    HourglassEmpty,
+    Stop,
+    CleaningServices,
+    Opacity,
+    GraphicEq,
+    Image,
+    Keyboard,
+    FormatItalic,
+    AutoAwesome,
+}
+
+/// Size every downloaded symbol carries (`1em`), replaced by an icon's
+/// intrinsic pixel size where its surface has no CSS size of its own.
+const CATALOG_SIZE: &str = r#"width="1em" height="1em""#;
+
+#[cfg_attr(feature = "recorder-worker", allow(dead_code))]
+impl OverlayIcon {
+    /// The downloaded Material Symbol, sized for the surfaces that use it.
+    pub fn svg(self) -> String {
+        match self.intrinsic_size() {
+            Some(px) => {
+                self.source()
+                    .replacen(CATALOG_SIZE, &format!(r#"width="{px}" height="{px}""#), 1)
+            }
+            None => self.source().to_owned(),
         }
+    }
 
-        "headphones" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M280-120h-80q-33 0-56.5-23.5T120-200v-280q0-75 28.5-140.5t77-114q48.5-48.5 114-77T480-840q75 0 140.5 28.5t114 77q48.5 48.5 77 114T840-480v280q0 33-23.5 56.5T760-120h-80q-33 0-56.5-23.5T600-200v-160q0-33 23.5-56.5T680-440h80v-40q0-117-81.5-198.5T480-760q-117 0-198.5 81.5T200-480v40h80q33 0 56.5 23.5T360-360v160q0 33-23.5 56.5T280-120Z"/></svg>"#
+    /// The symbol at an explicit pixel size, for surfaces that size per use.
+    pub fn svg_at(self, px: u32) -> String {
+        self.source()
+            .replacen(CATALOG_SIZE, &format!(r#"width="{px}" height="{px}""#), 1)
+    }
+
+    const fn source(self) -> &'static str {
+        match self {
+            Self::Mic => include_str!("../../../ui-shared/material-symbols/mic.svg"),
+            Self::SpeakerGroup => {
+                include_str!("../../../ui-shared/material-symbols/speaker_group.svg")
+            }
+            Self::VolumeUp => include_str!("../../../ui-shared/material-symbols/volume_up.svg"),
+            Self::Dictionary => include_str!("../../../ui-shared/material-symbols/dictionary.svg"),
+            Self::Filter => include_str!("../../../ui-shared/material-symbols/filter.svg"),
+            Self::ContentCopy => {
+                include_str!("../../../ui-shared/material-symbols/content_copy.svg")
+            }
+            Self::Remove => include_str!("../../../ui-shared/material-symbols/remove.svg"),
+            Self::Add => include_str!("../../../ui-shared/material-symbols/add.svg"),
+            Self::Subtitles => include_str!("../../../ui-shared/material-symbols/subtitles.svg"),
+            Self::Translate => include_str!("../../../ui-shared/material-symbols/translate.svg"),
+            Self::ExpandLess => include_str!("../../../ui-shared/material-symbols/expand_less.svg"),
+            Self::ResizeCorner => {
+                include_str!("../../../ui-shared/material-symbols/open_in_full.svg")
+            }
+            Self::Apps => include_str!("../../../ui-shared/material-symbols/apps.svg"),
+            Self::PlayArrow => include_str!("../../../ui-shared/material-symbols/play_arrow.svg"),
+            Self::Close => include_str!("../../../ui-shared/material-symbols/close.svg"),
+            Self::Pause => include_str!("../../../ui-shared/material-symbols/pause.svg"),
+            Self::Check => include_str!("../../../ui-shared/material-symbols/check.svg"),
+            Self::Download => include_str!("../../../ui-shared/material-symbols/download.svg"),
+            Self::Send => include_str!("../../../ui-shared/material-symbols/send.svg"),
+            Self::ArrowBack => include_str!("../../../ui-shared/material-symbols/arrow_back.svg"),
+            Self::ArrowForward => {
+                include_str!("../../../ui-shared/material-symbols/arrow_forward.svg")
+            }
+            Self::Undo => include_str!("../../../ui-shared/material-symbols/undo.svg"),
+            Self::Redo => include_str!("../../../ui-shared/material-symbols/redo.svg"),
+            Self::HourglassEmpty => {
+                include_str!("../../../ui-shared/material-symbols/hourglass_empty.svg")
+            }
+            Self::Stop => include_str!("../../../ui-shared/material-symbols/stop.svg"),
+            Self::CleaningServices => {
+                include_str!("../../../ui-shared/material-symbols/cleaning_services.svg")
+            }
+            Self::Opacity => include_str!("../../../ui-shared/material-symbols/opacity.svg"),
+            Self::GraphicEq => include_str!("../../../ui-shared/material-symbols/graphic_eq.svg"),
+            Self::Image => include_str!("../../../ui-shared/material-symbols/image.svg"),
+            Self::Keyboard => include_str!("../../../ui-shared/material-symbols/keyboard.svg"),
+            Self::FormatItalic => {
+                include_str!("../../../ui-shared/material-symbols/format_italic.svg")
+            }
+            Self::AutoAwesome => {
+                include_str!("../../../ui-shared/material-symbols/auto_awesome.svg")
+            }
         }
+    }
 
-        "mic" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M480-400q-50 0-85-35t-35-85v-240q0-50 35-85t85-35q50 0 85 35t35 85v240q0 50-35 85t-85 35Zm-40 240v-83q-92-13-157.5-78T203-479q-2-17 9-29t28-12q17 0 28.5 11.5T284-480q14 70 69.5 115T480-320q72 0 127-45.5T676-480q4-17 15.5-28.5T720-520q17 0 28 12t9 29q-14 91-79 157t-158 79v83q0 17-11.5 28.5T480-120q-17 0-28.5-11.5T440-160Z"/></svg>"#
+    /// Pixel size these icons had before they used the shared catalog. The
+    /// rest keep `1em`: they already used it, or their surface's CSS sizes them.
+    const fn intrinsic_size(self) -> Option<u32> {
+        match self {
+            Self::Mic
+            | Self::SpeakerGroup
+            | Self::Remove
+            | Self::Subtitles
+            | Self::Translate
+            | Self::ExpandLess
+            | Self::ResizeCorner
+            | Self::Apps
+            | Self::Send => Some(24),
+            Self::VolumeUp
+            | Self::ContentCopy
+            | Self::Check
+            | Self::Download
+            | Self::ArrowBack
+            | Self::ArrowForward
+            | Self::Undo
+            | Self::Redo
+            | Self::HourglassEmpty
+            | Self::Stop
+            | Self::CleaningServices
+            | Self::Opacity => Some(16),
+            Self::PlayArrow | Self::Pause => Some(40),
+            Self::AutoAwesome => Some(14),
+            Self::Dictionary
+            | Self::Filter
+            | Self::Add
+            | Self::Close
+            | Self::GraphicEq
+            | Self::Image
+            | Self::Keyboard
+            | Self::FormatItalic => None,
         }
+    }
+}
 
-        "speaker_group" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M400-200q-33 0-56.5-23.5T320-280v-560q0-33 23.5-56.5T400-920h360q33 0 56.5 23.5T840-840v560q0 33-23.5 56.5T760-200H400Zm180-460q25 0 42.5-17.5T640-720q0-25-17.5-42.5T580-780q-25 0-42.5 17.5T520-720q0 25 17.5 42.5T580-660Zm0 340q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Zm0-80q-25 0-42.5-17.5T520-460q0-25 17.5-42.5T580-520q25 0 42.5 17.5T640-460q0 25-17.5 42.5T580-400Zm20 360H240q-33 0-56.5-23.5T160-120v-600q0-17 11.5-28.5T200-760q17 0 28.5 11.5T240-720v600h360q17 0 28.5 11.5T640-80q0 17-11.5 28.5T600-40Z"/></svg>"#
+/// Every icon, for tests that check a page embeds only catalog symbols.
+#[cfg(test)]
+pub(crate) const ALL: &[OverlayIcon] = &[
+    OverlayIcon::Mic,
+    OverlayIcon::SpeakerGroup,
+    OverlayIcon::VolumeUp,
+    OverlayIcon::Dictionary,
+    OverlayIcon::Filter,
+    OverlayIcon::ContentCopy,
+    OverlayIcon::Remove,
+    OverlayIcon::Add,
+    OverlayIcon::Subtitles,
+    OverlayIcon::Translate,
+    OverlayIcon::ExpandLess,
+    OverlayIcon::ResizeCorner,
+    OverlayIcon::Apps,
+    OverlayIcon::PlayArrow,
+    OverlayIcon::Close,
+    OverlayIcon::Pause,
+    OverlayIcon::Check,
+    OverlayIcon::Download,
+    OverlayIcon::Send,
+    OverlayIcon::ArrowBack,
+    OverlayIcon::ArrowForward,
+    OverlayIcon::Undo,
+    OverlayIcon::Redo,
+    OverlayIcon::HourglassEmpty,
+    OverlayIcon::Stop,
+    OverlayIcon::CleaningServices,
+    OverlayIcon::Opacity,
+    OverlayIcon::GraphicEq,
+    OverlayIcon::Image,
+    OverlayIcon::Keyboard,
+    OverlayIcon::FormatItalic,
+    OverlayIcon::AutoAwesome,
+];
+
+/// Panics unless every SVG path in `html` (raw or inside a JS string) is the
+/// path of a downloaded catalog symbol, so pasted icon geometry fails a test.
+#[cfg(test)]
+pub(crate) fn assert_only_catalog_icons(html: &str) {
+    fn path_data(text: &str) -> Vec<&str> {
+        let mut found = Vec::new();
+        for (open, close) in [(" d=\"", "\""), (" d=\\\"", "\\\"")] {
+            let mut rest = text;
+            while let Some(at) = rest.find(open) {
+                let value = &rest[at + open.len()..];
+                let Some(len) = value.find(close) else { break };
+                found.push(&value[..len]);
+                rest = &value[len..];
+            }
         }
+        found
+    }
+    let catalog: Vec<&str> = ALL
+        .iter()
+        .flat_map(|icon| path_data(icon.source()))
+        .collect();
+    let paths = path_data(html);
+    assert!(!paths.is_empty(), "the page shows no icon");
+    for path in paths {
+        assert!(catalog.contains(&path), "pasted icon path: {path}");
+    }
+}
 
-        "volume_up" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor"><path d="M760-481q0-83-44-151.5T598-735q-15-7-22-21.5t-2-29.5q6-16 21.5-23t31.5 0q97 43 155 131.5T840-481q0 108-58 196.5T627-153q-16 7-31.5 0T574-176q-5-15 2-29.5t22-21.5q74-34 118-102.5T760-481ZM280-360H160q-17 0-28.5-11.5T120-400v-160q0-17 11.5-28.5T160-600h120l132-132q19-19 43.5-8.5T480-703v446q0 27-24.5 37.5T412-228L280-360Zm380-120q0 42-19 79.5T591-339q-10 6-20.5.5T560-356v-250q0-12 10.5-17.5t20.5.5q31 25 50 63t19 80Z"/></svg>"#
+#[cfg(test)]
+mod tests {
+    use super::{ALL, OverlayIcon};
+
+    #[test]
+    fn every_icon_is_one_current_color_svg() {
+        for icon in ALL {
+            let svg = icon.svg();
+            let svg = svg.trim();
+            assert!(
+                svg.starts_with("<svg") && svg.ends_with("</svg>"),
+                "{icon:?}"
+            );
+            assert_eq!(svg.matches("<svg").count(), 1, "{icon:?}");
+            assert!(svg.contains("currentColor"), "{icon:?}");
         }
+    }
 
-        "auto_awesome" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="m706-706-70-32q-6-3-8.5-8t-2.5-10q0-5 2.5-10t8.5-8l70-32 32-70q3-6 8-9t10-3q5 0 10 3t8 9l32 70 70 32q6 3 9 8t3 10q0 5-3 10t-9 8l-70 32-32 70q-3 6-8 8.5t-10 2.5q-5 0-10-2.5t-8-8.5l-32-70ZM260-380l-160-73q-9-4-13-11.5T83-480q0-8 4-15.5t13-11.5l160-73 73-160q4-9 11.5-13t15.5-4q8 0 15.5 4t11.5 13l73 160 160 73q9 4 13 11.5t4 15.5q0 8-4 15.5T620-453l-160 73-73 160q-4 9-11.5 13t-15.5 4q-8 0-15.5-4T333-220l-73-160Zm450 230-70-32q-6-3-9-8t-3-10q0-5 3-10t9-8l70-32 32-70q3-6 8-9t10-3q5 0 10 3t8 9l32 70 70 32q6 3 9 8t3 10q0 5-3 10t-9 8l-70 32-32 70q-3 6-8 9t-10 3q-5 0-10-3t-8-9l-32-70Z"/></svg>"#
+    #[test]
+    fn every_icon_is_a_downloaded_symbol_at_a_fixed_or_catalog_size() {
+        for icon in ALL {
+            // Downloaded symbols share one root; pasted path data would not.
+            assert!(
+                icon.source().starts_with(concat!(
+                    r#"<svg xmlns="http://www.w3.org/2000/svg" "#,
+                    r#"width="1em" height="1em" viewBox="0 0 24 24">"#
+                )),
+                "{icon:?}"
+            );
+            let svg = icon.svg();
+            match icon.intrinsic_size() {
+                Some(px) => {
+                    let size = format!(r#"width="{px}" height="{px}""#);
+                    assert!(svg.contains(&size), "{icon:?}");
+                }
+                None => assert!(svg.contains(super::CATALOG_SIZE), "{icon:?}"),
+            }
         }
-
-        "speed" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M418-340q25 25 63 23.5t55-27.5l169-253q9-14-2.5-25.5T677-625L424-456q-26 18-28.5 54.5T418-340ZM204-160q-22 0-40.5-9.5T134-198q-26-47-40-97.5T80-400q0-83 31.5-156T197-683q54-54 127-85.5T480-800q82 0 154 31t126 84.5q54 53.5 86 125T879-406q1 55-12.5 107.5T825-198q-11 19-29.5 28.5T755-160H204Z"/></svg>"#
-        }
-
-        "language" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M480-80q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 31.5-155.5t86-127Q252-817 325-848.5T480-880q83 0 155.5 31.5t127 86q54.5 54.5 86 127T880-480q0 82-31.5 155t-86 127.5q-54.5 54.5-127 86T480-80Zm0-82q26-36 45-75t31-83H404q12 44 31 83t45 75Zm-104-16q-18-33-31.5-68.5T322-320H204q29 50 72.5 87t99.5 55Zm208 0q56-18 99.5-55t72.5-87H638q-9 38-22.5 73.5T584-178ZM170-400h136q-3-20-4.5-39.5T300-480q0-21 1.5-40.5T306-560H170q-5 20-7.5 39.5T160-480q0 21 2.5 40.5T170-400Zm216 0h188q3-20 4.5-39.5T580-480q0-21-1.5-40.5T574-560H386q-3 20-4.5 39.5T380-480q0 21 1.5 40.5T386-400Zm268 0h136q5-20 7.5-39.5T800-480q0-21-2.5-40.5T790-560H654q3 20 4.5 39.5T660-480q0 21-1.5 40.5T654-400Zm-16-240h118q-29-50-72.5-87T584-782q18 33 31.5 68.5T638-640Zm-234 0h152q-12-44-31-83t-45-75q-26 36-45 75t-31 83Zm-200 0h118q9-38 22.5-73.5T376-782q-56 18-99.5 55T204-640Z"/></svg>"#
-        }
-
-        "dictionary" => include_str!("../../../ui-shared/material-symbols/dictionary.svg"),
-        "filter" => include_str!("../../../ui-shared/material-symbols/filter.svg"),
-
-        "content_copy" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360ZM200-80q-33 0-56.5-23.5T120-160v-520q0-17 11.5-28.5T160-720q17 0 28.5 11.5T200-680v520h400q17 0 28.5 11.5T640-120q0 17-11.5 28.5T600-80H200Z"/></svg>"#
-        }
-
-        "remove" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M240-440q-17 0-28.5-11.5T200-480q0-17 11.5-28.5T240-520h480q17 0 28.5 11.5T760-480q0 17-11.5 28.5T720-440H240Z"/></svg>"#
-        }
-
-        "add" => include_str!("../../../ui-shared/material-symbols/add.svg"),
-
-        "subtitles" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm120-160h240q17 0 28.5-11.5T560-360q0-17-11.5-28.5T520-400H280q-17 0-28.5 11.5T240-360q0 17 11.5 28.5T280-320Zm160-160h240q17 0 28.5-11.5T720-520q0-17-11.5-28.5T680-560H440q-17 0-28.5 11.5T400-520q0 17 11.5 28.5T440-480Zm-160 0q17 0 28.5-11.5T320-520q0-17-11.5-28.5T280-560q-17 0-28.5 11.5T240-520q0 17 11.5 28.5T280-480Zm400 160q17 0 28.5-11.5T720-360q0-17-11.5-28.5T680-400q-17 0-28.5 11.5T640-360q0 17 11.5 28.5T680-320Z"/></svg>"#
-        }
-
-        "translate" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="m603-202-34 97q-4 11-14 18t-22 7q-20 0-32.5-16.5T496-133l152-402q5-11 15-18t22-7h30q12 0 22 7t15 18l152 403q8 19-4 35.5T868-80q-13 0-22.5-7T831-106l-34-96H603ZM362-401 188-228q-11 11-27.5 11.5T132-228q-11-11-11-28t11-28l174-174q-35-35-63.5-80T190-640h84q20 39 40 68t48 58q33-33 68.5-92.5T484-720H80q-17 0-28.5-11.5T40-760q0-17 11.5-28.5T80-800h240v-40q0-17 11.5-28.5T360-880q17 0 28.5 11.5T400-840v40h240q17 0 28.5 11.5T680-760q0 17-11.5 28.5T640-720h-76q-21 72-63 148t-83 116l96 98-30 82-122-125Zm266 129h144l-72-204-72 204Z"/></svg>"#
-        }
-
-        "expand_less" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M480-529 324-373q-11 11-28 11t-28-11q-11-11-11-28t11-28l184-184q6-6 13-8.5t15-2.5q8 0 15 2.5t13 8.5l184 184q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-529Z"/></svg>"#
-        }
-
-        "picture_in_picture_small" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M120-160q-17 0-28.5-11.5T80-200q0-17 11.5-28.5T120-240h680v-520q0-17 11.5-28.5T840-800q17 0 28.5 11.5T880-760v520q0 33-23.5 56.5T800-160H120Zm320-160q-17 0-28.5-11.5T400-360v-160q0-17 11.5-28.5T440-560h240q17 0 28.5 11.5T720-520v160q0 17-11.5 28.5T680-320H440Z"/></svg>"#
-        }
-
-        "resize_corner" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="currentColor"><path d="M3 21v-8h2v4.6L17.6 5H13V3h8v8h-2V6.4L6.4 19H11v2z"/></svg>"#
-        }
-
-        "apps" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor"><path d="M240-160q-33 0-56.5-23.5T160-240q0-33 23.5-56.5T240-320q33 0 56.5 23.5T320-240q0 33-23.5 56.5T240-160Zm240 0q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm240 0q-33 0-56.5-23.5T640-240q0-33 23.5-56.5T720-320q33 0 56.5 23.5T800-240q0 33-23.5 56.5T720-160ZM240-400q-33 0-56.5-23.5T160-480q0-33 23.5-56.5T240-560q33 0 56.5 23.5T320-480q0 33-23.5 56.5T240-400Zm240 0q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm240 0q-33 0-56.5-23.5T640-480q0-33 23.5-56.5T720-560q33 0 56.5 23.5T800-480q0 33-23.5 56.5T720-400ZM240-640q-33 0-56.5-23.5T160-720q0-33 23.5-56.5T240-800q33 0 56.5 23.5T320-720q0 33-23.5 56.5T240-640Zm240 0q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Zm240 0q-33 0-56.5-23.5T640-720q0-33 23.5-56.5T720-800q33 0 56.5 23.5T800-720q0 33-23.5 56.5T720-640Z"/></svg>"#
-        }
-
-        "play_arrow" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="currentColor"><path d="M290.33-246.67V-718q0-23.18 16.03-38.26 16.02-15.07 37.5-15.07 6.15 0 13.64 1.83 7.5 1.83 15.09 5.45L743-526.33q12.83 7 19.08 19.17 6.25 12.18 6.25 25.16t-6.5 25.16q-6.5 12.17-18.83 18.51L372.59-200.62q-7.59 4.29-15.32 5.79t-13.79 1.5q-21.19 0-37.17-14.6-15.98-14.59-15.98-38.74Z"/></svg>"#
-        }
-
-        "close" => include_str!("../../../ui-shared/material-symbols/close.svg"),
-
-        "pause" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="40" viewBox="0 -960 960 960" width="40" fill="currentColor"><path d="M675.48-128q-56.48 0-95.98-39.31Q540-206.63 540-264v-433q0-55.97 39.32-95.99Q618.64-833 676.02-833 732-833 772-792.99q40 40.02 40 95.99v433q0 57.37-40.02 96.69Q731.96-128 675.48-128Zm-391.5 0Q228-128 188-167.31q-40-39.32-40-96.69v-433q0-55.97 40.02-95.99Q228.04-833 284.52-833t95.98 40.01Q420-752.97 420-697v433q0 57.37-39.32 96.69Q341.36-128 283.98-128Z"/></svg>"#
-        }
-
-        "check" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor"><path d="m382-354 339-339q12-12 28-12t28 12q12 12 12 28.5T777-636L410-268q-12 12-28 12t-28-12L182-440q-12-12-11.5-28.5T183-497q12-12 28.5-12t28.5 12l142 143Z"/></svg>"#
-        }
-
-        "download" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>"#
-        }
-
-        "bolt_en" => {
-            r##"<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M240-80l80-320H120l280-520h120l-80 320h200L240-80Z" fill="currentColor"/><rect x="440" y="-520" width="520" height="480" rx="80" fill="currentColor" stroke="#1c1c1c" stroke-width="40"/><text x="700" y="-160" text-anchor="middle" font-family="Arial Black, sans-serif" font-size="380" font-weight="1000" fill="black">EN</text></svg>"##
-        }
-
-        "send" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M176-183q-20 8-38-3.5T120-220v-180l320-80-320-80v-180q0-22 18-33.5t38-3.5l616 260q25 11 25 37t-25 37L176-183Z"/></svg>"#
-        }
-
-        "arrow_back" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="m313-440 196 196q12 12 11.5 28T508-188q-12 11-28 11.5T452-188L188-452q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l264-264q11-11 27.5-11t28.5 11q12 12 12 28.5T508-715L313-520h447q17 0 28.5 11.5T800-480q0 17-11.5 28.5T760-440H313Z"/></svg>"#
-        }
-
-        "arrow_forward" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M647-440H200q-17 0-28.5-11.5T160-480q0-17 11.5-28.5T200-520h447L451-716q-12-12-11.5-28t12.5-28q12-11 28-11.5t28 11.5l264 264q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L508-188q-11 11-27.5 11T452-188q-12-12-12-28.5t12-28.5l195-195Z"/></svg>"#
-        }
-
-        "undo" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M320-200q-17 0-28.5-11.5T280-240q0-17 11.5-28.5T320-280h244q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l76 76q11 11 11 28t-11 28q-11 11-28 11t-28-11L188-572q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l144-144q11-11 28-11t28 11q11 11 11 28t-11 28l-76 76h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H320Z"/></svg>"#
-        }
-
-        "redo" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M648-560H396q-63 0-109.5 40T240-420q0 60 46.5 100T396-280h244q17 0 28.5 11.5T680-240q0 17-11.5 28.5T640-200H396q-97 0-166.5-63T160-420q0-94 69.5-157T396-640h252l-76-76q-11-11-11-28t11-28q11-11 28-11t28 11l144 144q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L628-428q-11 11-28 11t-28-11q-11-11-11-28t11-28l76-76Z"/></svg>"#
-        }
-
-        "newsmode" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M160-120q-33 0-56.5-23.5T80-200v-560q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v560q0 33-23.5 56.5T800-120H160Zm0-80h640v-560H160v560Zm120-80h400q17 0 28.5-11.5T720-320q0-17-11.5-28.5T680-360H280q-17 0-28.5 11.5T240-320q0 17 11.5 28.5T280-280Zm0-160h80q17 0 28.5-11.5T400-480v-160q0-17-11.5-28.5T360-680h-80q-17 0-28.5 11.5T240-640v160q0 17 11.5 28.5T280-440Zm240 0h160q17 0 28.5-11.5T720-480q0-17-11.5-28.5T680-520H520q-17 0-28.5 11.5T480-480q0 17 11.5 28.5T520-440Zm0-160h160q17 0 28.5-11.5T720-640q0-17-11.5-28.5T680-680H520q-17 0-28.5 11.5T480-640q0 17 11.5 28.5T520-600ZM160-200v-560 560Z"/></svg>"#
-        }
-
-        "notes" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M160-240q-17 0-28.5-11.5T120-280q0-17 11.5-28.5T160-320h400q17 0 28.5 11.5T600-280q0 17-11.5 28.5T560-240H160Zm0-200q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520h640q17 0 28.5 11.5T840-480q0 17-11.5 28.5T800-440H160Zm0-200q-17 0-28.5-11.5T120-680q0-17 11.5-28.5T160-720h640q17 0 28.5 11.5T840-680q0 17-11.5 28.5T800-640H160Z"/></svg>"#
-        }
-
-        "hourglass_empty" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M320-160h320v-120q0-66-47-113t-113-47q-66 0-113 47t-47 113v120Zm160-360q66 0 113-47t47-113v-120H320v120q0 66 47 113t113 47ZM200-80q-17 0-28.5-11.5T160-120q0-17 11.5-28.5T200-160h40v-120q0-61 28.5-114.5T348-480q-51-32-79.5-85.5T240-680v-120h-40q-17 0-28.5-11.5T160-840q0-17 11.5-28.5T200-880h560q17 0 28.5 11.5T800-840q0 17-11.5 28.5T760-800h-40v120q0 61-28.5 114.5T612-480q51 32 79.5 85.5T720-280v120h40q17 0 28.5 11.5T800-120q0 17-11.5 28.5T760-80H200Z"/></svg>"#
-        }
-
-        "stop" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M240-320v-320q0-33 23.5-56.5T320-720h320q33 0 56.5 23.5T720-640v320q0 33-23.5 56.5T640-240H320q-33 0-56.5-23.5T240-320Zm80 0h320v-320H320v320Zm160-160Z"/></svg>"#
-        }
-
-        "cleaning_services" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M440-520h80v-280q0-17-11.5-28.5T480-840q-17 0-28.5 11.5T440-800v280ZM200-360h560v-80H200v80Zm-58 240h98v-80q0-17 11.5-28.5T280-240q17 0 28.5 11.5T320-200v80h120v-80q0-17 11.5-28.5T480-240q17 0 28.5 11.5T520-200v80h120v-80q0-17 11.5-28.5T680-240q17 0 28.5 11.5T720-200v80h98l-40-160H182l-40 160Zm676 80H142q-39 0-63-31t-14-69l55-220v-80q0-33 23.5-56.5T200-520h160v-280q0-50 35-85t85-35q50 0 85 35t35 85v280h160q33 0 56.5 23.5T840-440v80l55 220q13 38-11.5 69T818-40Zm-58-400H200h560Zm-240-80h-80 80Z"/></svg>"#
-        }
-
-        // Opacity icon (drop/water drop style for transparency)
-        "opacity" => {
-            r#"<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor"><path d="M480-120q-133 0-226.5-92T160-436q0-65 25-121.5T254-658l226-222 226 222q44 44 69 100.5T800-436q0 132-93.5 224T480-120ZM242-400h474q12-72-13.5-123T650-600L480-768 310-600q-27 26-53 77t-15 123Z"/></svg>"#
-        }
-
-        _ => "",
+        assert!(OverlayIcon::PlayArrow.svg().contains(r#"width="40""#));
     }
 }

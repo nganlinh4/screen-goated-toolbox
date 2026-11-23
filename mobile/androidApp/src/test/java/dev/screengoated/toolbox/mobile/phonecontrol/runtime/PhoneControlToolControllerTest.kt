@@ -12,8 +12,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -126,6 +128,28 @@ class PhoneControlToolControllerTest {
         assertNotNull(controller.takeCompletion(event))
         assertTrue(completions.tryReceive().isFailure)
         assertEquals(0, controller.pendingCount)
+    }
+
+    @Test
+    fun turnClosedRejection_hasEffectStatus() {
+        val dispatcher = PausedDispatcher()
+        val completions = Channel<PhoneControlToolCompletionEvent>(capacity = 1)
+        val controller = PhoneControlToolController(
+            ControlledExecutor(),
+            CoroutineScope(SupervisorJob() + dispatcher),
+            completions,
+        )
+        assertEquals(PhoneControlToolAdmission.ACCEPTED, controller.dispatch(request("owner")))
+        controller.cancelAll()
+
+        val receipt = requireNotNull(completions.tryReceive().getOrNull()).result.response
+        assertEquals("proven_no_effect", receipt.getValue("effect_status").jsonPrimitive.content)
+        assertFalse(receipt.containsKey("effect"))
+
+        val rejection = provenNoEffectRejection("turn_not_reconciled", "blocked")
+        assertEquals("turn_not_reconciled", rejection.getValue("code").jsonPrimitive.content)
+        assertEquals("proven_no_effect", rejection.getValue("effect_status").jsonPrimitive.content)
+        assertFalse(rejection.containsKey("effect"))
     }
 
     private fun request(id: String) = PhoneControlToolRequest(

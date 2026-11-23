@@ -8,6 +8,10 @@ import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
 import { invoke } from '@/lib/ipc';
 import { normalizeBackgroundConfig } from './backgroundConfig';
+import {
+  resolveRenderScale,
+  scaleBackgroundFrameForRender,
+} from './renderer/renderScale';
 import { normalizeAutoCanvasSegment } from './videoGeometry';
 
 import { clamp } from './mathUtils';
@@ -225,6 +229,7 @@ export class VideoExporter {
       sourceHeight,
       width,
       height,
+      reference: { width: baseW, height: baseH },
       fps,
       targetVideoBitrateKbps,
       trimBounds,
@@ -278,7 +283,7 @@ export class VideoExporter {
     const bakedCursorPath: BakedCursorFrame[] = [];
     await this.yieldToUiFrame();
     const overlayPayload = normalizedSegment
-      ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
+      ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.reference, context.fps)
       : undefined;
 
     return {
@@ -417,6 +422,7 @@ export class VideoExporter {
             context.webcamConfig,
             prepared.width,
             prepared.height,
+            context.reference,
             context.webcamVideo?.videoWidth && context.webcamVideo?.videoHeight
               ? context.webcamVideo.videoWidth / context.webcamVideo.videoHeight
               : undefined,
@@ -434,7 +440,10 @@ export class VideoExporter {
 
       // Send lightweight config (no baked arrays -- they're already staged)
       const mousePositions = context.mousePositions ?? [];
-      const backgroundConfig = normalizeBackgroundConfig(context.backgroundConfig);
+      const backgroundConfig = scaleBackgroundFrameForRender(
+        normalizeBackgroundConfig(context.backgroundConfig),
+        resolveRenderScale(prepared.height, context.reference),
+      );
       const segment = prepared.normalizedSegment
         ? sanitizeNativeExportValue(prepared.normalizedSegment)
         : prepared.normalizedSegment;

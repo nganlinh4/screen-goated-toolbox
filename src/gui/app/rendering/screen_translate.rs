@@ -187,6 +187,7 @@ impl SettingsApp {
         let changed = node_graph::utils::show_language_value_selector(
             ui,
             text.screen_translate.screen_translate_target_label,
+            text.preset_editor.node_language_search,
             "screen_translate_target_language",
             &mut self.config.screen_translate.target_language,
         );
@@ -265,7 +266,6 @@ impl SettingsApp {
                     .on_hover_text(text.screen_translate.screen_translate_prompt_hint);
                 changed = node_graph::utils::show_prompt_editor(
                     ui,
-                    "",
                     "",
                     &mut self.config.screen_translate.translation_prompt,
                     ui.available_width(),

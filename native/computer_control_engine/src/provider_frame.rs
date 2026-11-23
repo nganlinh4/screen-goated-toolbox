@@ -1,12 +1,13 @@
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
-use sgt_computer_control_protocol::ProviderEvent;
+use sgt_computer_control_protocol::{
+    MAX_PROVIDER_GO_AWAY_CHARS, MAX_PROVIDER_RESUMPTION_HANDLE_BYTES, MAX_PROVIDER_TOOL_ID_BYTES,
+    MAX_PROVIDER_TOOL_NAME_BYTES, ProviderEvent,
+};
 
 const MAX_OTHER_CHARS: usize = 240;
-const MAX_TOOL_ID_BYTES: usize = 512;
-const MAX_TOOL_NAME_BYTES: usize = 128;
 
-pub(super) fn parse(raw: &str) -> Vec<ProviderEvent> {
+pub fn parse(raw: &str) -> Vec<ProviderEvent> {
     let Ok(root) = serde_json::from_str::<Value>(raw) else {
         return vec![other(raw)];
     };
@@ -98,7 +99,9 @@ pub(super) fn parse(raw: &str) -> Vec<ProviderEvent> {
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .filter(|id| !id.is_empty() && id.len() <= MAX_TOOL_ID_BYTES)
+            .filter(|id| {
+                !id.is_empty() && id.len() <= MAX_PROVIDER_TOOL_ID_BYTES && !id.contains('\0')
+            })
             .map(str::to_string)
             .collect();
         events.push(ProviderEvent::ToolCancellation { ids });
@@ -115,9 +118,10 @@ pub(super) fn parse(raw: &str) -> Vec<ProviderEvent> {
             time_left: go_away
                 .get("timeLeft")
                 .and_then(Value::as_str)
+                .filter(|time_left| !time_left.contains('\0'))
                 .unwrap_or("")
                 .chars()
-                .take(128)
+                .take(MAX_PROVIDER_GO_AWAY_CHARS)
                 .collect(),
         });
     }
@@ -126,7 +130,9 @@ pub(super) fn parse(raw: &str) -> Vec<ProviderEvent> {
             handle: resumption
                 .get("newHandle")
                 .and_then(Value::as_str)
-                .filter(|handle| handle.len() <= 16 * 1024)
+                .filter(|handle| {
+                    handle.len() <= MAX_PROVIDER_RESUMPTION_HANDLE_BYTES && !handle.contains('\0')
+                })
                 .map(str::to_string),
             resumable: resumption.get("resumable").and_then(Value::as_bool) == Some(true),
         });
@@ -164,13 +170,12 @@ fn transcription(content: &Value, field: &str) -> Option<String> {
 }
 
 fn tool_call(call: &Value) -> Option<ProviderEvent> {
-    let id = call
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty() && id.len() <= MAX_TOOL_ID_BYTES)?;
+    let id = call.get("id").and_then(Value::as_str).filter(|id| {
+        !id.is_empty() && id.len() <= MAX_PROVIDER_TOOL_ID_BYTES && !id.contains('\0')
+    })?;
     let name = call.get("name").and_then(Value::as_str).filter(|name| {
         !name.is_empty()
-            && name.len() <= MAX_TOOL_NAME_BYTES
+            && name.len() <= MAX_PROVIDER_TOOL_NAME_BYTES
             && name
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))

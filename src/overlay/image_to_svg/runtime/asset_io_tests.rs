@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn malformed_unicode_raster_uri_is_rejected_without_panicking() {
+    let prefix = "data:image/png;base64,";
+    let uri = format!("{}{}é", prefix, "A".repeat(63 - prefix.len()));
+    let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><image href=\"{uri}\"/></svg>");
+    assert!(validate_svg(&svg).is_err());
+}
+
+#[test]
 fn saves_valid_svg_edits_and_rejects_active_content() {
     let path = std::env::temp_dir().join(format!(
         "sgt-svg-edit-{}-{}.svg",

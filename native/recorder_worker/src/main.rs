@@ -6,9 +6,9 @@ mod api;
 mod atomic_json;
 #[path = "../../../src/audio_input.rs"]
 mod audio_input;
-#[path = "../../../src/component_registry/mod.rs"]
-mod component_registry;
 mod config;
+#[path = "../../../src/credential_error.rs"]
+mod credential_error;
 #[path = "../../../src/crypto.rs"]
 mod crypto;
 #[path = "../../../src/debug_log.rs"]
@@ -19,20 +19,32 @@ mod initialization;
 mod install_activity;
 #[path = "../../../src/lang_detect.rs"]
 mod lang_detect;
+#[path = "../../../src/loopback_resource.rs"]
+mod loopback_resource;
 #[path = "../../../src/model_config.rs"]
 mod model_config;
 #[path = "../../../src/model_feed.rs"]
 mod model_feed;
+#[cfg(windows)]
+#[path = "../../../src/native_file_dialog.rs"]
+mod native_file_dialog;
 mod overlay;
 #[path = "../../../src/paths.rs"]
 mod paths;
+#[path = "../../../src/process_job.rs"]
+mod process_job;
+#[path = "../../../src/process_output.rs"]
+mod process_output;
 #[path = "../../../src/retry_model_chain.rs"]
 mod retry_model_chain;
+#[path = "../../../src/runtime_support/webview_capability.rs"]
 mod runtime_support;
+#[path = "../../../src/system_command.rs"]
+mod system_command;
 mod task_runtime;
-#[path = "../../../src/unpack_dlls.rs"]
-mod unpack_dlls;
 mod usage_stats;
+#[path = "../../../src/verified_scratch.rs"]
+mod verified_scratch;
 mod win_types;
 
 mod hotkey;
@@ -58,6 +70,7 @@ pub const MIN_WINDOW_WIDTH: f32 = 1245.0;
 pub const MIN_WINDOW_HEIGHT: f32 = 660.0;
 
 fn main() {
+    paths::isolate_inherited_credentials(&["SGT_RECORDER_LAUNCH_TOKEN"]);
     if let Err(error) = overlay::screen_record::run_worker() {
         eprintln!("Screen Recorder worker failed: {error:#}");
         std::process::exit(1);

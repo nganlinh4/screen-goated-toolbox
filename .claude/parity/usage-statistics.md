@@ -23,6 +23,10 @@
 - Quota metrics remain typed and independently labeled. Request/day,
   request/minute, token/minute, token/day, audio-second/hour, and
   audio-second/day buckets are never concatenated into an ambiguous counter.
+- Live metrics label the numbers as quota left out of the limit. Fresh readings
+  with more than 20% left are green, and fresh readings at or below 20% are
+  amber. Older readings and incomplete ratios use neutral text. Freshness is
+  available as text in the desktop tooltip and in a separate Android chip.
 - A missing live snapshot shows only the catalog quota. It does not add a
   per-endpoint "not observed" marker or fabricate remaining values. The one
   dialog-level empty message names Groq and OpenRouter as the
@@ -74,6 +78,7 @@
 ## Deviations
 
 - Windows favors a two-lane desktop matrix with compact inline status text.
+  Multiple live metrics rotate at full opacity in the same cell.
   Android retains touch-sized Compose sections and wrapping chips because a
   phone cannot preserve the desktop table geometry. Its name and API ID remain
   on one line, but the desktop-only fixed columns do not apply. Identity,

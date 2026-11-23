@@ -2,7 +2,7 @@ use super::{apply_selected_config_defaults_from, render_restore_defaults_modal};
 use crate::config::types::{PendingPresetModelUpdate, PresetProfile};
 use crate::config::{Config, Hotkey, Preset, RestoreDefaultsSelection, ThemeMode};
 use crate::gui::locale::LocaleText;
-use auto_launch::AutoLaunch;
+use crate::gui::startup::Startup;
 use eframe::egui;
 use std::collections::BTreeSet;
 
@@ -21,6 +21,9 @@ const ALWAYS_KEPT: &[&str] = &[
     "custom_models",
     "restore_defaults_selection",
     "pending_preset_model_update",
+    // Startup bookkeeping: which built-ins were already offered, so a deleted
+    // built-in is not re-added. Restoring presets brings every built-in back.
+    "offered_builtin_preset_ids",
     "screen_record_hotkeys",
     "computer_control_hotkeys",
     "result_controls_discovery_pulse_count",
@@ -71,13 +74,6 @@ const AUDIO: &[&str] = &[
     "tts_output_device",
     "tts_language_conditions",
     "edge_tts_settings",
-    "step_audio_settings",
-    "step_audio_reference_voices",
-    "magpie_settings",
-    "kokoro_settings",
-    "supertonic_settings",
-    "vieneu_settings",
-    "voxtral_settings",
     "tts_playground",
 ];
 const SHORTCUTS: &[&str] = &[
@@ -144,7 +140,7 @@ fn modal_fits_the_minimum_window_in_every_supported_locale() {
         let text = LocaleText::get(language);
         let mut show_modal = true;
         let mut run_at_startup = false;
-        let auto_launcher = None::<AutoLaunch>;
+        let mut startup = Startup::disabled();
         let mut observed_rects = Vec::new();
 
         // Anchored egui Areas learn their content size in the first frame and
@@ -165,7 +161,7 @@ fn modal_fits_the_minimum_window_in_every_supported_locale() {
                             &text,
                             &mut show_modal,
                             &mut run_at_startup,
-                            &auto_launcher,
+                            &mut startup,
                         ));
                     });
                 },
@@ -512,7 +508,6 @@ fn non_default_config() -> Config {
         tts_gemini_live_model: "changed-live-model".to_string(),
         tts_output_device: "device-id".to_string(),
         tts_language_conditions: Vec::new(),
-        step_audio_reference_voices: vec![Default::default()],
         show_favorite_bubble: true,
         favorite_bubble_position: Some((12, 34)),
         favorites_keep_open: true,
@@ -535,12 +530,6 @@ fn non_default_config() -> Config {
         .text_to_text_overrides
         .exclude("changed-text-model");
     config.edge_tts_settings.pitch = 10;
-    config.step_audio_settings.voice = "step-voice".to_string();
-    config.magpie_settings.voice = "magpie-voice".to_string();
-    config.kokoro_settings.voice = "kokoro-voice".to_string();
-    config.supertonic_settings.speed = 1.5;
-    config.vieneu_settings.emotion = "storytelling".to_string();
-    config.voxtral_settings.voice = "voxtral-voice".to_string();
     config.tts_playground.draft_text = "changed draft".to_string();
     config.translation_gummy.hotkey = Some(Hotkey::new(5, 6));
     config.translation_gummy.hotkeys = vec![Hotkey::new(7, 8)];

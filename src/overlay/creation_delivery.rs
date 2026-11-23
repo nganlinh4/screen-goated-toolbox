@@ -4,22 +4,24 @@
 //! restart replays only the unfinished handoff; it never equates equal content
 //! with the same user action.
 
+use crate::overlay::store_support::now_ms;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod cancellation;
 mod companion;
+#[cfg(test)]
+mod cross_process;
 mod input;
 mod journal;
 pub(crate) mod publication;
 mod retry;
 
 pub(crate) use cancellation::{
-    cancel_dispatch, cancel_product_intents, ensure_cancellation_capacity,
+    CancellationOutcome, cancel_dispatch, cancel_product_intents, ensure_cancellation_capacity,
 };
 pub(crate) use companion::PublishedCompanion;
 use input::*;
@@ -36,9 +38,6 @@ const CANCELLATION_LIFETIME_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
 const MAX_METADATA_BYTES: usize = 512 * 1024;
 const MAX_PATH_BYTES: usize = 8 * 1024;
-const MAX_ID_BYTES: usize = 512;
-
-static DELIVERY_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone)]
 pub struct PublishedDelivery {
@@ -121,8 +120,12 @@ struct DeliveryStore {
     cancellations: Vec<CancellationRecord>,
 }
 
-pub fn commit(delivery: PublishedDelivery) -> Result<(), String> {
+pub fn commit(mut delivery: PublishedDelivery) -> Result<(), String> {
     validate_input(&delivery)?;
+    delivery.output_path = publication::output_identity(Path::new(&delivery.output_path))?;
+    if let Some(companion) = delivery.companion.as_mut() {
+        companion.output_path = publication::output_identity(Path::new(&companion.output_path))?;
+    }
     crate::overlay::creation_close::ensure_accepting(delivery.product)?;
     verify_active_intent(
         delivery.product,
@@ -138,9 +141,7 @@ pub fn commit(delivery: PublishedDelivery) -> Result<(), String> {
         crate::overlay::generation_history::inspect_delivery_artifact(&delivery.staging_path)?;
     let companion = companion::inspect(&delivery)?;
     let result = (|| {
-        let _guard = DELIVERY_LOCK
-            .lock()
-            .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
+        let _guard = crate::overlay::creation_lifecycle::acquire_delivery()?;
         crate::overlay::creation_close::ensure_accepting(delivery.product)?;
         let path = journal_path();
         let mut store = load_store(&path)?;
@@ -156,6 +157,13 @@ pub fn commit(delivery: PublishedDelivery) -> Result<(), String> {
             );
             return Err("Creation delivery was cancelled.".to_string());
         }
+        ensure_outputs_unreserved(
+            &delivery.output_path,
+            delivery
+                .companion
+                .as_ref()
+                .map(|companion| companion.output_path.as_str()),
+        )?;
         let existing = store
             .entries
             .iter()
@@ -177,15 +185,11 @@ pub fn commit(delivery: PublishedDelivery) -> Result<(), String> {
                 &delivery.staging_path,
                 &delivery.output_path,
             )?;
-            let output_identity = publication::output_identity(Path::new(&delivery.output_path))?;
             if store.entries.len() >= MAX_ENTRIES
                 || store.entries.iter().any(|entry| {
                     entry.product == delivery.product && entry.job_id == delivery.job_id
                 })
-                || store.entries.iter().any(|entry| {
-                    publication::output_identity(Path::new(&entry.output_path))
-                        .is_ok_and(|identity| identity == output_identity)
-                })
+                || outputs_conflict(&store, &delivery)?
             {
                 return Err("Creation delivery state is full or conflicting.".to_string());
             }
@@ -243,11 +247,53 @@ pub fn commit(delivery: PublishedDelivery) -> Result<(), String> {
     result
 }
 
+fn outputs_conflict(store: &DeliveryStore, delivery: &PublishedDelivery) -> Result<bool, String> {
+    let mut proposed = vec![
+        crate::overlay::creation_path::normalized_absolute(Path::new(&delivery.output_path))?
+            .to_string_lossy()
+            .to_string(),
+    ];
+    if let Some(companion) = &delivery.companion {
+        let identity =
+            crate::overlay::creation_path::normalized_absolute(Path::new(&companion.output_path))?
+                .to_string_lossy()
+                .to_string();
+        if crate::overlay::creation_path::same(&proposed[0], &identity)? {
+            return Ok(true);
+        }
+        proposed.push(identity);
+    }
+    for entry in &store.entries {
+        for path in std::iter::once(entry.output_path.as_str()).chain(
+            entry
+                .companion
+                .as_ref()
+                .map(|companion| companion.output_path.as_str()),
+        ) {
+            let existing = crate::overlay::creation_path::normalized_absolute(Path::new(path))?
+                .to_string_lossy()
+                .to_string();
+            for identity in &proposed {
+                if crate::overlay::creation_path::same(&existing, identity)? {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn ensure_outputs_unreserved(output: &str, companion: Option<&str>) -> Result<(), String> {
+    crate::overlay::generation_history::ensure_output_unreserved(Path::new(output))?;
+    if let Some(companion) = companion {
+        crate::overlay::generation_history::ensure_output_unreserved(Path::new(companion))?;
+    }
+    Ok(())
+}
+
 pub fn reconcile_product(product: &str) -> Result<HashSet<String>, String> {
     validate_product(product)?;
-    let _guard = DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_delivery()?;
     let path = journal_path();
     let mut store = load_store(&path)?;
     cancellation::finalize_cancellations(&path, &mut store, product)?;
@@ -269,82 +315,8 @@ pub fn reconcile_product(product: &str) -> Result<HashSet<String>, String> {
     Ok(cancellation::pending_job_ids(&store, product))
 }
 
-pub(crate) fn pending_output_paths() -> Result<HashSet<String>, String> {
-    let _guard = DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
-    Ok(load_store(&journal_path())?
-        .entries
-        .into_iter()
-        .flat_map(|entry| {
-            std::iter::once(entry.output_path).chain(
-                entry
-                    .companion
-                    .into_iter()
-                    .map(|companion| companion.output_path),
-            )
-        })
-        .collect())
-}
-
-pub(crate) fn pending_source_paths() -> Result<HashSet<String>, String> {
-    let _guard = DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
-    Ok(load_store(&journal_path())?
-        .entries
-        .into_iter()
-        .filter_map(|entry| (!entry.source_path.is_empty()).then_some(entry.source_path))
-        .collect())
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct PendingStorageReservation {
-    pub dispatch_id: String,
-    pub output_path: String,
-    pub additional_output_bytes: u64,
-}
-
-pub(crate) fn pending_storage_reservations() -> Result<Vec<PendingStorageReservation>, String> {
-    let _guard = DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
-    Ok(load_store(&journal_path())?
-        .entries
-        .into_iter()
-        .map(|entry| PendingStorageReservation {
-            dispatch_id: entry.dispatch_id,
-            output_path: entry.output_path,
-            additional_output_bytes: if entry.stage == DeliveryStage::Validated {
-                entry.artifact_size_bytes
-                    + entry
-                        .companion
-                        .as_ref()
-                        .map_or(0, |companion| companion.artifact_size_bytes)
-            } else {
-                0
-            },
-        })
-        .collect())
-}
-
-pub(crate) fn protected_dispatch_ids() -> Result<HashSet<String>, String> {
-    let _guard = DELIVERY_LOCK
-        .lock()
-        .map_err(|_| "Creation delivery state is unavailable.".to_string())?;
-    let store = load_store(&journal_path())?;
-    Ok(store
-        .entries
-        .into_iter()
-        .map(|entry| entry.dispatch_id)
-        .chain(
-            store
-                .cancellations
-                .into_iter()
-                .map(|cancellation| cancellation.dispatch_id),
-        )
-        .collect())
-}
+mod reservations;
+pub(crate) use reservations::*;
 
 fn advance_delivery(
     path: &Path,
@@ -431,7 +403,8 @@ fn advance_delivery(
             store.entries[index].publication_file_identity =
                 Some(reservation.identity().to_string());
             save(path, store)?;
-            reservation.commit()?;
+            // Hold the receipt open until its identity is durably saved.
+            drop(reservation);
         }
         let record = store.entries[index].clone();
         publication::prepare(&record)?;
@@ -495,15 +468,6 @@ fn cleanup_record_staging(record: &DeliveryRecord) -> Result<(), String> {
         &record.output_name,
         &record.staging_path,
     )
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

@@ -1,10 +1,3 @@
-# Moonshine / Sherpa — their AARs ship no consumer rules, and their JNI resolves
-# these classes by string name (FindClass/GetFieldID), which R8 cannot see.
--keep class ai.moonshine.voice.** { *; }
--keepclassmembers class ai.moonshine.voice.** { *; }
--keep class com.k2fsa.sherpa.onnx.** { *; }
--keepclassmembers class com.k2fsa.sherpa.onnx.** { *; }
-
 # kotlinx.serialization — keep @Serializable classes
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt

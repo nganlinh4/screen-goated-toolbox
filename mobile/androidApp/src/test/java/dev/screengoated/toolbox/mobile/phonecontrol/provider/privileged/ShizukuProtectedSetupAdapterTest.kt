@@ -1,12 +1,57 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged
 
+import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupResult
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShizukuProtectedSetupAdapterTest {
+    @Test
+    fun `manual setup waits while owned and completes on provider readiness`() = runBlocking {
+        var waits = 0
+        val result = awaitManualProtectedSetup(
+            owns = { true },
+            providerReady = { waits == 2 },
+            wait = { waits += 1 },
+        )
+        assertEquals(2, waits)
+        assertEquals(PhoneControlProtectedSetupResult.Completed, result)
+    }
+
+    @Test
+    fun `manual setup does not probe or complete after owner is lost`() = runBlocking {
+        var probes = 0
+        val beforeProbe = awaitManualProtectedSetup(
+            owns = { false },
+            providerReady = { probes += 1; true },
+            wait = { error("must not wait") },
+        )
+        assertEquals(0, probes)
+        assertEquals(PhoneControlProtectedSetupResult.Failed("checkpoint_owner_lost"), beforeProbe)
+
+        var owned = true
+        val duringProbe = awaitManualProtectedSetup(
+            owns = { owned },
+            providerReady = { owned = false; true },
+            wait = { error("must not wait") },
+        )
+        assertEquals(PhoneControlProtectedSetupResult.Failed("checkpoint_owner_lost"), duringProbe)
+
+        owned = true
+        var afterWaitProbes = 0
+        val duringWait = awaitManualProtectedSetup(
+            owns = { owned },
+            providerReady = { afterWaitProbes += 1; false },
+            wait = { owned = false },
+        )
+        assertEquals(1, afterWaitProbes)
+        assertEquals(PhoneControlProtectedSetupResult.Failed("checkpoint_owner_lost"), duringWait)
+    }
+
     @Test
     fun `accepts one unique exact one-time code`() {
         assertArrayEquals(

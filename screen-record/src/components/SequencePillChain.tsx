@@ -3,7 +3,8 @@ import { useSettings } from "@/hooks/useSettings";
 import type { ProjectComposition, ProjectCompositionClip, ProjectCompositionMode } from "@/types/video";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
 import { motion, AnimatePresence } from "motion/react";
-import { useRef, useCallback, useState, useEffect } from "react";
+import { useRef, useCallback, useState, useEffect, type FocusEvent, type KeyboardEvent } from "react";
+import { useReportBreadcrumbContentWidth } from "@/components/header/HeaderBreadcrumbSlot";
 
 interface SequencePillChainProps {
   composition: ProjectComposition;
@@ -48,23 +49,38 @@ export function SequencePillChain({
     leaveTimerRef.current = setTimeout(() => setModePopoverVisible(false), 250);
   }, []);
 
-  // --- Measure inner content to report intrinsic width to parent slot ---
+  // Keyboard users open the popover by focusing into the chain and close it by
+  // tabbing out or pressing Escape; hidden content stays inert so Tab skips it.
+  const handleChainBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    scheduleHidePopover();
+  }, [scheduleHidePopover]);
+  const handleChainKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || !modePopoverVisible) return;
+    if (leaveTimerRef.current) { clearTimeout(leaveTimerRef.current); leaveTimerRef.current = null; }
+    setModePopoverVisible(false);
+  }, [modePopoverVisible]);
+
+  // --- Report the width needed to show every pill to the header slot ---
+  const reportContentWidth = useReportBreadcrumbContentWidth();
   const contentRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const content = contentRef.current;
     const root = rootRef.current;
-    if (!content || !root) return;
+    const scroller = scrollRef.current;
+    if (!content || !root || !scroller || !reportContentWidth) return;
     const ro = new ResizeObserver(() => {
-      const w = content.scrollWidth;
-      root.style.setProperty('--breadcrumb-content-w', `${w}px`);
+      // Root chrome (padding, trailing controls) plus the full pill strip.
+      const chromeWidth = Math.max(0, root.offsetWidth - scroller.clientWidth);
+      reportContentWidth(chromeWidth + content.scrollWidth);
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, []);
+  }, [reportContentWidth]);
 
   // --- Drag-to-scroll (window listeners, like cursor grid) ---
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const suppressClickRef = useRef(false);
   const DRAG_THRESHOLD = 4;
@@ -118,6 +134,9 @@ export function SequencePillChain({
       className={`sequence-focus-breadcrumb relative flex items-center gap-1 px-1 min-w-0 w-full text-[11px] text-[var(--on-surface-variant)] ${isSingleClip ? "justify-center" : ""}`}
       onMouseEnter={showPopover}
       onMouseLeave={scheduleHidePopover}
+      onFocus={showPopover}
+      onBlur={handleChainBlur}
+      onKeyDown={handleChainKeyDown}
     >
       <div
         ref={scrollRef}
@@ -179,6 +198,7 @@ export function SequencePillChain({
                   className="relative"
                   onMouseEnter={() => { setHoveredClipId(clip.id); showPopover(); }}
                   onMouseLeave={() => setHoveredClipId(null)}
+                  onFocus={() => setHoveredClipId(clip.id)}
                 >
                   <button
                     type="button"
@@ -276,6 +296,8 @@ export function SequencePillChain({
           }`}
           onMouseEnter={showPopover}
           onMouseLeave={scheduleHidePopover}
+          inert={!modePopoverVisible}
+          aria-hidden={!modePopoverVisible}
           style={{ paddingTop: "10px", marginTop: "-4px" }}
         >
           {isMultiClip && <>

@@ -123,7 +123,10 @@ export function getMotionComplexityHint(backgroundConfig?: BackgroundConfig): nu
 
 export function getTimelineComplexityHint(segment?: VideoSegment | null): number {
   if (!segment) return 0;
-  const zoomBoost = clamp((segment.zoomKeyframes?.length ?? 0) / 18, 0, 1) * 0.07;
+  // zoomBlocks is the canonical zoom state; a legacy keyframe pair is one block.
+  const zoomBlockCount =
+    segment.zoomBlocks?.length ?? Math.ceil((segment.zoomKeyframes?.length ?? 0) / 2);
+  const zoomBoost = clamp(zoomBlockCount / 9, 0, 1) * 0.07;
   const textBoost = clamp((segment.textSegments?.length ?? 0) / 12, 0, 1) * 0.06;
   const pointerBoost = clamp((segment.cursorVisibilitySegments?.length ?? 0) / 18, 0, 1) * 0.04;
   const keyBoost = clamp((segment.keystrokeEvents?.length ?? 0) / 350, 0, 1) * 0.05;

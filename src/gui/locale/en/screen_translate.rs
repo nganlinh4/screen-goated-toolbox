@@ -6,6 +6,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_subtitle_description: "Automatically translate text appearing in this region.",
         screen_translate_subtitle_toggle_hint: "{hotkey} to show/hide the box",
         screen_translate_subtitle_quit: "Quit",
+        screen_translate_subtitle_display_changed: "Subtitle translation stopped because the display changed. Select the region again to restart.",
         screen_translate_show_glow_box: "Show glow box animation",
         screen_translate_btn: "Screen Translate",
         screen_translate_short_btn: "Screen Translate",

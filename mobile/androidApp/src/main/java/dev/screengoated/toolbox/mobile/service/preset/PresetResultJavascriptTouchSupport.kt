@@ -180,9 +180,14 @@ internal fun presetResultJavascriptTouchSupport(): String {
         }
 
         document.addEventListener('click', event => {
+            if (!event.isTrusted) return;
             if (!document.body.contains(event.target)) return;
             activateWindow();
             promoteWindow();
+            const mediaDownload = event.target && event.target.closest && event.target.closest('#downloadBtn');
+            if (mediaDownload && mediaDownload.closest('[data-sgt-input-adapter-media="audio"]')) {
+                postJson({ type: 'downloadInputAudio', windowId: activeWindowId });
+            }
             const link = event.target && event.target.closest && event.target.closest('a[href]');
             if (link) {
                 sendNavigationState(1, 1, true);
@@ -194,6 +199,7 @@ internal fun presetResultJavascriptTouchSupport(): String {
         }, true);
 
         document.addEventListener('touchstart', event => {
+            if (!event.isTrusted) return;
             if (event.touches.length > 1) {
                 dragState = null;
                 resizeState = null;
@@ -285,6 +291,7 @@ internal fun presetResultJavascriptTouchSupport(): String {
         }, { passive: true });
 
         document.addEventListener('touchmove', event => {
+            if (!event.isTrusted) return;
             if (event.touches.length > 1) {
                 dragState = null;
                 resizeState = null;
@@ -350,6 +357,7 @@ internal fun presetResultJavascriptTouchSupport(): String {
         }, { passive: false });
 
         document.addEventListener('touchend', event => {
+            if (!event.isTrusted) return;
             const point = touchPoint(event);
             const inertiaState = twoFingerScrollState;
             if (dragState) {
@@ -377,7 +385,8 @@ internal fun presetResultJavascriptTouchSupport(): String {
             if (inertiaState) startInertiaScroll(inertiaState);
         }, { passive: true });
 
-        document.addEventListener('touchcancel', () => {
+        document.addEventListener('touchcancel', event => {
+            if (!event.isTrusted) return;
             debugGesture('touchcancel', {});
             postJson({ type: 'cancelResultGesture', windowId: activeWindowId });
             dragState = null;

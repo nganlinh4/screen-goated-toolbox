@@ -62,11 +62,6 @@ export function pushHeaderStatus(
   }
 }
 
-/** Remove a status message by id. */
-export function clearHeaderStatus(id: string): void {
-  if (_entries.delete(id)) notify();
-}
-
 // ---------------------------------------------------------------------------
 // React hook — subscribe to the current top status entry
 // ---------------------------------------------------------------------------

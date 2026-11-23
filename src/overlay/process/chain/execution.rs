@@ -9,11 +9,10 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{ChainCancelToken, RefineContext, WINDOW_STATES, update_window_text};
 use crate::retry_model_chain::{
-    InteractiveRequestWorkload, RetryChainKind, claim_model_attempt, interactive_request_timeouts,
-    preflight_skip_reason, record_model_failure, record_model_success, release_model_probe,
-    resolve_next_retry_model,
+    InteractiveRequestWorkload, PresetRetryOrder, RetryChainKind, claim_model_attempt,
+    interactive_request_timeouts, preflight_skip_reason, record_model_failure,
+    record_model_success, release_model_probe,
 };
-use crate::win_types::SendHwnd;
 use std::collections::HashSet;
 use std::sync::{
     Arc, Mutex,
@@ -26,13 +25,16 @@ use super::visibility::claim_result_reveal;
 #[cfg(test)]
 #[path = "execution_diagnostic.rs"]
 mod execution_diagnostic;
+#[path = "execution_result.rs"]
+mod execution_result;
 #[path = "execution_trace.rs"]
 mod execution_trace;
+use execution_result::{InvalidImage, decode_image, handle_execution_result};
 
 pub struct ExecuteBlockRequest<'a> {
     pub block: &'a ProcessingBlock,
     pub block_idx: usize,
-    pub blocks: &'a [ProcessingBlock],
+    pub is_first_processing_block: bool,
     pub my_hwnd: Option<HWND>,
     pub input_text: &'a str,
     pub context: &'a RefineContext,
@@ -43,16 +45,16 @@ pub struct ExecuteBlockRequest<'a> {
     pub skip_execution: bool,
     pub config: &'a Config,
     pub preset_id: &'a str,
-    pub processing_hwnd_shared: Option<SendHwnd>,
+    pub processing_hwnd_shared: Option<super::ProcessingIndicator>,
     pub cancel_token: &'a Arc<ChainCancelToken>,
 }
 
 /// Execute the block's API call and return the result text.
-pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
+pub fn execute_block(request: ExecuteBlockRequest<'_>) -> Option<String> {
     let ExecuteBlockRequest {
         block,
         block_idx,
-        blocks,
+        is_first_processing_block,
         my_hwnd,
         input_text,
         context,
@@ -67,14 +69,32 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         cancel_token,
     } = request;
     if block.block_type == "input_adapter" {
-        return input_text.to_string();
+        return Some(input_text.to_string());
     }
 
     if skip_execution {
         if let Some(h) = my_hwnd {
             update_window_text(h, input_text);
         }
-        return input_text.to_string();
+        return Some(input_text.to_string());
+    }
+
+    if block.block_type == "audio" {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        cancel_token.register_cancel_flag(&cancelled);
+        let result = super::audio_route::execute_audio_branch(block, context, |block, wav| {
+            crate::api::audio::execute_audio_block_cancellable(block, wav, cancelled)
+        });
+        if cancel_token.is_cancelled() {
+            return None;
+        }
+        return handle_execution_result(
+            result,
+            my_hwnd,
+            &Arc::new(Mutex::new(true)),
+            config,
+            model_full_name,
+        );
     }
 
     let groq_key = config.api_key.clone();
@@ -83,12 +103,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let surface_streaming_enabled = block.streaming_enabled && block.render_mode != "markdown";
 
     let accumulated = Arc::new(Mutex::new(String::new()));
-    let is_first_processing_block = blocks
-        .iter()
-        .position(|b| b.block_type != "input_adapter")
-        .map(|pos| pos == block_idx)
-        .unwrap_or(false);
-
     // Retry variables
     let mut current_model_id = model_id.to_string();
     let mut current_provider = provider.to_string();
@@ -97,6 +111,15 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let mut blocked_providers: HashSet<String> = HashSet::new();
     let retry_chain_kind = RetryChainKind::from_block_type(&block.block_type)
         .filter(|_| !crate::model_config::model_is_non_llm(model_id));
+    let retry_order = retry_chain_kind.map(|kind| PresetRetryOrder::new(kind, model_id, config));
+    if let Some(first) = retry_order
+        .as_ref()
+        .and_then(|order| order.before_chosen(model_id, block.search_enabled, config))
+    {
+        current_model_id = first.id;
+        current_provider = first.provider;
+        current_model_full_name = first.full_name;
+    }
 
     let media_bytes = match context {
         RefineContext::Image(bytes) => bytes.len(),
@@ -109,7 +132,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
     let window_shown = Arc::new(Mutex::new(block.block_type != "image"));
     let processing_hwnd_arc = Arc::new(Mutex::new(processing_hwnd_shared));
 
-    let trace = execution_trace::ExecutionTrace::start(block_idx, model_id);
+    let trace = execution_trace::ExecutionTrace::start(block_idx, &current_model_id);
     let _retry_owner =
         crate::api::client::retry_policy::ChainRetryGuard::new(retry_chain_kind.is_some());
     // Retry loop
@@ -124,7 +147,7 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             lock.clear();
         }
 
-        if let Some(chain_kind) = retry_chain_kind
+        if let Some(order) = retry_order.as_ref()
             && let Some(skip_reason) = preflight_skip_reason(
                 &current_model_id,
                 &current_provider,
@@ -139,11 +162,11 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
 
             failed_model_ids.push(current_model_id.clone());
 
-            if let Some(next_model) = resolve_next_retry_model(
+            if let Some(next_model) = order.next(
                 &current_model_id,
                 &failed_model_ids,
                 &blocked_providers,
-                chain_kind,
+                block.search_enabled,
                 config,
             ) {
                 trace.fallback(&current_model_id, &next_model.id, &skip_reason);
@@ -152,8 +175,10 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 current_model_full_name = next_model.full_name;
 
                 if let Some(h) = my_hwnd {
-                    let retry_msg =
-                        get_retry_message(&config.ui_language, &current_model_full_name);
+                    let retry_msg = crate::overlay::utils::retry_message(
+                        &config.ui_language,
+                        &current_model_full_name,
+                    );
                     update_window_text(h, &retry_msg);
                 }
                 continue;
@@ -209,6 +234,16 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                 provider: &current_provider,
                 streaming_enabled: transport_streaming_enabled,
                 search_enabled: block.search_enabled,
+                search_capability: crate::model_config::get_model_by_id_with_custom(
+                    &current_model_id,
+                    &config.custom_models,
+                )
+                .is_some_and(|model| crate::model_config::model_supports_text_search(&model)),
+                search_tool_enabled_by_default: crate::model_config::get_model_by_id_with_custom(
+                    &current_model_id,
+                    &config.custom_models,
+                )
+                .is_some_and(|model| model.search_tool_enabled_by_default),
                 request_timeout,
                 preset_id,
                 config,
@@ -233,14 +268,14 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
             }
             Err(e) => {
                 // Never retry after explicit user cancellation.
-                if cancel_token.is_cancelled() {
+                if cancel_token.is_cancelled() || e.is::<InvalidImage>() {
                     release_model_probe(&current_model_id);
                     break Err(e);
                 }
 
                 record_model_failure(&current_model_id, &e.to_string());
 
-                if let Some(chain_kind) = retry_chain_kind
+                if let Some(order) = retry_order.as_ref()
                     && crate::overlay::utils::should_advance_retry_chain(&e.to_string())
                 {
                     if crate::overlay::utils::should_block_retry_provider(&e.to_string()) {
@@ -249,11 +284,11 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
 
                     failed_model_ids.push(current_model_id.clone());
 
-                    if let Some(next_model) = resolve_next_retry_model(
+                    if let Some(next_model) = order.next(
                         &current_model_id,
                         &failed_model_ids,
                         &blocked_providers,
-                        chain_kind,
+                        block.search_enabled,
                         config,
                     ) {
                         trace.fallback(&current_model_id, &next_model.id, &e.to_string());
@@ -262,8 +297,10 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
                         current_model_full_name = next_model.full_name;
 
                         if let Some(h) = my_hwnd {
-                            let retry_msg =
-                                get_retry_message(&config.ui_language, &current_model_full_name);
+                            let retry_msg = crate::overlay::utils::retry_message(
+                                &config.ui_language,
+                                &current_model_full_name,
+                            );
                             update_window_text(h, &retry_msg);
                         }
                         continue;
@@ -280,7 +317,6 @@ pub fn execute_block(request: ExecuteBlockRequest<'_>) -> String {
         res,
         my_hwnd,
         &window_shown,
-        &processing_hwnd_arc,
         config,
         &current_model_full_name,
     )
@@ -299,7 +335,7 @@ struct ExecuteImageBlockRequest<'a> {
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
-    processing_hwnd: Arc<Mutex<Option<SendHwnd>>>,
+    processing_hwnd: Arc<Mutex<Option<super::ProcessingIndicator>>>,
     cancel_token: &'a Arc<ChainCancelToken>,
 }
 
@@ -320,9 +356,7 @@ fn execute_image_block(request: ExecuteImageBlockRequest<'_>) -> anyhow::Result<
         cancel_token,
     } = request;
     if let RefineContext::Image(img_data) = context {
-        let img = crate::image_decode::load_from_memory(img_data)
-            .expect("Failed to load image")
-            .to_rgba8();
+        let img = decode_image(img_data)?;
 
         // Bridge: chain token → API-level AtomicBool
         let api_cancel = Arc::new(AtomicBool::new(false));
@@ -373,6 +407,8 @@ struct ExecuteTextBlockRequest<'a> {
     provider: &'a str,
     streaming_enabled: bool,
     search_enabled: bool,
+    search_capability: bool,
+    search_tool_enabled_by_default: bool,
     request_timeout: Option<crate::api::client::RequestTimeouts>,
     preset_id: &'a str,
     config: &'a Config,
@@ -392,6 +428,8 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
         provider,
         streaming_enabled,
         search_enabled,
+        search_capability,
+        search_tool_enabled_by_default,
         request_timeout,
         preset_id,
         config,
@@ -410,6 +448,8 @@ fn execute_text_block(request: ExecuteTextBlockRequest<'_>) -> anyhow::Result<St
         TranslateTextRequest {
             max_output_tokens: None,
             search_enabled,
+            search_capability: Some(search_capability),
+            search_tool_enabled_by_default: Some(search_tool_enabled_by_default),
             groq_api_key: groq_key,
             gemini_api_key: gemini_key,
             text: input_text.to_string(),
@@ -475,7 +515,7 @@ fn handle_streaming_chunk(
     accumulated: &Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
     window_shown: &Arc<Mutex<bool>>,
-    processing_hwnd: &Arc<Mutex<Option<SendHwnd>>>,
+    processing_hwnd: &Arc<Mutex<Option<super::ProcessingIndicator>>>,
 ) {
     let mut t = accumulated.lock().unwrap();
     if let Some(wiped) = chunk.strip_prefix(crate::api::WIPE_SIGNAL) {
@@ -497,9 +537,7 @@ fn handle_streaming_chunk(
                 }
                 let mut proc_hwnd = processing_hwnd.lock().unwrap();
                 if let Some(ph) = proc_hwnd.take() {
-                    unsafe {
-                        let _ = PostMessageW(Some(ph.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+                    ph.close();
                 }
             }
         }
@@ -510,87 +548,5 @@ fn handle_streaming_chunk(
             }
         }
         update_window_text(h, &t);
-    }
-}
-
-/// Get localized retry message.
-fn get_retry_message(lang: &str, model_name: &str) -> String {
-    match lang {
-        "vi" => format!("(Đang thử lại {}...)", model_name),
-        "ko" => format!("({} 재시도 중...)", model_name),
-        "ja" => format!("({} 再試行中...)", model_name),
-        "zh" => format!("(正在重试 {}...)", model_name),
-        _ => format!("(Retrying {}...)", model_name),
-    }
-}
-
-/// Handle the execution result (success or error).
-fn handle_execution_result(
-    res: anyhow::Result<String>,
-    my_hwnd: Option<HWND>,
-    window_shown: &Arc<Mutex<bool>>,
-    processing_hwnd_arc: &Arc<Mutex<Option<SendHwnd>>>,
-    config: &Config,
-    model_full_name: &str,
-) -> String {
-    match res {
-        Ok(txt) => {
-            if let Some(h) = my_hwnd {
-                crate::overlay::result::latency::mark_window(h, "provider_first_output");
-                {
-                    let mut s = WINDOW_STATES.lock().unwrap();
-                    if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                        st.is_refining = false;
-                        st.is_streaming_active = false;
-                    }
-                }
-                update_window_text(h, &txt);
-                if claim_result_reveal(window_shown) {
-                    unsafe {
-                        let _ = ShowWindow(h, SW_SHOW);
-                    }
-                }
-            }
-            txt
-        }
-        Err(e) => {
-            crate::overlay::utils::show_api_key_error_notification(
-                &e.to_string(),
-                &config.ui_language,
-            );
-            let err = crate::overlay::utils::get_error_message(
-                &e.to_string(),
-                &config.ui_language,
-                Some(model_full_name),
-            );
-            if let Some(h) = my_hwnd {
-                crate::overlay::result::latency::mark_window(h, "provider_first_output");
-                // Show window if hidden (image blocks)
-                {
-                    let mut shown = window_shown.lock().unwrap();
-                    if !*shown {
-                        *shown = true;
-                        unsafe {
-                            let _ = ShowWindow(h, SW_SHOW);
-                        }
-                        let mut proc_hwnd = processing_hwnd_arc.lock().unwrap();
-                        if let Some(ph) = proc_hwnd.take() {
-                            unsafe {
-                                let _ = PostMessageW(Some(ph.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-                            }
-                        }
-                    }
-                }
-                {
-                    let mut s = WINDOW_STATES.lock().unwrap();
-                    if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                        st.is_refining = false;
-                        st.is_streaming_active = false;
-                    }
-                }
-                update_window_text(h, &err);
-            }
-            String::new()
-        }
     }
 }

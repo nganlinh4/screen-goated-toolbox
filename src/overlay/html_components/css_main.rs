@@ -591,6 +591,6 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
         secondary = secondary,
         tertiary = tertiary,
         success = success,
-        tail = tail::get(icon_inactive_color, primary, secondary, tertiary),
+        tail = tail::get(icon_inactive_color, secondary),
     )
 }

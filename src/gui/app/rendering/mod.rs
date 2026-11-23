@@ -2,9 +2,11 @@
 // Main application rendering: layout, title bar, footer, and overlays.
 
 mod computer_control;
+mod config_unread;
 mod footer;
 mod live_translate;
 mod overlays;
+mod preset_identity;
 mod preset_model_update;
 mod screen_translate;
 mod screen_translate_region;
@@ -12,9 +14,9 @@ mod title_bar;
 
 use super::types::{DetailPane, SettingsApp};
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::node_graph::{blocks_to_snarl, snarl_to_graph};
+use crate::gui::settings_ui::node_graph::{blocks_to_snarl, save_graph_to_preset};
 use crate::gui::settings_ui::{
-    PresetIndexMove, ViewMode, cached_grid_width, render_global_settings, render_history_panel,
+    PresetListChange, ViewMode, cached_grid_width, render_global_settings, render_history_panel,
     render_preset_editor, render_sidebar,
 };
 use eframe::egui;
@@ -95,6 +97,7 @@ impl SettingsApp {
         root_ui
             .painter()
             .rect_filled(root_ui.available_rect_before_wrap(), 0.0, panel_fill);
+        config_unread::render_config_unread_banner(root_ui, &text);
 
         // NATIVE egui panels: egui sizes + clips each panel itself, so columns can
         // never overflow the window or cut each other off (the manual width math
@@ -131,8 +134,13 @@ impl SettingsApp {
             .show(root_ui, |ui| {
                 let sidebar_response =
                     render_sidebar(ui, &mut self.config, &mut self.view_mode, &text);
-                if let Some(index_move) = sidebar_response.preset_index_move {
-                    self.remap_preset_ui_indices(index_move);
+                for change in sidebar_response.preset_list_changes {
+                    self.apply_preset_list_change(change);
+                }
+                if let ViewMode::Preset(index) = self.view_mode
+                    && index < self.config.presets.len()
+                {
+                    self.current_preset_idx = Some(index);
                 }
                 if sidebar_response.changed {
                     self.save_and_sync();
@@ -143,7 +151,6 @@ impl SettingsApp {
                         crate::overlay::favorite_bubble::trigger_blink_animation();
                     }
                 }
-                self.update_sr_hotkey_recording(ctx);
             });
 
         // Right-edge padding: an empty gutter docked first (outermost right) so the
@@ -189,15 +196,23 @@ impl SettingsApp {
 }
 
 impl SettingsApp {
-    fn remap_preset_ui_indices(&mut self, index_move: PresetIndexMove) {
-        if let Some(index) = &mut self.current_preset_idx {
-            *index = index_move.remap(*index);
+    fn apply_preset_list_change(&mut self, change: PresetListChange) {
+        let mut indices = preset_identity::PresetUiIndices {
+            current: self.current_preset_idx,
+            recording: self.recording_hotkey_for_preset,
+            graph: self.last_edited_preset_key.as_ref().map(|key| key.0),
+        };
+        let effects = indices.apply(change);
+        self.current_preset_idx = indices.current;
+        self.recording_hotkey_for_preset = indices.recording;
+        if effects.clear_recording {
+            self.hotkey_conflict_msg = None;
         }
-        if let Some(index) = &mut self.recording_hotkey_for_preset {
-            *index = index_move.remap(*index);
-        }
-        if let Some((index, _, _)) = &mut self.last_edited_preset_key {
-            *index = index_move.remap(*index);
+        if effects.discard_graph {
+            self.snarl = None;
+            self.last_edited_preset_key = None;
+        } else if let (Some(index), Some(key)) = (indices.graph, &mut self.last_edited_preset_key) {
+            key.0 = index;
         }
     }
 
@@ -298,7 +313,7 @@ impl SettingsApp {
                     &self.updater,
                     &self.update_status,
                     &mut self.run_at_startup,
-                    &self.auto_launcher,
+                    &mut self.startup,
                     self.current_admin_state,
                     text,
                     &mut self.show_models_modal,
@@ -307,8 +322,6 @@ impl SettingsApp {
                     &mut self.show_tools_modal,
                     &mut self.show_restore_defaults_modal,
                     &mut self.download_manager,
-                    &self.cached_audio_devices,
-                    &mut self.recording_sr_hotkey,
                 ) {
                     self.save_and_sync();
                 }
@@ -358,13 +371,14 @@ impl SettingsApp {
             self.snarl = Some(blocks_to_snarl(
                 &self.config.presets[idx].blocks,
                 &self.config.presets[idx].block_connections,
+                self.config.presets[idx].graph_explicit,
                 &self.config.presets[idx].preset_type,
             ));
             self.last_edited_preset_key = preset_key;
         }
 
-        if let Some(snarl) = &mut self.snarl
-            && render_preset_editor(
+        if let Some(snarl) = &mut self.snarl {
+            let (changed, graph_changed) = render_preset_editor(
                 ui,
                 &mut self.config,
                 idx,
@@ -374,15 +388,14 @@ impl SettingsApp {
                 snarl,
                 content_bottom,
                 content_right,
-            )
-        {
-            // Sync back to blocks and connections
-            if idx < self.config.presets.len() {
-                let (blocks, connections) = snarl_to_graph(snarl);
-                self.config.presets[idx].blocks = blocks;
-                self.config.presets[idx].block_connections = connections;
+            );
+            if changed {
+                // Sync back to blocks and connections
+                if graph_changed && idx < self.config.presets.len() {
+                    save_graph_to_preset(&mut self.config.presets[idx], snarl);
+                }
+                self.save_and_sync();
             }
-            self.save_and_sync();
         }
     }
 }

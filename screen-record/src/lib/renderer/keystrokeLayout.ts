@@ -139,16 +139,18 @@ export function measureKeystrokeBubble(
   ctx: CanvasRenderingContext2D,
   event: KeystrokeEvent,
   canvasHeight: number,
-  overlayScale: number
+  overlayScale: number,
+  renderScale: number = 1
 ): KeystrokeBubbleLayout {
   const isMouse = event.type === 'mousedown' || event.type === 'wheel';
   const label = getKeystrokeLabel(state, event);
   const safeScale = Math.max(KEYSTROKE_OVERLAY_MIN_SCALE, Math.min(KEYSTROKE_OVERLAY_MAX_SCALE, overlayScale));
-  const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)) * safeScale);
+  // canvasHeight is the authoring (preview) canvas; renderScale maps its pixels to the output.
+  const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)) * safeScale * renderScale);
   const paddingX = Math.round(fontSize * 0.24);
   const paddingY = Math.round(fontSize * 0.38);
   const radius = Math.round(fontSize * 0.64);
-  const marginBottom = Math.round(Math.max(14, canvasHeight * 0.06));
+  const marginBottom = Math.round(Math.max(14, canvasHeight * 0.06) * renderScale);
   const KEY_ICON_MAP: Record<string, string> = {
     'Space': 'space', 'Enter': 'enter', 'Backspace': 'backspace',
     'Tab': 'tab', 'Delete': 'delete', 'CapsLock': 'capslock', 'Shift': 'shift',
@@ -210,12 +212,13 @@ export function getCachedKeystrokeBubbleLayout(
   ctx: CanvasRenderingContext2D,
   event: KeystrokeEvent,
   canvasHeight: number,
-  overlayScale: number
+  overlayScale: number,
+  renderScale: number = 1
 ): KeystrokeBubbleLayout {
-  const cacheKey = `${event.id}@${Math.round(canvasHeight)}@${overlayScale.toFixed(3)}@${state.keystrokeLanguage}`;
+  const cacheKey = `${event.id}@${Math.round(canvasHeight)}@${overlayScale.toFixed(3)}@${renderScale.toFixed(4)}@${state.keystrokeLanguage}`;
   const cached = state.layoutCache.get(cacheKey);
   if (cached) return cached;
-  const measured = measureKeystrokeBubble(state, ctx, event, canvasHeight, overlayScale);
+  const measured = measureKeystrokeBubble(state, ctx, event, canvasHeight, overlayScale, renderScale);
   state.layoutCache.set(cacheKey, measured);
   return measured;
 }

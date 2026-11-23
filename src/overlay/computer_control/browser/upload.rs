@@ -2,20 +2,28 @@
 
 use serde_json::{Value, json};
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
-use super::controller_io::{DOCUMENT_ID_JS, MutationRoute};
+use super::controller_io::MutationRoute;
+mod checkpoint;
+mod file_lease;
+mod proposal;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UploadTarget {
     document_id: String,
     backend_node_id: i64,
     node_id: i64,
+    url: String,
+    origin: String,
 }
 
 impl UploadTarget {
     fn stale_reason(&self, current: &Self) -> Option<&'static str> {
         if self.document_id != current.document_id {
             Some("document_changed")
+        } else if self.url != current.url || self.origin != current.origin {
+            Some("receiver_changed")
         } else if self.backend_node_id != current.backend_node_id {
             Some("element_changed")
         } else {
@@ -56,28 +64,13 @@ impl UploadRoute {
     }
 }
 
-pub(in crate::overlay::computer_control) fn upload_file(selector: &str, path: &str) -> Value {
-    upload_file_impl(selector, path, None)
-}
-
-pub(in crate::overlay::computer_control) fn upload_file_on_document(
-    selector: &str,
-    path: &str,
-    tab_id: i64,
-    document_id: &str,
-) -> Value {
-    upload_file_impl_on_document(selector, path, Some(tab_id), Some(document_id))
-}
-
-fn upload_file_impl(selector: &str, path: &str, pinned_tab_id: Option<i64>) -> Value {
-    upload_file_impl_on_document(selector, path, pinned_tab_id, None)
-}
-
-fn upload_file_impl_on_document(
+pub(in crate::overlay::computer_control) fn upload_file(
     selector: &str,
     path: &str,
     pinned_tab_id: Option<i64>,
     source_document_id: Option<&str>,
+    cancel: &AtomicBool,
+    authorize: impl FnOnce(&Value) -> Result<Value, Value>,
 ) -> Value {
     if let Some(error) = invalid_upload_path(path) {
         return error;
@@ -92,6 +85,15 @@ fn upload_file_impl_on_document(
     let route = match UploadRoute::resolve(pinned_tab_id) {
         Ok(route) => route,
         Err(error) => return super::err(error),
+    };
+    let file = match file_lease::FileLease::open(path, cancel) {
+        Ok(file) => file,
+        Err(error) => {
+            return route.tag(preflight_error(
+                "ERR_BROWSER_UPLOAD_FILE_UNAVAILABLE",
+                &error.to_string(),
+            ));
+        }
     };
     let expected = match resolve_target(route, selector) {
         Ok(Some(target)) => target,
@@ -109,62 +111,121 @@ fn upload_file_impl_on_document(
     {
         return stale_source_document(route, selector, document_id, &expected);
     }
+    let proposal = match expected.proposal(route.tab_id, selector, &file) {
+        Ok(proposal) => proposal,
+        Err(error) => {
+            return route.tag(preflight_error(
+                "ERR_BROWSER_UPLOAD_PROPOSAL_UNAVAILABLE",
+                &error.to_string(),
+            ));
+        }
+    };
+    let disclosed_path = match file.path() {
+        Ok(path) => path,
+        Err(error) => {
+            return route.tag(preflight_error(
+                "ERR_BROWSER_UPLOAD_FILE_UNAVAILABLE",
+                &error.to_string(),
+            ));
+        }
+    };
+    route.tag(checkpoint::before_disclosure(
+        &proposal,
+        cancel,
+        authorize,
+        || {
+            file.validate(cancel).map_err(|error| {
+                preflight_error("ERR_BROWSER_UPLOAD_FILE_CHANGED", &error.to_string())
+            })?;
+            revalidate_target(route, selector, source_document_id, &expected)
+        },
+        |current| dispatch_file(route, selector, disclosed_path, &current),
+    ))
+}
+
+fn revalidate_target(
+    route: UploadRoute,
+    selector: &str,
+    source_document_id: Option<&str>,
+    expected: &UploadTarget,
+) -> Result<UploadTarget, Value> {
     let current = match resolve_target(route, selector) {
         Ok(Some(target)) => target,
-        Ok(None) => return stale_upload(route, selector, "target_missing", &expected, None),
+        Ok(None) => {
+            return Err(stale_upload(
+                route,
+                selector,
+                "target_missing",
+                expected,
+                None,
+            ));
+        }
         Err(error) => {
-            return stale_upload(
+            return Err(stale_upload(
                 route,
                 selector,
                 &format!("identity_unavailable: {error}"),
-                &expected,
+                expected,
                 None,
-            );
+            ));
         }
     };
     if let Some(reason) = expected.stale_reason(&current) {
-        return stale_upload(route, selector, reason, &expected, Some(&current));
+        return Err(stale_upload(
+            route,
+            selector,
+            reason,
+            expected,
+            Some(&current),
+        ));
     }
     if let Some(document_id) = source_document_id
         && document_id != current.document_id
     {
-        return stale_source_document(route, selector, document_id, &current);
+        return Err(stale_source_document(
+            route,
+            selector,
+            document_id,
+            &current,
+        ));
     }
+    Ok(current)
+}
+
+fn dispatch_file(route: UploadRoute, selector: &str, path: &str, current: &UploadTarget) -> Value {
     let dispatch = route.mode.cdp(
         "DOM.setFileInputFiles",
-        json!({"nodeId": current.node_id, "files": [path]}),
+        json!({"backendNodeId": current.backend_node_id, "files": [path]}),
         None,
         route.tab_id,
     );
-    let after_document = dispatch
-        .as_ref()
-        .ok()
-        .and(source_document_id)
-        .and_then(|_| route.mode.eval(DOCUMENT_ID_JS, route.tab_id, None).ok())
-        .and_then(|value| value.as_str().map(str::to_string));
     match dispatch {
-        Ok(_)
-            if source_document_id
-                .is_some_and(|expected| after_document.as_deref() != Some(expected)) =>
-        {
-            route.tag(json!({
-                "ok": false,
-                "code": "ERR_STALE_FRAME_SURFACE",
-                "stale": true,
-                "effect_may_have_occurred": true,
-                "error": "browser document changed while the file input mutation was dispatched",
-                "expected_document_id": source_document_id,
-                "observed_document_id": after_document,
-            }))
+        Ok(_) => {
+            let after = resolve_target(route, selector);
+            match after {
+                Ok(Some(after)) if current.stale_reason(&after).is_none() => route.tag(json!({
+                    "ok": true,
+                    "uploaded": path,
+                    "file_input_assignment": "accepted",
+                    "receiving_origin": current.origin,
+                    "document_guard": "matched",
+                    "element_guard": "matched",
+                })),
+                _ => route.tag(json!({
+                    "ok": false,
+                    "code": "ERR_BROWSER_STALE_TARGET",
+                    "stale": true,
+                    "effect_may_have_occurred": true,
+                    "error": "the file input or its document changed during upload; inspect it before retrying",
+                })),
+            }
         }
-        Ok(_) => route.tag(json!({
-            "ok": true,
-            "uploaded": path,
-            "document_guard": "matched",
-            "element_guard": "matched",
-        })),
-        Err(error) => route.tag(super::err(error)),
+        Err(error) => route.tag(super::errors::uncertain_dispatch(error)),
     }
+}
+
+fn preflight_error(code: &str, message: &str) -> Value {
+    json!({"ok":false,"code":code,"error":message,"executed":false,"effect_may_have_occurred":false})
 }
 
 fn invalid_upload_path(path: &str) -> Option<Value> {
@@ -210,12 +271,8 @@ fn stale_source_document(
 }
 
 fn resolve_target(route: UploadRoute, selector: &str) -> anyhow::Result<Option<UploadTarget>> {
-    let document_id = route
-        .mode
-        .eval(DOCUMENT_ID_JS, route.tab_id, None)?
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| anyhow::anyhow!("browser document identity unavailable"))?;
+    let document_id = document_identity(route)?;
+    let (url, origin) = receiver_location(route)?;
     let document = route
         .mode
         .cdp("DOM.getDocument", json!({"depth": 0}), None, route.tab_id)?;
@@ -243,11 +300,69 @@ fn resolve_target(route: UploadRoute, selector: &str) -> anyhow::Result<Option<U
         .pointer("/node/backendNodeId")
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow::anyhow!("browser DOM node identity unavailable"))?;
+    validate_file_input(&described["node"])?;
+    let current_location = receiver_location(route)?;
+    anyhow::ensure!(
+        current_location.0 == url && current_location.1 == origin,
+        "browser receiving location changed while resolving the file input"
+    );
+    if document_identity(route)? != document_id {
+        anyhow::bail!("browser document changed while resolving the file input");
+    }
     Ok(Some(UploadTarget {
         document_id,
         backend_node_id,
         node_id,
+        url,
+        origin,
     }))
+}
+
+fn receiver_location(route: UploadRoute) -> anyhow::Result<(String, String)> {
+    let tree = route
+        .mode
+        .cdp("Page.getFrameTree", json!({}), None, route.tab_id)?;
+    let frame = tree
+        .pointer("/frameTree/frame")
+        .ok_or_else(|| anyhow::anyhow!("receiving browser frame unavailable"))?;
+    let url = super::frame_url::from_frame(frame)?;
+    let origin = frame
+        .get("securityOrigin")
+        .and_then(Value::as_str)
+        .filter(|origin| !origin.is_empty() && origin.len() <= 4096 && !origin.contains('\0'))
+        .ok_or_else(|| anyhow::anyhow!("receiving browser origin unavailable"))?
+        .to_string();
+    Ok((url, origin))
+}
+
+fn validate_file_input(node: &Value) -> anyhow::Result<()> {
+    let is_input = node.get("localName").and_then(Value::as_str) == Some("input");
+    let attributes = node
+        .get("attributes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("file input attributes unavailable"))?;
+    let (attributes, remainder) = attributes.as_chunks::<2>();
+    anyhow::ensure!(remainder.is_empty(), "file input attributes malformed");
+    let is_file = attributes.iter().any(|attribute| {
+        attribute[0].as_str() == Some("type")
+            && attribute[1]
+                .as_str()
+                .is_some_and(|value| value.eq_ignore_ascii_case("file"))
+    });
+    anyhow::ensure!(is_input && is_file, "upload target must be a file input");
+    Ok(())
+}
+
+fn document_identity(route: UploadRoute) -> anyhow::Result<String> {
+    super::controller_isolated::eval(
+        route.mode,
+        super::controller_isolated::DOCUMENT_ID_JS,
+        route.tab_id,
+        None,
+    )?
+    .as_str()
+    .map(str::to_string)
+    .ok_or_else(|| anyhow::anyhow!("browser document identity unavailable"))
 }
 
 fn stale_upload(
@@ -288,6 +403,8 @@ mod tests {
             document_id: document.to_string(),
             backend_node_id,
             node_id: backend_node_id + 100,
+            url: "https://receiver.example/upload".into(),
+            origin: "https://receiver.example".into(),
         }
     }
 
@@ -303,6 +420,33 @@ mod tests {
             Some("element_changed")
         );
         assert_eq!(expected.stale_reason(&target("document-a", 11)), None);
+        let mut moved = expected.clone();
+        moved.url.push_str("?different-route");
+        assert_eq!(expected.stale_reason(&moved), Some("receiver_changed"));
+        moved = expected.clone();
+        moved.origin = "null".into();
+        assert_eq!(expected.stale_reason(&moved), Some("receiver_changed"));
+        moved = expected.clone();
+        moved.node_id += 1;
+        assert_eq!(expected.stale_reason(&moved), None);
+    }
+
+    #[test]
+    fn upload_requires_structural_file_input_attributes() {
+        use serde_json::json;
+        assert!(
+            super::validate_file_input(&json!({"localName":"input","attributes":["type","FiLe"]}))
+                .is_ok()
+        );
+        for node in [
+            json!({"localName":"div","attributes":["type","file"]}),
+            json!({"localName":"input","attributes":["type","text"]}),
+            json!({"localName":"input","attributes":[]}),
+            json!({"localName":"input","attributes":["type","file","unpaired"]}),
+            json!({"localName":"input"}),
+        ] {
+            assert!(super::validate_file_input(&node).is_err());
+        }
     }
 
     #[test]

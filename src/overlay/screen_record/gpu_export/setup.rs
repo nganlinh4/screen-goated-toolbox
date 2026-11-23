@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
-use std::sync::{Arc, Once, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Once};
 use wgpu::util::DeviceExt;
 
 mod uniforms;
@@ -55,6 +56,7 @@ pub(super) const QUAD_VERTICES: &[Vertex] = &[
 ];
 
 pub(super) struct SharedGpuContext {
+    pub failed: Arc<AtomicBool>,
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
     pub pipeline: wgpu::RenderPipeline,
@@ -69,7 +71,22 @@ pub(super) struct SharedGpuContext {
     pub webcam_uniform_layout: wgpu::BindGroupLayout,
 }
 
-static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
+static SHARED_GPU_CONTEXT: LazyLock<super::cache::ContextCache<SharedGpuContext>> =
+    LazyLock::new(super::cache::ContextCache::new);
+
+pub(crate) fn diagnostic_context() -> serde_json::Value {
+    SHARED_GPU_CONTEXT.ready_snapshot().map_or(serde_json::Value::Null, |(context, generation)| {
+        serde_json::json!({"generation": generation, "failed": context.failed.load(Ordering::Acquire)})
+    })
+}
+
+pub(crate) fn diagnostic_device_loss() -> Result<serde_json::Value, String> {
+    let (context, generation) = SHARED_GPU_CONTEXT
+        .ready_snapshot()
+        .ok_or("GPU context is not ready")?;
+    context.device.destroy();
+    Ok(serde_json::json!({"destroyedGeneration": generation}))
+}
 
 fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     let request_adapter = |instance: &wgpu::Instance| {
@@ -134,7 +151,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("SGT GPU Compositor"),
         required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
+        required_limits: super::limits::export_device_limits(&adapter.limits()),
         experimental_features: wgpu::ExperimentalFeatures::disabled(),
         memory_hints: wgpu::MemoryHints::Performance,
         trace: wgpu::Trace::Off,
@@ -143,6 +160,19 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
 
     let device = Arc::new(device);
     let queue = Arc::new(queue);
+    let failed = Arc::new(AtomicBool::new(false));
+    let callback_lost = Arc::clone(&failed);
+    device.set_device_lost_callback(move |reason, message| {
+        callback_lost.store(true, Ordering::Release);
+        crate::log_info!("[Export][GPU] device lost: {reason:?}: {message}");
+    });
+    let callback_error = Arc::clone(&failed);
+    device.on_uncaptured_error(Arc::new(move |error| {
+        callback_error.store(true, Ordering::Release);
+        crate::log_info!("[Export][GPU] uncaptured device error: {error}");
+    }));
+
+    let scopes = super::limits::ResourceErrorScopes::new(&device);
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Compositor Shader"),
@@ -474,7 +504,13 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         cache: None,
     });
 
+    scopes.finish("GPU compositor setup failed")?;
+    if failed.load(Ordering::Acquire) {
+        return Err("GPU device failed during compositor setup".to_string());
+    }
+
     Ok(SharedGpuContext {
+        failed,
         device,
         queue,
         pipeline,
@@ -490,11 +526,15 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     })
 }
 
-pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> {
-    match SHARED_GPU_CONTEXT.get_or_init(create_shared_gpu_context) {
-        Ok(ctx) => Ok(ctx),
-        Err(err) => Err(err.clone()),
-    }
+pub(super) fn shared_gpu_context(
+    cancel: Option<&AtomicBool>,
+) -> Result<Arc<SharedGpuContext>, String> {
+    SHARED_GPU_CONTEXT.get_or_initialize(
+        cancel,
+        std::time::Duration::from_secs(30),
+        |context| !context.failed.load(Ordering::Acquire),
+        create_shared_gpu_context,
+    )
 }
 
 /// Builds the shared context off the critical path.
@@ -505,7 +545,8 @@ pub(super) fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> 
 /// retained between sessions, so without this every session paid it inside its
 /// first export. Starting it as soon as the window is up overlaps it with the
 /// user opening a project and editing. `get_or_init` makes a concurrent export
-/// wait for this same initialisation rather than duplicate it.
+/// wait for this same initialisation rather than duplicate it. A failed or lost
+/// device is retried when the next export requests a context.
 pub(crate) fn prewarm_shared_gpu_context() {
     static STARTED: Once = Once::new();
     STARTED.call_once(|| {
@@ -513,7 +554,7 @@ pub(crate) fn prewarm_shared_gpu_context() {
             .name("sgt-export-gpu-prewarm".to_string())
             .spawn(|| {
                 let started = std::time::Instant::now();
-                let outcome = match shared_gpu_context() {
+                let outcome = match shared_gpu_context(None) {
                     Ok(_) => "ready".to_string(),
                     Err(error) => format!("failed: {error}"),
                 };
@@ -530,54 +571,5 @@ pub(crate) fn prewarm_shared_gpu_context() {
 }
 
 #[cfg(test)]
-mod prewarm_tests {
-    #[test]
-    fn prewarm_runs_off_the_caller_thread_and_only_once() {
-        let source = include_str!("setup.rs");
-        let start = source
-            .find("pub(crate) fn prewarm_shared_gpu_context()")
-            .unwrap();
-        let body = &source[start..];
-        assert!(
-            body.contains("STARTED.call_once("),
-            "repeated window shows must not spawn repeated prewarm threads"
-        );
-        assert!(
-            body.find("thread::Builder::new()").unwrap()
-                < body.find("match shared_gpu_context()").unwrap(),
-            "the pipeline build must happen on the spawned thread, not the caller"
-        );
-    }
-
-    #[test]
-    fn showing_the_window_starts_the_prewarm() {
-        let source = include_str!("../window_proc.rs");
-        let start = source.find("WM_APP_SHOW =>").unwrap();
-        let end = source.find("WM_APP_UPDATE_SETTINGS =>").unwrap();
-        assert!(
-            source[start..end].contains("prewarm_shared_gpu_context()"),
-            "the export pipeline must start building as soon as the window is shown"
-        );
-    }
-
-    #[test]
-    #[ignore = "builds the real GPU pipeline"]
-    fn prewarm_absorbs_the_pipeline_build_before_export_asks_for_it() {
-        super::prewarm_shared_gpu_context();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-        while super::SHARED_GPU_CONTEXT.get().is_none() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "prewarm did not finish building the shared context"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        let started = std::time::Instant::now();
-        assert!(super::shared_gpu_context().is_ok());
-        assert!(
-            started.elapsed() < std::time::Duration::from_millis(50),
-            "export acquired the prewarmed context in {:?}, expected it to be ready",
-            started.elapsed()
-        );
-    }
-}
+#[path = "setup_tests.rs"]
+mod prewarm_tests;

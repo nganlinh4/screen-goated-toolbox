@@ -38,12 +38,19 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                         {
                             crate::overlay::computer_control::ui_remove(integ.id);
                         }
-                        let label = if integ.connected {
+                        let label = if integ.catalog_error.is_some() {
+                            managed.tool_status_unavailable
+                        } else if integ.connected {
                             managed.tool_status_connected
                         } else {
                             managed.tool_status_installed_plain
                         };
-                        ui.label(egui::RichText::new(label).color(theme.success()));
+                        let color = if integ.catalog_error.is_some() {
+                            theme.warning()
+                        } else {
+                            theme.success()
+                        };
+                        ui.label(egui::RichText::new(label).color(color));
                     } else {
                         if ui
                             .button(text.auxiliary.managed_tools.tool_action_download)
@@ -58,6 +65,9 @@ pub(super) fn render_mcp_card(ui: &mut egui::Ui, text: &LocaleText) {
                     }
                 });
             });
+            if let Some(error) = &integ.catalog_error {
+                ui.label(egui::RichText::new(error).color(AppTheme::from_ui(ui).warning()));
+            }
             ui.label(
                 managed
                     .mcp_description(integ.id)

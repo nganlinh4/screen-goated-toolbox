@@ -19,18 +19,7 @@ const FALLBACK: TtsPlaygroundState = {
   },
   edge: { pitch: 0, rate: 0, voices: [] },
   google: { speed: "Normal" },
-  stepAudio: { reference: "" },
-  magpie: { speed: 1, threads: 4, voices: [] },
-  kokoro: { speed: 1, threads: 4, voices: [] },
-  supertonic: { speed: 1, threads: 4, steps: 24, voices: [] },
-  vieneu: { reference: "" },
-  audioEdit: {
-    sourcePath: "",
-    sourceText: "",
-    editType: "emotion",
-    editInfo: "",
-    targetText: "",
-  },
+  sourceAudio: { sourcePath: "" },
   s2sTargetLanguage: "vi",
   player: {
     isGenerating: false,
@@ -49,34 +38,16 @@ const FALLBACK: TtsPlaygroundState = {
     geminiInstructionLanguages: [],
     edgeVoicesByLanguage: {},
     edgeAvailableLanguages: [],
-    magpieVoicesByLanguage: {},
-    magpieAvailableLanguages: [],
-    kokoroVoicesByLanguage: {},
-    kokoroAvailableLanguages: [],
-    supertonicVoicesByLanguage: {},
-    supertonicAvailableLanguages: [],
     s2sLanguages: [],
-    audioEditTasks: [],
-    audioEditSubtasksByTask: {},
-    paralinguisticTags: [],
-    stepAudioReferences: [],
-    vieneuReferences: [],
   },
   strings: {
     title: "TTS Playground",
     modeTtsClone: "TTS / Clone",
-    modeAudioEdit: "Audio Edit",
-    modeReferenceLibrary: "Reference Library",
     modeS2S: "S2S",
     methodLabel: "Method",
     methodGemini: "Gemini Live",
     methodEdge: "Edge TTS",
     methodGoogle: "Google Translate",
-    methodStepAudio: "Step Audio EditX",
-    methodMagpie: "NVIDIA Magpie-Multilingual 357M",
-    methodKokoro: "Kokoro 82M v1.0",
-    methodSupertonic: "Supertonic 3",
-    methodVieneu: "VieNeu-TTS v2",
     textLabel: "Text",
     textHint: "Type or paste text to synthesize…",
     charCountTemplate: "{n} chars",
@@ -106,39 +77,17 @@ const FALLBACK: TtsPlaygroundState = {
     speedFast: "Fast",
     pitchLabel: "Pitch",
     rateLabel: "Rate",
-    threadsLabel: "Threads",
-    qualityStepsLabel: "Quality steps",
     pickSource: "Pick source audio",
-    useCurrent: "Use current clip",
     recordMic: "Record mic",
     stopMic: "Stop recording",
     noSource: "No source audio",
-    sourceTranscript: "Source transcript",
-    task: "Task",
-    subtask: "Subtask",
-    inlineSoundTag: "Inline sound tag",
-    insertTag: "Insert tag",
-    targetText: "Target text",
     referenceVoice: "Reference voice",
-    referenceLibraryDesc: "Shared by Step Audio TTS, global TTS config, and narration.",
-    referenceAdd: "+ Add reference",
-    referenceLabel: "Label",
-    referencePickAudio: "Pick audio",
-    referenceAutoRecognize: "Auto recognize",
-    referenceUsePlayground: "Use in playground",
-    referenceUseGlobal: "Use globally",
-    referenceNoAudio: "No reference audio selected",
-    referenceExactTranscript: "Exact reference transcript",
     geminiModelLabel: "Model",
     instructionsLabel: "Instructions",
     instructionsHint: "Optional style instruction for Gemini Live",
     preview: "Preview",
     delete: "Delete",
-    stepAudioDesc:
-      "Supports Mandarin, English, Sichuanese, Cantonese, Japanese, and Korean.",
-    vieneuDesc: "Vietnamese & English, local sidecar.",
     s2sTarget: "Target",
-    referenceEmpty: "No reference voices saved yet.",
   },
 };
 
@@ -154,12 +103,7 @@ function normalize(input: Partial<TtsPlaygroundState> | TtsPlaygroundState): Tts
     gemini: { ...FALLBACK.gemini, ...(src.gemini ?? {}) },
     edge: { ...FALLBACK.edge, ...(src.edge ?? {}) },
     google: { ...FALLBACK.google, ...(src.google ?? {}) },
-    stepAudio: { ...FALLBACK.stepAudio, ...(src.stepAudio ?? {}) },
-    magpie: { ...FALLBACK.magpie, ...(src.magpie ?? {}) },
-    kokoro: { ...FALLBACK.kokoro, ...(src.kokoro ?? {}) },
-    supertonic: { ...FALLBACK.supertonic, ...(src.supertonic ?? {}) },
-    vieneu: { ...FALLBACK.vieneu, ...(src.vieneu ?? {}) },
-    audioEdit: { ...FALLBACK.audioEdit, ...(src.audioEdit ?? {}) },
+    sourceAudio: { ...FALLBACK.sourceAudio, ...(src.sourceAudio ?? {}) },
     player: { ...FALLBACK.player, ...(src.player ?? {}) },
     catalogs: { ...FALLBACK.catalogs, ...(src.catalogs ?? {}) },
     strings: { ...FALLBACK.strings, ...(src.strings ?? {}) },
@@ -172,9 +116,54 @@ let current: TtsPlaygroundState = normalize(
 );
 const listeners = new Set<() => void>();
 
+type LocalEdit = { seq: number; apply: (state: TtsPlaygroundState) => TtsPlaygroundState };
+
+// Typed edits the host has not acknowledged yet. The host replies to each
+// command and then echoes its whole state, so echoes of earlier keystrokes
+// arrive while newer ones are still in flight; replaying these edits over
+// every echo keeps controlled inputs from snapping back and dropping input.
+const localEdits = new Map<string, LocalEdit>();
+let localEditSeq = 0;
+
+function withLocalEdits(state: TtsPlaygroundState): TtsPlaygroundState {
+  let next = state;
+  localEdits.forEach((edit) => {
+    next = normalize(edit.apply(next));
+  });
+  return next;
+}
+
 function setState(next: TtsPlaygroundState) {
-  current = normalize(next);
+  current = withLocalEdits(normalize(next));
   listeners.forEach((l) => l());
+}
+
+/**
+ * Shows a field edit immediately and keeps it over host echoes until the host
+ * has replied to the latest edit of that field.
+ */
+export function editLocally<T>(
+  key: string,
+  apply: (state: TtsPlaygroundState) => TtsPlaygroundState,
+  send: () => Promise<T>,
+): Promise<T> {
+  const seq = ++localEditSeq;
+  localEdits.set(key, { seq, apply });
+  current = normalize(apply(current));
+  listeners.forEach((l) => l());
+  const settle = () => {
+    if (localEdits.get(key)?.seq === seq) localEdits.delete(key);
+  };
+  return send().then(
+    (value) => {
+      settle();
+      return value;
+    },
+    (error: unknown) => {
+      settle();
+      throw error;
+    },
+  );
 }
 
 function patchState(patch: Partial<TtsPlaygroundState>) {

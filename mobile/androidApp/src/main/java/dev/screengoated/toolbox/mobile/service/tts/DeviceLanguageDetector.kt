@@ -65,7 +65,7 @@ class DeviceLanguageDetector(
         }
     }
 
-    private fun fallbackIso639_3(text: String): String {
+    internal fun fallbackIso639_3(text: String): String {
         return ISO1_TO_ISO3[fallbackIso639_1(text)] ?: "eng"
     }
 

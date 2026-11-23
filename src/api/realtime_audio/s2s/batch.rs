@@ -301,6 +301,7 @@ fn run_s2s_timed_segment_without_context(
     stop_signal: Arc<AtomicBool>,
 ) -> S2sParallelSegmentResult {
     let id = timed.segment.id;
+    let mut last_attempt = None;
     for attempt in 0..S2S_BATCH_SEGMENT_ATTEMPTS {
         if stop_signal.load(Ordering::SeqCst) {
             break;
@@ -332,6 +333,7 @@ fn run_s2s_timed_segment_without_context(
                 S2S_BATCH_SEGMENT_ATTEMPTS,
                 err
             );
+            last_attempt = Some(SegmentAttempt::Failed(err.to_string()));
             continue;
         }
         if let Some(error) = error {
@@ -342,6 +344,7 @@ fn run_s2s_timed_segment_without_context(
                 S2S_BATCH_SEGMENT_ATTEMPTS,
                 error
             );
+            last_attempt = Some(SegmentAttempt::Failed(error));
             continue;
         }
         if audio_bytes.is_empty() {
@@ -353,6 +356,10 @@ fn run_s2s_timed_segment_without_context(
                 source_text.chars().count(),
                 target_text.chars().count()
             );
+            last_attempt = Some(SegmentAttempt::NoAudio {
+                source_text,
+                target_text,
+            });
             continue;
         }
         return S2sParallelSegmentResult {
@@ -365,10 +372,90 @@ fn run_s2s_timed_segment_without_context(
             error: None,
         };
     }
-    S2sParallelSegmentResult {
-        segment: None,
-        error: Some(format!(
-            "S2S segment {id} produced no audio after {S2S_BATCH_SEGMENT_ATTEMPTS} attempts"
+    match exhausted_segment(id, last_attempt) {
+        Ok(Some((source_text, target_text))) => S2sParallelSegmentResult {
+            segment: Some(timed_to_batch_segment(
+                &timed,
+                source_text,
+                target_text,
+                &[],
+            )),
+            error: None,
+        },
+        Ok(None) => S2sParallelSegmentResult {
+            segment: None,
+            error: None,
+        },
+        Err(error) => S2sParallelSegmentResult {
+            segment: None,
+            error: Some(error),
+        },
+    }
+}
+
+/// How the most recent attempt of a parallel segment ended without audio.
+#[derive(Debug)]
+enum SegmentAttempt {
+    Failed(String),
+    NoAudio {
+        source_text: String,
+        target_text: String,
+    },
+}
+
+/// Settles a segment whose retries are exhausted, matching the sequential
+/// path: a last attempt that ended cleanly without audio is non-speech, so it
+/// is skipped (or keeps only its text). Only transport and event failures
+/// fail the batch.
+fn exhausted_segment(
+    id: u64,
+    last_attempt: Option<SegmentAttempt>,
+) -> std::result::Result<Option<(String, String)>, String> {
+    match last_attempt {
+        None => Ok(None),
+        Some(SegmentAttempt::Failed(error)) => Err(format!(
+            "S2S segment {id} failed after {S2S_BATCH_SEGMENT_ATTEMPTS} attempts: {error}"
         )),
+        Some(SegmentAttempt::NoAudio {
+            source_text,
+            target_text,
+        }) => Ok(
+            (!source_text.trim().is_empty() || !target_text.trim().is_empty())
+                .then_some((source_text, target_text)),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod exhausted_segment_tests {
+    use super::{SegmentAttempt, exhausted_segment};
+
+    #[test]
+    fn silent_segment_is_skipped_instead_of_failing_the_batch() {
+        let silent = SegmentAttempt::NoAudio {
+            source_text: " ".to_string(),
+            target_text: String::new(),
+        };
+        assert_eq!(exhausted_segment(3, Some(silent)), Ok(None));
+        assert_eq!(exhausted_segment(3, None), Ok(None));
+    }
+
+    #[test]
+    fn text_without_audio_keeps_its_text_like_the_sequential_path() {
+        let text_only = SegmentAttempt::NoAudio {
+            source_text: "hello".to_string(),
+            target_text: "xin chao".to_string(),
+        };
+        assert_eq!(
+            exhausted_segment(3, Some(text_only)),
+            Ok(Some(("hello".to_string(), "xin chao".to_string())))
+        );
+    }
+
+    #[test]
+    fn transport_failure_still_fails_the_batch() {
+        let failed = SegmentAttempt::Failed("connection reset".to_string());
+        let error = exhausted_segment(3, Some(failed)).unwrap_err();
+        assert!(error.contains("segment 3") && error.contains("connection reset"));
     }
 }

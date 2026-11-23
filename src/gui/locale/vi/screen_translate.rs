@@ -6,6 +6,7 @@ pub(super) fn get() -> ScreenTranslateLocaleText {
         screen_translate_subtitle_description: "Tự động dịch chữ xuất hiện trong vùng này.",
         screen_translate_subtitle_toggle_hint: "{hotkey} để hiện/ẩn hộp",
         screen_translate_subtitle_quit: "Thoát",
+        screen_translate_subtitle_display_changed: "Dịch phụ đề đã dừng vì màn hình thay đổi. Hãy chọn lại vùng để bắt đầu lại.",
         screen_translate_show_glow_box: "Hiện hoạt ảnh glow box",
         screen_translate_btn: "Dịch màn hình",
         screen_translate_short_btn: "Dịch MH",

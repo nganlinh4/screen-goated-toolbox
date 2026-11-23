@@ -140,8 +140,6 @@ fun isDebugOnlyCreationRuntimeTaskGraph(taskPaths: Collection<String>): Boolean 
     return taskNames.any { it.contains("Debug") } && taskNames.none { it.contains("Release") }
 }
 
-val generatedNativeRuntimeContractAssets =
-    layout.buildDirectory.dir("generated/nativeRuntimeContractAssets")
 val generatedComponentUpdateTrustAssets =
     layout.buildDirectory.dir("generated/componentUpdateTrustAssets")
 val generatedFullCreationRuntimeDeliveryAssets =
@@ -152,8 +150,6 @@ val generatedFullDownloaderLauncherJniLibs =
     layout.buildDirectory.dir("generated/fullDownloaderLauncherJniLibs")
 val sharedCreationModelViewerAssets = rootProject.projectDir.parentFile
     .resolve("3d-generator-ui/viewer-dist")
-val nativeRuntimeContractSource = rootProject.projectDir.parentFile
-    .resolve("parity-fixtures/phone-control/native-runtime-contract.json")
 val componentUpdatePublicKey = rootProject.projectDir.parentFile
     .resolve("component-delivery/update-catalog-p256-public-key.hex")
 val trackedCreationRuntimeDeliveryManifest = rootProject.projectDir.parentFile.resolve(
@@ -235,12 +231,6 @@ val downloaderLauncherContract = linkedMapOf(
 )
 
 val androidAssetVerifier = rootProject.projectDir.resolve("scripts/verify_android_build_assets.py")
-
-val stageNativeRuntimeContract by tasks.registering(Sync::class) {
-    dependsOn(rootProject.tasks.named("verifyNativeRuntimeArchives"))
-    from(nativeRuntimeContractSource) { rename { "contract.json" } }
-    into(generatedNativeRuntimeContractAssets.map { it.dir("native-runtime") })
-}
 
 val verifyComponentUpdateTrust by tasks.registering(Exec::class) {
     inputs.file(componentUpdatePublicKey)
@@ -461,7 +451,6 @@ tasks.matching {
     it.name != verifyCreationModelViewerAssets.name &&
         it.name.contains("Assets", ignoreCase = false)
 }.configureEach {
-    dependsOn(stageNativeRuntimeContract)
     if (name.contains("Full")) {
         dependsOn(stageComponentUpdateTrust)
     }
@@ -483,7 +472,6 @@ tasks.matching {
 }
 
 tasks.matching { it.name.contains("lint", ignoreCase = true) }.configureEach {
-    dependsOn(stageNativeRuntimeContract)
     dependsOn(verifyCreationModelViewerAssets)
     if (name.contains("Full")) {
         dependsOn(stageComponentUpdateTrust)

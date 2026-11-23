@@ -1,12 +1,13 @@
 //! Live check that a model obeys the plain translate instruction.
 //!
-//! Not a unit test: it calls real endpoints and is ignored by default. It exists
-//! because two adherence failures were reported from the `Trans (Select text)`
-//! preset, and "is this the model or is this us" can only be settled by sending
-//! the same prompt to many models and reading what comes back.
+//! Not a unit test: it calls real endpoints and is ignored by default. Whether a
+//! translation that adds content is the model's fault or the request's can only
+//! be settled by sending the same prompt to many models and reading what comes
+//! back.
 //!
 //!     $env:CATALOG_BENCH_LIVE = "1"
 //!     $env:TRANSLATE_ADHERENCE_SAMPLES = "3"
+//!     $env:TRANSLATE_ADHERENCE_LANGUAGE = "English"
 //!     cargo test --bin screen-goated-toolbox translate_adherence -- --ignored --nocapture
 //!
 //! `CATALOG_BENCH_MODELS` narrows it to named models, as elsewhere in the
@@ -17,68 +18,46 @@ use crate::catalog_benchmark::setup::Credentials;
 use crate::model_config::ModelType;
 use std::time::Duration;
 
-/// The preset's prompt, verbatim, with `{language1}` already resolved.
-const INSTRUCTION: &str =
-    "Translate the following text to Vietnamese. Output ONLY the translation.";
+/// Target language name, as the preset picker shows it; any catalog language works.
+fn target_language() -> String {
+    std::env::var("TRANSLATE_ADHERENCE_LANGUAGE").unwrap_or_else(|_| "English".to_string())
+}
 
-/// The two reported failures, as the user sent them.
+/// The preset's prompt, verbatim, with `{language1}` resolved.
+fn instruction(language: &str) -> String {
+    format!("Translate the following text to {language}. Output ONLY the translation.")
+}
+
+/// Synthetic workplace notes in the shape that invites invented content: an
+/// opening address to the reader, figures, and embedded Latin-script terms.
 const CASES: &[(&str, &str)] = &[
     (
-        "korean-business-note",
-        "대표님, 요청하신 검체별 결과 요약에 수검자명과 점수 컬럼을 추가했습니다. 점수는 모델별로 구분해 표시하며 Excel에도 현재 서비스 모델과 단조 XGB 모델의 점수를 각각 포함했습니다. 첨부 화면은 제 개인 테스트 환경에서 캡처한 것으로, 표시된 인원수와 수치는 운영 환경의 실제 값과 다릅니다. 확인 부탁드립니다.",
+        "addressed-business-note",
+        "팀장님, 요청하신 주간 보고서에 지역별 매출과 담당자 컬럼을 추가했습니다. 수치는 분기별로 구분해 표시했으며 Excel 파일에도 같은 내용을 포함했습니다. 첨부 화면은 테스트 환경에서 캡처한 것으로 실제 값과 다릅니다. 확인 부탁드립니다.",
     ),
     (
-        "korean-with-latin-terms",
-        "대표님, 점수는 동일한 corrected 19개 마커 Z-score를 각 모델로 계산한 뒤, 모델마다 다른 고정 임계값을 공통 0.5 기준에 맞춰 표준화한 0~1 위험지표이며 암 발생확률은 아닙니다. 현재 서비스 모델은 0.25·0.50·0.75, 단조 XGB 모델은 0.10·0.47·0.75의 각 모델별 고정 구간값으로 양호·관심·주의·관리를 표시합니다. 단조 XGB의 점수는 25개 fold의 표준화 점수 평균이며, 모델 판정은 기존 합의대로 25개 fold 다수결을 유지합니다.",
+        "addressed-note-with-latin-terms",
+        "팀장님, 점수는 동일한 baseline 12개 지표의 Z-score를 각 모델로 계산한 뒤 공통 0.5 기준에 맞춰 표준화한 0~1 지표입니다. 기존 모델은 0.20, 0.50, 0.80 구간값을, 신규 모델은 0.15, 0.45, 0.70 구간값을 사용해 등급을 표시합니다.",
     ),
 ];
 
-/// Vietnamese-specific letters. Their absence in a reply that should be
-/// Vietnamese is the signature of a model that answered in another language.
-fn has_vietnamese_marks(text: &str) -> bool {
-    text.chars().any(|c| {
-        matches!(
-            c,
-            'ă' | 'â' | 'đ' | 'ê' | 'ô' | 'ơ' | 'ư' | 'Ă' | 'Â' | 'Đ' | 'Ê' | 'Ô' | 'Ơ' | 'Ư'
-        ) || matches!(c as u32, 0x0300..=0x0323)
-    })
-}
-
-/// Whether the reply is plain ASCII prose, i.e. never translated at all.
-fn looks_like_english(text: &str) -> bool {
-    let letters: Vec<char> = text.chars().filter(|c| c.is_alphabetic()).collect();
-    if letters.is_empty() {
-        return false;
+/// Bracketed template slots in the reply that the source does not contain,
+/// such as a signature placeholder: the model completing a template it made up
+/// rather than translating.
+fn invented_placeholders(source: &str, reply: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = reply;
+    while let Some(start) = rest.find('[') {
+        let Some(length) = rest[start..].find(']') else {
+            break;
+        };
+        let slot = &rest[start..=start + length];
+        if !source.contains(slot) && !found.iter().any(|known| known == slot) {
+            found.push(slot.to_string());
+        }
+        rest = &rest[start + length + 1..];
     }
-    letters.iter().filter(|c| c.is_ascii()).count() as f32 / letters.len() as f32 > 0.95
-}
-
-/// Template placeholders, which no source can justify.
-///
-/// Kept apart from the sign-off below because the two are not equally damning.
-/// Both sources open with `대표님,` -- an address to the reader -- so rendering
-/// that as `Kính gửi ...` is a defensible translation, not an invention. A
-/// trailing `[Your Name]` translates nothing: it is the model completing an
-/// email template it made up.
-fn invented_placeholders(reply: &str) -> Vec<&'static str> {
-    let lowered = reply.to_lowercase();
-    [
-        "[your name]",
-        "[họ và tên]",
-        "[chức vụ]",
-        "[thông tin liên hệ]",
-        "[position]",
-        "[contact",
-        "[tên",
-    ]
-    .into_iter()
-    .filter(|marker| lowered.contains(marker))
-    .collect()
-}
-
-/// A closing the source does not contain.
-fn invented_signoff(reply: &str) -> bool {
-    reply.to_lowercase().contains("trân trọng")
+    found
 }
 
 #[test]
@@ -105,6 +84,12 @@ fn translate_adherence_across_models() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(1);
 
+    let language = target_language();
+    let expected = crate::config::language_from_name(&language)
+        .unwrap_or_else(|| panic!("unknown target language {language}"))
+        .to_639_3();
+    let instruction = instruction(&language);
+
     let mut rows: Vec<(String, String, String)> = Vec::new();
     for (case_id, source) in CASES {
         for model in &models {
@@ -114,10 +99,12 @@ fn translate_adherence_across_models() {
                         TranslateTextRequest {
                             max_output_tokens: None,
                             search_enabled: false,
+                            search_capability: None,
+                            search_tool_enabled_by_default: None,
                             groq_api_key: Credentials::groq_key_for(&model.provider, key),
                             gemini_api_key: key,
                             text: source.to_string(),
-                            instruction: INSTRUCTION.to_string(),
+                            instruction: instruction.clone(),
                             model: model.full_name.clone(),
                             provider: model.provider.clone(),
                             streaming_enabled: true,
@@ -129,25 +116,26 @@ fn translate_adherence_across_models() {
                             request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
                                 Duration::from_secs(60),
                             )),
-                            target_language: Some("Vietnamese".to_string()),
+                            target_language: Some(language.clone()),
                         },
                         |_| {},
                     )
                 });
                 let (verdict, detail) = match &result {
                     Err(error) => ("ERROR".to_string(), error.to_string()),
-                    Ok(reply) if looks_like_english(reply) => {
-                        ("ENGLISH".to_string(), reply.chars().take(80).collect())
-                    }
-                    Ok(reply) if !has_vietnamese_marks(reply) => {
-                        ("NOT-VI".to_string(), reply.chars().take(80).collect())
-                    }
                     Ok(reply) => {
-                        let placeholders = invented_placeholders(reply);
-                        if !placeholders.is_empty() {
+                        let detected = crate::lang_detect::detect_language(reply);
+                        let placeholders = invented_placeholders(source, reply);
+                        if detected.as_deref() != Some(expected) {
+                            (
+                                "WRONG-LANG".to_string(),
+                                format!(
+                                    "{detected:?}: {}",
+                                    reply.chars().take(80).collect::<String>()
+                                ),
+                            )
+                        } else if !placeholders.is_empty() {
                             ("TEMPLATE".to_string(), placeholders.join(", "))
-                        } else if invented_signoff(reply) {
-                            ("SIGNOFF".to_string(), "added a closing".to_string())
                         } else {
                             ("ok".to_string(), format!("{} chars", reply.chars().count()))
                         }
@@ -168,4 +156,16 @@ fn translate_adherence_across_models() {
             println!("{case_id:<24} {model:<46} {verdict}");
         }
     }
+}
+
+#[test]
+fn placeholders_are_bracketed_slots_absent_from_the_source() {
+    assert_eq!(
+        invented_placeholders(
+            "keep [A1] as is",
+            "kept [A1]. Regards, [Name] [Name] [Title]"
+        ),
+        ["[Name]", "[Title]"]
+    );
+    assert!(invented_placeholders("no slots", "plain reply [unclosed").is_empty());
 }

@@ -7,15 +7,13 @@ import {
 } from "./trackHoverUtils";
 import { buildTextSplitPreview } from '@/lib/textSplitPreview';
 import { useTrackRangeSelect } from './useTrackRangeSelect';
-import {
-  buildContentMaskStyle,
-  getOverlapRange,
-  isSegmentStackedAbove,
-  rangesOverlap,
-} from './subtitleTrackLayout';
-import type { TimelineVisibleRange } from './SegmentBlocksCanvas';
+import { computeSegmentStackOverlaps } from './segmentStackOverlaps';
+import { SegmentBlocksCanvas, type TimelineVisibleRange } from './SegmentBlocksCanvas';
 import { buildTimelineRenderWindow } from './timelineSegmentIndex';
 import { countFrontendRender } from '@/lib/frontendPerfDiagnostics';
+import { useSettings } from '@/hooks/useSettings';
+import { timelineRangeKeyProps } from './timelineKeyboard';
+import { laneNudge, type TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 
 const DENSE_TEXT_COUNT = 260;
 const MIN_INTERACTIVE_TEXT_PX = 7;
@@ -36,6 +34,7 @@ interface TextTrackProps {
   onTextSplit?: (id: string, splitTime: number) => void;
   onTextDuplicate?: (id: string) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddText?: (atTime?: number) => void;
   onDeleteTextSegments?: (ids: string[]) => void;
   onSelectionChange?: (ids: string[]) => void;
@@ -53,6 +52,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   onTextSplit,
   onTextDuplicate,
   onHandleDragStart,
+  keyboardEdits,
   onAddText,
   onDeleteTextSegments,
   onSelectionChange,
@@ -62,6 +62,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   visibleTimeRange,
 }) => {
   countFrontendRender('TextTrack');
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: TextSegment; preview: { leftText: string; rightText: string } | null }
     | { type: 'add'; x: number }
@@ -104,8 +105,48 @@ export const TextTrack: React.FC<TextTrackProps> = ({
     [canvasWidthPx, denseMode, duration, editingTextId, selectedIds, texts, visibleTimeRange],
   );
 
+  // Dense mode keeps only selected/active texts in the DOM; every other text
+  // is painted on one canvas and hit-tested through the render-window index.
+  const canvasSegments = useMemo(
+    () =>
+      renderWindow.canvasSegments.map((text) => ({
+        id: text.id,
+        startTime: text.startTime,
+        endTime: text.endTime,
+        selected: selectedIds.has(text.id) || editingTextId === text.id,
+      })),
+    [editingTextId, renderWindow.canvasSegments, selectedIds],
+  );
+
+  const handleTrackPointerDownFast = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || !denseMode) {
+      handleTrackPointerDown(e);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const time = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * safeDuration;
+    const hit = renderWindow.index.hitTest(time);
+    if (!hit) {
+      onEmptyClick?.(time);
+      return;
+    }
+    e.stopPropagation();
+    if (e.shiftKey) {
+      addSegmentSelection(hit.id, { shiftKey: true });
+    } else if (!selectedIds.has(hit.id) || selectedIds.size <= 1) {
+      addSegmentSelection(hit.id);
+    }
+    onSegmentPointerDown();
+    setFrontTextId(hit.id);
+    onTextClick(hit.id);
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingRange.current) return;
+    if (denseMode) {
+      if (hoverState !== null) setHoverState(null);
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * safeDuration;
@@ -143,37 +184,54 @@ export const TextTrack: React.FC<TextTrackProps> = ({
   const rangeLeft = rangeSelect ? Math.min(rangeSelect.startX, rangeSelect.endX) : 0;
   const rangeWidth = rangeSelect ? Math.abs(rangeSelect.endX - rangeSelect.startX) : 0;
 
+  // One sweep per render window instead of an O(N^2) scan inside each segment.
+  const stackOverlaps = useMemo(
+    () => computeSegmentStackOverlaps(renderWindow.domSegments, (index) => {
+      const other = renderWindow.domSegments[index];
+      return (frontTextId === other.id || editingTextId === other.id) ? 3 : selectedIds.has(other.id) ? 2 : 1;
+    }),
+    [editingTextId, frontTextId, renderWindow.domSegments, selectedIds],
+  );
+
   return (
     <div
       ref={trackRef}
       className="text-track timeline-lane relative h-7"
       onMouseMove={handleMouseMove}
       onMouseLeave={() => { if (!isDraggingRange.current) setHoverState(null); }}
-      onPointerDown={handleTrackPointerDown}
+      onPointerDown={handleTrackPointerDownFast}
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
+      {denseMode && (
+        <SegmentBlocksCanvas
+          segments={canvasSegments}
+          duration={duration}
+          visibleRange={visibleTimeRange}
+          colorVar="--timeline-zoom-color"
+          fallbackColor="#22d3ee"
+          alpha={0.34}
+        />
+      )}
+
       {renderWindow.domSegments.map((text, textIndex) => (
         (() => {
           const isFront = frontTextId === text.id || editingTextId === text.id;
           const isSelected = selectedIds.has(text.id);
-          const stackRank = isFront ? 3 : isSelected ? 2 : 1;
-          const hasCoveredSegmentUnderneath = renderWindow.domSegments.some((other, otherIndex) => {
-            if (other.id === text.id || !rangesOverlap(text, other)) return false;
-            const otherIsFront = frontTextId === other.id || editingTextId === other.id;
-            const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
-            return !isSegmentStackedAbove(textIndex, stackRank, otherIndex, otherRank);
+          const { hasCoveredSegmentUnderneath, contentMaskStyle } = stackOverlaps[textIndex];
+          const keys = timelineRangeKeyProps({
+            name: `${t.timelineTextSegment} "${text.text}"`,
+            startLabel: t.timelineSegmentStart,
+            endLabel: t.timelineSegmentEnd,
+            range: text,
+            duration,
+            nudge: laneNudge(keyboardEdits, "text", text.id),
+            onActivate: () => { setFrontTextId(text.id); onTextClick(text.id); },
+            onDelete: onDeleteTextSegments && (() => onDeleteTextSegments(isSelected ? [...selectedIds] : [text.id])),
+            onSplit: onTextSplit && ((time) => onTextSplit(text.id, time)),
+            onAdd: onAddText,
+            getPlayheadTime: keyboardEdits?.getPlayheadTime,
           });
-          const overlapRanges = renderWindow.domSegments
-            .map((other, otherIndex) => {
-              if (other.id === text.id) return null;
-              const otherIsFront = frontTextId === other.id || editingTextId === other.id;
-              const otherRank = otherIsFront ? 3 : selectedIds.has(other.id) ? 2 : 1;
-              if (!isSegmentStackedAbove(textIndex, stackRank, otherIndex, otherRank)) return null;
-              return getOverlapRange(text, other);
-            })
-            .filter((range): range is NonNullable<ReturnType<typeof getOverlapRange>> => Boolean(range));
-          const contentMaskStyle = buildContentMaskStyle(overlapRanges);
           return (
         <div
           key={text.id}
@@ -216,6 +274,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             }
             onTextClick(text.id);
           }}
+          {...keys.body}
           className="text-segment timeline-block absolute h-full cursor-move overflow-hidden group"
           data-tone="accent"
           data-active={editingTextId === text.id ? "true" : "false"}
@@ -242,12 +301,14 @@ export const TextTrack: React.FC<TextTrackProps> = ({
               {text.text}
             </span>
           </div>
-          <div className="text-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}>
+          <div className="text-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
+            {...keys.start}>
             <div className="text-handle-bar timeline-handle-pill" />
           </div>
-          <div className="text-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}>
+          <div className="text-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
+            {...keys.end}>
             <div className="text-handle-bar timeline-handle-pill" />
           </div>
         </div>

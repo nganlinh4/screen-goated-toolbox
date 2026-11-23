@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "canonical_windows_files": ["src/config/io.rs", "src/atomic_json.rs"],
+  "cases": [
+    {"name": "missing_document", "load": "empty", "save": "allowed"},
+    {"name": "valid_document", "load": "preserved", "save": "atomic"},
+    {"name": "unreadable_document", "load": "error", "save": "blocked"},
+    {"name": "invalid_document", "load": "error", "save": "blocked", "samples": ["{broken", "{\"future_field\":true}", "{\"version\":999}"]},
+    {"name": "changed_since_load", "load": "preserved", "save": "blocked"},
+    {"name": "failed_atomic_write", "load": "preserved", "save": "error_original_preserved"},
+    {"name": "failed_editor_save", "result": "revert_to_saved_and_allow_retry"},
+    {"name": "failed_draft_save", "result": "keep_draft_open_until_saved"},
+    {"name": "symlink_document", "load": "error", "save": "blocked"},
+    {"name": "stale_editor_update", "result": "merge_changed_fields"},
+    {"name": "deleted_preset_update", "result": "remain_deleted"},
+    {"name": "duplicate_generated_identity", "result": "retry_without_overwriting"}
+  ]
+}

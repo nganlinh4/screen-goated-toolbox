@@ -285,6 +285,7 @@ export interface LoadClipMediaCoreParams {
   clipPreviewDuration: number;
   clipThumbnailPlaceholder: string[] | null;
   isLatestRequest: () => boolean;
+  resolveCurrentClip: () => ProjectCompositionClip | null;
   clipUrlCacheRef: MutableRefObject<Map<string, ClipUrlEntry>>;
   currentVideo: string | null;
   currentAudio: string | null;
@@ -346,6 +347,7 @@ export async function loadClipMediaIntoEditorCore(
     clipPreviewDuration,
     clipThumbnailPlaceholder,
     isLatestRequest,
+    resolveCurrentClip,
     clipUrlCacheRef,
     currentVideo,
     currentAudio,
@@ -424,7 +426,9 @@ export async function loadClipMediaIntoEditorCore(
   if (preferPreloadedFrame) {
     drawPreloadedClipFrame(clip.id, resolvedBackground, nextComposition);
   }
-  const videoObjectUrl = await videoControllerRef.current?.loadVideo(
+  let videoObjectUrl: string | undefined;
+  try {
+    videoObjectUrl = await videoControllerRef.current?.loadVideo(
     clipUrls
       ? {
           videoUrl: clipUrls.videoUrl,
@@ -436,7 +440,11 @@ export async function loadClipMediaIntoEditorCore(
           initialTime: clip.segment.trimStart,
           debugLabel: `clip-focus:${clip.id}`,
         },
-  );
+    );
+  } catch (error) {
+    if (!isLatestRequest()) return;
+    throw error;
+  }
   if (!isLatestRequest()) return;
   if (videoObjectUrl) {
     setCurrentVideo(videoObjectUrl);
@@ -486,10 +494,14 @@ export async function loadClipMediaIntoEditorCore(
     }
   }
   if (!isLatestRequest()) return;
+  // The media load can take longer than an edit or subtitle result. Install
+  // the segment owned by the current project, not the snapshot at load start.
+  const currentClip = resolveCurrentClip();
+  if (!currentClip) return;
   setPreviewDuration(
-    Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration),
+    Math.max(videoControllerRef.current?.duration ?? 0, clipPreviewDuration, currentClip.segment.trimEnd),
   );
-  setSegment(clip.segment);
+  setSegment(currentClip.segment);
   if (clipThumbnailPlaceholder) {
     setThumbnails(clipThumbnailPlaceholder);
   }

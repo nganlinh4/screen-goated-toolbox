@@ -33,6 +33,10 @@ pub unsafe extern "system" fn result_wnd_proc(
                 super::raw_webview::navigate_pending(hwnd);
                 LRESULT(0)
             }
+            msg if msg == super::raw_webview::WM_NAVIGATION_EVENT => {
+                super::raw_webview::handle_navigation_event(hwnd);
+                LRESULT(0)
+            }
             WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
             WM_SHOWWINDOW => misc::handle_show_window(hwnd, wparam, lparam),
             WM_GETMINMAXINFO => {

@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use crate::api::realtime_audio::{WM_EXEC_SCRIPT, WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
+use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::gui::locale::LocaleText;
 use crate::overlay::window_selector::{
     self, SelectorCallbacks, SelectorEntry, SelectorOwner, SelectorText,
@@ -14,12 +15,88 @@ use crate::overlay::window_selector::{
 use super::data::{AudioAppCandidate, enumerate_audio_app_candidates, refresh_audio_capture_pid};
 use super::{clear_selected_audio_app_candidate, store_selected_audio_app_candidate};
 use crate::overlay::realtime_webview::state::{
-    AUDIO_SOURCE_CHANGE, CLOSE_TTS_MODAL_REQUEST, COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED,
-    LAST_SPOKEN_LENGTH, NEW_AUDIO_SOURCE, REALTIME_HWND, REALTIME_TTS_ENABLED, REALTIME_TTS_SPEED,
-    SELECTED_APP_NAME, SELECTED_APP_PID,
+    CLOSE_TTS_MODAL_REQUEST, CURRENT_TTS_SPEED, NEW_AUDIO_SOURCE, REALTIME_HWND,
+    REALTIME_SESSION_ID, REALTIME_SESSION_PUBLICATION, REALTIME_SESSION_STOPPING,
+    REALTIME_TTS_ENABLED, REALTIME_TTS_SPEED, SELECTED_APP_NAME, SELECTED_APP_PID,
+    TRANSCRIPTION_ENGINE_REVISION,
 };
 
-static APP_SELECTOR_OPENING: AtomicBool = AtomicBool::new(false);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Owner {
+    id: u64,
+    session: u64,
+    engine: u64,
+    renderer: u64,
+}
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+static ACTIVE_OWNER: LazyLock<Mutex<Option<Owner>>> = LazyLock::new(|| Mutex::new(None));
+
+fn owner_current(owner: Owner) -> bool {
+    let active = *ACTIVE_OWNER.lock().unwrap_or_else(|e| e.into_inner());
+    owner_matches(
+        active,
+        owner,
+        REALTIME_SESSION_ID.load(Ordering::SeqCst),
+        TRANSCRIPTION_ENGINE_REVISION.load(Ordering::SeqCst),
+        REALTIME_SESSION_STOPPING.load(Ordering::SeqCst)
+            || crate::overlay::realtime_webview::state::current_stop_signal()
+                .load(Ordering::SeqCst),
+        owner.renderer == 0
+            || crate::overlay::realtime_webview::supervisor::is_current_generation(owner.renderer),
+    )
+}
+
+fn owner_matches(
+    active: Option<Owner>,
+    owner: Owner,
+    session: u64,
+    engine: u64,
+    stopped: bool,
+    renderer_current: bool,
+) -> bool {
+    active == Some(owner)
+        && session == owner.session
+        && engine == owner.engine
+        && !stopped
+        && renderer_current
+}
+
+fn finish_owner(owner: Owner) {
+    let _publication = REALTIME_SESSION_PUBLICATION
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut active = ACTIVE_OWNER.lock().unwrap_or_else(|e| e.into_inner());
+    if *active == Some(owner) {
+        *active = None;
+    }
+}
+
+pub(in crate::overlay::realtime_webview) fn owner_id_for_session(session: u64) -> Option<u64> {
+    ACTIVE_OWNER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .filter(|owner| owner.session == session)
+        .map(|owner| owner.id)
+}
+
+/// Caller holds REALTIME_SESSION_PUBLICATION; close the returned token after unlocking.
+pub(in crate::overlay::realtime_webview) fn retire_owner_for_session_locked(
+    session: u64,
+) -> Option<u64> {
+    let mut active = ACTIVE_OWNER.lock().unwrap_or_else(|e| e.into_inner());
+    if active.is_some_and(|owner| owner.session == session) {
+        active.take().map(|owner| owner.id)
+    } else {
+        None
+    }
+}
+
+struct SelectorLease(Owner);
+impl Drop for SelectorLease {
+    fn drop(&mut self) {
+        finish_owner(self.0);
+    }
+}
 
 fn post_realtime_updates() {
     unsafe {
@@ -41,88 +118,84 @@ fn post_realtime_updates() {
     }
 }
 
-fn push_script_to_realtime_compositor(script: String) {
-    let hwnd = unsafe { std::ptr::addr_of!(REALTIME_HWND).read() };
-    if !hwnd.is_invalid() {
-        let script_ptr = Box::into_raw(Box::new(script));
-        unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_EXEC_SCRIPT,
-                WPARAM(0),
-                LPARAM(script_ptr as isize),
-            );
-        }
-    }
-}
-
-fn apply_audio_app_selection(pid: u32, name: &str) {
-    APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
+fn apply_audio_app_selection(
+    owner: Owner,
+    pid: u32,
+    name: &str,
+    candidate: Option<AudioAppCandidate>,
+) {
     crate::log_info!(
         "[AppSelection] selected audio capture pid={} name={}",
         pid,
         name
     );
-    SELECTED_APP_PID.store(pid, Ordering::SeqCst);
-    if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
-        *app_name = name.to_string();
+    let committed = crate::overlay::realtime_webview::controller::publish_audio_selection(
+        owner.session,
+        owner.engine,
+        || owner_current(owner),
+        || {
+            if let Some(candidate) = candidate {
+                store_selected_audio_app_candidate(candidate);
+            }
+            SELECTED_APP_PID.store(pid, Ordering::SeqCst);
+            if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
+                *app_name = name.to_string();
+            }
+            crate::overlay::realtime_webview::controller::reset_read_cursor();
+            if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                *new_source = "device".to_string();
+            }
+            REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
+            CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
+            let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
+            CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
+        },
+    );
+    finish_owner(owner);
+    if committed {
+        post_realtime_updates();
     }
-    REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
-    LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
-    if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-        queue.clear();
-    }
-    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-        *new_source = "device".to_string();
-    }
-    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-    CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
-    let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
-    CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
-    push_script_to_realtime_compositor(format!(
-        "if(window.setTtsEnabled) window.setTtsEnabled(true); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});"
-    ));
-    post_realtime_updates();
 }
 
-fn cancel_audio_app_selection() {
-    APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
-    clear_selected_audio_app_candidate();
+fn cancel_audio_app_selection(owner: Owner) {
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(
         &crate::overlay::realtime_webview::controller::load_session_config().transcription_model,
     );
-    REALTIME_TTS_ENABLED.store(is_s2s, Ordering::SeqCst);
-    crate::api::tts::TTS_MANAGER.stop();
+    let committed = crate::overlay::realtime_webview::controller::publish_audio_selection(
+        owner.session,
+        owner.engine,
+        || owner_current(owner),
+        || {
+            clear_selected_audio_app_candidate();
+            REALTIME_TTS_ENABLED.store(is_s2s, Ordering::SeqCst);
+            crate::overlay::realtime_webview::controller::reset_read_cursor();
 
-    LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
-    if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-        queue.clear();
-    }
+            SELECTED_APP_PID.store(0, Ordering::SeqCst);
+            if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
+                app_name.clear();
+            }
+            if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                *new_source = "device".to_string();
+            }
 
-    SELECTED_APP_PID.store(0, Ordering::SeqCst);
-    if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
-        app_name.clear();
+            let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
+            CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
+        },
+    );
+    finish_owner(owner);
+    if committed {
+        post_realtime_updates();
     }
-    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-        *new_source = "device".to_string();
-    }
-    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-
-    let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
-    CURRENT_TTS_SPEED.store(base_speed, Ordering::Relaxed);
-    push_script_to_realtime_compositor(format!(
-        "if(window.setTtsEnabled) window.setTtsEnabled({}); if(window.updateTtsSpeed) window.updateTtsSpeed({base_speed});",
-        if is_s2s { "true" } else { "false" }
-    ));
-    post_realtime_updates();
 }
 
-fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
+fn spawn_thumbnail_loader(owner: Owner, candidates: Vec<AudioAppCandidate>) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(280));
 
         for candidate in candidates {
-            if !window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection) {
+            if !owner_current(owner)
+                || !window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection)
+            {
                 break;
             }
             if candidate.window_hwnd == 0 {
@@ -134,9 +207,12 @@ fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
                 continue;
             }
 
-            if let Some(data_url) = crate::overlay::screen_record::capture_window_thumbnail(hwnd) {
-                window_selector::post_preview_update_for_owner(
+            if let Some(data_url) = crate::overlay::screen_record::capture_window_thumbnail(hwnd)
+                && owner_current(owner)
+            {
+                window_selector::post_preview_update_for_token(
                     SelectorOwner::RealtimeAppSelection,
+                    owner.id,
                     &candidate.pid.to_string(),
                     data_url,
                 );
@@ -145,18 +221,69 @@ fn spawn_thumbnail_loader(candidates: Vec<AudioAppCandidate>) {
     });
 }
 
-pub fn show_audio_app_selector_overlay() {
-    if window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection)
-        || APP_SELECTOR_OPENING.swap(true, Ordering::SeqCst)
-    {
+pub(crate) fn show_audio_app_selector_for_session(
+    session: u64,
+    engine: u64,
+    stop: Arc<AtomicBool>,
+    expected_renderer: Option<u64>,
+) {
+    if expected_renderer == Some(0) {
+        return;
+    }
+    let renderer = expected_renderer.unwrap_or(0);
+    let Ok(id) = NEXT_OWNER.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+        v.checked_add(1)
+            .filter(|next| usize::try_from(*next).is_ok())
+    }) else {
+        return;
+    };
+    let owner = Owner {
+        id,
+        session,
+        engine,
+        renderer,
+    };
+    let mut installed = false;
+    let mut replaced = None;
+    crate::overlay::realtime_webview::state::publish_if_engine_current(
+        session,
+        &stop,
+        engine,
+        || {
+            if renderer != 0
+                && !crate::overlay::realtime_webview::supervisor::is_current_generation(renderer)
+            {
+                return;
+            }
+            let mut active = ACTIVE_OWNER.lock().unwrap_or_else(|e| e.into_inner());
+            if active.is_some_and(|old| {
+                old.session == session && old.engine == engine && old.renderer == renderer
+            }) {
+                return;
+            }
+            replaced = active.replace(owner).map(|old| old.id);
+            installed = true;
+        },
+    );
+    if !installed {
+        return;
+    }
+    if let Some(token) = replaced {
+        window_selector::close_selector_for_token(SelectorOwner::RealtimeAppSelection, token);
+    }
+    if !owner_current(owner) {
+        finish_owner(owner);
         return;
     }
 
     let candidates = enumerate_audio_app_candidates();
+    if !owner_current(owner) {
+        finish_owner(owner);
+        return;
+    }
     if candidates.is_empty() {
         eprintln!("[AppSelection] No visible audio apps found");
-        APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
-        cancel_audio_app_selection();
+        cancel_audio_app_selection(owner);
         return;
     }
 
@@ -191,25 +318,30 @@ pub fn show_audio_app_selector_overlay() {
         .collect();
     let callbacks = SelectorCallbacks::new(
         move |selected_id| {
+            if !owner_current(owner) {
+                finish_owner(owner);
+                return;
+            }
             if let Ok(pid) = selected_id.parse::<u32>() {
                 let name = app_names
                     .get(&selected_id)
                     .cloned()
                     .unwrap_or_else(|| format!("PID {pid}"));
-                let capture_pid = app_candidates
-                    .get(&selected_id)
-                    .map(|candidate| {
-                        store_selected_audio_app_candidate(candidate.clone());
-                        refresh_audio_capture_pid(candidate)
-                    })
+                let candidate = app_candidates.get(&selected_id).cloned();
+                let capture_pid = candidate
+                    .as_ref()
+                    .map(refresh_audio_capture_pid)
                     .unwrap_or(pid);
-                apply_audio_app_selection(capture_pid, &name);
+                apply_audio_app_selection(owner, capture_pid, &name, candidate);
             }
         },
-        cancel_audio_app_selection,
+        move || cancel_audio_app_selection(owner),
     );
 
-    window_selector::show_selector(
+    let lease = Arc::new(SelectorLease(owner));
+    let valid_lease = lease.clone();
+    let admission_lease = lease;
+    window_selector::show_selector_guarded(
         SelectorOwner::RealtimeAppSelection,
         entries,
         is_dark,
@@ -223,14 +355,34 @@ pub fn show_audio_app_selector_overlay() {
             cancel_label: locale.preset_basics.cancel_label.to_string(),
         },
         callbacks,
+        window_selector::SelectorGuard {
+            valid: Some(Arc::new(move || {
+                let _ = &valid_lease;
+                owner_current(owner)
+            })),
+            admission: Some(Arc::new(move |effect| {
+                let _ = &admission_lease;
+                let mut admitted = false;
+                crate::overlay::realtime_webview::state::publish_if_engine_current(
+                    owner.session,
+                    &stop,
+                    owner.engine,
+                    || {
+                        if owner_current(owner) {
+                            effect();
+                            admitted = true;
+                        }
+                    },
+                );
+                admitted
+            })),
+            token: owner.id,
+        },
     );
 
-    std::thread::spawn(|| {
-        std::thread::sleep(Duration::from_millis(700));
-        if !window_selector::is_owner_active(SelectorOwner::RealtimeAppSelection) {
-            APP_SELECTOR_OPENING.store(false, Ordering::SeqCst);
-        }
-    });
-
-    spawn_thumbnail_loader(candidates);
+    spawn_thumbnail_loader(owner, candidates);
 }
+
+#[cfg(test)]
+#[path = "overlay_tests.rs"]
+mod ownership_tests;

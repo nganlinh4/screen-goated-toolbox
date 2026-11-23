@@ -45,7 +45,12 @@ remote object, and promote once when the component is ready for an app release.
 Uploading or replacing the current `sgt-runtime-staging` candidate, verifying
 its read-back, and selecting its isolated debug contract are ordinary authorized
 development steps; no separate user approval is required. This authorization
-does not include private/customer data, production promotion, or app releases.
+also includes promoting tested component artifacts to append-only
+`sgt-runtime-bundles`, verifying their read-back, and updating tracked delivery
+contracts without separate approval. Hosting these component assets on a GitHub
+release is included. Only publishing, promoting, or uploading a new production
+SGT application version requires explicit user authorization. Component delivery
+is not an application release. Uploading private/customer data is not authorized.
 A published host references production only, so users on an existing app
 version do not redownload while development candidates change.
 
@@ -73,7 +78,10 @@ Use `scripts/build-component-candidate.ps1` for standard Windows components and
 `scripts/component_release.py` for staging, verification, and promotion. Local
 package output belongs in the managed cache, not `local-runtime-bundles/` or a
 new repository target directory. Package scripts accept an explicit output
-directory; worker builds share the package Cargo lane.
+directory; worker builds share the package Cargo lane. Package builders bring
+each frontend to its lockfile through `scripts/build-frontend-dependencies.ps1`
+(`npm ci`, skipped only while `node_modules` carries the stamp of the current
+`package.json` and `package-lock.json`).
 
 ## Package boundaries
 
@@ -95,6 +103,12 @@ directory; worker builds share the package Cargo lane.
 
 ## Installation contract
 
+Registry receipts support at most 100,000 files and 32 MiB of serialized JSON.
+Writing, status reads and locked removal reads enforce the same bounds. A write
+that exceeds the byte bound fails before creating a version root or replacing
+its existing receipt. These limits do not grant execution authority: receipt
+contents must still match the host-selected exact delivery inventory.
+
 Each delivery record declares a component identifier, version, architecture,
 host compatibility, dependency identifiers, exact archive size and SHA-256,
 and an exact inventory of installed files.
@@ -108,6 +122,18 @@ The installer must:
 5. write an ownership receipt for the verified inventory;
 6. atomically publish an absent version directory; and
 7. retain the previous usable version until the new version is verified.
+
+Download progress is scoped to the install operation and component identity.
+Concurrent installs remain visible until their own operations finish; a late
+update from a retired operation cannot change a replacement. The recorder
+worker reports bounded, coalesced progress snapshots over a separate loopback
+datagram channel using a separate session-scoped token and monotonic sequence.
+Snapshots carry each active operation's identity and measurement revision and
+are periodically repeated so packet loss can heal; stale or malformed packets
+are ignored. The host retires that session's progress when the worker
+disconnects or is replaced. Progress reporting must not block an installer or
+the worker's command channel; loss of progress reporting never changes
+installation, cancellation, verification, or cleanup outcomes.
 
 Executable workers additionally require architecture and protocol compatibility
 checks before launch. A signed catalog or host update may select a newer version;
@@ -131,9 +157,17 @@ version into trust.
   runtime artifacts are content-addressed, fully hashed, and explicitly tied to
   the main app version. A job repairs the app-selected version first; before job
   acceptance, a typed start failure may select one newer signed contract that is
-  compatible with that same host and retry once.
-- yt-dlp and Deno may select a newer signed contract after a typed tool failure
-  and retry the operation once. They never invoke an upstream self-updater.
+  compatible with that same host and retry once. The creation backend is built
+  in a separate repository; this repository owns only its delivery steps
+  (download-and-verify, the tracked contracts, and the staging, packaging and
+  publish scripts that the backend repository runs).
+- Windows yt-dlp and Deno may select a newer signed contract after a typed tool
+  failure and retry the operation once.
+- Android Full discovers yt-dlp releases directly from its official upstream
+  stable feed. The signed APK defines the upstream verification key. A candidate
+  must match its exact tagged release and signed SHA-256 before a local
+  compatibility probe and atomic activation. SGT still verifies the downloader's
+  Android native runtimes through their existing delivery contracts.
 - FFmpeg checks for an app-approved signed update while idle, no more than the
   catalog interval, and keeps the current verified version if no update exists.
 - Native dependencies and models advance only through an app-approved catalog
@@ -170,18 +204,29 @@ until process restart.
 
 Removal first stops or cancels the owning feature and waits for its processes
 and leases to finish. It then deletes regular, non-reparse files listed in a
-valid ownership receipt, even if a recorded file changed after installation.
-Missing files are harmless; unrecorded and unsafe entries are preserved and
-reported. Clean All uses the same owner-shutdown and receipt-bounded removal
-contract; it must not delete broad application-data roots or rely on a
-hard-coded component list.
+valid ownership receipt only when their size and digest still match. Missing
+files are harmless; modified, unrecorded, and unsafe entries are preserved and
+reported. Clean All applies this same owner-shutdown and receipt-bounded removal
+contract to every installed component; it must not delete broad application-data
+roots or rely on a hard-coded component list. Its only broader deletion is the
+quarantined recovery copy described below.
+
+Recorder worker shutdown protocol 2 requires the host to own a separate contained
+job for native helpers. Helpers attach before execution; the worker's WebView2
+children retain their required breakaway policy. Removal terminates and verifies
+both worker and helper jobs before releasing component leases. Export cancellation
+stops the helper tree, and pending cleanup continues to hold export admission and
+component ownership. A host and recorder worker must agree on this protocol
+before the session opens.
 
 Repair atomically moves an invalid managed version into a visible recovery
 directory and records its exact inventory. Downloaded Tools reports the reason
 and recovery path. Routine recovery cleanup removes only record-declared
-regular files whose size and digest still match. An explicit, confirmed Clean
-All removes changed record-declared regular files too; reparse and unknown
-bytes remain visible and preserved.
+regular files whose size and digest still match. A recovery directory is an
+already-invalid copy, not an installed component, so an explicit, confirmed
+Clean All also removes its changed record-declared regular files; reparse and
+unknown bytes remain visible and preserved. Installed components never take
+this exception.
 
 Shared dependencies are removed only when no installed component or active
 lease references them. Interrupted installs and pending removals are reconciled
@@ -211,5 +256,7 @@ Before building a release host:
 
 Staging development candidates, promoting production component artifacts, and
 publishing an application release are separate checkpoints. Authorized
-development includes staging as described above; preparing a host change alone
-does not authorize production promotion or an application release.
+development includes staging, verified production component promotion, and
+tracked delivery-contract updates as described above, without separate approval.
+Publishing, promoting, or uploading a new production SGT application version
+requires explicit user authorization.

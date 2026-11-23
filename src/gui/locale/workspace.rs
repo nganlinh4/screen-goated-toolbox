@@ -6,6 +6,8 @@ pub struct WorkspaceLocaleText {
     pub max_items_label: &'static str,
     pub cc_memory_max_label: &'static str,
     pub history_empty: &'static str,
+    pub history_write_failed: &'static str,
+    pub history_load_failed: &'static str,
     pub clear_all_history_btn: &'static str,
     pub view_image_btn: &'static str,
     pub listen_audio_btn: &'static str,
@@ -26,4 +28,6 @@ pub struct WorkspaceLocaleText {
     pub search_synthesizing: &'static str,
     pub search_analyzed_sources: &'static str,
     pub search_processing: &'static str,
+    pub history_show_more: &'static str,
+    pub history_show_less: &'static str,
 }

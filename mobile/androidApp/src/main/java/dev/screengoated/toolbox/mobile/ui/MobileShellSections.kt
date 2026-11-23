@@ -94,8 +94,6 @@ import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileGlobalTtsSettings
 import dev.screengoated.toolbox.mobile.preset.PresetRuntimeSettings
-import dev.screengoated.toolbox.mobile.shared.live.LiveSessionState
-import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import dev.screengoated.toolbox.mobile.updater.AppUpdateUiState
 
@@ -220,7 +218,7 @@ internal fun SectionSegmentedRow(
 @Composable
 internal fun SectionDetail(
     selectedSection: MobileShellSection,
-    state: LiveSessionState,
+    liveSessionRunning: Boolean,
     providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
@@ -231,7 +229,6 @@ internal fun SectionDetail(
     settingsActions: SettingsActions,
     navActions: ShellNavActions,
     uiPreferences: dev.screengoated.toolbox.mobile.model.MobileUiPreferences = dev.screengoated.toolbox.mobile.model.MobileUiPreferences(),
-    canToggle: Boolean,
     onPagerSwipeLockChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
@@ -243,16 +240,14 @@ internal fun SectionDetail(
     ) {
         when (selectedSection) {
             MobileShellSection.APPS -> AppsCarouselSection(
-                state = state,
+                liveSessionRunning = liveSessionRunning,
                 locale = locale,
                 onSessionToggle = navActions.onSessionToggle,
-                canToggle = canToggle,
                 onDownloaderClick = navActions.onDownloaderClick,
                 onDjClick = navActions.onDjClick,
                 onTranslationGummyClick = navActions.onTranslationGummyClick,
                 onImageTo3dClick = navActions.onImageTo3dClick,
                 onImageToSvgClick = navActions.onImageToSvgClick,
-                onImageCreatorClick = navActions.onImageCreatorClick,
                 onPagerSwipeLockChanged = onPagerSwipeLockChanged,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -300,6 +295,7 @@ internal fun SectionDetail(
                 onClearSearchQuery = historyBundle.onClearSearchQuery,
                 onMaxItemsChanged = historyBundle.onMaxItemsChanged,
                 onDeleteItem = historyBundle.onDeleteItem,
+                mediaProofForOpen = historyBundle.mediaProofForOpen,
                 onClearAll = historyBundle.onClearItems,
             )
         }

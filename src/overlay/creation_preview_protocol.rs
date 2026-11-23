@@ -6,7 +6,10 @@ use std::sync::{LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 
 use serde_json::{Value, json};
+use wry::RequestAsyncResponder;
 use wry::http::{Request, Response};
+
+use crate::overlay::creation_commands::lane::Lane;
 
 const MAX_TOKENS: usize = 128;
 const MAX_DIRECT_IMAGE_BYTES: u64 = 100 * 1024 * 1024;
@@ -16,7 +19,6 @@ const MAX_DIRECT_SVG_BYTES: u64 = 12 * 1024 * 1024;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 enum AssetKind {
-    ImagePreview { max_edge: u32 },
     SourceImage,
     StaticSvg,
 }
@@ -38,28 +40,40 @@ struct PreviewProtocolState {
 
 static STATE: LazyLock<Mutex<PreviewProtocolState>> =
     LazyLock::new(|| Mutex::new(PreviewProtocolState::default()));
-static DECODE_LANE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static TOKEN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn issue_from_args(args: &Value) -> Result<Value, String> {
-    let path = args
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "path is required".to_string())?;
-    let max_edge = args
-        .get("maxEdge")
-        .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok());
-    issue(path, max_edge)
+type Respond = Box<dyn FnOnce(Response<Cow<'static, [u8]>>) + Send>;
+type Pending = (Request<Vec<u8>>, Respond);
+
+/// File reads run off the WebView UI thread; the window keeps painting and
+/// handling input while a large asset streams.
+static LANE: LazyLock<Option<Lane<Pending>>> = LazyLock::new(|| {
+    Lane::new("sgt-creation-assets", 16, |(request, respond): Pending| {
+        respond(handle(request));
+    })
+    .inspect_err(|error| {
+        crate::log_info!("[Creation preview] Asset streaming unavailable: {error}")
+    })
+    .ok()
+});
+
+pub(super) fn request(request: Request<Vec<u8>>, responder: RequestAsyncResponder) {
+    dispatch(request, Box::new(move |reply| responder.respond(reply)));
 }
 
-pub(super) fn issue(path: &str, max_edge: Option<u32>) -> Result<Value, String> {
-    issue_asset(
-        path,
-        AssetKind::ImagePreview {
-            max_edge: max_edge.unwrap_or(1_600).clamp(64, 2_048),
-        },
-    )
+fn dispatch(request: Request<Vec<u8>>, respond: Respond) {
+    let rejected = match LANE.as_ref() {
+        Some(lane) => lane.submit((request, respond)).err(),
+        None => Some((request, respond)),
+    };
+    if let Some((_, respond)) = rejected {
+        respond(response(
+            503,
+            "text/plain",
+            Cow::Borrowed(b"Preview is busy."),
+            "no-store",
+        ));
+    }
 }
 
 pub(super) fn issue_source_image_from_args(args: &Value) -> Result<Value, String> {
@@ -89,11 +103,6 @@ pub(super) fn issue_static_svg(path: &str) -> Result<Value, String> {
         return Err("Vector result is unavailable.".to_string());
     }
     issue_asset_path(canonical, AssetKind::StaticSvg)
-}
-
-fn issue_asset(path: &str, kind: AssetKind) -> Result<Value, String> {
-    let path = std::fs::canonicalize(path).map_err(|_| "Image is unavailable.".to_string())?;
-    issue_asset_path(path, kind)
 }
 
 fn issue_asset_path(path: PathBuf, kind: AssetKind) -> Result<Value, String> {
@@ -143,7 +152,6 @@ fn asset_url(token: &str, kind: &AssetKind) -> String {
         "sgtcreation://localhost"
     };
     let route = match kind {
-        AssetKind::ImagePreview { .. } => "image",
         AssetKind::SourceImage => "source",
         AssetKind::StaticSvg => "svg",
     };
@@ -203,7 +211,7 @@ fn response(
         .unwrap_or_else(|_| Response::new(Cow::Borrowed(b"Internal Error")))
 }
 
-pub(super) fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
+fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     if request.headers().contains_key("range") {
         return response(
             416,
@@ -213,9 +221,7 @@ pub(super) fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> 
         );
     }
     let path = request.uri().path();
-    let (token, route) = if let Some(token) = path.strip_prefix("/image/") {
-        (token, "image")
-    } else if let Some(token) = path.strip_prefix("/source/") {
+    let (token, route) = if let Some(token) = path.strip_prefix("/source/") {
         (token, "source")
     } else if let Some(token) = path.strip_prefix("/svg/") {
         (token, "svg")
@@ -249,104 +255,97 @@ pub(super) fn handle(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> 
         return response(410, "text/plain", Cow::Borrowed(b"Gone"), "no-store");
     }
     match (&key.kind, route) {
-        (AssetKind::SourceImage, "source") => {
-            return match std::fs::read(&key.path) {
-                Ok(bytes) => response(
-                    200,
-                    direct_image_mime(&key.path).unwrap_or("application/octet-stream"),
-                    Cow::Owned(bytes),
-                    "no-store",
-                ),
-                Err(_) => response(
-                    422,
-                    "text/plain",
-                    Cow::Borrowed(b"Preview unavailable"),
-                    "no-store",
-                ),
-            };
-        }
-        (AssetKind::StaticSvg, "svg") => {
-            return match std::fs::read(&key.path) {
-                Ok(bytes) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", "image/svg+xml")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Cross-Origin-Resource-Policy", "cross-origin")
-                    .header("X-Content-Type-Options", "nosniff")
-                    .header(
-                        "Content-Security-Policy",
-                        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
-                    )
-                    .header("Cache-Control", "no-store")
-                    .body(Cow::Owned(bytes))
-                    .unwrap_or_else(|_| Response::new(Cow::<[u8]>::Borrowed(b"Internal Error"))),
-                Err(_) => response(
-                    422,
-                    "text/plain",
-                    Cow::Borrowed(b"Preview unavailable"),
-                    "no-store",
-                ),
-            };
-        }
-        (AssetKind::ImagePreview { .. }, "image") => {}
-        _ => return response(404, "text/plain", Cow::Borrowed(b"Not Found"), "no-store"),
-    }
-    let _decode_permit = DECODE_LANE
-        .lock()
-        .unwrap_or_else(|value| value.into_inner());
-    let AssetKind::ImagePreview { max_edge } = key.kind else {
-        unreachable!("route and asset kind were checked above");
-    };
-    match super::creation_preview::encode_image_preview(&key.path, Some(max_edge)) {
-        Ok(preview) => response(
-            200,
-            preview.mime,
-            Cow::Owned(preview.encoded),
-            "public, max-age=31536000, immutable",
-        ),
-        Err(_) => response(
-            422,
-            "text/plain",
-            Cow::Borrowed(b"Preview unavailable"),
-            "no-store",
-        ),
+        (AssetKind::SourceImage, "source") => match std::fs::read(&key.path) {
+            Ok(bytes) => response(
+                200,
+                direct_image_mime(&key.path).unwrap_or("application/octet-stream"),
+                Cow::Owned(bytes),
+                "no-store",
+            ),
+            Err(_) => response(
+                422,
+                "text/plain",
+                Cow::Borrowed(b"Preview unavailable"),
+                "no-store",
+            ),
+        },
+        (AssetKind::StaticSvg, "svg") => match std::fs::read(&key.path) {
+            Ok(bytes) => Response::builder()
+                .status(200)
+                .header("Content-Type", "image/svg+xml")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Cross-Origin-Resource-Policy", "cross-origin")
+                .header("X-Content-Type-Options", "nosniff")
+                .header(
+                    "Content-Security-Policy",
+                    "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+                )
+                .header("Cache-Control", "no-store")
+                .body(Cow::Owned(bytes))
+                .unwrap_or_else(|_| Response::new(Cow::<[u8]>::Borrowed(b"Internal Error"))),
+            Err(_) => response(
+                422,
+                "text/plain",
+                Cow::Borrowed(b"Preview unavailable"),
+                "no-store",
+            ),
+        },
+        _ => response(404, "text/plain", Cow::Borrowed(b"Not Found"), "no-store"),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{handle, issue, issue_source_image_from_args, issue_static_svg};
+    use super::{dispatch, handle, issue_source_image_from_args, issue_static_svg};
     use image::{ImageBuffer, Rgba};
     use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use wry::http::Request;
 
     #[test]
-    fn issued_preview_streams_bounded_image_bytes() {
+    fn asset_requests_are_answered_off_the_calling_thread() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "sgt-preview-protocol-{}-{unique}.png",
+            "sgt-async-protocol-{}-{unique}.png",
             std::process::id()
         ));
-        ImageBuffer::from_pixel(320, 160, Rgba([12_u8, 34, 56, 200]))
+        ImageBuffer::from_pixel(32, 16, Rgba([12_u8, 34, 56, 200]))
             .save(&path)
             .unwrap();
-
-        let first = issue(path.to_str().unwrap(), Some(80)).unwrap();
-        let second = issue(path.to_str().unwrap(), Some(80)).unwrap();
-        assert_eq!(first, second);
-        let url = first["url"].as_str().unwrap();
-        let request = Request::builder().uri(url).body(Vec::new()).unwrap();
-        let response = handle(request);
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["Content-Type"], "image/png");
-        let decoded = image::load_from_memory(response.body()).unwrap();
-        assert_eq!((decoded.width(), decoded.height()), (80, 40));
-
+        let original = std::fs::read(&path).unwrap();
+        let issued =
+            issue_source_image_from_args(&json!({ "path": path.to_str().unwrap() })).unwrap();
+        let first = issue_source_image_from_args(&json!({ "path": path.to_str().unwrap() }));
+        assert_eq!(first.unwrap(), issued);
+        let request = Request::builder()
+            .uri(issued["url"].as_str().unwrap())
+            .body(Vec::new())
+            .unwrap();
+        let caller = std::thread::current().id();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        dispatch(
+            request,
+            Box::new(move |reply| {
+                let _ = sender.send((std::thread::current().id(), reply));
+            }),
+        );
+        let (worker, reply) = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_ne!(worker, caller);
+        assert_eq!(reply.status(), 200);
+        assert_eq!(reply.body().as_ref(), original);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn retired_decoded_preview_route_is_not_served() {
+        let request = Request::builder()
+            .uri("http://sgtcreation.localhost/image/anything")
+            .body(Vec::new())
+            .unwrap();
+        assert_eq!(handle(request).status(), 404);
     }
 
     #[test]

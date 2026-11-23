@@ -5,7 +5,7 @@ use ureq::http::HeaderMap;
 
 pub const FRESH_THROUGH_SECONDS: u64 = 300;
 pub const AGING_THROUGH_SECONDS: u64 = 900;
-pub const LOCAL_RUNTIME_PROVIDERS: &[&str] = &["ollama", "parakeet", "qwen3", "moonshine"];
+pub const LOCAL_RUNTIME_PROVIDERS: &[&str] = &["ollama"];
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UsageScope {
@@ -304,10 +304,7 @@ mod tests {
     fn local_runtime_models_never_become_api_usage_rows() {
         let models = vec![
             model("remote", "demo", "remote/model", 400),
-            model("qwen", "qwen3", "Qwen3-ASR-0.6B", 300),
-            model("parakeet", "parakeet", "parakeet-120m-v1", 200),
             model("ollama", "ollama", "local/model", 100),
-            model("moonshine", "moonshine", "moonshine-small", 50),
         ];
         let rows = endpoint_representatives(&models);
         assert_eq!(

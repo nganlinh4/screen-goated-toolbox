@@ -50,6 +50,38 @@ pub(crate) fn build_live_setup(
         .build()
 }
 
+/// A dedicated transcription session follows a server `goAway` to a fresh
+/// connection at once; other Live models keep theirs until it closes.
+pub(crate) fn rotates_on_go_away(dedicated: bool, go_away: bool) -> bool {
+    dedicated && go_away
+}
+
+/// A dedicated transcription session rotates before the server session limit
+/// or after a vocabulary change, but only at a speech gap so no utterance is
+/// split across connections.
+pub(crate) fn proactive_rotation_due(
+    dedicated: bool,
+    connection_age: Duration,
+    vocabulary_changed: bool,
+    safe_gap: bool,
+) -> bool {
+    dedicated && safe_gap && (connection_age >= ROTATE_AT || vocabulary_changed)
+}
+
+/// Remember the newest resumable handle; a non-resumable update keeps the last
+/// usable one so a reconnect can still continue the session.
+pub(crate) fn observe_resumption(
+    handle: &mut Option<String>,
+    update: Option<&crate::api::gemini_live::server_frame::LiveSessionResumption>,
+) {
+    if let Some(update) = update
+        && update.resumable
+        && let Some(next) = update.handle.as_ref()
+    {
+        *handle = Some(next.clone());
+    }
+}
+
 pub(crate) fn compute_i16_rms(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;
@@ -275,6 +307,36 @@ impl HybridVad {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dedicated_sessions_rotate_on_go_away_and_at_speech_gaps_only() {
+        assert!(rotates_on_go_away(true, true));
+        assert!(!rotates_on_go_away(true, false));
+        assert!(!rotates_on_go_away(false, true));
+        let young = ROTATE_AT - Duration::from_secs(1);
+        assert!(!proactive_rotation_due(true, young, false, true));
+        assert!(proactive_rotation_due(true, ROTATE_AT, false, true));
+        assert!(proactive_rotation_due(true, young, true, true));
+        assert!(!proactive_rotation_due(true, ROTATE_AT, true, false));
+        assert!(!proactive_rotation_due(false, ROTATE_AT, true, true));
+    }
+
+    #[test]
+    fn only_resumable_updates_replace_the_resumption_handle() {
+        use crate::api::gemini_live::server_frame::LiveSessionResumption;
+        let mut handle = None;
+        let update = |resumable, handle: Option<&str>| LiveSessionResumption {
+            resumable,
+            handle: handle.map(str::to_owned),
+        };
+        observe_resumption(&mut handle, Some(&update(true, Some("first"))));
+        observe_resumption(&mut handle, Some(&update(false, Some("ignored"))));
+        observe_resumption(&mut handle, Some(&update(true, None)));
+        observe_resumption(&mut handle, None);
+        assert_eq!(handle.as_deref(), Some("first"));
+        observe_resumption(&mut handle, Some(&update(true, Some("second"))));
+        assert_eq!(handle.as_deref(), Some("second"));
+    }
 
     #[test]
     fn shared_stabilization_contract() {

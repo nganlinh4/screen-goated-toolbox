@@ -5,6 +5,10 @@ use std::collections::HashSet;
 const CONTEXT_RADIUS: usize = 6;
 const PASSAGE_COUNT_TARGET: usize = 3;
 
+#[cfg(test)]
+#[path = "result_relevance_tests.rs"]
+mod tests;
+
 pub(super) fn relevant_body_sample(body: &str, max_chars: usize, query: &str) -> String {
     if max_chars == 0 || body.is_empty() {
         return String::new();
@@ -12,11 +16,7 @@ pub(super) fn relevant_body_sample(body: &str, max_chars: usize, query: &str) ->
     if body.chars().count() <= max_chars {
         return body.to_string();
     }
-    let terms = query
-        .split(|character: char| !character.is_alphanumeric())
-        .map(str::to_lowercase)
-        .filter(|term| term.chars().count() >= 3)
-        .collect::<HashSet<_>>();
+    let terms = super::super::query_terms::tokens(query);
     let lines = body
         .lines()
         .map(str::trim)
@@ -29,14 +29,18 @@ pub(super) fn relevant_body_sample(body: &str, max_chars: usize, query: &str) ->
     let mut ranked = (0..lines.len())
         .filter_map(|index| contextual_score(&lines, index, &terms).map(|score| (score, index)))
         .collect::<Vec<_>>();
-    ranked.sort_by_key(|((score, matched_terms, direct_signal), index)| {
-        (
-            std::cmp::Reverse(*score),
-            std::cmp::Reverse(*matched_terms),
-            std::cmp::Reverse(*direct_signal),
-            *index,
-        )
-    });
+    ranked.sort_by_key(
+        |((exact_short, direct_exact, score, matched_terms, direct_signal), index)| {
+            (
+                std::cmp::Reverse(*exact_short),
+                std::cmp::Reverse(*direct_exact),
+                std::cmp::Reverse(*score),
+                std::cmp::Reverse(*matched_terms),
+                std::cmp::Reverse(*direct_signal),
+                *index,
+            )
+        },
+    );
     if ranked.is_empty() {
         return span_sample(body, max_chars);
     }
@@ -84,14 +88,18 @@ fn contextual_score(
     lines: &[&str],
     index: usize,
     terms: &HashSet<String>,
-) -> Option<(usize, usize, usize)> {
+) -> Option<(usize, usize, usize, usize, usize)> {
     let first = index.saturating_sub(CONTEXT_RADIUS);
     let last = (index + CONTEXT_RADIUS).min(lines.len() - 1);
     let mut matched = HashSet::new();
+    let mut exact_short = HashSet::new();
     let mut value_weight = 0usize;
     for line in lines.iter().take(last + 1).skip(first) {
         let lower = line.to_lowercase();
         for term in terms {
+            if super::super::query_terms::exact_short_match(term, &lower) {
+                exact_short.insert(term.as_str());
+            }
             if approximate_term_match(term, &lower) {
                 matched.insert(term.as_str());
             }
@@ -99,6 +107,10 @@ fn contextual_score(
         value_weight += value_signal_weight(line);
     }
     let direct_line = lines[index].to_lowercase();
+    let direct_exact = terms
+        .iter()
+        .filter(|term| super::super::query_terms::exact_short_match(term, &direct_line))
+        .count();
     let direct_matches = terms
         .iter()
         .filter(|term| approximate_term_match(term, &direct_line))
@@ -108,6 +120,8 @@ fn contextual_score(
         let fact_bonus = value_weight.min(24);
         let direct_signal = direct_matches * 8 + direct_value.min(8) * 8;
         (
+            exact_short.len(),
+            direct_exact,
             matched.len() * 4 + fact_bonus + direct_signal,
             matched.len(),
             direct_signal,
@@ -178,21 +192,21 @@ fn focal_line_sample(line: &str, max_chars: usize, terms: &HashSet<String>) -> S
     if chars.len() <= max_chars {
         return line.to_string();
     }
-    let focus = chars
-        .iter()
-        .position(|character| {
+    let focus = {
+        let lower = line.to_lowercase();
+        terms
+            .iter()
+            .filter_map(|term| super::super::query_terms::match_offset(term, &lower))
+            .min()
+            .map(|byte_index| original_char_index(line, byte_index))
+    }
+    .or_else(|| {
+        chars.iter().position(|character| {
             matches!(character, '$' | '€' | '£' | '¥' | '₩' | '₹' | '%')
                 || character.is_ascii_digit()
         })
-        .or_else(|| {
-            let lower = line.to_lowercase();
-            terms
-                .iter()
-                .filter_map(|term| lower.find(term))
-                .map(|byte_index| lower[..byte_index].chars().count())
-                .min()
-        })
-        .unwrap_or(0);
+    })
+    .unwrap_or(0);
     let start = focus
         .saturating_sub(max_chars / 2)
         .min(chars.len().saturating_sub(max_chars));
@@ -201,8 +215,19 @@ fn focal_line_sample(line: &str, max_chars: usize, terms: &HashSet<String>) -> S
         .collect()
 }
 
+fn original_char_index(text: &str, lowercase_byte_offset: usize) -> usize {
+    let mut lowercase_bytes = 0;
+    for (index, character) in text.chars().enumerate() {
+        if lowercase_bytes >= lowercase_byte_offset {
+            return index;
+        }
+        lowercase_bytes += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+    }
+    text.chars().count()
+}
+
 fn approximate_term_match(term: &str, text: &str) -> bool {
-    if text.contains(term) {
+    if super::super::query_terms::match_offset(term, text).is_some() {
         return true;
     }
     text.split(|character: char| !character.is_alphanumeric())

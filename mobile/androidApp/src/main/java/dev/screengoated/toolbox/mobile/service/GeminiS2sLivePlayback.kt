@@ -6,6 +6,7 @@ import dev.screengoated.toolbox.mobile.shared.live.GenerationPlaybackGate
 
 internal typealias LiveTranslatePlaybackChunk = GenerationPlaybackChunk
 internal typealias LiveTranslatePlaybackEpoch = GenerationPlaybackGate
+internal data class VisibleLiveTranslateChunk(val visibilityEpoch: Long?, val chunk: LiveTranslatePlaybackChunk)
 
 internal fun executeLiveTranslateFeatureEffects(
     effects: List<GeminiLiveLifecycleEffect>,

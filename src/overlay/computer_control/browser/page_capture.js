@@ -34,19 +34,42 @@
     let structuralInspectionTruncated = false;
     let structuralEvidenceTruncated = false;
 
-    const visible = (el) => {
-        if (!el || !el.getClientRects || el.getClientRects().length === 0) return false;
+    const hiddenHere = (el) => {
+        if (el.hidden || el.getAttribute?.("aria-hidden") === "true") return true;
+        const view = el.ownerDocument?.defaultView;
+        const style = view ? view.getComputedStyle(el) : null;
+        return !!style && (style.display === "none" || style.visibility === "hidden" ||
+            style.visibility === "collapse" || Number(style.opacity) <= 0);
+    };
+
+    // One capture reads a fixed DOM, so each element's inherited visibility is
+    // computed once; later walks stop at the first ancestor already decided.
+    const inheritedVisibility = new Map();
+    const styleVisible = (el) => {
+        const chain = [];
         const visited = new Set();
+        let result = true;
         for (let current = el; current && !visited.has(current);) {
+            const known = inheritedVisibility.get(current);
+            if (known !== undefined) {
+                result = known;
+                break;
+            }
             visited.add(current);
-            if (current.hidden || current.getAttribute?.("aria-hidden") === "true") return false;
-            const view = current.ownerDocument?.defaultView;
-            const style = view ? view.getComputedStyle(current) : null;
-            if (style && (style.display === "none" || style.visibility === "hidden" ||
-                style.visibility === "collapse" || Number(style.opacity) <= 0)) return false;
+            chain.push(current);
+            if (hiddenHere(current)) {
+                result = false;
+                break;
+            }
             current = current.parentElement || current.getRootNode?.().host || null;
         }
-        return true;
+        for (const element of chain) inheritedVisibility.set(element, result);
+        return result;
+    };
+
+    const visible = (el) => {
+        if (!el || !el.getClientRects || el.getClientRects().length === 0) return false;
+        return styleVisible(el);
     };
 
     const boundedElementText = (el, maxChars) => {

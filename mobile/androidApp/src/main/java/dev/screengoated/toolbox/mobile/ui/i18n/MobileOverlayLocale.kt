@@ -18,7 +18,6 @@ interface OverlayChromeText {
     val customVocabularyTitle: String
     val customVocabularyPrompt: String
     val translationModelTitle: String
-    val transcriptionLanguageTitle: String
     val unavailableSuffix: String
     val targetLanguageTitle: String
     val s2sTranslationModelTitle: String
@@ -35,9 +34,6 @@ interface OverlayControlText {
     val ttsSpeed: String
     val ttsAuto: String
     val ttsVolume: String
-    val downloadingModelTitle: String
-    val pleaseWaitText: String
-    val cancelText: String
     val pickerSearchHint: String
 }
 
@@ -59,7 +55,6 @@ data class OverlayChromeLocale(
     override val customVocabularyTitle: String,
     override val customVocabularyPrompt: String,
     override val translationModelTitle: String,
-    override val transcriptionLanguageTitle: String,
     override val unavailableSuffix: String,
     override val targetLanguageTitle: String,
     override val s2sTranslationModelTitle: String,
@@ -76,9 +71,6 @@ data class OverlayControlLocale(
     override val ttsSpeed: String,
     override val ttsAuto: String,
     override val ttsVolume: String,
-    override val downloadingModelTitle: String,
-    override val pleaseWaitText: String,
-    override val cancelText: String,
     override val pickerSearchHint: String,
 ) : OverlayControlText
 

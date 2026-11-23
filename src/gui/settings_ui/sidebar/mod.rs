@@ -12,12 +12,15 @@ use row_visuals::{
 
 #[cfg(test)]
 mod layout_tests;
-mod localized;
+mod list_identity;
 mod profiles;
 mod reorder;
 mod row_visuals;
 
-pub use localized::get_localized_preset_name;
+pub use crate::gui::locale::get_localized_preset_name;
+pub use list_identity::{
+    PresetIndexMove, PresetListChange, owner_after_removal, selection_after_removal,
+};
 
 thread_local! {
     static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
@@ -27,32 +30,12 @@ pub(crate) fn cached_grid_width() -> f32 {
     GRID_WIDTH.with(|width| width.get())
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PresetIndexMove {
-    pub from: usize,
-    pub to: usize,
-}
-
-impl PresetIndexMove {
-    pub fn remap(self, index: usize) -> usize {
-        if index == self.from {
-            self.to
-        } else if self.from < self.to && (self.from + 1..=self.to).contains(&index) {
-            index - 1
-        } else if self.to < self.from && (self.to..self.from).contains(&index) {
-            index + 1
-        } else {
-            index
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct SidebarRenderResponse {
     pub changed: bool,
     pub refresh_favorites: bool,
     pub blink_favorite: bool,
-    pub preset_index_move: Option<PresetIndexMove>,
+    pub preset_list_changes: Vec<PresetListChange>,
 }
 
 pub fn render_sidebar(
@@ -72,6 +55,11 @@ pub fn render_sidebar(
     let profile_response = profiles::render_profiles(ui, config, view_mode, text);
     response.changed |= profile_response.changed;
     response.refresh_favorites |= profile_response.presets_changed;
+    if profile_response.active_profile_changed {
+        response
+            .preset_list_changes
+            .push(PresetListChange::ActiveProfileChanged);
+    }
     ui.add_space(PRESET_GRID_TOP_GAP);
 
     let mut image_indices = Vec::new();
@@ -90,9 +78,11 @@ pub fn render_sidebar(
     // Audio/Video indices are not sorted by type to allow user reordering.
     // They will appear in the order they are defined in config.presets.
 
-    let mut image_lane = reorder::Lane::load(ui, "preset-lane-image", image_indices);
-    let mut text_lane = reorder::Lane::load(ui, "preset-lane-text", text_indices);
-    let mut audio_lane = reorder::Lane::load(ui, "preset-lane-audio", audio_video_indices);
+    let reset_drag = profile_response.active_profile_changed;
+    let mut image_lane = reorder::Lane::load(ui, "preset-lane-image", image_indices, reset_drag);
+    let mut text_lane = reorder::Lane::load(ui, "preset-lane-text", text_indices, reset_drag);
+    let mut audio_lane =
+        reorder::Lane::load(ui, "preset-lane-audio", audio_video_indices, reset_drag);
     let lifting = image_lane.is_lifting() || text_lane.is_lifting() || audio_lane.is_lifting();
 
     let current_view_mode = *view_mode;
@@ -132,7 +122,7 @@ pub fn render_sidebar(
                         &mut image_lane,
                         &config.ui_language,
                     ),
-                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &image_lane),
+                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &mut image_lane),
                     reorder::LaneCell::Add => render_add_preset_button_parts(
                         ui,
                         text.preset_editor.add_image_preset_btn,
@@ -166,7 +156,7 @@ pub fn render_sidebar(
                         &mut text_lane,
                         &config.ui_language,
                     ),
-                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &text_lane),
+                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &mut text_lane),
                     reorder::LaneCell::Add => render_add_preset_button_parts(
                         ui,
                         text.preset_editor.add_text_preset_btn,
@@ -200,7 +190,7 @@ pub fn render_sidebar(
                         &mut audio_lane,
                         &config.ui_language,
                     ),
-                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &audio_lane),
+                    reorder::LaneCell::Gap => reorder::render_gap_cells(ui, &mut audio_lane),
                     reorder::LaneCell::Add => render_add_preset_button_parts(
                         ui,
                         text.preset_editor.add_audio_preset_btn,
@@ -223,14 +213,28 @@ pub fn render_sidebar(
     for lane in [&image_lane, &text_lane, &audio_lane] {
         reorder::draw_lifted_preset(ui, lane, &config.presets, &config.ui_language);
     }
+    // Simultaneous structural actions must not reinterpret an index after an
+    // earlier action changes the list. A direct row action cancels any lift.
+    let structural_action = preset_idx_to_delete.is_some()
+        || preset_idx_to_clone.is_some()
+        || preset_to_add_type.is_some();
     for lane in [&mut image_lane, &mut text_lane, &mut audio_lane] {
-        if let Some(landed) = lane.settle(ui) {
+        if structural_action {
+            lane.reorder.cancel();
+        } else if let Some(landed) = lane.settle(ui) {
             preset_move_request = Some(landed);
         }
     }
     image_lane.store(ui);
     text_lane.store(ui);
     audio_lane.store(ui);
+
+    if preset_idx_to_delete.is_some() {
+        preset_idx_to_clone = None;
+        preset_to_add_type = None;
+    } else if preset_idx_to_clone.is_some() {
+        preset_to_add_type = None;
+    }
 
     if let Some(idx) = preset_idx_to_select {
         *view_mode = ViewMode::Preset(idx);
@@ -284,9 +288,12 @@ pub fn render_sidebar(
         if let ViewMode::Preset(current) = view_mode {
             *current = index_move.remap(*current);
         }
+        config.active_preset_idx = index_move.remap(config.active_preset_idx);
         response.changed = true;
         response.refresh_favorites |= outcome.favorite_indices_changed;
-        response.preset_index_move = Some(index_move);
+        response
+            .preset_list_changes
+            .push(PresetListChange::Moved(index_move));
     }
 
     if let Some(type_str) = preset_to_add_type {
@@ -326,15 +333,19 @@ pub fn render_sidebar(
             .iter()
             .any(|preset| preset.is_favorite);
         config.presets.remove(idx);
+        let remaining = config.presets.len();
         if let ViewMode::Preset(curr) = *view_mode {
-            if curr >= idx && curr > 0 {
-                *view_mode = ViewMode::Preset(curr - 1);
-            } else if config.presets.is_empty() {
-                *view_mode = ViewMode::Global;
-            } else {
-                *view_mode = ViewMode::Preset(0);
-            }
+            *view_mode = selection_after_removal(Some(curr), idx, remaining)
+                .map_or(ViewMode::Global, ViewMode::Preset);
         }
+        config.active_preset_idx =
+            selection_after_removal(Some(config.active_preset_idx), idx, remaining).unwrap_or(0);
+        response
+            .preset_list_changes
+            .push(PresetListChange::Removed {
+                index: idx,
+                remaining,
+            });
         response.changed = true;
         response.refresh_favorites |= favorite_indices_changed;
     }
@@ -445,7 +456,7 @@ fn render_preset_item_parts(
 
     let icon_type = preset_type_icon(preset);
 
-    let row_offset = reorder::animated_row_offset(ui, &preset.id, lifting);
+    let row_offset = reorder::animated_row_offset(ui, &preset.id, idx, lifting);
     let transform = egui::emath::TSTransform::from_translation(row_offset);
 
     // --- Column X: Content ---
@@ -468,7 +479,7 @@ fn render_preset_item_parts(
             } else {
                 // The drag handle lives in the type icon's slot and cross-fades in
                 // on approach, so reordering costs the row no horizontal space.
-                let handle = reorder::render_drag_handle(ui, preset, icon_type);
+                let handle = reorder::render_drag_handle(ui, preset, idx, icon_type);
                 if handle.drag_started() {
                     lift_request = Some(cell_rect);
                 }
@@ -490,7 +501,7 @@ fn render_preset_item_parts(
                         ui,
                         slot,
                         Icon::Delete,
-                        preset_action_id(&preset.id, "delete"),
+                        preset_action_id(&preset.id, idx, "delete"),
                         opacity,
                     )
                     .clicked()
@@ -503,7 +514,7 @@ fn render_preset_item_parts(
                     ui,
                     slot,
                     Icon::CopySmall,
-                    preset_action_id(&preset.id, "copy"),
+                    preset_action_id(&preset.id, idx, "copy"),
                     opacity,
                 )
                 .clicked()

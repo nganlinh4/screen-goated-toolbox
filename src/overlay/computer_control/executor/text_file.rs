@@ -3,15 +3,13 @@
 //! Model-provided text stays data: no shell, template language, or interpolation
 //! is involved. Edits are planned completely in memory, written to a synced
 //! sibling, atomically installed, and then read back before success is reported.
+use crate::crypto::sha256_hex;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 #[path = "text_file_evidence.rs"]
 mod evidence;
 #[path = "text_file_failures.rs"]
 mod failures;
-#[path = "text_file_formula_preservation.rs"]
-mod formula_preservation;
 #[path = "text_file_match_diagnostics.rs"]
 mod match_diagnostics;
 #[path = "text_file_read.rs"]
@@ -19,7 +17,7 @@ mod stable_read;
 #[path = "text_file_structure.rs"]
 mod structure;
 #[path = "text_file_transaction.rs"]
-mod transaction;
+pub(in crate::overlay::computer_control) mod transaction;
 
 use failures::{
     ambiguous_commit, concurrent_change, failure, oversized_edit, replacement_failure, stale,
@@ -31,11 +29,14 @@ use transaction::atomic_replace;
 use transaction::{CommitOutcome, EditGuard, write_synced_sibling};
 
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_REPLACEMENT_MATCHES: usize = 65_536;
 const DEFAULT_CONTENT_CHARS: usize = 24_000;
 const MAX_CONTENT_CHARS: usize = 64_000;
 const MAX_REPLACEMENTS: usize = 64;
 const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
 const EDIT_HASH_ERROR: &str = "expected_sha256 must be a 64-character hexadecimal SHA-256; call read_text_file on this path and use its returned sha256—never guess or use a placeholder";
+
+pub(in crate::overlay::computer_control) use stable_read::with_stable_file;
 
 pub(super) fn read_text_file(args: &Value) -> Value {
     let Some(path) = required_string(args, "path") else {
@@ -215,19 +216,12 @@ fn edit_text_file_with_scope(args: &Value, scope: EditScope) -> Value {
         Ok(decoded) => decoded,
         Err(error) => return error.into_value(&path),
     };
-    let normalized = match scope {
-        EditScope::Content => {
-            formula_preservation::normalize(&path, decoded.text, requested_replacements)
-        }
-        EditScope::StructurePreflight | EditScope::StructureCommit => {
-            formula_preservation::without_preservation(requested_replacements)
-        }
-    };
-    let replacements = normalized.replacements;
-    let applied = match apply_exact_replacements(decoded.text, &replacements, &path) {
-        Ok(applied) => applied,
-        Err(error) => return error,
-    };
+    let replacements = requested_replacements;
+    let applied =
+        match apply_exact_replacements(decoded.text, &replacements, &path, decoded.has_bom) {
+            Ok(applied) => applied,
+            Err(error) => return error,
+        };
     let edited_text = &applied.text;
     let structure = match scope {
         EditScope::Content => {
@@ -302,8 +296,11 @@ fn edit_text_file_with_scope(args: &Value, scope: EditScope) -> Value {
         MAX_FILE_BYTES,
     ) {
         CommitOutcome::Verified { retained_backup } => retained_backup,
-        CommitOutcome::NoEffect { error } => {
-            return failure("ERR_TEXT_FILE_ATOMIC_REPLACE", Some(&path), &error, true);
+        CommitOutcome::NoEffect {
+            error,
+            retained_staging,
+        } => {
+            return failures::no_effect_replace(&path, &error, retained_staging.as_deref());
         }
         CommitOutcome::Ambiguous {
             error,
@@ -311,6 +308,7 @@ fn edit_text_file_with_scope(args: &Value, scope: EditScope) -> Value {
             external_change_detected,
             recovery_backup,
             recovery_sha256,
+            retained_staging,
         } => {
             return ambiguous_commit(
                 &path,
@@ -319,6 +317,7 @@ fn edit_text_file_with_scope(args: &Value, scope: EditScope) -> Value {
                 external_change_detected,
                 recovery_backup.as_deref(),
                 recovery_sha256.as_deref(),
+                retained_staging.as_deref(),
             );
         }
     };
@@ -337,12 +336,12 @@ fn edit_text_file_with_scope(args: &Value, scope: EditScope) -> Value {
         "char_count": edited_text.chars().count(),
         "replacements_applied": replacements.iter().map(|item| item.expected_count).sum::<usize>(),
         "replacement_groups": replacements.len(),
-        "requested_replacement_groups": normalized.requested_groups,
-        "formula_cells_auto_preserved": normalized.preserved_cells,
-        "formula_replacement_groups_rewritten": normalized.rewritten_groups,
-        "formula_only_groups_omitted": normalized.omitted_groups,
-        "trailing_empty_fields_omitted": normalized.trailing_empty_fields_omitted,
-        "trailing_value_fields_repaired": normalized.trailing_value_fields_repaired,
+        "requested_replacement_groups": replacements.len(),
+        "formula_cells_auto_preserved": 0,
+        "formula_replacement_groups_rewritten": 0,
+        "formula_only_groups_omitted": 0,
+        "trailing_empty_fields_omitted": 0,
+        "trailing_value_fields_repaired": 0,
         "edit_scope": match scope {
             EditScope::Content => "content",
             EditScope::StructurePreflight | EditScope::StructureCommit => "structure",
@@ -464,14 +463,14 @@ fn apply_exact_replacements(
     original: &str,
     replacements: &[Replacement],
     path: &Path,
+    has_bom: bool,
 ) -> Result<AppliedText, Value> {
-    let mut planned = Vec::new();
+    let mut removed = 0u128;
+    let mut inserted = 0u128;
+    let mut total_matches = 0usize;
     for (index, replacement) in replacements.iter().enumerate() {
-        let matches: Vec<usize> = original
-            .match_indices(&replacement.old_text)
-            .map(|(start, _)| start)
-            .collect();
-        if matches.is_empty() {
+        let matches = original.match_indices(&replacement.old_text).count();
+        if matches == 0 {
             return Err(match_diagnostics::missing_match_failure(
                 path,
                 index,
@@ -480,21 +479,70 @@ fn apply_exact_replacements(
                 &replacement.old_text,
             ));
         }
-        if matches.len() != replacement.expected_count {
+        if matches != replacement.expected_count {
             return Err(replacement_failure(
                 "ERR_TEXT_FILE_MATCH_AMBIGUOUS",
                 path,
                 index,
                 replacement.expected_count,
-                matches.len(),
+                matches,
             ));
         }
-        planned.extend(matches.into_iter().map(|start| Planned {
-            replacement_index: index,
-            start,
-            end: start + replacement.old_text.len(),
-            new_text: replacement.new_text.as_str(),
-        }));
+        total_matches = total_matches.checked_add(matches).ok_or_else(|| {
+            failure(
+                "ERR_TEXT_FILE_REPLACEMENT_LIMIT",
+                Some(path),
+                "too many replacement occurrences",
+                true,
+            )
+        })?;
+        if total_matches > MAX_REPLACEMENT_MATCHES {
+            return Err(failure(
+                "ERR_TEXT_FILE_REPLACEMENT_LIMIT",
+                Some(path),
+                "too many replacement occurrences",
+                true,
+            ));
+        }
+        removed = removed
+            .checked_add((matches as u128) * (replacement.old_text.len() as u128))
+            .ok_or_else(|| oversized_edit(path, u64::MAX))?;
+        inserted = inserted
+            .checked_add((matches as u128) * (replacement.new_text.len() as u128))
+            .ok_or_else(|| oversized_edit(path, u64::MAX))?;
+    }
+    if removed > original.len() as u128 {
+        return Err(failure(
+            "ERR_TEXT_FILE_OVERLAPPING_REPLACEMENTS",
+            Some(path),
+            "replacement match ranges overlap",
+            true,
+        ));
+    }
+    {
+        let size = (original.len() as u128 - removed)
+            .checked_add(inserted)
+            .and_then(|size| size.checked_add(if has_bom { UTF8_BOM.len() as u128 } else { 0 }))
+            .ok_or_else(|| oversized_edit(path, u64::MAX))?;
+        if size > u128::from(MAX_FILE_BYTES) {
+            return Err(oversized_edit(
+                path,
+                u64::try_from(size).unwrap_or(u64::MAX),
+            ));
+        }
+    }
+    let mut planned = Vec::new();
+    for (index, replacement) in replacements.iter().enumerate() {
+        planned.extend(
+            original
+                .match_indices(&replacement.old_text)
+                .map(|(start, _)| Planned {
+                    replacement_index: index,
+                    start,
+                    end: start + replacement.old_text.len(),
+                    new_text: replacement.new_text.as_str(),
+                }),
+        );
     }
     planned.sort_by_key(|item| (item.start, item.end));
     if planned.windows(2).any(|pair| pair[1].start < pair[0].end) {
@@ -538,11 +586,6 @@ fn valid_hash(hash: &str) -> bool {
 
 fn hash_matches(expected: &str, actual: &str) -> bool {
     valid_hash(expected) && expected.eq_ignore_ascii_case(actual)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

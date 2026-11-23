@@ -3,7 +3,6 @@ import { VideoSegment, BackgroundConfig, ExportOptions, type Project, type Expor
 import {
   ProcessingOverlay,
   ExportDialog,
-  WindowSelectDialog,
   RawVideoDialog,
   ExportSuccessDialog,
   ExportErrorDialog,
@@ -17,7 +16,6 @@ import {
 } from "@/components/ProjectsView";
 import { CropWorkspace } from "@/components/CropWorkspace";
 import { useSettings } from "@/hooks/useSettings";
-import type { WindowInfo } from "@/hooks/useAppHooks";
 import type { AudioDownloadFormat, AudioDownloadResult } from "@/types/video";
 
 export interface EditorOverlaysExportHook {
@@ -94,10 +92,6 @@ export interface EditorOverlaysProps {
   exportHook: EditorOverlaysExportHook;
   audioDownloadHook?: EditorOverlaysAudioDownloadHook;
   videoRef: RefObject<HTMLVideoElement | null>;
-  showWindowSelect: boolean;
-  onCloseWindowSelect: () => void;
-  windows: WindowInfo[];
-  onSelectWindowForRecording: (windowId: string, captureMethod: "game" | "window") => void;
   isVideoReady: boolean;
   // Raw video dialog
   showRawVideoDialog: boolean;
@@ -143,10 +137,6 @@ export function EditorOverlays({
   exportHook,
   audioDownloadHook,
   videoRef,
-  showWindowSelect,
-  onCloseWindowSelect,
-  windows,
-  onSelectWindowForRecording,
   isVideoReady,
   showRawVideoDialog,
   onCloseRawVideoDialog,
@@ -211,14 +201,7 @@ export function EditorOverlays({
 
       <ProcessingOverlay
         show={exportHook.isProcessing || Boolean(audioDownloadHook?.isProcessing)}
-        exportProgress={0}
         onCancel={audioDownloadHook?.isProcessing ? audioDownloadHook.cancelAudioDownload : exportHook.cancelExport}
-      />
-      <WindowSelectDialog
-        show={showWindowSelect}
-        onClose={onCloseWindowSelect}
-        windows={windows}
-        onSelectWindow={onSelectWindowForRecording}
       />
       {currentVideo && !isVideoReady && !showProjectsDialog && (
         <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/62">

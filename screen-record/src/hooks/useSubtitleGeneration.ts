@@ -1,18 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
-import { getEffectiveCompositionMode } from '@/lib/projectComposition';
-import {
-  buildSequenceTimeline,
-  mergeCompositionSegmentsToSequence,
-} from '@/lib/sequenceTimeline';
 import {
   buildSubtitleGenerationPlan,
-  type SubtitleSource,
 } from '@/lib/subtitleGenerationPlan';
 import {
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
-import { getSubtitleLanguageOptionsForMethod } from '@/lib/subtitleLanguageOptions';
 import {
   buildAppliedResultsKey,
   buildSubtitleStatusViewKey,
@@ -22,63 +15,58 @@ import {
   stripSubtitleJobResults,
   summarizeSubtitleRanges,
 } from './subtitleGenerationResults';
-import {
-  DEFAULT_SUBTITLE_METHOD_CAPABILITIES,
-  getInitialAutoSplitEnabled,
-  getInitialAutoSplitMaxUnits,
-  getInitialGeminiPrompt,
-  getInitialGroqVocabulary,
-  getInitialSubtitleLanguageHint,
-  getInitialSubtitleMethod,
-  getInitialSubtitleSource,
-  isParakeetTdtSubtitleMethod,
-  isQwenLocalSubtitleMethod,
-  persistAutoSplitEnabled,
-  persistAutoSplitMaxUnits,
-  persistGeminiPrompt,
-  persistGroqVocabulary,
-  persistSubtitleLanguageHint,
-  persistSubtitleMethod,
-  persistSubtitleSource,
-} from './subtitleGenerationStorage';
+import { useSubtitlePreferences } from './useSubtitlePreferences';
 import type {
-  PrepareParakeetTdtResult,
-  PrepareQwenLocalResult,
-  SubtitleGenerationCapabilities,
+  ResumableSubtitleGenerationRun,
   SubtitleJobContext,
   SubtitleJobStatus,
   SubtitleJobViewStatus,
-  SubtitleMethod,
   UseSubtitleGenerationParams,
 } from './subtitleGenerationTypes';
 import { useSubtitleResultApplication } from './useSubtitleResultApplication';
 import { useSubtitleSourceAvailability } from './useSubtitleSourceAvailability';
-import { useAsyncJobPoll, buildCancelHandler } from './useAsyncJobPoll';
+import { useAsyncJobPoll } from './useAsyncJobPoll';
+import { useSubtitleGenerationCancellation } from './useSubtitleGenerationCancellation';
+import { useSubtitleJobRestore } from './useSubtitleJobRestore';
+import { useSubtitleMethod } from './useSubtitleMethod';
+import { captureSubtitleSourceOwners } from './subtitleSourceOwnership';
+import { retireSubtitlePendingStart, useSubtitleRecoveryHandlers } from './subtitleResumableRecovery';
+import { requireSubtitleRecoveryClear, useSubtitleCompletionBarrier } from './subtitleRecoveryJournal';
+import { hasPendingSubtitleCompletedSave, useSubtitleCompletedSaveState } from './subtitleCompletedPersistence';
+import { isNarrationProjectLoading, narrationProjectEpoch } from './narrationProjectOwnership';
+import { hasRetiringSubtitleGeneration, retireSubtitleGeneration } from './retiredSubtitleGeneration';
+import { recorderShutdownPreparing } from '@/lib/audioImportWriteFence';
+import { subtitleShutdownOverrideArmed } from './subtitleShutdown';
+import { clearSubtitleStartTicket, readSubtitleStartTicket, saveSubtitleStartTicket } from './subtitleStartTicket';
 import {
-  clearResumableRun,
+  clearResumableRunIfJob,
+  claimResumableStart,
+  ownsResumableStart,
+  readResumableRun,
+  readResumableStartMetadata,
+  releaseResumableStart,
   saveResumableRun,
-  useResumableRun,
+  useResumableStartPending,
 } from './resumableJobRegistry';
 
 export type { SubtitleMethod } from './subtitleGenerationTypes';
-
-interface ResumableSubtitleGenerationRun {
-  jobId: string;
-  jobContext: SubtitleJobContext | null;
-  status: SubtitleJobViewStatus | null;
-  lastKnownResultsRevision: number;
-  lastAppliedResultsKey: string;
-  lastStatusViewKey: string;
-}
 
 export function useSubtitleGeneration({
   t,
   projectResetKey,
   segment,
+  segmentRef,
+  currentProjectDataRef,
+  currentProjectIdRef,
+  currentRawVideoPathRef,
+  currentRawMicAudioPathRef,
   setSegment,
+  setSegmentSilently,
   composition,
   setComposition,
+  setCompositionSilently,
   activeClipId,
+  loadedClipIdRef,
   currentRawVideoPath,
   currentRawMicAudioPath,
   duration,
@@ -86,94 +74,81 @@ export function useSubtitleGeneration({
   persistProject,
 }: UseSubtitleGenerationParams) {
   const [editingSubtitleId, setEditingSubtitleId] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<SubtitleSource>(getInitialSubtitleSource);
-  const [subtitleMethod, setSubtitleMethodState] = useState<SubtitleMethod>(getInitialSubtitleMethod);
-  const [subtitleMethodNotice, setSubtitleMethodNotice] = useState<string | null>(null);
-  const [languageHint, setLanguageHint] = useState(getInitialSubtitleLanguageHint);
-  const [geminiPrompt, setGeminiPrompt] = useState(getInitialGeminiPrompt);
-  const [groqVocabulary, setGroqVocabulary] = useState<string[]>(getInitialGroqVocabulary);
-  const [autoSplitSubtitles, setAutoSplitSubtitles] = useState(getInitialAutoSplitEnabled);
-  const [autoSplitMaxUnits, setAutoSplitMaxUnitsState] = useState(getInitialAutoSplitMaxUnits);
+  const {
+    subtitleMethod, setSubtitleMethod, canUseSelectedSubtitleMethod, selectedSubtitleMethodReason,
+    subtitleMethodCapabilities,
+  } = useSubtitleMethod();
+  const { sourceType, setSourceType, languageHint, setLanguageHint, geminiPrompt, setGeminiPrompt, groqVocabulary,
+    setGroqVocabulary, autoSplitSubtitles, setAutoSplitSubtitles, autoSplitMaxUnits, setAutoSplitMaxUnits,
+    autoSplitSubtitlesRef, autoSplitMaxUnitsRef } = useSubtitlePreferences();
   const [jobId, setJobId] = useState<string | null>(null);
   const [isStartingSubtitleJob, setIsStartingSubtitleJob] = useState(false);
   const [jobContext, setJobContext] = useState<SubtitleJobContext | null>(null);
   const [status, setStatus] = useState<SubtitleJobViewStatus | null>(null);
-  const [capabilities, setCapabilities] = useState<SubtitleGenerationCapabilities | null>(null);
   const lastAppliedResultsKeyRef = useRef('');
   const lastKnownResultsRevisionRef = useRef(0);
   const lastStatusViewKeyRef = useRef('');
+  const staleResultsRef = useRef(false);
   const activeJobIdRef = useRef<string | null>(null);
+  const cancelledJobIdRef = useRef<string | null>(null);
+  const startEpochRef = useRef(0);
+  const startingEpochRef = useRef<number | null>(null);
+  const startClaimRef = useRef<symbol | null>(null);
+  const retainCompletion = useSubtitleCompletionBarrier();
   const lastProjectResetKeyRef = useRef<string | null | undefined>(undefined);
-  const autoSplitSubtitlesRef = useRef(autoSplitSubtitles);
-  const autoSplitMaxUnitsRef = useRef(autoSplitMaxUnits);
+  const currentProjectKeyRef = useRef(projectResetKey ?? null);
+  currentProjectKeyRef.current = projectResetKey ?? null;
+  const activeProjectKeyRef = useRef<string | null>(null);
+  const activeProjectEpochRef = useRef(0);
+  const projectEpoch = currentProjectIdRef ? narrationProjectEpoch(currentProjectIdRef) : 0;
+  const ownsProjectEpoch = useCallback(() => (!currentProjectIdRef || !isNarrationProjectLoading(currentProjectIdRef))
+    && activeProjectEpochRef.current === (currentProjectIdRef ? narrationProjectEpoch(currentProjectIdRef) : 0), [currentProjectIdRef]);
+  const lastProjectEpochRef = useRef(projectEpoch);
   const runNamespace = 'subtitle-generation';
+  const completedSaveState = useSubtitleCompletedSaveState();
+  const isStartingShared = useResumableStartPending(runNamespace);
+  const cancelPendingStart = useCallback(() => retireSubtitlePendingStart(), []);
+  const { onStaleResults, onQueuedResultsFlushed } = useSubtitleRecoveryHandlers(staleResultsRef, activeJobIdRef, activeProjectKeyRef);
 
-  // Re-adopt an in-flight subtitle job after the panel remounts (tab switch).
-  useResumableRun<ResumableSubtitleGenerationRun>(runNamespace, jobId, (cached) => {
-    lastKnownResultsRevisionRef.current = cached.lastKnownResultsRevision;
-    lastAppliedResultsKeyRef.current = cached.lastAppliedResultsKey;
-    lastStatusViewKeyRef.current = cached.lastStatusViewKey;
-    setJobContext(cached.jobContext);
-    setStatus(cached.status);
-    setJobId(cached.jobId);
-  });
+  useEffect(() => {
+    if (!isStartingShared) return;
+    const pending = readResumableStartMetadata<{ projectKey: string | null; projectEpoch: number }>(runNamespace);
+    if (!pending) return;
+    const localClaim = startClaimRef.current;
+    const locallyOwned = localClaim !== null && ownsResumableStart(runNamespace, localClaim);
+    if (projectResetKey == null && pending.projectKey !== null && !locallyOwned) return;
+    if (pending.projectKey === (projectResetKey ?? null) && pending.projectEpoch === projectEpoch && (pending.projectKey !== null || locallyOwned)) return;
+    cancelPendingStart();
+  }, [cancelPendingStart, isStartingShared, projectResetKey, projectEpoch]);
 
   const {
-    clearQueuedSubtitleResults,
-    flushQueuedSubtitleResults,
-    markCompletedJobForPersist,
-    queueSubtitleResults,
+    clearQueuedSubtitleResults, flushQueuedSubtitleResults, getQueuedSubtitleResults,
+    markCompletedJobForPersist, queueSubtitleResults,
   } = useSubtitleResultApplication({
     segment,
+    segmentRef,
+    currentProjectDataRef,
+    currentProjectIdRef,
+    projectResetKey,
+    currentRawVideoPathRef,
+    currentRawMicAudioPathRef,
+    currentRawVideoPath,
+    currentRawMicAudioPath,
+    onStaleResults, onQueuedResultsFlushed, ownsProjectEpoch,
     setSegment,
+    setSegmentSilently,
+    loadedClipIdRef,
     composition,
     setComposition,
+    setCompositionSilently,
     jobContext,
     jobId,
     persistProject,
   });
 
-  useEffect(() => {
-    persistSubtitleSource(sourceType);
-  }, [sourceType]);
-
-  useEffect(() => {
-    persistSubtitleMethod(subtitleMethod);
-  }, [subtitleMethod]);
-
-  useEffect(() => {
-    persistSubtitleLanguageHint(languageHint);
-  }, [languageHint]);
-
-  useEffect(() => {
-    const languageOptions = getSubtitleLanguageOptionsForMethod(subtitleMethod);
-    if (!languageOptions.some((option) => option.value === languageHint)) {
-      setLanguageHint('auto');
-    }
-  }, [languageHint, subtitleMethod]);
-
-  useEffect(() => {
-    persistGeminiPrompt(geminiPrompt);
-  }, [geminiPrompt]);
-
-  useEffect(() => {
-    persistGroqVocabulary(groqVocabulary);
-  }, [groqVocabulary]);
-
-  useEffect(() => {
-    autoSplitSubtitlesRef.current = autoSplitSubtitles;
-    persistAutoSplitEnabled(autoSplitSubtitles);
-  }, [autoSplitSubtitles]);
-
-  const setAutoSplitMaxUnits = useCallback((value: number) => {
-    const next = Math.min(24, Math.max(3, Math.round(value)));
-    setAutoSplitMaxUnitsState(next);
-  }, []);
-
-  useEffect(() => {
-    autoSplitMaxUnitsRef.current = autoSplitMaxUnits;
-    persistAutoSplitMaxUnits(autoSplitMaxUnits);
-  }, [autoSplitMaxUnits]);
+  useSubtitleJobRestore({ jobId, projectResetKey, projectEpoch, lastKnownResultsRevisionRef, lastAppliedResultsKeyRef,
+    lastStatusViewKeyRef, staleResultsRef, activeJobIdRef, activeProjectKeyRef, activeProjectEpochRef,
+    setJobContext, setStatus, setJobId, queueSubtitleResults });
 
   useEffect(() => {
     activeJobIdRef.current = jobId;
@@ -182,30 +157,38 @@ export function useSubtitleGeneration({
   useEffect(() => {
     const nextKey = projectResetKey ?? null;
     if (lastProjectResetKeyRef.current === undefined) {
-      lastProjectResetKeyRef.current = nextKey;
-      return;
-    }
-    if (lastProjectResetKeyRef.current === nextKey) {
+      if (nextKey === null && !activeJobIdRef.current && startingEpochRef.current === null) return;
+      if ((!activeJobIdRef.current && startingEpochRef.current === null) || activeProjectKeyRef.current === nextKey) {
+        lastProjectResetKeyRef.current = nextKey;
+        return;
+      }
+    } else if (lastProjectResetKeyRef.current === nextKey && lastProjectEpochRef.current === projectEpoch) {
       return;
     }
     lastProjectResetKeyRef.current = nextKey;
+    lastProjectEpochRef.current = projectEpoch;
 
     const activeJobId = activeJobIdRef.current;
     if (activeJobId) {
-      void invoke('cancel_subtitle_generation', { jobId: activeJobId }).catch(() => {});
+      const run = readResumableRun<ResumableSubtitleGenerationRun>(runNamespace);
+      if (run?.jobId === activeJobId) retireSubtitleGeneration(run);
     }
-    clearResumableRun(runNamespace);
+    if (activeJobId) clearResumableRunIfJob(runNamespace, activeJobId);
+    cancelPendingStart();
     setEditingSubtitleId(null);
+    startEpochRef.current += 1;
+    startingEpochRef.current = null;
+    activeJobIdRef.current = null;
     setJobId(null);
     setIsStartingSubtitleJob(false);
     setJobContext(null);
     setStatus(null);
-    setSubtitleMethodNotice(null);
     lastAppliedResultsKeyRef.current = '';
     lastKnownResultsRevisionRef.current = 0;
     lastStatusViewKeyRef.current = '';
+    staleResultsRef.current = false;
     clearQueuedSubtitleResults();
-  }, [clearQueuedSubtitleResults, projectResetKey]);
+  }, [cancelPendingStart, clearQueuedSubtitleResults, projectResetKey, projectEpoch]);
 
   const {
     canUseAudioSource,
@@ -219,85 +202,6 @@ export function useSubtitleGeneration({
     sourceType,
   });
 
-  const updateMethodCapability = useCallback((
-    method: SubtitleMethod,
-    available: boolean,
-    reason?: string | null,
-  ) => {
-    setCapabilities((prev) => {
-      const currentMethods = prev?.methods ?? DEFAULT_SUBTITLE_METHOD_CAPABILITIES;
-      return {
-        methods: currentMethods.map((entry) => (
-          entry.method === method
-            ? { ...entry, available, reason: reason ?? null }
-            : entry
-        )),
-      };
-    });
-  }, []);
-
-  const capabilityByMethod = useMemo(
-    () => new Map((capabilities?.methods ?? []).map((entry) => [entry.method, entry])),
-    [capabilities],
-  );
-
-  const prepareLocalSubtitleMethod = useCallback(async (method: SubtitleMethod) => {
-    if (!isQwenLocalSubtitleMethod(method) && !isParakeetTdtSubtitleMethod(method)) {
-      updateMethodCapability(method, true, null);
-      return { available: true, startedDownloads: false, reason: null };
-    }
-
-    const result = isParakeetTdtSubtitleMethod(method)
-      ? await invoke<PrepareParakeetTdtResult>('prepare_parakeet_tdt_subtitles', {
-          subtitleMethod: method,
-        })
-      : await invoke<PrepareQwenLocalResult>('prepare_qwen_local_subtitles', {
-          subtitleMethod: method,
-        });
-    updateMethodCapability(method, result.available, result.reason ?? null);
-    return result;
-  }, [updateMethodCapability]);
-
-  const setSubtitleMethod = useCallback(async (nextMethod: SubtitleMethod) => {
-    if (nextMethod === subtitleMethod) return;
-    setSubtitleMethodNotice(null);
-    if (!isQwenLocalSubtitleMethod(nextMethod) && !isParakeetTdtSubtitleMethod(nextMethod)) {
-      updateMethodCapability(nextMethod, true, null);
-      setSubtitleMethodState(nextMethod);
-      return;
-    }
-
-    try {
-      const result = await prepareLocalSubtitleMethod(nextMethod);
-      if (result.available) {
-        setSubtitleMethodState(nextMethod);
-        return;
-      }
-      setSubtitleMethodNotice(result.reason ?? null);
-    } catch (error) {
-      setSubtitleMethodNotice(error instanceof Error ? error.message : String(error));
-    }
-  }, [prepareLocalSubtitleMethod, subtitleMethod, updateMethodCapability]);
-
-  const selectedMethodCapability = capabilityByMethod.get(subtitleMethod);
-  const selectedMethodIsLocal = isQwenLocalSubtitleMethod(subtitleMethod)
-    || isParakeetTdtSubtitleMethod(subtitleMethod);
-  const canUseSelectedSubtitleMethod = selectedMethodCapability?.available !== false
-    || selectedMethodIsLocal;
-  const selectedSubtitleMethodReason = subtitleMethodNotice
-    ?? (selectedMethodCapability?.available === false
-    ? selectedMethodCapability.reason ?? 'This subtitle method is unavailable.'
-    : null);
-
-  useEffect(() => {
-    if (!composition || getEffectiveCompositionMode(composition) === 'separate') return;
-    const effectiveMode = getEffectiveCompositionMode(composition);
-    if (effectiveMode !== 'unified') return;
-    const timeline = buildSequenceTimeline(composition);
-    if (!timeline) return;
-    setSegment(mergeCompositionSegmentsToSequence(timeline));
-  }, [composition, setSegment]);
-
   useAsyncJobPoll<SubtitleJobStatus>({
     jobId,
     fetchStatus: (activeJobId) =>
@@ -310,7 +214,10 @@ export function useSubtitleGeneration({
       || nextStatus.state === 'cancelled'
       || nextStatus.state === 'error',
     onTick: (nextStatus) => {
-      const nextViewStatus = stripSubtitleJobResults(nextStatus);
+      if (!jobId || !ownsProjectEpoch() || activeJobIdRef.current !== jobId || cancelledJobIdRef.current === jobId || activeProjectKeyRef.current !== currentProjectKeyRef.current || readResumableRun<ResumableSubtitleGenerationRun>(runNamespace)?.jobId !== jobId) return;
+      const nextViewStatus = nextStatus.state === 'completed'
+        ? { ...stripSubtitleJobResults(nextStatus), state: 'running' as const, message: t.subtitleStatusSavingRecovery, messageKey: 'subtitleStatusSavingRecovery' }
+        : stripSubtitleJobResults(nextStatus);
       const nextStatusViewKey = buildSubtitleStatusViewKey(nextViewStatus);
       if (nextStatusViewKey !== lastStatusViewKeyRef.current) {
         lastStatusViewKeyRef.current = nextStatusViewKey;
@@ -331,6 +238,11 @@ export function useSubtitleGeneration({
           + `results=${nextStatus.results.length} ${resultSummary || 'empty-results'}`,
         );
       }
+      if (generatedResults.length > 0) {
+        // Event revisions acknowledge delivery, even when the presentation key
+        // is unchanged. Otherwise the worker replays that event indefinitely.
+        lastKnownResultsRevisionRef.current = Math.max(lastKnownResultsRevisionRef.current, nextStatus.resultsRevision);
+      }
       if (
         generatedResults.length > 0
         && nextAppliedResultsKey !== lastAppliedResultsKeyRef.current
@@ -338,26 +250,62 @@ export function useSubtitleGeneration({
         if (nextStatus.state === 'completed') {
           clearQueuedSubtitleResults();
         }
-        lastKnownResultsRevisionRef.current = nextStatus.resultsRevision;
         lastAppliedResultsKeyRef.current = nextAppliedResultsKey;
         queueSubtitleResults(generatedResults, hasFinalSubtitleResult(generatedResults));
+      } else if (generatedResults.length > 0 && generatedResults.every((result) => result.isPartial) && getQueuedSubtitleResults().length > 0) {
+        // Keep the newest payload in an already pending batch even when its
+        // presentation key deliberately ignores live tail timing changes.
+        queueSubtitleResults(generatedResults, false);
       }
       if (jobId) {
         saveResumableRun<ResumableSubtitleGenerationRun>(runNamespace, {
           jobId,
+          projectKey: activeProjectKeyRef.current,
+          projectEpoch: activeProjectEpochRef.current,
           jobContext,
           status: nextViewStatus,
           lastKnownResultsRevision: lastKnownResultsRevisionRef.current,
           lastAppliedResultsKey: lastAppliedResultsKeyRef.current,
           lastStatusViewKey: lastStatusViewKeyRef.current,
+          staleResults: staleResultsRef.current,
+          pendingResults: getQueuedSubtitleResults(),
         });
       }
     },
-    onComplete: (nextStatus) => {
-      clearResumableRun(runNamespace);
+    onComplete: async (nextStatus) => {
+      if (!jobId || !ownsProjectEpoch() || activeJobIdRef.current !== jobId || cancelledJobIdRef.current === jobId || activeProjectKeyRef.current !== currentProjectKeyRef.current || readResumableRun<ResumableSubtitleGenerationRun>(runNamespace)?.jobId !== jobId) return;
+      if (nextStatus.state === 'completed' && nextStatus.results.length) {
+        const completedEpoch = activeProjectEpochRef.current;
+        const recovery = await retainCompletion({ version: 1, jobId, projectId: activeProjectKeyRef.current, context: jobContext, results: nextStatus.results });
+        if (recovery === 'unmounted') return;
+        if (recovery === 'discarded' || recovery === 'discarded-unmounted') {
+          clearSubtitleStartTicket(jobId);
+          const resumed = readResumableRun<ResumableSubtitleGenerationRun>(runNamespace);
+          if (resumed?.jobId === jobId && resumed.projectKey === jobContext?.projectKey && resumed.projectEpoch === completedEpoch) clearResumableRunIfJob(runNamespace, jobId);
+          if (recovery === 'discarded-unmounted') return;
+          if (activeProjectEpochRef.current !== completedEpoch || !ownsProjectEpoch() || activeJobIdRef.current !== jobId || activeProjectKeyRef.current !== currentProjectKeyRef.current) return;
+          clearQueuedSubtitleResults();
+          activeJobIdRef.current = null;
+          setJobId(null);
+          setJobContext(null);
+          setStatus({ ...stripSubtitleJobResults(nextStatus), state: 'cancelled',
+            message: t.subtitleStatusCancelled, messageKey: 'subtitleStatusCancelled', error: null });
+          return;
+        }
+        if (activeProjectEpochRef.current !== completedEpoch || !ownsProjectEpoch() || activeJobIdRef.current !== jobId || cancelledJobIdRef.current === jobId || activeProjectKeyRef.current !== currentProjectKeyRef.current || readResumableRun<ResumableSubtitleGenerationRun>(runNamespace)?.jobId !== jobId) return;
+      }
+      clearSubtitleStartTicket(jobId);
+      clearResumableRunIfJob(runNamespace, jobId);
       if (nextStatus.state === 'completed') {
         flushQueuedSubtitleResults();
-        markCompletedJobForPersist();
+        markCompletedJobForPersist(staleResultsRef.current);
+        if (staleResultsRef.current) {
+          setStatus({ ...stripSubtitleJobResults(nextStatus), state: 'error',
+            message: t.subtitleStatusSourceChanged, messageKey: 'subtitleStatusSourceChanged',
+            error: t.subtitleStatusSourceChanged });
+        } else {
+          setStatus(stripSubtitleJobResults(nextStatus));
+        }
         lastAppliedResultsKeyRef.current = '';
         lastKnownResultsRevisionRef.current = 0;
         lastStatusViewKeyRef.current = '';
@@ -375,7 +323,10 @@ export function useSubtitleGeneration({
       setJobContext(null);
     },
     onError: (error) => {
-      clearResumableRun(runNamespace);
+      if (!jobId || !ownsProjectEpoch() || activeJobIdRef.current !== jobId || cancelledJobIdRef.current === jobId || activeProjectKeyRef.current !== currentProjectKeyRef.current || readResumableRun<ResumableSubtitleGenerationRun>(runNamespace)?.jobId !== jobId) return;
+      const run = readResumableRun<ResumableSubtitleGenerationRun>(runNamespace);
+      if (run?.jobId === jobId) void retireSubtitleGeneration(run);
+      clearResumableRunIfJob(runNamespace, jobId);
       setStatus({
         state: 'error',
         message: error instanceof Error ? error.message : t.subtitleStatusFailed,
@@ -398,34 +349,37 @@ export function useSubtitleGeneration({
   });
 
   const handleGenerateSubtitles = useCallback(async (selectedRange?: TrackSelectionRange | null) => {
-    if (jobId || isStartingSubtitleJob) {
+    if (recorderShutdownPreparing() || subtitleShutdownOverrideArmed()) return;
+    if (currentProjectIdRef && isNarrationProjectLoading(currentProjectIdRef)) return;
+    if (hasPendingSubtitleCompletedSave() || hasRetiringSubtitleGeneration()) {
+      setStatus({ state: 'error', message: t.subtitleStatusSavePending, messageKey: 'subtitleStatusSavePending',
+        progress: 0, activeClipId: null, totalClips: 0, completedClips: 0,
+        resultsRevision: 0, skipped: [], error: t.subtitleStatusSavePending });
       return;
     }
-    setIsStartingSubtitleJob(true);
-    try {
-    if (selectedMethodIsLocal) {
-      const preparation = await prepareLocalSubtitleMethod(subtitleMethod);
-      if (!preparation.available) {
-        const message = preparation.reason ?? 'Selected subtitle method is unavailable';
-        setStatus({
-          state: 'error',
-          message,
-          messageKey: 'subtitleStatusMethodUnavailable',
-          progress: 0,
-          activeClipId: null,
-          totalClips: 0,
-          completedClips: 0,
-          resultsRevision: 0,
-          skipped: [],
-          error: message,
-        });
-        setSubtitleMethodNotice(message);
-        lastStatusViewKeyRef.current = '';
-        return;
-      }
-      setSubtitleMethodNotice(null);
+    if (jobId || isStartingSubtitleJob || isStartingShared) {
+      return;
     }
-
+    const ownerProjectKey = projectResetKey ?? null;
+    const ownerProjectEpoch = currentProjectIdRef ? narrationProjectEpoch(currentProjectIdRef) : 0;
+    const claim = claimResumableStart(runNamespace, { projectKey: ownerProjectKey, projectEpoch: ownerProjectEpoch });
+    if (!claim) return;
+    startClaimRef.current = claim;
+    const startEpoch = ++startEpochRef.current;
+    staleResultsRef.current = false;
+    const ownsStart = () => ownsResumableStart(runNamespace, claim)
+      && startEpoch === startEpochRef.current && ownerProjectKey === currentProjectKeyRef.current
+      && (!currentProjectIdRef || !isNarrationProjectLoading(currentProjectIdRef))
+      && ownerProjectEpoch === (currentProjectIdRef ? narrationProjectEpoch(currentProjectIdRef) : 0);
+    activeProjectKeyRef.current = ownerProjectKey;
+    activeProjectEpochRef.current = ownerProjectEpoch;
+    startingEpochRef.current = startEpoch;
+    setIsStartingSubtitleJob(true);
+    let startTicket: ResumableSubtitleGenerationRun | null = null;
+    try {
+    await requireSubtitleRecoveryClear(t.subtitleRecoveryUnavailable, t.subtitleStatusSavePending);
+    if (!ownsStart()) return;
+    if (readSubtitleStartTicket()) throw new Error(t.subtitleStatusSavePending);
     const plan = buildSubtitleGenerationPlan({
       segment,
       composition,
@@ -459,14 +413,24 @@ export function useSubtitleGeneration({
     setActivePanel('subtitles');
     clearQueuedSubtitleResults();
     const nextJobContext: SubtitleJobContext = {
+      projectKey: ownerProjectKey,
       replacementRangesByClip: plan.replacementRangesByClip,
       indicator: plan.indicator,
       sourceTypeForNative: plan.sourceTypeForNative,
       clipTransformsByClip: plan.clipTransformsByClip,
+      sourceOwnersByClip: captureSubtitleSourceOwners(plan, segment, composition),
     };
     setJobContext(nextJobContext);
 
+    const allocated = await invoke<{ jobId: string }>('allocate_narration_job_id', { kind: 'transcription' });
+    if (!ownsStart()) return;
+    if (!/^ticket-[0-9a-f]{32}-transcription-[1-9][0-9]*$/.test(allocated?.jobId)) throw new Error('Subtitle start identity is unavailable');
+    startTicket = { jobId: allocated.jobId, projectKey: ownerProjectKey,
+      projectEpoch: ownerProjectEpoch, jobContext: nextJobContext, status: null, lastKnownResultsRevision: 0,
+      lastAppliedResultsKey: '', lastStatusViewKey: '' };
+    saveSubtitleStartTicket(startTicket);
     const result = await invoke<{ jobId: string }>('start_subtitle_generation', {
+      jobId: allocated.jobId,
       sourceType: plan.sourceTypeForNative,
       subtitleMethod,
       languageHint: languageHint.trim() || 'auto',
@@ -474,6 +438,19 @@ export function useSubtitleGeneration({
       groqVocabulary,
       clips: plan.clips,
     });
+    if (result.jobId !== allocated.jobId) {
+      void retireSubtitleGeneration({ ...startTicket, jobId: result.jobId });
+      void retireSubtitleGeneration(startTicket);
+      throw new Error('Subtitle worker did not accept the start identity');
+    }
+    if (!ownsStart()) {
+      // A history restore or project change retired this start while the
+      // worker was accepting it. Never adopt its results into the editor.
+      retireSubtitleGeneration({ jobId: result.jobId, projectKey: ownerProjectKey, projectEpoch: ownerProjectEpoch,
+        jobContext: nextJobContext, status: null, lastKnownResultsRevision: 0,
+        lastAppliedResultsKey: '', lastStatusViewKey: '' });
+      return;
+    }
 
     const queuedStatus: SubtitleJobViewStatus = {
       state: 'queued',
@@ -491,16 +468,24 @@ export function useSubtitleGeneration({
     lastAppliedResultsKeyRef.current = '';
     lastKnownResultsRevisionRef.current = 0;
     lastStatusViewKeyRef.current = '';
+    cancelledJobIdRef.current = null;
+    activeJobIdRef.current = result.jobId;
+    activeProjectKeyRef.current = ownerProjectKey;
     setJobId(result.jobId);
     saveResumableRun<ResumableSubtitleGenerationRun>(runNamespace, {
       jobId: result.jobId,
+      projectKey: ownerProjectKey,
+      projectEpoch: ownerProjectEpoch,
       jobContext: nextJobContext,
       status: queuedStatus,
       lastKnownResultsRevision: 0,
       lastAppliedResultsKey: '',
       lastStatusViewKey: '',
+      staleResults: false, pendingResults: [],
     });
     } catch (error) {
+      if (startTicket) void retireSubtitleGeneration(startTicket);
+      if (!ownsStart()) return;
       const message = error instanceof Error ? error.message : String(error);
       setStatus({
         state: 'error',
@@ -515,51 +500,42 @@ export function useSubtitleGeneration({
       });
       lastStatusViewKeyRef.current = '';
     } finally {
-      setIsStartingSubtitleJob(false);
+      releaseResumableStart(runNamespace, claim);
+      if (startClaimRef.current === claim) startClaimRef.current = null;
+      if (startingEpochRef.current === startEpoch) {
+        startingEpochRef.current = null;
+        setIsStartingSubtitleJob(false);
+      }
     }
   }, [
     activeClipId,
     clearQueuedSubtitleResults,
     composition,
+    currentProjectIdRef,
     currentRawMicAudioPath,
     currentRawVideoPath,
     duration,
     isStartingSubtitleJob,
+    isStartingShared,
     jobId,
     geminiPrompt,
     groqVocabulary,
     languageHint,
-    prepareLocalSubtitleMethod,
+    projectResetKey,
     segment,
-    selectedMethodIsLocal,
     setActivePanel,
     sourceType,
     subtitleMethod,
+    t.subtitleStatusSavePending,
   ]);
 
-  const handleCancelSubtitleGeneration = useCallback(
-    buildCancelHandler({
-      jobId,
-      cancelCommand: 'cancel_subtitle_generation',
-      onCancelled: () => {
-        clearResumableRun(runNamespace);
-        clearQueuedSubtitleResults();
-        setStatus((prev) => (prev ? {
-          ...prev,
-          state: 'cancelled',
-          message: t.subtitleStatusCancelled,
-          messageKey: 'subtitleStatusCancelled',
-          messageParams: {},
-        } : prev));
-        lastAppliedResultsKeyRef.current = '';
-        lastKnownResultsRevisionRef.current = 0;
-        lastStatusViewKeyRef.current = '';
-        setJobId(null);
-        setJobContext(null);
-      },
-    }),
-    [clearQueuedSubtitleResults, jobId, t.subtitleStatusCancelled],
-  );
+  const { handleCancelSubtitleGeneration, retireSubtitleForHistory } = useSubtitleGenerationCancellation({
+    activeJobIdRef, cancelledJobIdRef, startEpochRef, startingEpochRef,
+    lastAppliedResultsKeyRef, lastKnownResultsRevisionRef, lastStatusViewKeyRef,
+    clearQueuedSubtitleResults, cancelPendingStart, setStatus, setJobId, setJobContext,
+    setIsStartingSubtitleJob, cancelledMessage: t.subtitleStatusCancelled,
+    unconfirmedMessage: t.subtitleStatusCancelUnconfirmed,
+  });
 
   return {
     editingSubtitleId,
@@ -568,7 +544,7 @@ export function useSubtitleGeneration({
     setSubtitleSource: setSourceType,
     subtitleMethod,
     setSubtitleMethod,
-    subtitleMethodCapabilities: capabilities?.methods ?? DEFAULT_SUBTITLE_METHOD_CAPABILITIES,
+    subtitleMethodCapabilities,
     canUseSelectedSubtitleMethod,
     selectedSubtitleMethodReason,
     subtitleLanguageHint: languageHint,
@@ -577,8 +553,9 @@ export function useSubtitleGeneration({
     setSubtitleGeminiPrompt: setGeminiPrompt,
     subtitleGroqVocabulary: groqVocabulary,
     setSubtitleGroqVocabulary: setGroqVocabulary,
-    isGeneratingSubtitles: !!jobId || isStartingSubtitleJob,
-    subtitleStatusMessage: localizeSubtitleStatus(t, status),
+    isGeneratingSubtitles: !!jobId || isStartingSubtitleJob || isStartingShared,
+    subtitleStatusMessage: completedSaveState === 'unconfirmed' || completedSaveState === 'superseded'
+      ? t.subtitleStatusSaveUnconfirmed : localizeSubtitleStatus(t, status),
     subtitleActiveClipId: status?.activeClipId ?? null,
     subtitleGenerationIndicator: jobContext?.indicator ?? null,
     canUseVideoSubtitleSource: canUseVideoSource,
@@ -586,6 +563,7 @@ export function useSubtitleGeneration({
     canUseAudioSubtitleSource: canUseAudioSource,
     handleGenerateSubtitles,
     handleCancelSubtitleGeneration,
+    retireSubtitleForHistory,
     autoSplitSubtitles,
     setAutoSplitSubtitles,
     autoSplitMaxUnits,

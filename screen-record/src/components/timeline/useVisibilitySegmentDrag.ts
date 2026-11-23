@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useLayoutEffect, useRef } from 'react';
 import type { CursorVisibilitySegment, VideoSegment } from '@/types/video';
 import { clampSegmentEdge, splitVisibilitySegmentAtTime } from './trackDragUtils';
+
+const DRAG_CLICK_SUPPRESS_MS = 250;
 
 /**
  * Per-track configuration for {@link useVisibilitySegmentDrag}.
@@ -49,14 +51,14 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
     getTimeFromClientX,
     beginBatch,
     commitBatch,
-    dragStartGuard,
-    snapshotOriginals,
-    onDragStart,
-    writeDuringDrag,
-    getSegmentsForSplit,
-    setSegmentsAfterSplit,
-    onSplit,
   } = config;
+  // Per-track callbacks are usually inline closures; reading them through a ref
+  // keeps the returned handlers stable so the memoized track stack does not
+  // re-render on every playback tick.
+  const callbacksRef = useRef(config);
+  useLayoutEffect(() => {
+    callbacksRef.current = config;
+  });
 
   const [isDraggingStart, setIsDraggingStart] = useState(false);
   const [isDraggingEnd, setIsDraggingEnd] = useState(false);
@@ -65,8 +67,12 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
   const dragOffsetRef = useRef(0);
   const dragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
   const dragDidMove = useRef(false);
+  // A moved drag suppresses only the click that immediately follows its release;
+  // a drag released off the segment never delivers that click, so the flag expires.
+  const suppressClickUntilRef = useRef(0);
 
   const handleDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
+    const { dragStartGuard, snapshotOriginals, onDragStart } = callbacksRef.current;
     if (dragStartGuard && !dragStartGuard(segment)) return;
     beginBatch();
     dragDidMove.current = false;
@@ -79,7 +85,7 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
       setIsDraggingBody(true);
       if (offset !== undefined) dragOffsetRef.current = offset;
     }
-  }, [beginBatch, segment, dragStartGuard, snapshotOriginals, onDragStart]);
+  }, [beginBatch, segment]);
 
   const handleDrag = useCallback((clientX: number) => {
     if ((!isDraggingStart && !isDraggingEnd && !isDraggingBody) || !draggingId || !segment) return;
@@ -107,7 +113,7 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
       return { ...seg };
     });
 
-    setSegment(writeDuringDrag(segment, modified));
+    setSegment(callbacksRef.current.writeDuringDrag(segment, modified));
   }, [
     isDraggingStart,
     isDraggingEnd,
@@ -117,15 +123,16 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
     getTimeFromClientX,
     setSegment,
     duration,
-    writeDuringDrag,
   ]);
 
   const handleClick = useCallback((id: string, splitTime: number) => {
     if (isDraggingStart || isDraggingEnd || isDraggingBody) return;
-    if (dragDidMove.current) {
+    if (dragDidMove.current || performance.now() < suppressClickUntilRef.current) {
       dragDidMove.current = false;
+      suppressClickUntilRef.current = 0;
       return;
     }
+    const { getSegmentsForSplit, setSegmentsAfterSplit, onSplit } = callbacksRef.current;
     const segments = getSegmentsForSplit(segment);
     if (!segments) return;
 
@@ -144,9 +151,6 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
     setSegment,
     beginBatch,
     commitBatch,
-    getSegmentsForSplit,
-    setSegmentsAfterSplit,
-    onSplit,
   ]);
 
   const reset = useCallback(() => {
@@ -155,6 +159,10 @@ export function useVisibilitySegmentDrag(config: VisibilitySegmentDragConfig) {
     setIsDraggingBody(false);
     setDraggingId(null);
     dragOriginals.current = null;
+    if (dragDidMove.current) {
+      suppressClickUntilRef.current = performance.now() + DRAG_CLICK_SUPPRESS_MS;
+      dragDidMove.current = false;
+    }
   }, []);
 
   return {

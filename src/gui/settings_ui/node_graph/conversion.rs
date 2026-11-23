@@ -3,14 +3,101 @@ use crate::config::ProcessingBlock;
 use eframe::egui;
 use egui_snarl::{InPinId, NodeId, OutPinId, Snarl};
 
+/// Invalid saved graphs remain intact and cannot be edited until restored.
+pub fn graph_connections_valid(blocks: &[ProcessingBlock], connections: &[(usize, usize)]) -> bool {
+    use std::collections::HashSet;
+
+    let adapters: Vec<_> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| (block.block_type == "input_adapter").then_some(index))
+        .collect();
+    if adapters.len() > 1 || adapters.first().is_some_and(|index| *index != 0) {
+        return false;
+    }
+    let mut edges = HashSet::new();
+    let mut inputs = HashSet::new();
+    connections.iter().all(|&(from, to)| {
+        from < blocks.len()
+            && to < blocks.len()
+            && from != to
+            && blocks[to].block_type != "input_adapter"
+            && (!adapters.is_empty() || to != 0)
+            && edges.insert((from, to))
+            && inputs.insert(to)
+    })
+}
+
+/// Preserve original fields that are not represented by the graph controls.
+pub fn save_graph_to_preset(
+    preset: &mut crate::config::Preset,
+    snarl: &mut Snarl<ChainNode>,
+) -> bool {
+    if !graph_connections_valid(&preset.blocks, &preset.block_connections) {
+        return false;
+    }
+    let GraphProjection {
+        blocks,
+        mut connections,
+        node_indices: indices,
+    } = snarl_to_graph_with_indices(snarl);
+    if !graph_connections_valid(&blocks, &connections) {
+        return false;
+    }
+    let source_to_new: std::collections::HashMap<_, _> = snarl
+        .node_ids()
+        .filter_map(|(id, node)| Some((node.source_index()?, *indices.get(&id)?)))
+        .collect();
+    let mut remaining: std::collections::HashSet<_> = connections.drain(..).collect();
+    for &(from, to) in &preset.block_connections {
+        if let (Some(&from), Some(&to)) = (source_to_new.get(&from), source_to_new.get(&to))
+            && remaining.remove(&(from, to))
+        {
+            connections.push((from, to));
+        }
+    }
+    let mut new_edges: Vec<_> = remaining.into_iter().collect();
+    new_edges.sort_unstable();
+    connections.extend(new_edges);
+    for (id, index) in indices {
+        if let Some(node) = snarl.get_node_mut(id) {
+            node.set_source(index, &blocks[index]);
+        }
+    }
+    preset.blocks = blocks;
+    preset.block_connections = connections;
+    preset.graph_explicit = true;
+    true
+}
+
 /// Convert blocks to snarl graph with intelligent layout
 pub fn blocks_to_snarl(
     blocks: &[ProcessingBlock],
     connections: &[(usize, usize)],
+    graph_explicit: bool,
     preset_type: &str,
 ) -> Snarl<ChainNode> {
     let mut snarl = Snarl::new();
     let mut node_ids = Vec::new();
+    let mut occupied_inputs = std::collections::HashSet::new();
+    if !blocks
+        .iter()
+        .any(|block| block.block_type == "input_adapter")
+        && !blocks.is_empty()
+    {
+        occupied_inputs.insert(0);
+    }
+    let safe_connections: Vec<_> = connections
+        .iter()
+        .copied()
+        .filter(|&(from, to)| {
+            from < blocks.len()
+                && to < blocks.len()
+                && from != to
+                && blocks[to].block_type != "input_adapter"
+                && occupied_inputs.insert(to)
+        })
+        .collect();
 
     // Default layout parameters
     let start_x = 50.0;
@@ -19,12 +106,12 @@ pub fn blocks_to_snarl(
     let spacing_y = 225.0; // Increased to prevent vertical overlap (nodes are tall)
 
     // Calculate positions based on graph structure
-    let positions: Vec<egui::Pos2> = if !connections.is_empty() {
+    let positions: Vec<egui::Pos2> = if !connections.is_empty() && !blocks.is_empty() {
         use std::collections::{HashMap, VecDeque};
 
         // 1. Build adjacency
         let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
-        for &(from, to) in connections {
+        for &(from, to) in &safe_connections {
             adj.entry(from).or_default().push(to);
         }
 
@@ -120,9 +207,12 @@ pub fn blocks_to_snarl(
             "input"
         } else {
             // Determine if this is a "first-level" node connected to input
-            let is_connected_to_input = connections
-                .iter()
-                .any(|(from, to)| *to == i && blocks[*from].block_type == "input_adapter");
+            let is_connected_to_input = safe_connections.iter().any(|(from, to)| {
+                *to == i
+                    && blocks
+                        .get(*from)
+                        .is_some_and(|block| block.block_type == "input_adapter")
+            });
 
             let is_legacy_first = i == 0 && !has_input_adapter;
 
@@ -144,7 +234,8 @@ pub fn blocks_to_snarl(
             pos.x += spacing_x;
         }
 
-        let node = ChainNode::from_block(block, role);
+        let mut node = ChainNode::from_block(block, role);
+        node.set_source(i, block);
         let node_id = snarl.insert_node(pos, node);
         node_ids.push(node_id);
     }
@@ -168,7 +259,7 @@ pub fn blocks_to_snarl(
 
     // 4. Create connections
     if !connections.is_empty() {
-        for &(from_idx, to_idx) in connections {
+        for &(from_idx, to_idx) in &safe_connections {
             if from_idx < node_ids.len() && to_idx < node_ids.len() {
                 let from = OutPinId {
                     node: node_ids[from_idx],
@@ -181,7 +272,7 @@ pub fn blocks_to_snarl(
                 snarl.connect(from, to);
             }
         }
-    } else if blocks.len() > 1 {
+    } else if !graph_explicit && blocks.len() > 1 {
         // Legacy fallback
         for i in 0..node_ids.len() - 1 {
             let from = OutPinId {
@@ -199,65 +290,51 @@ pub fn blocks_to_snarl(
     snarl
 }
 
-/// Convert snarl graph back to blocks and connections
-/// Returns (blocks, connections) where connections is Vec<(from_idx, to_idx)>
-pub fn snarl_to_graph(snarl: &Snarl<ChainNode>) -> (Vec<ProcessingBlock>, Vec<(usize, usize)>) {
-    use std::collections::{HashMap, VecDeque};
+struct GraphProjection {
+    blocks: Vec<ProcessingBlock>,
+    connections: Vec<(usize, usize)>,
+    node_indices: std::collections::HashMap<NodeId, usize>,
+}
+
+/// Convert editor nodes and wires while retaining their output indices.
+fn snarl_to_graph_with_indices(snarl: &Snarl<ChainNode>) -> GraphProjection {
+    use std::collections::HashMap;
 
     let mut blocks = Vec::new();
     let mut connections = Vec::new();
     let mut node_to_idx: HashMap<NodeId, usize> = HashMap::new();
 
-    // Find input node (the one with is_input() true)
-    let mut input_node_id: Option<NodeId> = None;
-    for (node_id, node) in snarl.node_ids() {
-        if node.is_input() {
-            input_node_id = Some(node_id);
-            break;
+    // Keep the root first and retain authored order, including disconnected
+    // drafts. Newly inserted nodes follow existing nodes in stable widget order.
+    let mut nodes: Vec<_> = snarl.node_ids().collect();
+    nodes.sort_unstable_by_key(|(id, node)| {
+        (
+            !node.is_input(),
+            node.source_index().is_none(),
+            node.source_index().unwrap_or(usize::MAX),
+            id.0,
+        )
+    });
+    for (node_id, node) in nodes {
+        node_to_idx.insert(node_id, blocks.len());
+        blocks.push(node.to_block());
+    }
+
+    for (from, to) in snarl.wires() {
+        if let (Some(&from_idx), Some(&to_idx)) =
+            (node_to_idx.get(&from.node), node_to_idx.get(&to.node))
+        {
+            connections.push((from_idx, to_idx));
         }
     }
 
-    // BFS traversal from input node to collect all reachable nodes
-    if let Some(start_id) = input_node_id {
-        let mut queue = VecDeque::new();
-        queue.push_back((start_id, true)); // (node_id, is_first)
-
-        while let Some((node_id, _is_first)) = queue.pop_front() {
-            // Skip if already processed
-            if node_to_idx.contains_key(&node_id) {
-                continue;
-            }
-
-            if let Some(node) = snarl.get_node(node_id) {
-                let block = node.to_block();
-                // We don't force block_type="text" anymore, let to_block handle it
-
-                let idx = blocks.len();
-                node_to_idx.insert(node_id, idx);
-                blocks.push(block);
-
-                // Find all downstream nodes (fan-out support)
-                let out_pin = OutPinId {
-                    node: node_id,
-                    output: 0,
-                };
-                for (from, to) in snarl.wires() {
-                    if from == out_pin {
-                        queue.push_back((to.node, false));
-                    }
-                }
-            }
-        }
-
-        // Second pass: build connections using node_to_idx mapping
-        for (from, to) in snarl.wires() {
-            if let (Some(&from_idx), Some(&to_idx)) =
-                (node_to_idx.get(&from.node), node_to_idx.get(&to.node))
-            {
-                connections.push((from_idx, to_idx));
-            }
-        }
+    GraphProjection {
+        blocks,
+        connections,
+        node_indices: node_to_idx,
     }
-
-    (blocks, connections)
 }
+
+#[cfg(test)]
+#[path = "conversion_tests.rs"]
+mod tests;

@@ -7,7 +7,7 @@ const read = name => fs.readFileSync(path.join(__dirname, name), 'utf8');
 
 function harness() {
   const messages = [];
-  const style = { transform: 'translate3d(100px,100px,0)', width: '400px', height: '200px', setProperty() {} };
+  const style = { transform: 'translate3d(100px,100px,0)', width: '400px', height: '200px', setProperty(name, value) {this[name] = value;} };
   const card = { dataset: { id: '1' }, style, children: [], appendChild(child) {this.children.push(child);}, getBoundingClientRect() {
     const coords = style.transform.match(/translate3d\(([-\d.]+)px,([-\d.]+)px/);
     return { left: Number(coords[1]), top: Number(coords[2]), width: parseFloat(style.width), height: parseFloat(style.height) };
@@ -61,6 +61,27 @@ function harness() {
   }
   return {context,entry,card,messages,events,documentEvents,frames,event,start,move,settle};
 }
+
+test('refine command forwards its session to the editor', () => {
+  const h = harness();
+  let received;
+  h.context.window.setRefineText = (...args) => { received = args; };
+  h.context.window.applyHostCommand({type:'refine_text',id:1,text:'x',is_insert:true,edit_session:'42'});
+  assert.deepEqual(received, ['1', 'x', true, '42']);
+});
+
+test('card resize handles refresh their monitor scale without changing geometry', () => {
+  const h = harness();
+  h.context.window.__SGT_MONITOR_SCALE_FOR_RECT__ = rect => rect.x < 0 ? 1.5 : 2;
+  h.context.applyGeometry(h.entry, {rect: {x:-400,y:100,width:400,height:200}});
+  assert.equal(h.card.style['--sgt-monitor-scale'], '1.5');
+  h.context.applyGeometry(h.entry, {rect: {x:100,y:100,width:400,height:200}});
+  assert.equal(h.card.style['--sgt-monitor-scale'], '2');
+  h.context.window.__SGT_MONITOR_SCALE_FOR_RECT__ = () => 1.25;
+  h.context.window.__SGT_REFRESH_CARD_DPI__();
+  assert.equal(h.card.style['--sgt-monitor-scale'], '1.25');
+  assert.deepEqual(h.card.getBoundingClientRect(), {left:100,top:100,width:400,height:200});
+});
 
 test('focus-loss cancellation restores canonical card bounds before unlock', () => {
   const h = harness();h.start();h.move();h.events.blur();

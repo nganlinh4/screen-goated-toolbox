@@ -1,18 +1,17 @@
 //! Exact, removable delivery and process-lifetime guards for Windows external tools.
 
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use sha2::{Digest, Sha256};
 
 use super::receipt::{
     ComponentReceipt, OwnedComponentFile, RECEIPT_NAME, is_reparse_point, resolve_owned_path,
 };
 use super::{ComponentLease, RemovalOutcome};
 
+mod failure_refresh;
 mod install;
 mod progress;
 mod recovery;
@@ -20,6 +19,7 @@ mod recovery_io;
 mod staging;
 mod update;
 
+pub(crate) use failure_refresh::refresh_downloader_after_failure;
 pub(crate) use progress::{
     ExternalToolInstallEvent, localized_install_event_message, report_badge_event,
 };
@@ -162,6 +162,9 @@ pub(crate) fn ensure(
     // this local lock, so the local -> global order cannot form a cycle.
     let _local = lock_tool_mutation(tool);
     let result = (|| {
+        // The transfer holds only this tool's transfer guard; the registry
+        // guard covers verification, extraction and publication.
+        install::prefetch(delivery, cancelled, &on_event)?;
         let _global = super::acquire_mutation_guard()
             .with_context(|| format!("acquire registry mutation guard for {}", delivery.id))?;
         install::ensure(tool, delivery, cancelled, on_event)
@@ -206,35 +209,6 @@ pub(crate) fn current_status(tool: ExternalTool) -> ExternalToolStatus {
 
 pub(crate) fn version_label(tool: ExternalTool) -> Option<String> {
     delivery_optional(tool).map(|delivery| format!("{} (x64)", delivery.version))
-}
-
-pub(crate) fn refresh_downloader_after_failure(include_deno: bool) -> Result<Vec<ExternalTool>> {
-    let candidates = [ExternalTool::YtDlp, ExternalTool::Deno]
-        .into_iter()
-        .filter(|tool| *tool != ExternalTool::Deno || include_deno)
-        .filter(|tool| {
-            super::update_catalog::policy(tool.id())
-                .is_some_and(|(mode, _, _)| mode == "typed-failure")
-        })
-        .collect::<Vec<_>>();
-    let before = candidates
-        .iter()
-        .map(|tool| {
-            (
-                *tool,
-                delivery_optional(*tool).map(|delivery| (delivery.version, delivery.sha256)),
-            )
-        })
-        .collect::<Vec<_>>();
-    super::update_catalog::refresh_now()?;
-    Ok(before
-        .into_iter()
-        .filter_map(|(tool, previous)| {
-            let current =
-                delivery_optional(tool).map(|delivery| (delivery.version, delivery.sha256));
-            (previous.is_some() && current.is_some() && previous != current).then_some(tool)
-        })
-        .collect())
 }
 
 pub(crate) fn schedule_periodic_updates() {
@@ -477,8 +451,11 @@ fn file_metadata_matches(path: &Path, expected: &OwnedComponentFile) -> Result<b
 }
 
 fn validate_exact_tree(root: &Path, files: &[ExternalToolFile]) -> Result<()> {
-    let mut actual = Vec::new();
-    staging::collect_regular_files(root, root, &mut actual, MAX_COMPONENT_FILES + 1)?;
+    let mut actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "external tool component",
+        MAX_COMPONENT_FILES + 1,
+    )?;
     actual.retain(|path| path != Path::new(RECEIPT_NAME));
     if actual.len() != files.len()
         || actual
@@ -507,28 +484,18 @@ fn same_file(left: &OwnedComponentFile, right: &OwnedComponentFile) -> bool {
 fn lock_component_files(root: &Path, files: &[ExternalToolFile]) -> Result<Vec<std::fs::File>> {
     #[cfg(test)]
     RUNTIME_HASH_PASSES.with(|passes| passes.set(passes.get() + 1));
-    let mut locked = Vec::with_capacity(files.len());
-    for expected in files {
-        let path = resolve_owned_path(root, Path::new(expected.path))?;
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("external tool changed while acquiring its use lease");
-        }
-        let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 128 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("external tool changed while acquiring its use lease");
-        }
-        locked.push(file);
-    }
-    Ok(locked)
+    files
+        .iter()
+        .map(|expected| {
+            super::native_file::lock_verified(
+                root,
+                expected.path,
+                expected.size_bytes,
+                expected.sha256,
+                "external tool changed while acquiring its use lease",
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -544,29 +511,6 @@ fn reset_runtime_hash_passes() {
 #[cfg(test)]
 fn runtime_hash_passes() -> usize {
     RUNTIME_HASH_PASSES.with(std::cell::Cell::get)
-}
-
-fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("external tool use file is unsafe");
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt as _;
-        use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
-        options
-            .share_mode(FILE_SHARE_READ.0)
-            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
-    }
-    let file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("external tool use file is unsafe");
-    }
-    Ok(file)
 }
 
 fn receipt(delivery: &ExternalToolDelivery) -> ComponentReceipt {

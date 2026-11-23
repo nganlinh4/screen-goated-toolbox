@@ -85,9 +85,15 @@ mod tests {
 
     #[test]
     fn stream_end_is_a_structural_realtime_input() {
-        assert_eq!(
-            audio_stream_end(),
-            json!({"realtimeInput": {"audioStreamEnd": true}})
-        );
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/translation-gummy/socket-protocol.json"
+        ))
+        .unwrap();
+        let expected = &fixture["audioStreamEnd"];
+        let payload = audio_stream_end();
+        assert_eq!(payload.as_object().unwrap().len(), 1);
+        let root = &payload[expected["expectedRoot"].as_str().unwrap()];
+        assert_eq!(root.as_object().unwrap().len(), 1);
+        assert_eq!(root[expected["expectedFlag"].as_str().unwrap()], true);
     }
 }

@@ -2,17 +2,50 @@
 
 use super::*;
 
+#[derive(Debug)]
+pub(super) struct ExecutorDisconnected {
+    pending: bool,
+}
+
+impl std::fmt::Display for ExecutorDisconnected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.pending {
+            formatter.write_str("The action worker stopped. The in-progress action may have taken effect; inspect current state before continuing.")
+        } else {
+            formatter.write_str("The action worker stopped; restart Computer Control.")
+        }
+    }
+}
+
+impl std::error::Error for ExecutorDisconnected {}
+
+pub(super) fn record_executor_disconnect_reason(
+    result: &anyhow::Result<()>,
+    exit_reason: &mut &'static str,
+) {
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error| error.is::<ExecutorDisconnected>())
+    {
+        *exit_reason = "action_executor_disconnected";
+    }
+}
+
 pub(super) fn poll_action_result(
     socket: &mut Sock,
     receiver: &mpsc::Receiver<Done>,
     state: &mut Reader,
     sink: Option<&AudioSink>,
+    stop: &AtomicBool,
 ) -> anyhow::Result<Option<bool>> {
-    let Ok((id, name, mut response, frame, result_cancel, action)) = receiver.try_recv() else {
+    let Some((id, name, mut response, frame, result_cancel, action, not_dispatched)) =
+        receive_action_result(receiver, state, stop)?
+    else {
         return Ok(None);
     };
     if !state.pending.matches_result(&id, &result_cancel) {
-        let delivery = delivery_status(&response);
+        let delivery = delivery_status(not_dispatched);
         telemetry::typed_error(
             "ERR_STALE_ACTION_RESULT",
             "runtime",
@@ -23,6 +56,7 @@ pub(super) fn poll_action_result(
                 "current_pending_id": state.pending.id.clone(),
             }),
         );
+        super::dropped_receipt::record(action, &id, &name, "stale_job_identity", &response);
         telemetry::event_for_action(
             "action_result_dropped",
             "runtime",
@@ -39,18 +73,21 @@ pub(super) fn poll_action_result(
         return Ok(None);
     }
 
+    let deliver_action_frame = state
+        .frame_delivery
+        .action_settled(action.turn_id == telemetry::current_turn());
+    if !deliver_action_frame {
+        state.source_frame = None;
+    }
     let mut reconnect_for_activation = false;
+    let mut action_frame_error = None;
     if state.pending.cancelled {
-        let delivery = delivery_status(&response);
-        settle_transport_receipt(state, &name, &response);
-        let message = match delivery.0 {
-            "effect_completed_response_not_delivered" => {
-                "[~] action effect completed before interruption; result dropped"
-            }
-            "proven_no_effect_response_not_delivered" => {
-                "[~] action cancelled before any effect; result dropped"
-            }
-            _ => "[~] action may have affected state before interruption; result dropped",
+        let delivery = delivery_status(not_dispatched);
+        settle_transport_receipt(state, &id, &result_cancel, &name, not_dispatched);
+        let message = if not_dispatched {
+            "[~] requested action was not dispatched; interruption cleanup may have affected state"
+        } else {
+            "[~] action may have affected state before interruption; result dropped"
         };
         overlay::push_log(message.to_string());
         telemetry::event_for_action(
@@ -68,6 +105,7 @@ pub(super) fn poll_action_result(
                 "injection": super::super::executor::input_injection(&response),
             }),
         );
+        super::dropped_receipt::record(action, &id, &name, "cancelled_or_superseded", &response);
     } else {
         let response_ok = response.get("ok").and_then(Value::as_bool).unwrap_or(false);
         let terminal_blocker = is_terminal_blocker(&response);
@@ -82,8 +120,21 @@ pub(super) fn poll_action_result(
         );
         reconnect_for_activation = name == "app_integration_status"
             && super::session_control::activation_pending(&response);
-        let delivered_response = response.clone();
-        let wire_response = tool_response(&id, &name, response);
+        let prepared = match super::super::response_budget::prepare(&id, &name, response) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                handle_undelivered_result(
+                    state,
+                    &name,
+                    response_ok,
+                    completion_generation_output_seen,
+                    sink,
+                );
+                return Err(error);
+            }
+        };
+        let delivered_response = prepared.delivered;
+        let wire_response = prepared.wire;
         let result_byte_count =
             serde_json::to_vec(&delivered_response).map_or(0, |bytes| bytes.len());
         let response_byte_count = serde_json::to_vec(&wire_response).map_or(0, |bytes| bytes.len());
@@ -112,7 +163,16 @@ pub(super) fn poll_action_result(
                 "error": response_send.as_ref().err().map(ToString::to_string),
             }),
         );
-        response_send?;
+        if let Err(error) = response_send {
+            handle_undelivered_result(
+                state,
+                &name,
+                response_ok,
+                completion_generation_output_seen,
+                sink,
+            );
+            return Err(error);
+        }
         state.turn_tool_response_bytes = state
             .turn_tool_response_bytes
             .saturating_add(response_byte_count);
@@ -123,11 +183,25 @@ pub(super) fn poll_action_result(
         state
             .turn_outcomes
             .record_delivered(&name, &delivered_response);
-        reconcile_from_observation(state, &name, response_ok);
-        if let Some((b64, source)) = frame
-            && super::frames::send_action_frame(socket, &b64, &source, action).is_ok()
-        {
-            state.source_frame = Some(source);
+        require_reconciliation_for_omitted_mutation(state, &name, prepared.omitted);
+        if let Some((b64, source)) = frame {
+            if deliver_action_frame {
+                match super::frames::send_action_frame(socket, &b64, &source, action) {
+                    Ok(()) => {
+                        state.memory.action_frame(&b64, &source, action.turn_id);
+                        state.source_frame = Some(source);
+                    }
+                    Err(error) => action_frame_error = Some(error),
+                }
+            } else {
+                telemetry::event_for_action(
+                    "frame_delivery_skipped",
+                    "runtime",
+                    Privacy::Safe,
+                    action,
+                    serde_json::json!({"frame_id": source.frame_id, "reason": "fresh_observation_pending"}),
+                );
+            }
         }
         match response_transition(
             &name,
@@ -167,7 +241,79 @@ pub(super) fn poll_action_result(
     }
     state.nudged = false;
     overlay::set_status(result_status(state, reconnect_for_activation));
+    if let Some(error) = action_frame_error {
+        return Err(error);
+    }
     Ok(Some(reconnect_for_activation))
+}
+
+fn receive_action_result(
+    receiver: &mpsc::Receiver<Done>,
+    state: &mut Reader,
+    stop: &AtomicBool,
+) -> anyhow::Result<Option<Done>> {
+    match receiver.try_recv() {
+        Ok(result) => Ok(Some(result)),
+        Err(mpsc::TryRecvError::Empty) => Ok(None),
+        Err(mpsc::TryRecvError::Disconnected) if stop.load(Ordering::SeqCst) => Ok(None),
+        Err(mpsc::TryRecvError::Disconnected) => {
+            if state.pending.id.is_some() {
+                state.pending.request_cancel();
+                if state.reconciliation.require_unknown() {
+                    super::reconciliation::warn_unresolved();
+                }
+                let tool = state.pending.tool.as_deref().unwrap_or("unknown");
+                state.turn_outcomes.record_interrupted_effect(tool);
+                telemetry::typed_error(
+                    "ERR_ACTION_EXECUTOR_UNAVAILABLE",
+                    "runtime",
+                    "the action worker stopped before returning its admitted job",
+                    serde_json::json!({"tool": tool, "effect_may_have_occurred": true}),
+                );
+                return Err(ExecutorDisconnected { pending: true }.into());
+            }
+            Err(ExecutorDisconnected { pending: false }.into())
+        }
+    }
+}
+
+fn require_reconciliation_for_omitted_mutation(state: &mut Reader, tool: &str, omitted: bool) {
+    if !omitted || !super::super::turn_policy::is_mutating_tool(tool) {
+        return;
+    }
+    if !state.reconciliation.required() {
+        state.turn_outcomes.record_interrupted_effect(tool);
+    }
+    if state.reconciliation.require_unknown() {
+        super::reconciliation::warn_unresolved();
+    }
+}
+
+fn handle_undelivered_result(
+    state: &mut Reader,
+    tool: &str,
+    ok: bool,
+    output_seen: bool,
+    sink: Option<&AudioSink>,
+) {
+    // `done` is the model's terminal signal, even when its receipt write is uncertain.
+    if tool == "done" && ok {
+        close_accepted_done(state, sink, output_seen);
+    }
+    mark_undelivered_result(state, tool);
+}
+
+fn mark_undelivered_result(state: &mut Reader, tool: &str) {
+    // The worker has finished, but the write may have reached the provider.
+    // Never replay this tool response or leave its completed job pending.
+    state.turn_outcomes.record_transport_interruption(tool);
+    if super::super::turn_policy::is_mutating_tool(tool) && state.reconciliation.require_unknown() {
+        super::reconciliation::warn_unresolved();
+    }
+    state.pending = Pending::default();
+    state.pending_tool_output_seen = false;
+    state.generation_output_seen = false;
+    state.immediate_tool_responses.clear();
 }
 
 fn close_accepted_done(state: &mut Reader, sink: Option<&AudioSink>, generation_output_seen: bool) {
@@ -192,8 +338,9 @@ pub(super) fn send_immediate_tool_responses(
     let mut sent = false;
     let mut batch_bytes = 0usize;
     while let Some((id, name, response)) = state.immediate_tool_responses.pop_front() {
-        let delivered_response = response.clone();
-        let wire_response = tool_response(&id, &name, response);
+        let prepared = super::super::response_budget::prepare(&id, &name, response)?;
+        let delivered_response = prepared.delivered;
+        let wire_response = prepared.wire;
         let response_bytes = serde_json::to_vec(&wire_response).map_or(0, |bytes| bytes.len());
         send(socket, wire_response)?;
         batch_bytes = batch_bytes.saturating_add(response_bytes);
@@ -317,73 +464,55 @@ fn result_status(state: &Reader, reconnect_for_activation: bool) -> &'static str
     }
 }
 
-fn delivery_status(response: &Value) -> (&'static str, bool) {
-    use super::super::effect_receipt::EffectStatus;
-
-    match EffectStatus::from_value(response) {
-        EffectStatus::Verified => ("effect_completed_response_not_delivered", true),
-        EffectStatus::MayHaveOccurred => ("effect_may_have_occurred_response_not_delivered", true),
-        EffectStatus::ProvenNoEffect => ("proven_no_effect_response_not_delivered", false),
-        EffectStatus::Unknown => ("effect_unknown_response_not_delivered", true),
+fn delivery_status(not_dispatched: bool) -> (&'static str, bool) {
+    if not_dispatched {
+        (
+            "requested_action_not_dispatched_response_not_delivered",
+            true,
+        )
+    } else {
+        ("effect_unknown_response_not_delivered", true)
     }
 }
 
-fn settle_transport_receipt(state: &mut Reader, tool: &str, response: &Value) {
-    use super::super::effect_receipt::EffectStatus;
-
+fn settle_transport_receipt(
+    state: &mut Reader,
+    id: &str,
+    cancel: &Arc<AtomicBool>,
+    tool: &str,
+    not_dispatched: bool,
+) {
     if !super::super::turn_policy::is_mutating_tool(tool) {
         return;
     }
-    let effect_status = EffectStatus::from_value(response);
-    if effect_status.is_proven_no_effect() {
-        state.reconciliation_required = false;
-        state.turn_outcomes.clear_interruption_uncertainty();
+    if !state.reconciliation.required() && !not_dispatched {
+        state.turn_outcomes.record_interrupted_effect(tool);
+        if state.reconciliation.require_unknown() {
+            super::reconciliation::warn_unresolved();
+        }
+        return;
+    }
+    let was_unresolved = state.reconciliation.unresolved();
+    if let Some(owner) = state.reconciliation.settle(
+        id,
+        cancel,
+        not_dispatched,
+        super::super::browser::effect_unsettled(),
+    ) {
+        state.turn_outcomes.clear_interruption_for(&owner);
         telemetry::event(
             "interrupted_effect_reconciled",
             "runtime",
             Privacy::Safe,
             serde_json::json!({
                 "tool": tool,
-                "basis": "worker_receipt_proven_no_effect",
-            }),
-        );
-    } else {
-        let newly_required = !state.reconciliation_required;
-        state.reconciliation_required = true;
-        if newly_required {
-            state.turn_outcomes.record_interrupted_effect(tool);
-        }
-        telemetry::event(
-            "interrupted_effect_reconciliation_required",
-            "runtime",
-            Privacy::Safe,
-            serde_json::json!({
-                "tool": tool,
-                "effect_status": effect_status.code(),
-                "basis": "worker_receipt_not_delivered",
+                "basis": "requested_dispatch_not_started",
             }),
         );
     }
-}
-
-fn reconcile_from_observation(state: &mut Reader, tool: &str, response_ok: bool) {
-    if !state.reconciliation_required
-        || !response_ok
-        || !super::super::turn_policy::provides_reconciliation_evidence(tool)
-    {
-        return;
+    if !was_unresolved && state.reconciliation.unresolved() {
+        super::reconciliation::warn_unresolved();
     }
-    state.reconciliation_required = false;
-    state.turn_outcomes.clear_interruption_uncertainty();
-    telemetry::event(
-        "interrupted_effect_reconciled",
-        "runtime",
-        Privacy::Safe,
-        serde_json::json!({
-            "tool": tool,
-            "basis": "fresh_capability_observation",
-        }),
-    );
 }
 
 #[cfg(test)]

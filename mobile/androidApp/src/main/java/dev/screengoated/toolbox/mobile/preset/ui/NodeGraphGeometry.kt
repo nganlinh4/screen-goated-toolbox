@@ -124,13 +124,18 @@ internal fun canConnect(
 ): Boolean {
     if (fromNode.id == toNode.id) return false
     if (toNode.block.blockType == BlockType.INPUT_ADAPTER) return false
-    if (existingConnections.any { it.toNodeId == toNode.id }) return false
     val isSpecialTarget = toNode.block.blockType == BlockType.IMAGE ||
         toNode.block.blockType == BlockType.AUDIO
     if (isSpecialTarget && fromNode.block.blockType != BlockType.INPUT_ADAPTER) return false
     if (existingConnections.any { it.fromNodeId == fromNode.id && it.toNodeId == toNode.id }) return false
     return true
 }
+
+internal fun replaceIncomingConnection(
+    connections: List<Connection>,
+    fromId: String,
+    toId: String,
+): List<Connection> = connections.filterNot { it.toNodeId == toId } + Connection(fromId, toId)
 
 // ---------------------------------------------------------------------------
 // Canvas drawing helpers

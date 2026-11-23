@@ -95,21 +95,19 @@ class CreationGenerationSourcesTest {
     }
 
     @Test
-    fun `text-only image retry never promotes its presentation preview to a reference`() {
+    fun `retry submits exactly the retained source and nothing else`() {
         val args = creationSubmissionArgs(
-            CreationTool.IMAGE_CREATOR,
+            CreationTool.IMAGE_TO_SVG,
             CreationNativeItem(
-                id = "text-only",
+                id = "svg-retry",
                 batchId = "batch",
                 sourcePath = "creation/presentation/history-preview.png",
                 sourceName = "history-preview.png",
                 referencePaths = emptyList(),
-                prompt = "A calm ocean",
             ),
         )
 
-        assertFalse("imagePath" in args)
-        assertFalse("imagePaths" in args)
+        assertTrue("imagePath" in args)
         assertTrue(creationGenerationSourcesAreUsable(File("."), emptySet(), emptyList()) { false })
     }
 }

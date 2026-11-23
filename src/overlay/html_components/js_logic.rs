@@ -69,14 +69,14 @@ pub fn get(placeholder_text: &str, enable_inline_diff: bool) -> String {
         function appendSequentialDiffText(target, text, startIndex, committedLength) {{
             if (!text) return;
 
-            const tokens = text.match(/\\s+|[^\\s]+/gu) || [];
-            const highlightableCount = tokens.filter((token) => !/^\\s+$/u.test(token)).length;
+            const tokens = text.match(/\s+|[^\s]+/gu) || [];
+            const highlightableCount = tokens.filter((token) => !/^\s+$/u.test(token)).length;
             const highlightStep = highlightableCount > 1 ? Math.min(55, 260 / (highlightableCount - 1)) : 0;
             let tokenStart = startIndex;
             let highlightIndex = 0;
 
             for (const token of tokens) {{
-                if (/^\\s+$/u.test(token)) {{
+                if (/^\s+$/u.test(token)) {{
                     appendClassifiedText(target, token, tokenStart, committedLength);
                 }} else {{
                     const appendDiffPiece = (pieceText, pieceStart) => {{
@@ -108,7 +108,7 @@ pub fn get(placeholder_text: &str, enable_inline_diff: bool) -> String {
         }}
 
         function tokenizeForDiff(text) {{
-            return text.match(/\\s+|[^\\s]+/gu) || [];
+            return text.match(/\s+|[^\s]+/gu) || [];
         }}
 
         function canAnimateWordDiff(previousText, nextText) {{
@@ -136,8 +136,8 @@ pub fn get(placeholder_text: &str, enable_inline_diff: bool) -> String {
                 return false;
             }}
 
-            const compactChangedPrev = changedPrev.filter((token) => !/^\\s+$/u.test(token));
-            const compactChangedNext = changedNext.filter((token) => !/^\\s+$/u.test(token));
+            const compactChangedPrev = changedPrev.filter((token) => !/^\s+$/u.test(token));
+            const compactChangedNext = changedNext.filter((token) => !/^\s+$/u.test(token));
             if (compactChangedPrev.length === 0 || compactChangedNext.length === 0) {{
                 return false;
             }}
@@ -455,25 +455,10 @@ pub fn get(placeholder_text: &str, enable_inline_diff: bool) -> String {
 
         window.updateVolume = updateVolume;
 
-        // Model switch animation (called when 429 fallback switches models)
+        // Host-driven model changes must not emit a user-selection event.
         function switchModel(modelName) {{
-            const icons = document.querySelectorAll('.model-icon');
-            if (!icons.length) return;
-
-            icons.forEach(icon => {{
-                const val = icon.getAttribute('data-value');
-                const shouldBeActive = val === modelName;
-
-                // Update active state
-                icon.classList.remove('active');
-                if (shouldBeActive) {{
-                    icon.classList.add('active');
-                    // Add switching animation
-                    icon.classList.add('switching');
-                    // Remove animation class after it completes (2s)
-                    setTimeout(() => icon.classList.remove('switching'), 2000);
-                }}
-            }});
+            const select = document.getElementById('translation-model-select');
+            if (select) select.value = modelName;
         }}
 
         window.switchModel = switchModel;

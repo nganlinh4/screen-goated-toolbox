@@ -1,84 +1,33 @@
 // Pipeline uniform builder, GPU compositor setup, and export result handling.
 
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use super::camera_path::CameraSource;
+use super::capture_dimensions::CaptureDimensionTrack;
 use super::config::{self, ExportConfig, ExportRuntimeDiagnostics};
 use super::cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
 use super::overlay::load_custom_background_rgba;
-use super::sampling::{sample_baked_path, sample_parsed_baked_cursor};
+use super::sampling::sample_parsed_baked_cursor;
 use super::{background_presets, gif, staging};
 
 use super::gpu_export::{
     CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms,
 };
 use super::gpu_pipeline;
-use super::mf_decode;
 
-use super::EXPORT_CANCELLED;
+use super::{EXPORT_CANCELLED, export_user_cancelled};
 
-pub(super) fn sample_capture_dimensions_at_time(
-    time: f64,
-    mouse_positions: &[config::MousePosition],
-    fallback_width: f64,
-    fallback_height: f64,
-) -> (f64, f64) {
-    let mut prev: Option<&config::MousePosition> = None;
-    let mut next: Option<&config::MousePosition> = None;
-
-    for position in mouse_positions {
-        let has_dims = position
-            .capture_width
-            .zip(position.capture_height)
-            .map(|(w, h)| w.is_finite() && h.is_finite() && w > 1.0 && h > 1.0)
-            .unwrap_or(false);
-        if !has_dims {
-            continue;
-        }
-        if (position.timestamp - time).abs() < 0.001 {
-            return (
-                position.capture_width.unwrap_or(fallback_width).max(1.0),
-                position.capture_height.unwrap_or(fallback_height).max(1.0),
-            );
-        }
-        if position.timestamp <= time {
-            prev = Some(position);
-            continue;
-        }
-        next = Some(position);
-        break;
-    }
-
-    match (prev, next) {
-        (Some(p), Some(n)) => {
-            let dt = (n.timestamp - p.timestamp).max(0.000001);
-            let t = ((time - p.timestamp) / dt).clamp(0.0, 1.0);
-            let pw = p.capture_width.unwrap_or(fallback_width).max(1.0);
-            let ph = p.capture_height.unwrap_or(fallback_height).max(1.0);
-            let nw = n.capture_width.unwrap_or(fallback_width).max(1.0);
-            let nh = n.capture_height.unwrap_or(fallback_height).max(1.0);
-            (pw + (nw - pw) * t, ph + (nh - ph) * t)
-        }
-        (Some(p), None) => (
-            p.capture_width.unwrap_or(fallback_width).max(1.0),
-            p.capture_height.unwrap_or(fallback_height).max(1.0),
-        ),
-        (None, Some(n)) => (
-            n.capture_width.unwrap_or(fallback_width).max(1.0),
-            n.capture_height.unwrap_or(fallback_height).max(1.0),
-        ),
-        (None, None) => (fallback_width.max(1.0), fallback_height.max(1.0)),
-    }
-}
+#[cfg(test)]
+#[path = "pipeline_build_tests.rs"]
+mod tests;
 
 /// Builds the per-frame uniforms closure and related GPU state.
 /// Returns a tuple of (compositor, build_uniforms_closure, pipeline_config_partial, extra_state).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn setup_gpu_and_uniforms(
     config: &ExportConfig,
-    baked_path: &[config::BakedCameraFrame],
+    camera: CameraSource,
     baked_cursor: &[config::BakedCursorFrame],
     cursor_slot_overrides: &[staging::CursorSlotOverride],
     atlas_rgba: &Option<Vec<u8>>,
@@ -100,8 +49,16 @@ pub(super) fn setup_gpu_and_uniforms(
 
     // Initialize GPU compositor
     let gpu_init_start = Instant::now();
-    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
-        .map_err(|e| format!("GPU init failed: {}", e))?;
+    let mut compositor = GpuCompositor::new(
+        out_w,
+        out_h,
+        crop_w,
+        crop_h,
+        out_w,
+        out_h,
+        &EXPORT_CANCELLED,
+    )
+    .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
     eprintln!(
         "[Export][Timing] GPU compositor init: {:.3}s",
@@ -122,7 +79,7 @@ pub(super) fn setup_gpu_and_uniforms(
 
     // Upload sprite atlas
     if let Some(rgba) = atlas_rgba {
-        compositor.upload_atlas(rgba, atlas_w, atlas_h);
+        compositor.upload_atlas(rgba, atlas_w, atlas_h)?;
     }
 
     let mut use_custom_background = false;
@@ -135,7 +92,7 @@ pub(super) fn setup_gpu_and_uniforms(
                 Ok((rgba_arc, tw, th)) => {
                     let bg_load_secs = bg_load_start.elapsed().as_secs_f64();
                     let bg_upload_start = Instant::now();
-                    compositor.upload_background(rgba_arc.as_slice(), tw, th);
+                    compositor.upload_background(rgba_arc.as_slice(), tw, th)?;
                     let bg_upload_secs = bg_upload_start.elapsed().as_secs_f64();
                     eprintln!(
                         "[CustomBg] export load {:.3}s + gpu upload {:.3}s ({}x{}, rgba={}B)",
@@ -184,8 +141,9 @@ pub(super) fn setup_gpu_and_uniforms(
         gpu_device_secs,
         cursor_init_secs,
         uniform_params: UniformBuildParams {
-            baked_path: baked_path.to_vec(),
+            camera,
             parsed_baked_cursor,
+            capture_dimensions: CaptureDimensionTrack::new(&config.mouse_positions),
             src_w,
             src_h,
             crop_w,
@@ -221,8 +179,9 @@ pub(super) struct GpuSetupResult {
 }
 
 pub(super) struct UniformBuildParams {
-    pub baked_path: Vec<config::BakedCameraFrame>,
+    pub camera: CameraSource,
     pub parsed_baked_cursor: Vec<config::ParsedBakedCursorFrame>,
+    pub capture_dimensions: CaptureDimensionTrack,
     pub src_w: u32,
     pub src_h: u32,
     pub crop_w: u32,
@@ -258,15 +217,12 @@ impl UniformBuildParams {
         cursor_time: f64,
     ) -> CompositorUniforms {
         let crop = &config.segment.crop;
-        let (cam_x_raw, cam_y_raw, _) = sample_baked_path(cam_pan_time, &self.baked_path);
-        let (_, _, zoom) = sample_baked_path(cam_zoom_time, &self.baked_path);
+        let (cam_x_raw, cam_y_raw, _) = self.camera.sample(cam_pan_time);
+        let (_, _, zoom) = self.camera.sample(cam_zoom_time);
         let cursor_sample = sample_parsed_baked_cursor(cursor_time, &self.parsed_baked_cursor);
-        let (capture_w, capture_h) = sample_capture_dimensions_at_time(
-            base_time,
-            &config.mouse_positions,
-            self.src_w as f64,
-            self.src_h as f64,
-        );
+        let (capture_w, capture_h) =
+            self.capture_dimensions
+                .sample(base_time, self.src_w as f64, self.src_h as f64);
         let (logical_crop_w, logical_crop_h) = super::crop_geometry::logical_crop_size(
             capture_w,
             capture_h,
@@ -384,7 +340,6 @@ pub(super) fn handle_export_result(
     config: &ExportConfig,
     encode_output_path: &std::path::Path,
     final_output_path: &std::path::Path,
-    mixed_audio_cleanup_path: &Option<PathBuf>,
     is_gif: bool,
     out_w: u32,
     out_h: u32,
@@ -394,15 +349,10 @@ pub(super) fn handle_export_result(
     cursor_init_secs: f64,
     export_total_start: Instant,
 ) -> Result<serde_json::Value, String> {
-    let _ = mf_decode::mf_shutdown();
-
     match result {
         Ok(r) => {
-            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+            if export_user_cancelled() {
                 let _ = fs::remove_file(encode_output_path);
-                if let Some(path) = mixed_audio_cleanup_path {
-                    let _ = fs::remove_file(path);
-                }
                 println!("[Export][Summary] status=cancelled (partial encode finalized)");
                 return Ok(serde_json::json!({ "status": "cancelled" }));
             }
@@ -418,9 +368,6 @@ pub(super) fn handle_export_result(
                     Err(e) => {
                         let _ = fs::remove_file(encode_output_path);
                         let _ = fs::remove_file(final_output_path);
-                        if let Some(path) = mixed_audio_cleanup_path {
-                            let _ = fs::remove_file(path);
-                        }
                         println!("[Export][Summary] status=error (gif convert) error={}", e);
                         return Err(e);
                     }
@@ -466,9 +413,6 @@ pub(super) fn handle_export_result(
                 total_secs,
                 actual_total_bitrate_kbps
             );
-            if let Some(path) = mixed_audio_cleanup_path {
-                let _ = fs::remove_file(path);
-            }
 
             Ok(serde_json::json!({
                 "status": "success",
@@ -484,24 +428,32 @@ pub(super) fn handle_export_result(
         Err(e) => {
             let _ = fs::remove_file(encode_output_path);
             let _ = fs::remove_file(final_output_path);
-            if let Some(path) = mixed_audio_cleanup_path {
-                let _ = fs::remove_file(path);
-            }
 
-            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
-                println!("[Export][Summary] status=cancelled");
-                return Ok(serde_json::json!({ "status": "cancelled" }));
+            let outcome = classify_unwound_export(e, export_user_cancelled());
+            if let Err(e) = &outcome {
+                let badge = crate::overlay::auto_copy_badge::locale_text();
+                crate::overlay::auto_copy_badge::show_timed_detailed_notification(
+                    badge.export_failed,
+                    e,
+                    crate::overlay::auto_copy_badge::NotificationType::Error,
+                    5200,
+                );
             }
-
-            println!("[Export][Summary] status=error error={}", e);
-            let badge = crate::overlay::auto_copy_badge::locale_text();
-            crate::overlay::auto_copy_badge::show_timed_detailed_notification(
-                badge.export_failed,
-                &e,
-                crate::overlay::auto_copy_badge::NotificationType::Error,
-                5200,
-            );
-            Err(e)
+            outcome
         }
     }
+}
+
+/// A pipeline that unwound with an error is a cancellation only when the user
+/// asked for one; internal failures also raise the shared abort flag.
+pub(super) fn classify_unwound_export(
+    error: String,
+    user_cancelled: bool,
+) -> Result<serde_json::Value, String> {
+    if user_cancelled {
+        println!("[Export][Summary] status=cancelled");
+        return Ok(serde_json::json!({ "status": "cancelled" }));
+    }
+    println!("[Export][Summary] status=error error={}", error);
+    Err(error)
 }

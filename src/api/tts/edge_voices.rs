@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+const RETRY_DELAY: Duration = Duration::from_secs(30);
 
 /// Edge TTS voice information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +35,23 @@ pub struct EdgeVoiceCache {
     pub loading: bool,
     /// Error message if loading failed
     pub error: Option<String>,
+    retry_after: Option<Instant>,
+}
+
+impl EdgeVoiceCache {
+    fn begin_load(&mut self, now: Instant) -> bool {
+        if self.loaded || self.loading || self.retry_after.is_some_and(|retry| now < retry) {
+            return false;
+        }
+        self.loading = true;
+        true
+    }
+
+    fn fail(&mut self, error: String, now: Instant) {
+        self.loading = false;
+        self.error = Some(error);
+        self.retry_after = Some(now + RETRY_DELAY);
+    }
 }
 
 /// Global cached Edge TTS voice list
@@ -40,22 +60,15 @@ pub static EDGE_VOICE_CACHE: LazyLock<Mutex<EdgeVoiceCache>> =
 
 /// Start loading the Edge TTS voice list in a background thread
 pub fn load_edge_voices_async() {
-    // Check if already loaded or loading
     {
-        let cache = EDGE_VOICE_CACHE.lock().unwrap();
-        if cache.loaded || cache.loading {
+        let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
+        if !cache.begin_load(Instant::now()) {
             return;
         }
     }
 
-    // Mark as loading
-    {
-        let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
-        cache.loading = true;
-    }
-
     // Spawn background thread to fetch voices
-    std::thread::spawn(|| {
+    let spawned = std::thread::Builder::new().name("sgt-edge-voices".into()).spawn(|| {
         let url = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
         match crate::api::client::UREQ_AGENT
@@ -99,28 +112,43 @@ pub fn load_edge_voices_async() {
                                 cache.loaded = true;
                                 cache.loading = false;
                                 cache.error = None;
+                                cache.retry_after = None;
                             }
                             Err(e) => {
                                 let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
-                                cache.loading = false;
-                                cache.error = Some(format!("Parse error: {}", e));
+                                cache.fail(format!("Parse error: {}", e), Instant::now());
                             }
                         }
                     }
                     Err(e) => {
                         let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
-                        cache.loading = false;
-                        cache.error = Some(format!("Read error: {}", e));
+                        cache.fail(format!("Read error: {}", e), Instant::now());
                     }
                 }
             }
             Err(e) => {
                 let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
-                cache.loading = false;
-                cache.error = Some(format!("Network error: {}", e));
+                cache.fail(format!("Network error: {}", e), Instant::now());
             }
         }
     });
+    if let Err(error) = spawned {
+        EDGE_VOICE_CACHE.lock().unwrap().fail(
+            format!("Could not start voice list loading: {error}"),
+            Instant::now(),
+        );
+    }
+}
+
+/// An explicit retry bypasses the automatic failure backoff.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn retry_edge_voices_async() {
+    {
+        let mut cache = EDGE_VOICE_CACHE.lock().unwrap();
+        cache.retry_after = None;
+        cache.error = None;
+    }
+    load_edge_voices_async();
 }
 
 /// Get all unique languages with their display names
@@ -177,4 +205,21 @@ pub fn get_voices_for_language(lang_code: &str) -> Vec<EdgeVoice> {
         .get(&lang_code.to_lowercase())
         .cloned()
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_is_single_flight_and_failures_back_off() {
+        let now = Instant::now();
+        let mut cache = EdgeVoiceCache::default();
+        assert!(cache.begin_load(now));
+        assert!(!cache.begin_load(now));
+        cache.fail("offline".into(), now);
+        assert!(!cache.begin_load(now + RETRY_DELAY - Duration::from_millis(1)));
+        assert!(cache.begin_load(now + RETRY_DELAY));
+        assert!(!cache.begin_load(now + RETRY_DELAY));
+    }
 }

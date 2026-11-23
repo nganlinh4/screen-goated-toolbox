@@ -7,6 +7,7 @@ import dev.screengoated.toolbox.mobile.translationgummy.TranslationGummyRuntime
 import dev.screengoated.toolbox.mobile.history.HistoryBackedPresetHistoryRecorder
 import dev.screengoated.toolbox.mobile.history.HistoryPersistence
 import dev.screengoated.toolbox.mobile.history.HistoryRepository
+import dev.screengoated.toolbox.mobile.history.withHistoryStartup
 import dev.screengoated.toolbox.mobile.creation.CreationHistoryMaintenance
 import dev.screengoated.toolbox.mobile.preset.AudioApiClient
 import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchStore
@@ -35,16 +36,19 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
-class AppContainer(
+internal fun prepareAppStartup(recover: () -> Unit, publishModels: () -> Unit) {
+    recover()
+    publishModels()
+}
+
+class AppContainer private constructor(
     context: Context,
+    val json: Json,
+    val historyRepository: HistoryRepository,
+    private val settingsStore: SecureSettingsStore,
 ) {
     private val appContext = context.applicationContext
     val toastBus = AppToastBus()
-
-    val json: Json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -61,21 +65,9 @@ class AppContainer(
 
     val projectionConsentStore = ProjectionConsentStore()
     val audioPresetLaunchStore = AudioPresetLaunchStore()
-    private val settingsStore = SecureSettingsStore(appContext, json)
     private val permissionEvaluator = PermissionSnapshotEvaluator(projectionConsentStore)
     private val sessionStore = LiveSessionStore()
     private val edgeVoiceCatalogService = EdgeVoiceCatalogService(httpClient, settingsStore, json)
-    private val historyPersistence = HistoryPersistence(appContext, json)
-    val historyRepository = HistoryRepository(historyPersistence) {
-        CreationHistoryMaintenance.run(appContext)
-    }
-    internal val phoneControlMemoryRepository = PhoneControlMemoryRepository(appContext)
-    private val phoneControlMemoryStartup = PhoneControlMemoryStartup(phoneControlMemoryRepository)
-
-    init {
-        phoneControlMemoryStartup.recoverOnce()
-    }
-
     val repository = AndroidLiveSessionRepository(
         context = appContext,
         store = sessionStore,
@@ -84,8 +76,9 @@ class AppContainer(
         projectionConsentStore = projectionConsentStore,
         overlaySupported = BuildConfig.OVERLAY_SUPPORTED,
         historyRepository = historyRepository,
+        deferStartupPersistence = true,
     )
-    private val modelFeedRepository = ModelFeedRepository(appContext, httpClient).also { it.start() }
+    private val modelFeedRepository = ModelFeedRepository(appContext, httpClient)
     private val languageDetector = dev.screengoated.toolbox.mobile.service.tts.DeviceLanguageDetector(appContext)
     val translationGummyRepository = TranslationGummyRepository(settingsStore, languageDetector)
 
@@ -101,26 +94,6 @@ class AppContainer(
     )
     private val visionApiClient = VisionApiClient(httpClient)
     private val presetPersistence = PresetPersistence(appContext, json)
-    val presetRepository = PresetRepository(
-        textApiClient = textApiClient,
-        audioApiClient = audioApiClient,
-        visionApiClient = visionApiClient,
-        apiKeys = {
-            ApiKeys(
-                geminiKey = repository.currentApiKey(),
-                groqKey = repository.currentGroqApiKey(),
-                openRouterKey = repository.currentOpenRouterApiKey(),
-                nvidiaKey = repository.currentNvidiaApiKey(),
-                ollamaBaseUrl = repository.currentOllamaUrl(),
-            )
-        },
-        runtimeSettings = { settingsStore.loadPresetRuntimeSettings() },
-        uiLanguage = { repository.currentUiPreferences().uiLanguage },
-        overrideStore = presetPersistence,
-        toastBus = toastBus,
-        historyRecorder = HistoryBackedPresetHistoryRecorder(historyRepository),
-    )
-
     internal fun currentPresetApiKeys() = ApiKeys(
         geminiKey = repository.currentApiKey(),
         groqKey = repository.currentGroqApiKey(),
@@ -148,4 +121,51 @@ class AppContainer(
         toastBus = toastBus,
         edgeVoiceCatalogService = edgeVoiceCatalogService,
     )
+
+    internal val phoneControlMemoryRepository = PhoneControlMemoryRepository(appContext)
+    private val phoneControlMemoryStartup = PhoneControlMemoryStartup(phoneControlMemoryRepository)
+
+    init {
+        prepareAppStartup(
+            recover = { phoneControlMemoryStartup.recoverOnce() },
+            publishModels = repository::publishDeferredCustomModels,
+        )
+    }
+
+    val presetRepository = PresetRepository(
+        textApiClient = textApiClient,
+        audioApiClient = audioApiClient,
+        visionApiClient = visionApiClient,
+        apiKeys = {
+            ApiKeys(
+                geminiKey = repository.currentApiKey(),
+                groqKey = repository.currentGroqApiKey(),
+                openRouterKey = repository.currentOpenRouterApiKey(),
+                nvidiaKey = repository.currentNvidiaApiKey(),
+                ollamaBaseUrl = repository.currentOllamaUrl(),
+            )
+        },
+        runtimeSettings = { settingsStore.loadPresetRuntimeSettings() },
+        uiLanguage = { repository.currentUiPreferences().uiLanguage },
+        overrideStore = presetPersistence,
+        toastBus = toastBus,
+        historyRecorder = HistoryBackedPresetHistoryRecorder(historyRepository),
+    )
+
+    init {
+        modelFeedRepository.start()
+    }
+
+    internal companion object {
+        fun open(context: Context): AppContainer {
+            val appContext = context.applicationContext
+            val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+            val settings = SecureSettingsStore(appContext, json)
+            val persistence = HistoryPersistence(appContext, json)
+            return withHistoryStartup(persistence, persistence::close,
+                onMaxItemsChanged = { CreationHistoryMaintenance.run(appContext) }) { history ->
+                AppContainer(appContext, json, history, settings)
+            }
+        }
+    }
 }

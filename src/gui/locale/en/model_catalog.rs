@@ -11,7 +11,7 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         model_priority_live_toggle: "Live",
         model_priority_live_toggle_hint: "Include healthy live models in this priority chain",
         model_priority_chosen_model: "Chosen model",
-        model_priority_fixed_hint: "always first",
+        model_priority_chosen_hint: "Models above this row are tried before the model selected in each preset.",
         model_priority_add_model: "+ Add model",
         model_priority_auto: "Auto",
         model_priority_auto_hint: "continue with smart fallback order",
@@ -30,5 +30,11 @@ pub(super) fn get() -> ModelCatalogLocaleText {
         custom_models_vision_type: "Vision",
         custom_models_search: "Search",
         custom_models_enabled: "Enabled",
+        custom_models_ollama_scanning: "Scanning Ollama...",
+        custom_models_ollama_disabled: "Enable Ollama in API Keys first.",
+        custom_models_ollama_done_fmt: "Ollama scan finished: {count} cached models.",
+        custom_models_openrouter_count_fmt: "OpenRouter · {count} models",
+        custom_models_select_model: "Select model...",
+        performance_not_measured: "Performance not measured",
     }
 }

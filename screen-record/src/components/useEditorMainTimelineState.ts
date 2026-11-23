@@ -13,9 +13,14 @@ import {
   addSubtitleAcrossTracks,
   mergeSubtitleSelectionAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
-import { getSubtitleTracks, getVisibleSubtitleSegments, updateAllSubtitleTracks } from "@/lib/subtitleTracks";
+import { getSubtitleTracks, getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { alignSubtitleTracksToNarrationTiming, narrationEditorOwner } from './editorNarrationAlignment';
 import { inferAudioSourceGroupAtRange } from "@/lib/subtitleSourceGroups";
+import { selectedNarrationSubtitleTimings } from "@/lib/narrationGroupTakes";
+import { getLiveNarrationState, mergeLiveNarrationSegments } from "@/lib/liveNarrationStreamStore";
 import { isScreenRecordTestHarnessEnabled } from "@/testHarness/browserIpcMock";
+import type { SubtitleSourceSnapshot } from "@/hooks/subtitleSourceOwnership";
+import { narrationProjectEpoch } from "@/hooks/narrationProjectOwnership";
 import type {
   ImportedAudioSegment,
   NarrationSegment,
@@ -30,7 +35,13 @@ interface UseEditorMainTimelineStateOptions {
   activePanel: ActivePanel;
   setActivePanel: (panel: ActivePanel) => void;
   segment: VideoSegment | null;
-  setSegment: (segment: VideoSegment | null) => void;
+  setSegment: React.Dispatch<React.SetStateAction<VideoSegment | null>>;
+  getNarrationSourceSnapshot?: () => SubtitleSourceSnapshot;
+  renderedProjectEpoch?: number;
+  currentRawVideoPath?: string;
+  currentRawMicAudioPath?: string;
+  loadedClipId?: string | null;
+  currentProjectIdRef?: React.MutableRefObject<string | null>;
   composition: ProjectComposition | null;
   setComposition: (
     composition:
@@ -57,33 +68,13 @@ interface UseEditorMainTimelineStateOptions {
   commitBatch: () => void;
 }
 
-function getNarrationTimelineDuration(segment: NarrationSegment) {
-  const playbackRate = Number.isFinite(segment.playbackRate ?? 1)
-    ? Math.max(0.25, segment.playbackRate ?? 1)
-    : 1;
-  return Math.max(0.05, (segment.outPoint - segment.inPoint) / playbackRate);
-}
-
-function alignSubtitleTracksToNarrationTiming(
-  segment: VideoSegment,
-  timingBySubtitleId: ReadonlyMap<string, { startTime: number; endTime: number }>,
-): VideoSegment {
-  if (timingBySubtitleId.size === 0) return segment;
-  return updateAllSubtitleTracks(segment, (track) => ({
-    ...track,
-    segments: track.segments.map((subtitle) => {
-      const timing = timingBySubtitleId.get(subtitle.id);
-      if (!timing) return subtitle;
-      return {
-        ...subtitle,
-        startTime: timing.startTime,
-        endTime: timing.endTime,
-      };
-    }),
-  }));
-}
-
 export function useEditorMainTimelineState({
+  getNarrationSourceSnapshot,
+  renderedProjectEpoch,
+  currentRawVideoPath = '',
+  currentRawMicAudioPath = '',
+  loadedClipId,
+  currentProjectIdRef,
   t,
   activePanel,
   setActivePanel,
@@ -109,6 +100,16 @@ export function useEditorMainTimelineState({
   beginBatch,
   commitBatch,
 }: UseEditorMainTimelineStateOptions) {
+  const hasNarrationSourceSnapshot = Boolean(getNarrationSourceSnapshot);
+  const editorOwner = useMemo(() => hasNarrationSourceSnapshot ? narrationEditorOwner({
+    composition, segment, loadedClipId: loadedClipId ?? null,
+    videoPath: currentRawVideoPath, micPath: currentRawMicAudioPath,
+  }) : null, [hasNarrationSourceSnapshot, composition, segment, loadedClipId, currentRawVideoPath, currentRawMicAudioPath]);
+  const fallbackEpoch = useMemo(() => currentProjectIdRef ? narrationProjectEpoch(currentProjectIdRef) : null,
+    // The fallback is for callers without the parent-rendered epoch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectResetKey]);
+  const projectEpoch = renderedProjectEpoch ?? fallbackEpoch;
   const [selectedTextIds, setSelectedTextIds] = useState<string[]>([]);
   const [selectedSubtitleIds, setSelectedSubtitleIds] = useState<string[]>([]);
   const [selectedSubtitleRange, setSelectedSubtitleRange] = useState<TrackSelectionRange | null>(null);
@@ -235,34 +236,36 @@ export function useEditorMainTimelineState({
   }, [composition?.audioSegments, setActivePanel]);
 
   const handleAlignSubtitlesToNarration = useCallback(() => {
-    if (!segment || !narrationSegments?.length) return;
-    const selectedNarrations = narrationSegments
-      .filter((narration) =>
-        selectedNarrationSegmentIdSet.has(narration.id) &&
-        !!narration.sourceSubtitleId,
-      )
-      .sort((left, right) => left.startTime - right.startTime || left.id.localeCompare(right.id));
-    if (selectedNarrations.length === 0) return;
-
-    const timingBySubtitleId = new Map<string, { startTime: number; endTime: number }>();
-    for (const narration of selectedNarrations) {
-      const subtitleId = narration.sourceSubtitleId;
-      if (!subtitleId) continue;
-      const startTime = Math.max(0, narration.startTime);
-      timingBySubtitleId.set(subtitleId, {
-        startTime,
-        endTime: startTime + getNarrationTimelineDuration(narration),
-      });
-    }
+    if (!segment) return;
+    const ownsEditor = () => (!currentProjectIdRef || (currentProjectIdRef.current === projectResetKey
+      && narrationProjectEpoch(currentProjectIdRef) === projectEpoch))
+      && (!getNarrationSourceSnapshot || (getNarrationSourceSnapshot().loadedClipId === loadedClipId
+        && narrationEditorOwner(getNarrationSourceSnapshot()) === editorOwner));
+    if (!ownsEditor()) return;
+    // The timeline and panel render the live overlay while playback defers the
+    // project-state flush. Resolve against that same view at the click edge.
+    const currentComposition = getNarrationSourceSnapshot?.().composition;
+    const rendered = mergeLiveNarrationSegments(
+      currentComposition ? currentComposition.narrationSegments ?? [] : narrationSegments,
+      getLiveNarrationState(projectResetKey),
+    );
+    const timingBySubtitleId = selectedNarrationSubtitleTimings(rendered, selectedNarrationSegmentIdSet);
     if (timingBySubtitleId.size === 0) return;
 
     beginBatch();
-    setSegment(alignSubtitleTracksToNarrationTiming(segment, timingBySubtitleId));
+    setSegment((current) => current && ownsEditor()
+      ? alignSubtitleTracksToNarrationTiming(current, timingBySubtitleId) : current);
     commitBatch();
   }, [
     beginBatch,
     commitBatch,
     narrationSegments,
+    getNarrationSourceSnapshot,
+    loadedClipId,
+    currentProjectIdRef,
+    editorOwner,
+    projectEpoch,
+    projectResetKey,
     segment,
     selectedNarrationSegmentIdSet,
     setSegment,

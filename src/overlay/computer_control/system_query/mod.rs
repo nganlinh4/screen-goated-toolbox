@@ -105,7 +105,14 @@ fn capabilities(observed_at_ms: u128) -> Value {
 }
 
 fn clipboard_text(observed_at_ms: u128) -> Value {
-    let text = super::clipboard::get_text();
+    let text = match super::clipboard::get_text_for_query() {
+        Ok(text) => text,
+        Err(error) => {
+            let mut result = failure("clipboard", "text", error.message(), observed_at_ms);
+            result["error_code"] = json!(error.code());
+            return result;
+        }
+    };
     ok(
         "clipboard",
         "text",

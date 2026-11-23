@@ -8,6 +8,10 @@ mod image;
 mod master;
 mod text;
 
+// The fixture needs the host's localized preset names, which the recorder worker lacks.
+#[cfg(all(test, not(feature = "recorder-worker")))]
+mod parity_tests;
+
 use crate::config::preset::Preset;
 
 pub use audio::create_audio_presets;

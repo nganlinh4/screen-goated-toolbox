@@ -1,7 +1,7 @@
 // Disk cache for pre-rendered animated cursor frames.
 //
 // Computed once from SVG freeze-frame capture, saved to
-// %LOCALAPPDATA%/screen-goated-toolbox/cursor-anim-cache/.
+// the active recorder state root's cursor-anim-cache/ directory.
 // Subsequent loads skip all SVG rendering and read straight from disk.
 //
 // File format per slot: simple length-prefixed frames with a header.
@@ -26,7 +26,8 @@ const MAX_CACHE_TREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 fn cache_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| base.join("screen-goated-toolbox").join("cursor-anim-cache"))
+    super::super::runtime_paths::optional_local_data_dir()
+        .map(|base| base.join("cursor-anim-cache"))
 }
 
 fn cache_path(slot_id: u32, svg_hash: &str) -> Option<PathBuf> {

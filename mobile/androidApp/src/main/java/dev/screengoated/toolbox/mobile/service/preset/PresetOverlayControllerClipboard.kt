@@ -9,7 +9,6 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.model.MobileUiPreferences
@@ -24,6 +23,7 @@ import dev.screengoated.toolbox.mobile.service.OverlayBounds
 import dev.screengoated.toolbox.mobile.service.ScreenshotCaptureFailureReason
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.service.LiveTranslateService
+import dev.screengoated.toolbox.mobile.service.publishImageClipboard
 import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
@@ -33,13 +33,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.io.File
 import kotlin.math.roundToInt
 
 // Clipboard + accessibility-disclosure helpers extracted from PresetOverlayController.
 private const val TAG = "PresetOverlayController"
-private const val IMAGE_CLIPBOARD_DIR = "clipboard-images"
-private const val IMAGE_CLIPBOARD_FILE = "latest-screenshot.png"
 
 internal fun PresetOverlayController.copyColorToClipboard(hexColor: String) {
     clipboardManager?.setPrimaryClip(ClipData.newPlainText("SGT Color", hexColor))
@@ -55,6 +52,7 @@ internal fun PresetOverlayController.copyColorToClipboard(hexColor: String) {
 }
 
 internal fun PresetOverlayController.copyTextToClipboard(text: String): Boolean {
+    if (!resultTextFitsClipboard(text)) return false
     return runCatching {
         val manager = clipboardManager ?: return false
         manager.setPrimaryClip(ClipData.newPlainText("SGT Result", text))
@@ -66,18 +64,8 @@ internal fun PresetOverlayController.copyTextToClipboard(text: String): Boolean 
 }
 
 internal fun PresetOverlayController.copyImageToClipboard(pngBytes: ByteArray): Boolean {
-    return runCatching {
-        val manager = clipboardManager ?: return false
-        val dir = File(context.cacheDir, IMAGE_CLIPBOARD_DIR).apply { mkdirs() }
-        val file = File(dir, IMAGE_CLIPBOARD_FILE)
-        file.writeBytes(pngBytes)
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        manager.setPrimaryClip(ClipData.newUri(context.contentResolver, "SGT Image", uri))
-        true
-    }.getOrElse { error ->
-        Log.e(TAG, "copyImageToClipboard failed", error)
-        false
-    }
+    val manager = clipboardManager ?: return false
+    return publishImageClipboard(context, manager, pngBytes)
 }
 
 internal fun PresetOverlayController.openAccessibilitySettings() {

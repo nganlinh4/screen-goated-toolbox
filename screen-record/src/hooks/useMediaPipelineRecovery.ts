@@ -37,27 +37,32 @@ const revokePreviousBlobUrl = (
   return nextUrl;
 };
 
-export function useMediaPipelineRecovery({
-  currentProjectDataRef,
-  currentRawMicAudioPath,
-  currentRawVideoPath,
-  currentRawWebcamVideoPath,
-  currentTime,
-  isPlaying,
-  projectId,
-  seek,
-  segmentDeviceAudioAvailable,
-  setCurrentAudio,
-  setCurrentMicAudio,
-  setCurrentVideo,
-  setCurrentWebcamVideo,
-  setPreviewAudioResetKey,
-  videoControllerRef,
-}: UseMediaPipelineRecoveryOptions) {
+export function useMediaPipelineRecovery(options: UseMediaPipelineRecoveryOptions) {
+  // The reset listener is registered once; it reads the latest playback state
+  // and media paths here instead of re-subscribing on every playback frame.
+  const latestRef = useRef(options);
+  latestRef.current = options;
   const mediaRecoveryInFlightRef = useRef(false);
 
   useEffect(() => {
     const handleMediaPipelineReset = (event: Event) => {
+      const {
+        currentProjectDataRef,
+        currentRawMicAudioPath,
+        currentRawVideoPath,
+        currentRawWebcamVideoPath,
+        currentTime,
+        isPlaying,
+        projectId,
+        seek,
+        segmentDeviceAudioAvailable,
+        setCurrentAudio,
+        setCurrentMicAudio,
+        setCurrentVideo,
+        setCurrentWebcamVideo,
+        setPreviewAudioResetKey,
+        videoControllerRef,
+      } = latestRef.current;
       const detail = (event as CustomEvent<{ reason?: string; delayMs?: number }>).detail;
       if (mediaRecoveryInFlightRef.current) return;
       if (!projectId) {
@@ -76,72 +81,89 @@ export function useMediaPipelineRecovery({
         try {
           const project = currentProjectDataRef.current;
           if (!project || project.id !== projectId) return;
+          const controller = videoControllerRef.current;
+          let loadVersion = controller?.videoLoadVersion;
+          const isCurrent = () => currentProjectDataRef.current?.id === projectId &&
+            videoControllerRef.current === controller && controller?.videoLoadVersion === loadVersion;
           let nextVideoUrl: string | undefined;
           if (currentRawVideoPath) {
-            nextVideoUrl = await videoControllerRef.current?.loadVideo({
-              videoUrl: await getMediaServerUrl(currentRawVideoPath),
+            const videoUrl = await getMediaServerUrl(currentRawVideoPath);
+            if (!isCurrent()) return;
+            const pending = controller?.loadVideo({
+              videoUrl,
               initialTime: resumeTime,
               debugLabel: "media-reset",
             });
+            loadVersion = controller?.videoLoadVersion;
+            nextVideoUrl = await pending;
           } else if (project.videoBlob) {
-            nextVideoUrl = await videoControllerRef.current?.loadVideo({
+            const pending = controller?.loadVideo({
               videoBlob: project.videoBlob,
               initialTime: resumeTime,
               debugLabel: "media-reset",
             });
+            loadVersion = controller?.videoLoadVersion;
+            nextVideoUrl = await pending;
           }
+          if (!isCurrent()) return;
           if (nextVideoUrl) {
             setCurrentVideo((previous) => revokePreviousBlobUrl(previous, nextVideoUrl));
           }
           let nextAudioUrl: string | undefined;
           if (currentRawVideoPath && segmentDeviceAudioAvailable !== false) {
-            nextAudioUrl = await videoControllerRef.current?.loadDeviceAudio({
-              audioUrl: await getMediaServerUrl(currentRawVideoPath),
-            });
+            const audioUrl = await getMediaServerUrl(currentRawVideoPath);
+            if (!isCurrent()) return;
+            nextAudioUrl = await controller?.loadDeviceAudio({ audioUrl });
           } else if (project.audioBlob) {
             nextAudioUrl = await videoControllerRef.current?.loadDeviceAudio({
               audioBlob: project.audioBlob,
             });
           }
+          if (!isCurrent()) return;
           if (nextAudioUrl) {
             setCurrentAudio((previous) => revokePreviousBlobUrl(previous, nextAudioUrl));
           }
           let nextMicAudioUrl: string | undefined;
           if (currentRawMicAudioPath) {
-            nextMicAudioUrl = await videoControllerRef.current?.loadMicAudio({
-              audioUrl: await getMediaServerUrl(currentRawMicAudioPath),
-            });
+            const audioUrl = await getMediaServerUrl(currentRawMicAudioPath);
+            if (!isCurrent()) return;
+            nextMicAudioUrl = await controller?.loadMicAudio({ audioUrl });
           } else if (project.micAudioBlob) {
             nextMicAudioUrl = await videoControllerRef.current?.loadMicAudio({
               audioBlob: project.micAudioBlob,
             });
           }
+          if (!isCurrent()) return;
           if (nextMicAudioUrl) {
             setCurrentMicAudio((previous) => revokePreviousBlobUrl(previous, nextMicAudioUrl));
           }
           let nextWebcamUrl: string | undefined;
           if (currentRawWebcamVideoPath) {
-            nextWebcamUrl = await videoControllerRef.current?.loadWebcamVideo({
-              videoUrl: await getMediaServerUrl(currentRawWebcamVideoPath),
-            });
+            const videoUrl = await getMediaServerUrl(currentRawWebcamVideoPath);
+            if (!isCurrent()) return;
+            nextWebcamUrl = await controller?.loadWebcamVideo({ videoUrl });
           } else if (project.webcamBlob) {
             nextWebcamUrl = await videoControllerRef.current?.loadWebcamVideo({
               videoBlob: project.webcamBlob,
             });
           }
+          if (!isCurrent()) return;
           if (nextWebcamUrl) {
             setCurrentWebcamVideo((previous) => revokePreviousBlobUrl(previous, nextWebcamUrl));
           }
           setPreviewAudioResetKey((key) => key + 1);
           requestAnimationFrame(() => {
+            if (!isCurrent()) return;
             seek(resumeTime);
             if (shouldResume) {
-              window.setTimeout(() => videoControllerRef.current?.play(), 250);
+              window.setTimeout(() => { if (isCurrent()) controller?.play(); }, 250);
             }
           });
           console.log("[ScreenRecord][MediaReset] project reload complete");
         } catch (error) {
-          console.warn("[ScreenRecord][MediaReset] project reload failed", error);
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            console.warn("[ScreenRecord][MediaReset] project reload failed", error);
+          }
         } finally {
           window.setTimeout(() => {
             mediaRecoveryInFlightRef.current = false;
@@ -153,21 +175,5 @@ export function useMediaPipelineRecovery({
     return () => {
       window.removeEventListener("sr-reset-media-pipeline", handleMediaPipelineReset);
     };
-  }, [
-    currentProjectDataRef,
-    currentRawMicAudioPath,
-    currentRawVideoPath,
-    currentRawWebcamVideoPath,
-    currentTime,
-    isPlaying,
-    projectId,
-    seek,
-    segmentDeviceAudioAvailable,
-    setCurrentAudio,
-    setCurrentMicAudio,
-    setCurrentVideo,
-    setCurrentWebcamVideo,
-    setPreviewAudioResetKey,
-    videoControllerRef,
-  ]);
+  }, []);
 }

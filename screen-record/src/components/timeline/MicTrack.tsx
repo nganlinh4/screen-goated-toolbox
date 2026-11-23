@@ -7,6 +7,7 @@ import {
 } from "@/lib/micAudio";
 import { type VolumeTrackGeometry } from "./audioVolumeTrackGeometry";
 import { AudioVolumeTrack } from "./AudioVolumeTrack";
+import { useSettings } from "@/hooks/useSettings";
 
 const MIC_TRACK_TOP_PX = 5;
 const MIC_TRACK_BOTTOM_PX = 35;
@@ -29,6 +30,7 @@ interface MicTrackProps {
   onUpdateMicAudioPoints: (points: MicAudioPoint[]) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  getPlayheadTime?: () => number;
 }
 
 export const MicTrack: React.FC<MicTrackProps> = ({
@@ -40,7 +42,9 @@ export const MicTrack: React.FC<MicTrackProps> = ({
   onUpdateMicAudioPoints,
   beginBatch,
   commitBatch,
+  getPlayheadTime,
 }) => {
+  const { t } = useSettings();
   const points = segment.micAudioPoints?.length
     ? segment.micAudioPoints
     : buildFlatMicAudioPoints(duration);
@@ -56,6 +60,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
       geometry={MIC_TRACK_GEOMETRY}
       rangePx={MIC_TRACK_RANGE_PX}
       classNamePrefix="mic-audio"
+      laneName={t.trackMicAudio}
       tone="info"
       colorVariable="--timeline-mic-audio-color"
       hoveredRingClass="ring-2 ring-[var(--timeline-mic-audio-color)]/40"
@@ -63,6 +68,7 @@ export const MicTrack: React.FC<MicTrackProps> = ({
       offsetSec={segment.micAudioOffsetSec ?? 0}
       beginBatch={beginBatch}
       commitBatch={commitBatch}
+      getPlayheadTime={getPlayheadTime}
     />
   );
 };

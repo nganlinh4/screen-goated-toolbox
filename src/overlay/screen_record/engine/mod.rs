@@ -30,10 +30,10 @@ use types::VramFrame;
 pub use cursor::reset_cursor_detection_state;
 pub use types::{
     ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, ENCODER_ACTIVE,
-    ENCODING_FINISHED, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
-    LAST_RECORDING_FPS, MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH, MIC_AUDIO_START_OFFSET_MS,
-    MONITOR_X, MONITOR_Y, MOUSE_POSITIONS, MonitorInfo, SHOULD_STOP, SHOULD_STOP_AUDIO,
-    TARGET_HWND, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
+    ENCODING_FINISHED, FINALIZATION_ERROR, IS_RECORDING, LAST_CAPTURE_FRAME_HEIGHT,
+    LAST_CAPTURE_FRAME_WIDTH, LAST_RECORDING_FPS, MIC_AUDIO_ENCODING_FINISHED, MIC_AUDIO_PATH,
+    MIC_AUDIO_START_OFFSET_MS, MONITOR_X, MONITOR_Y, MOUSE_POSITIONS, MonitorInfo, SHOULD_STOP,
+    SHOULD_STOP_AUDIO, TARGET_HWND, VIDEO_PATH, WEBCAM_ENCODING_FINISHED, WEBCAM_VIDEO_PATH,
     WEBCAM_VIDEO_START_OFFSET_MS,
 };
 
@@ -124,6 +124,8 @@ impl CaptureHandler {
                 let finish_start = Instant::now();
                 if let Err(error) = encoder.finish() {
                     eprintln!("video encoder finalize error: {}", error);
+                    *FINALIZATION_ERROR.lock() =
+                        Some(format!("Video finalization failed: {error}"));
                 }
                 eprintln!(
                     "[CaptureBackend][Finalize] encoder-finish elapsed_ms={}",

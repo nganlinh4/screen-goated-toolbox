@@ -1,8 +1,12 @@
 use std::fs;
 use std::path::Path;
 
-pub(crate) const GENERATOR_SCHEMA: u32 = 6;
+pub(crate) const GENERATOR_SCHEMA: u32 = 10;
 
+#[path = "model_catalog_realtime.rs"]
+mod realtime;
+#[path = "model_catalog_retry.rs"]
+mod retry;
 #[path = "model_catalog_validation.rs"]
 mod validation;
 
@@ -34,8 +38,6 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             "GEMINI_TRANSCRIBE_BATCH_API_MODEL",
             "gemini_transcribe_batch_api_model",
         ),
-        ("QWEN3_ASR_0_6B_MODEL_ID", "qwen3_asr_0_6b_model_id"),
-        ("QWEN3_ASR_1_7B_MODEL_ID", "qwen3_asr_1_7b_model_id"),
         (
             "REALTIME_TRANSLATION_MODEL_LLM",
             "realtime_translation_model_llm",
@@ -186,6 +188,32 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
     lines.push("}".to_string());
     lines.push(String::new());
 
+    // Optional endpoint wire policy for structured text requests; absent means
+    // the endpoint declares none and the provider adapter keeps its default.
+    lines.push(
+        "pub fn text_structured_output_policy(provider: &str, api_model: &str) -> Option<StructuredOutputPolicy> {"
+            .to_string(),
+    );
+    lines.push("    match (provider, api_model) {".to_string());
+    for (endpoint, profile) in manifest_object(&manifest, "model_profiles") {
+        if let Some(policy) = profile.get("text_structured_output") {
+            let policy = policy
+                .as_str()
+                .expect("text_structured_output must be a string");
+            let (provider, api_model) = endpoint.split_once(':').expect("provider endpoint key");
+            lines.push(format!(
+                "        ({}, {}) => Some({}),",
+                rust_string(provider),
+                rust_string(api_model),
+                structured_output_policy(policy)
+            ));
+        }
+    }
+    lines.push("        _ => None,".to_string());
+    lines.push("    }".to_string());
+    lines.push("}".to_string());
+    lines.push(String::new());
+
     lines.push(
         "pub fn generated_vision_request_profile(provider: &str, api_model: &str) -> Option<VisionRequestProfile> {"
             .to_string(),
@@ -223,13 +251,8 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
             ),
             None => panic!("vision request profile must declare max_output_tokens"),
         };
-        let structured_output = match manifest_string(profile, "structured_output") {
-            "unsupported" => "StructuredOutputPolicy::Unsupported",
-            "prompt-only" => "StructuredOutputPolicy::PromptOnly",
-            "json-object" => "StructuredOutputPolicy::JsonObject",
-            "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
-            value => panic!("unsupported structured output policy {value:?}"),
-        };
+        let structured_output =
+            structured_output_policy(manifest_string(profile, "structured_output"));
         // Absent means "no known fault", so a new endpoint is trusted until it
         // has been measured rather than guarded on suspicion.
         let restates_output = profile
@@ -314,26 +337,8 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
     lines.push("];".to_string());
     lines.push(String::new());
 
-    lines.push("#[cfg(not(feature = \"recorder-worker\"))]".to_string());
-    lines.push("pub const GENERATED_REALTIME_S2S_MODEL_IDS: &[&str] = &[".to_string());
-    for id in manifest_array(&manifest, "realtime_s2s_model_ids") {
-        lines.push(format!("    {},", rust_string(id.as_str().unwrap())));
-    }
-    lines.push("];".to_string());
-    let realtime_options = manifest_object(&manifest, "realtime_transcription_options");
-    lines.push(
-        "pub const GENERATED_REALTIME_TRANSCRIPTION_OPTIONS: &[(&str, &str)] = &[".to_string(),
-    );
-    for value in manifest_array_from_object(realtime_options, "windows") {
-        let id = value.as_str().unwrap();
-        lines.push(format!(
-            "    ({}, {}),",
-            rust_string(id),
-            rust_string(realtime_transcription_option_label(&manifest, id))
-        ));
-    }
-    lines.push("];".to_string());
-    lines.push(String::new());
+    realtime::push_realtime_transcription(&manifest, &mut lines);
+    retry::push_quality_retry_models(&manifest, &mut lines);
 
     lines.push("pub fn generated_models() -> Vec<ModelConfig> {".to_string());
     lines.push("    vec![".to_string());
@@ -460,25 +465,7 @@ pub(crate) fn generate(manifest_path: &Path, output_path: &Path, generator_schem
     lines.push("}".to_string());
     lines.push(String::new());
 
-    lines.push(
-        "pub fn generated_normalize_realtime_transcription_model_id(model_id: &str) -> &'static str {"
-            .to_string(),
-    );
-    lines.push("    match model_id {".to_string());
-    for (alias, normalized) in manifest_object(&manifest, "realtime_transcription_aliases") {
-        lines.push(format!(
-            "        {} => {},",
-            rust_string(alias),
-            rust_string(normalized.as_str().unwrap())
-        ));
-    }
-    lines.push(format!(
-        "        _ => {},",
-        rust_string(manifest_string(defaults, "realtime_transcription_model"))
-    ));
-    lines.push("    }".to_string());
-    lines.push("}".to_string());
-    lines.push(String::new());
+    realtime::push_realtime_transcription_aliases(&manifest, &mut lines);
 
     lines.push("#[cfg(not(feature = \"recorder-worker\"))]".to_string());
     lines.push(
@@ -535,14 +522,15 @@ fn manifest_array_from_object<'a>(
         .unwrap_or_else(|| panic!("manifest object key {key:?} must be an array"))
 }
 
-fn realtime_transcription_option_label<'a>(
-    manifest: &'a serde_json::Value,
-    id: &'a str,
-) -> &'a str {
-    manifest["realtime_transcription_labels"][id]
-        .as_str()
-        .filter(|label| !label.trim().is_empty())
-        .unwrap_or_else(|| panic!("missing realtime transcription label for {id}"))
+fn structured_output_policy(value: &str) -> &'static str {
+    match value {
+        // Both attach no schema; a prompt-only caller states the structure in
+        // its own prompt, so the Windows wire request is the same.
+        "unsupported" | "prompt-only" => "StructuredOutputPolicy::Unsupported",
+        "json-object" => "StructuredOutputPolicy::JsonObject",
+        "strict-json-schema" => "StructuredOutputPolicy::StrictJsonSchema",
+        value => panic!("unsupported structured output policy {value:?}"),
+    }
 }
 
 fn localized_model_name(

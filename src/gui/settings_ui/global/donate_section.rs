@@ -1,8 +1,8 @@
 //! Donation section shown in global settings.
 //!
-//! Donations currently support Vietnamese donors only. For the Vietnamese locale the
-//! section shows the VietQR bank-transfer details + actions; English/Korean locales show
-//! a short "Vietnamese donors only" note instead. The QR is referenced by its VietQR
+//! Donations currently support Vietnamese donors only. Every locale shows the VietQR
+//! bank-transfer details and actions; locales other than Vietnamese also show a short
+//! note that the transfer is for Vietnamese donors. The QR is referenced by its VietQR
 //! image URL (opened in the browser) rather than bundled as an asset.
 //!
 //! The section is collapsed by default — a `potted_plant` glyph + title on the left, an
@@ -65,10 +65,13 @@ pub fn render_donate_section_content(ui: &mut egui::Ui, text: &LocaleText) {
         ui.label(egui::RichText::new(DONATE_BANK_LINE).strong());
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            if ui.button("Sao chép STK").clicked() {
+            if ui
+                .button(text.global_settings.donate_copy_account)
+                .clicked()
+            {
                 ui.ctx().copy_text(DONATE_ACCOUNT.to_string());
             }
-            if ui.button("Mở mã VietQR").clicked() {
+            if ui.button(text.global_settings.donate_open_qr).clicked() {
                 let _ = open::that(VIETQR_URL);
             }
         });

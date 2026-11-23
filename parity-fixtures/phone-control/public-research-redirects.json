@@ -1,0 +1,17 @@
+{
+  "canonical_windows_files": ["src/overlay/computer_control/research.rs"],
+  "maximum_redirects": 5,
+  "destination_dns_owner": "local_public_only_no_proxy",
+  "cases": [
+    {"from":"https://public.example/start", "location":"/next", "allowed":true},
+    {"from":"https://public.example/start", "location":"https://other.example/page", "allowed":true},
+    {"from":"https://public.example/start", "location":"http://127.0.0.1/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"http://2130706433/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"http://127.1/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"http://192.168.1.1/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"http://[::1]/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"http://[::ffff:127.0.0.1]/admin", "allowed":false},
+    {"from":"https://public.example/start", "location":"https://user:pass@other.example/", "allowed":false},
+    {"from":"https://public.example/start", "location":"file:///private/data", "allowed":false}
+  ]
+}

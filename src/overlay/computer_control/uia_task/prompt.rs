@@ -15,7 +15,7 @@ use super::super::{engine, executor, protocol};
 
 const STATIC_TOOL_COUNT: usize = 62;
 const STATIC_TOOLS_SHA256: &str =
-    "9794b2eadf11e44d90bb4d3891ee75677682a1a6b54fe60aa11bd08c4db55e75";
+    "e5f57c6233e823a2ca1039a6cc2383655e47ddfd7d4a303ca7245d37b989df9f";
 const ELEVATED_PROMPT_SHA256: &str =
     "55f2891a7a90fd6fbb5ab6e3a39f9cec5facdec46fdae7ed232daa7885e6c143";
 const STANDARD_PROMPT_SHA256: &str =
@@ -24,10 +24,35 @@ const MAX_SYSTEM_INSTRUCTION_BYTES: usize = 32 * 1024;
 const MAX_TOOLS_BYTES: usize = 128 * 1024;
 const MAX_RECONNECT_CONTEXT_CHARS: usize = 6_000;
 
+#[cfg(test)]
 pub(crate) fn build_setup(resume: Option<&str>, voice: bool, search: bool) -> Result<Value> {
     build_setup_with_context(resume, voice, search, None)
 }
 
+pub(crate) fn build_normal_setup(reconnect_context: Option<&str>) -> Result<Value> {
+    normal_setup_with_plan(
+        reconnect_context,
+        super::super::mcp::active_tool_declarations()?,
+        engine::build_setup,
+    )
+}
+
+fn normal_setup_with_plan(
+    reconnect_context: Option<&str>,
+    integration_declarations: Vec<Value>,
+    build_plan: impl FnOnce(SetupRequest) -> Result<SetupPlan>,
+) -> Result<Value> {
+    setup_with_plan(
+        None,
+        true,
+        true,
+        reconnect_context,
+        integration_declarations,
+        build_plan,
+    )
+}
+
+#[cfg(test)]
 pub(crate) fn build_setup_with_context(
     resume: Option<&str>,
     voice: bool,
@@ -43,6 +68,7 @@ pub(crate) fn build_setup_with_context(
     )
 }
 
+#[cfg(test)]
 fn build_setup_with_declarations(
     resume: Option<&str>,
     voice: bool,
@@ -50,12 +76,30 @@ fn build_setup_with_declarations(
     reconnect_context: Option<&str>,
     integration_declarations: Vec<Value>,
 ) -> Result<Value> {
+    setup_with_plan(
+        resume,
+        voice,
+        search,
+        reconnect_context,
+        integration_declarations,
+        engine::build_setup,
+    )
+}
+
+fn setup_with_plan(
+    resume: Option<&str>,
+    voice: bool,
+    search: bool,
+    reconnect_context: Option<&str>,
+    integration_declarations: Vec<Value>,
+    build_plan: impl FnOnce(SetupRequest) -> Result<SetupPlan>,
+) -> Result<Value> {
     let privilege = if executor::is_elevated() {
         HostPrivilege::Elevated
     } else {
         HostPrivilege::Standard
     };
-    let plan = engine::build_setup(SetupRequest {
+    let plan = build_plan(SetupRequest {
         privilege,
         voice_mode: voice,
         search_enabled: search,
@@ -85,7 +129,7 @@ fn assemble_setup(
     // Match the global TTS voice preference so the agent uses the user's chosen
     // provider voice rather than a hardcoded one.
     let voice_name = {
-        let v = crate::load_config().tts_voice.trim().to_string();
+        let v = super::super::app_config::read(|config| config.tts_voice.trim().to_string());
         if v.is_empty() { "Aoede".to_string() } else { v }
     };
     // On a reconnect, resume the prior session by its handle so the server
@@ -117,6 +161,7 @@ fn assemble_setup(
     if let Some(realtime_input_config) = plan.realtime_input_config {
         setup["setup"]["realtimeInputConfig"] = realtime_input_config;
     }
+    engine::remember_validated_tools(&setup["setup"]["tools"])?;
     Ok(setup)
 }
 

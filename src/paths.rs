@@ -1,8 +1,7 @@
 //! Canonical application data directories.
 //!
 //! App data is split across OS roots — `%APPDATA%/screen-goated-toolbox` for config +
-//! history ([`app_config_dir`]) and for Roaming model/bin data ([`app_data_dir`] /
-//! [`app_models_dir`], same folder on Windows); `%LOCALAPPDATA%/screen-goated-toolbox`
+//! history ([`app_config_dir`]); `%LOCALAPPDATA%/screen-goated-toolbox`
 //! for caches, recordings and export artifacts ([`app_local_data_dir`]); a legacy
 //! `%LOCALAPPDATA%/SGT` subfolder for logs and the live WebView2 data ([`app_sgt_dir`]);
 //! and `<temp>/screen-goated-toolbox` for short-lived sidecars ([`app_temp_dir`]).
@@ -23,13 +22,13 @@
 
 use std::path::PathBuf;
 
-const RUNTIME_STATE_ROOT_ENV: &str = "SGT_RUNTIME_STATE_ROOT";
+pub(crate) const RUNTIME_STATE_ROOT_ENV: &str = "SGT_RUNTIME_STATE_ROOT";
 
-fn runtime_state_root() -> Option<PathBuf> {
+pub(crate) fn runtime_state_root() -> Option<PathBuf> {
     runtime_state_root_from(std::env::var_os(RUNTIME_STATE_ROOT_ENV))
 }
 
-fn runtime_state_root_from(raw: Option<std::ffi::OsString>) -> Option<PathBuf> {
+pub(crate) fn runtime_state_root_from(raw: Option<std::ffi::OsString>) -> Option<PathBuf> {
     let raw = raw?;
     if raw.is_empty() {
         return None;
@@ -51,29 +50,12 @@ pub fn app_config_dir() -> PathBuf {
 
 /// Mutable config-shaped state for an isolated runtime. Normal launches share
 /// [`app_config_dir`]; a run with `SGT_RUNTIME_STATE_ROOT` writes under that
-/// root while remaining free to read the user's existing configuration.
-#[cfg(not(feature = "recorder-worker"))]
+/// root. Individual stores choose whether any read-only fallback is appropriate.
 pub fn app_runtime_config_dir() -> PathBuf {
     if let Some(root) = runtime_state_root() {
         return root.join("roaming-state").join("screen-goated-toolbox");
     }
     app_config_dir()
-}
-
-/// `%APPDATA%/screen-goated-toolbox` — Roaming app-data root for downloaded models
-/// and sidecar binaries. On Windows this resolves to the same folder as
-/// [`app_config_dir`]; it is kept distinct because these call sites semantically use
-/// `dirs::data_dir()` (Roaming *data*), not `dirs::config_dir()`.
-pub fn app_data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_default()
-        .join("screen-goated-toolbox")
-}
-
-/// `%APPDATA%/screen-goated-toolbox/models` — root for all downloaded model packs
-/// (Kokoro, Parakeet, Qwen3, Sherpa/Zipformer, Supertonic, …).
-pub fn app_models_dir() -> PathBuf {
-    app_data_dir().join("models")
 }
 
 /// `%LOCALAPPDATA%/screen-goated-toolbox` — caches, recordings, downloaded tools,
@@ -120,9 +102,106 @@ pub fn app_temp_dir() -> PathBuf {
     std::env::temp_dir().join("screen-goated-toolbox")
 }
 
+#[cfg(not(feature = "recorder-worker"))]
+/// Temporary directory passed to child processes. Isolated runs get their own
+/// directory; normal launches keep the operating system's existing TEMP root.
+pub fn child_process_temp_dir() -> std::io::Result<PathBuf> {
+    if runtime_state_root().is_none() {
+        return Ok(std::env::temp_dir());
+    }
+    let path = app_temp_dir();
+    std::fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) trait ChildEnvironment {
+    fn set_environment(&mut self, name: &std::ffi::OsStr, value: &std::ffi::OsStr);
+    fn remove_environment(&mut self, name: &std::ffi::OsStr);
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+impl ChildEnvironment for std::process::Command {
+    fn set_environment(&mut self, name: &std::ffi::OsStr, value: &std::ffi::OsStr) {
+        self.env(name, value);
+    }
+    fn remove_environment(&mut self, name: &std::ffi::OsStr) {
+        self.env_remove(name);
+    }
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+impl ChildEnvironment for crate::process_job::HelperCommand {
+    fn set_environment(&mut self, name: &std::ffi::OsStr, value: &std::ffi::OsStr) {
+        self.env(name, value);
+    }
+    fn remove_environment(&mut self, name: &std::ffi::OsStr) {
+        self.env_remove(name);
+    }
+}
+
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) fn configure_isolated_child_environment(
+    command: &mut impl ChildEnvironment,
+) -> std::io::Result<()> {
+    if runtime_state_root().is_some() {
+        let path = child_process_temp_dir()?;
+        command.set_environment(std::ffi::OsStr::new("TEMP"), path.as_os_str());
+        command.set_environment(std::ffi::OsStr::new("TMP"), path.as_os_str());
+        for (name, _) in std::env::vars_os() {
+            if is_credential_environment_name(&name) {
+                command.remove_environment(&name);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_credential_environment_name(name: &std::ffi::OsStr) -> bool {
+    let value = name.to_string_lossy().to_ascii_uppercase();
+    let parts: Vec<_> = value.split('_').collect();
+    value.ends_with("KEY")
+        || value.ends_with("TOKEN")
+        || value.contains("SECRET")
+        || value.contains("PASSWORD")
+        || parts.iter().any(|part| {
+            matches!(
+                *part,
+                "TOKEN"
+                    | "SECRET"
+                    | "PASSWORD"
+                    | "CREDENTIAL"
+                    | "CREDENTIALS"
+                    | "KEY"
+                    | "AUTH"
+                    | "BEARER"
+            )
+        })
+        || parts
+            .windows(2)
+            .any(|pair| pair == ["API", "KEY"] || pair == ["ACCESS", "KEY"])
+}
+
+/// Called at process entry, before app threads and children are started.
+pub(crate) fn isolate_inherited_credentials(preserved_names: &[&str]) {
+    if runtime_state_root().is_some() {
+        for (name, _) in std::env::vars_os() {
+            if is_credential_environment_name(&name)
+                && !preserved_names
+                    .iter()
+                    .any(|allowed| name.eq_ignore_ascii_case(allowed))
+            {
+                // On Windows environment mutation is thread-safe. Run this at
+                // entry as well so no application code can observe inherited keys.
+                unsafe { std::env::remove_var(name) };
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RUNTIME_STATE_ROOT_ENV, runtime_state_root_from};
+    use super::{RUNTIME_STATE_ROOT_ENV, is_credential_environment_name, runtime_state_root_from};
     use std::ffi::OsString;
 
     #[test]
@@ -144,5 +223,33 @@ mod tests {
     #[test]
     fn runtime_state_override_name_is_stable() {
         assert_eq!(RUNTIME_STATE_ROOT_ENV, "SGT_RUNTIME_STATE_ROOT");
+    }
+
+    #[test]
+    fn credential_names_cover_custom_providers_without_removing_system_paths() {
+        for name in [
+            "CUSTOM_PROVIDER_KEY",
+            "PLUGIN_AUTH_TOKEN",
+            "PLUGINSECRET",
+            "EXAMPLE_PASSWORD",
+            "CUSTOM_API_KEY_7",
+        ] {
+            assert!(is_credential_environment_name(name.as_ref()), "{name}");
+        }
+        for name in ["PATH", "SystemRoot", "TEMP", "SGT_RUNTIME_STATE_ROOT"] {
+            assert!(!is_credential_environment_name(name.as_ref()), "{name}");
+        }
+    }
+
+    #[test]
+    fn isolation_is_the_first_application_action_in_both_entry_points() {
+        for source in [
+            include_str!("main.rs"),
+            include_str!("../native/recorder_worker/src/main.rs"),
+        ] {
+            let main = source.split_once("fn main()").unwrap().1;
+            let body = main.split_once('{').unwrap().1.trim_start();
+            assert!(body.starts_with("paths::isolate_inherited_credentials("));
+        }
     }
 }

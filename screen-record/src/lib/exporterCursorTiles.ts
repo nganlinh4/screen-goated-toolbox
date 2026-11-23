@@ -2,50 +2,7 @@ import type { BackgroundConfig } from '@/types/video';
 import { getCursorPack } from './renderer/cursorTypes';
 import { getCursorAssetUrl } from './renderer/cursorAssets';
 import { invoke } from '@/lib/ipc';
-
-export type CursorPackSlug =
-  | 'screenstudio'
-  | 'macos26'
-  | 'sgtcute'
-  | 'sgtcool'
-  | 'sgtai'
-  | 'sgtpixel'
-  | 'jepriwin11'
-  | 'sgtwatermelon'
-  | 'sgtfastfood'
-  | 'sgtveggie'
-  | 'sgtvietnam'
-  | 'sgtkorea';
-
-export const CURSOR_TYPES_ORDER = [
-  'default',
-  'text',
-  'pointer',
-  'openhand',
-  'closehand',
-  'wait',
-  'appstarting',
-  'crosshair',
-  'resize-ns',
-  'resize-we',
-  'resize-nwse',
-  'resize-nesw'
-] as const;
-
-export const CURSOR_PACK_ORDER: CursorPackSlug[] = [
-  'screenstudio',
-  'macos26',
-  'sgtcute',
-  'sgtcool',
-  'sgtai',
-  'sgtpixel',
-  'jepriwin11',
-  'sgtwatermelon',
-  'sgtfastfood',
-  'sgtveggie',
-  'sgtvietnam',
-  'sgtkorea',
-];
+import { buildCursorSlotId, CURSOR_RENDER_KINDS, type CursorPack } from './renderer/cursorModel';
 
 export const CURSOR_TILE_SIZE = 512;
 
@@ -63,20 +20,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// Canonical cursor atlas slot formula (packIdx * 12 + typeIdx). This is the
-// single source for slot IDs in the frontend — consumed by the export staging
-// here and by cursorAnimationCapture's CURSOR_TYPE_TO_SLOT. It MUST stay aligned
-// with the Rust mirror `cursor_type_to_id` in
-// src/overlay/screen_record/native_export/cursor.rs (same pack/type ordering).
-export function buildCursorSlotId(pack: CursorPackSlug, typeIndex: number): number {
-  const packIndex = CURSOR_PACK_ORDER.indexOf(pack);
-  if (packIndex < 0) return -1;
-  return (packIndex * CURSOR_TYPES_ORDER.length) + typeIndex;
-}
-
 export async function buildCursorSlotTilePayload(
-  pack: CursorPackSlug,
-  typeName: typeof CURSOR_TYPES_ORDER[number],
+  pack: CursorPack,
+  typeName: typeof CURSOR_RENDER_KINDS[number],
   typeIndex: number,
 ): Promise<CursorSlotPngPayload | null> {
   const slotId = buildCursorSlotId(pack, typeIndex);
@@ -131,9 +77,9 @@ export async function stageBrowserCursorSlotTiles(
   backgroundConfig?: BackgroundConfig,
   staging?: { sessionId: string; jobId: string },
 ) {
-  const pack = getCursorPack(backgroundConfig) as CursorPackSlug;
+  const pack = getCursorPack(backgroundConfig) as CursorPack;
   const staged = (await Promise.all(
-    CURSOR_TYPES_ORDER.map((typeName, idx) =>
+    CURSOR_RENDER_KINDS.map((typeName, idx) =>
       buildCursorSlotTilePayload(pack, typeName, idx))
   )).filter((payload): payload is CursorSlotPngPayload => payload !== null);
   if (staged.length === 0) return;

@@ -1,3 +1,4 @@
+pub(super) use crate::component_registry::is_reparse_point;
 use std::collections::{HashMap, HashSet};
 
 use quick_xml::{
@@ -47,7 +48,7 @@ impl SecurityState {
             let key = String::from_utf8_lossy(attribute.key.as_ref()).to_ascii_lowercase();
             let key = key.rsplit(':').next().unwrap_or(&key);
             let value = attribute
-                .decode_and_unescape_value(decoder)
+                .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, decoder)
                 .map_err(|_| complexity_error())?;
             validate_attribute_size(key, &value)?;
             if key == "id" {
@@ -168,17 +169,6 @@ pub(super) fn validate_css(css: &str, stylesheet: bool) -> Result<(), String> {
         return Err("SVG stylesheet resource references are unsupported.".to_string());
     }
     validate_url_functions(&normalized)
-}
-
-#[cfg(windows)]
-pub(super) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-pub(super) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
 }
 
 fn validate_attribute_size(key: &str, value: &str) -> Result<(), String> {

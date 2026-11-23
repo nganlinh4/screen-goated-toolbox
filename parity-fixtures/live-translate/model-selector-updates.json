@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "translationCases": [
+    { "name": "known_model", "options": ["first", "second"], "initial": "first", "hostModel": "second", "selected": "second", "userMessages": 0 },
+    { "name": "unknown_model", "options": ["first", "second"], "initial": "first", "hostModel": "future", "selected": "", "userMessages": 0 }
+  ],
+  "downloadCancellation": {
+    "selectedModel": "restored",
+    "restoresModeControls": true,
+    "downloadModalVisible": false
+  }
+}

@@ -150,7 +150,7 @@ fn webview_contexts_use_the_canonical_runtime() {
 #[test]
 fn migrated_background_jobs_stay_on_the_bounded_runtime() {
     for relative in [
-        "src/updater.rs",
+        "src/updater/controller.rs",
         "src/component_registry/external_tools.rs",
         "src/component_registry/recorder.rs",
         "src/component_registry/update_catalog.rs",

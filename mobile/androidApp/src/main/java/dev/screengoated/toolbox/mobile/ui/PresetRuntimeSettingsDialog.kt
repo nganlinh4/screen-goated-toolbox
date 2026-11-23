@@ -47,8 +47,7 @@ fun PresetRuntimeSettingsDialog(
     onDismiss: () -> Unit,
     onSave: (PresetRuntimeSettings) -> Unit,
 ) {
-    var imageChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.imageToText) }
-    var textChain by remember(settings) { mutableStateOf(settings.modelPriorityChains.textToText) }
+    var chains by remember(settings) { mutableStateOf(settings.modelPriorityChains) }
     var adaptive by remember(settings) { mutableStateOf(settings.adaptiveModelPriority) }
     var providers by remember(settings) { mutableStateOf(settings.providerSettings) }
     var showHelpDialog by remember { mutableStateOf(false) }
@@ -56,6 +55,7 @@ fun PresetRuntimeSettingsDialog(
     if (showHelpDialog) {
         ExpressiveDialogSurface(
             title = locale.presetRuntimeTitle,
+            closeLabel = locale.closeLabel,
             icon = R.drawable.ms_info,
             accent = MaterialTheme.colorScheme.primary,
             morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie4Sided),
@@ -73,14 +73,13 @@ fun PresetRuntimeSettingsDialog(
     }
 
     fun save(
-        image: List<String> = imageChain,
-        text: List<String> = textChain,
+        priorityChains: PresetModelPriorityChains = chains,
         adaptivePriority: PresetAdaptiveModelPriority = adaptive,
         providerSettings: PresetProviderSettings = providers,
     ) {
         onSave(
             settings.copy(
-                modelPriorityChains = PresetModelPriorityChains(image, text),
+                modelPriorityChains = priorityChains,
                 adaptiveModelPriority = adaptivePriority,
                 providerSettings = providerSettings,
             ),
@@ -95,6 +94,7 @@ fun PresetRuntimeSettingsDialog(
 
     fun updateImage(
         chain: List<String>,
+        chosenAfter: Int,
         enabled: Boolean,
         overrides: PresetLiveModelOverrides,
     ) {
@@ -102,13 +102,14 @@ fun PresetRuntimeSettingsDialog(
             imageToText = enabled,
             imageToTextOverrides = overrides,
         )
-        imageChain = chain
+        chains = chains.copy(imageToText = chain, imageChosenAfter = chosenAfter)
         adaptive = next
-        save(image = chain, adaptivePriority = next)
+        save(adaptivePriority = next)
     }
 
     fun updateText(
         chain: List<String>,
+        chosenAfter: Int,
         enabled: Boolean,
         overrides: PresetLiveModelOverrides,
     ) {
@@ -116,9 +117,9 @@ fun PresetRuntimeSettingsDialog(
             textToText = enabled,
             textToTextOverrides = overrides,
         )
-        textChain = chain
+        chains = chains.copy(textToText = chain, textChosenAfter = chosenAfter)
         adaptive = next
-        save(text = chain, adaptivePriority = next)
+        save(adaptivePriority = next)
     }
 
     val windowInfo = LocalWindowInfo.current
@@ -126,20 +127,21 @@ fun PresetRuntimeSettingsDialog(
     val windowWidth = with(density) { windowInfo.containerSize.width.toDp() }
     val windowHeight = with(density) { windowInfo.containerSize.height.toDp() }
     val isLandscape = windowWidth > windowHeight
+    val draft = settings.copy(
+        providerSettings = providers,
+        modelPriorityChains = chains,
+        adaptiveModelPriority = adaptive,
+    )
     val imageEditor: @Composable () -> Unit = {
         PriorityChainEditor(
             title = locale.presetRuntimeImageChainLabel,
-            authoredChain = imageChain,
+            authoredChain = chains.imageToText,
             chainKind = PresetRetryChainKind.IMAGE_TO_TEXT,
             modelType = PresetModelType.VISION,
             defaultChain = GeneratedPresetModelCatalogData.modelPriorityChains.imageToText,
             adaptiveEnabled = adaptive.imageToText,
             overrides = adaptive.imageToTextOverrides,
-            settings = settings.copy(
-                providerSettings = providers,
-                modelPriorityChains = PresetModelPriorityChains(imageChain, textChain),
-                adaptiveModelPriority = adaptive,
-            ),
+            settings = draft,
             apiKeys = apiKeys,
             locale = locale,
             uiLanguage = uiLanguage,
@@ -150,17 +152,13 @@ fun PresetRuntimeSettingsDialog(
     val textEditor: @Composable () -> Unit = {
         PriorityChainEditor(
             title = locale.presetRuntimeTextChainLabel,
-            authoredChain = textChain,
+            authoredChain = chains.textToText,
             chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
             modelType = PresetModelType.TEXT,
             defaultChain = GeneratedPresetModelCatalogData.modelPriorityChains.textToText,
             adaptiveEnabled = adaptive.textToText,
             overrides = adaptive.textToTextOverrides,
-            settings = settings.copy(
-                providerSettings = providers,
-                modelPriorityChains = PresetModelPriorityChains(imageChain, textChain),
-                adaptiveModelPriority = adaptive,
-            ),
+            settings = draft,
             apiKeys = apiKeys,
             locale = locale,
             uiLanguage = uiLanguage,
@@ -171,6 +169,7 @@ fun PresetRuntimeSettingsDialog(
 
     ExpressiveDialogSurface(
         title = locale.presetRuntimeTitle,
+        closeLabel = locale.closeLabel,
         icon = R.drawable.ms_settings,
         accent = MaterialTheme.colorScheme.primary,
         morphPair = ExpressiveMorphPair(MaterialShapes.Square, MaterialShapes.Cookie6Sided),

@@ -16,8 +16,6 @@ mod management;
 mod prose;
 mod registry;
 mod runtime;
-#[cfg(test)]
-mod schema;
 mod startup;
 mod support;
 mod ui;

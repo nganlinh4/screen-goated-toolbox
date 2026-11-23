@@ -1,9 +1,12 @@
 package dev.screengoated.toolbox.mobile.creation
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
@@ -23,19 +26,34 @@ internal class CreationDownloadsStore(context: Context) {
         runCatching { StatFs(path.absolutePath).availableBytes }.getOrNull()
     }
 
-    fun find(name: String): Uri? = resolver.query(
-        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-        arrayOf(MediaStore.Downloads._ID),
-        "${MediaStore.Downloads.RELATIVE_PATH} = ? AND " +
-            "${MediaStore.Downloads.DISPLAY_NAME} = ?",
-        arrayOf(DOWNLOADS_PATH, name),
-        "${MediaStore.Downloads._ID} DESC",
-    )?.use { cursor ->
-        if (!cursor.moveToFirst()) return@use null
-        ContentUris.withAppendedId(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            cursor.getLong(0),
-        )
+    /**
+     * Finds a Downloads row by name, including this app's IS_PENDING rows. A plain
+     * MediaStore query hides pending rows, so a crash-resumed reservation would
+     * insert a second row that MediaStore renames to "<name> (1)".
+     */
+    fun find(name: String): Uri? {
+        val projection = arrayOf(MediaStore.Downloads._ID)
+        val selection = "${MediaStore.Downloads.RELATIVE_PATH} = ? AND " +
+            "${MediaStore.Downloads.DISPLAY_NAME} = ?"
+        val selectionArgs = arrayOf(DOWNLOADS_PATH, name)
+        val sortOrder = "${MediaStore.Downloads._ID} DESC"
+        val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val queryArgs = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            }
+            resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, queryArgs, null)
+        } else {
+            @Suppress("DEPRECATION")
+            val includePending = MediaStore.setIncludePending(MediaStore.Downloads.EXTERNAL_CONTENT_URI)
+            resolver.query(includePending, projection, selection, selectionArgs, sortOrder)
+        }
+        return cursor?.use {
+            if (!it.moveToFirst()) return@use null
+            ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, it.getLong(0))
+        }
     }
 
     fun displayName(uri: Uri): String? = resolver.query(

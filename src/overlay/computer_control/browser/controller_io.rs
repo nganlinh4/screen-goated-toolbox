@@ -3,17 +3,10 @@
 
 use serde_json::{Value, json};
 
-use super::{bridge, err, js_exception_text};
+use super::{bridge, err};
 
-pub(in crate::overlay::computer_control) const DOCUMENT_ID_JS: &str = r#"(() => {
-    const key = Symbol.for('sgt.controller.document-id');
-    if (!globalThis[key]) {
-        globalThis[key] = (globalThis.crypto && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random()}`;
-    }
-    return globalThis[key];
-})()"#;
+#[path = "controller_io/fill.rs"]
+mod fill;
 
 #[derive(Clone, Copy)]
 pub(super) enum MutationRoute {
@@ -22,18 +15,6 @@ pub(super) enum MutationRoute {
 }
 
 impl MutationRoute {
-    pub(super) fn eval(
-        self,
-        expression: &str,
-        tab_id: i64,
-        session_id: Option<&str>,
-    ) -> anyhow::Result<Value> {
-        match self {
-            Self::Active => eval_value_in_active_tab(expression, tab_id, session_id),
-            Self::Exact => super::eval_value_in_exact_tab(expression, tab_id, session_id),
-        }
-    }
-
     pub(super) fn cdp(
         self,
         method: &str,
@@ -45,6 +26,15 @@ impl MutationRoute {
             Self::Active => active_tab_cdp(method, params, session_id, tab_id),
             Self::Exact => bridge::cdp_in_tab(method, params, session_id, tab_id),
         }
+    }
+
+    fn eval_controller(
+        self,
+        expression: &str,
+        tab_id: i64,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        super::controller_isolated::eval(self, expression, tab_id, session_id)
     }
 }
 
@@ -202,26 +192,6 @@ pub(super) fn title_matches_window(tab_title: &str, window_title: &str) -> bool 
             .is_some_and(|suffix| suffix.starts_with(" - ") || suffix.starts_with(" — "))
 }
 
-pub(in crate::overlay::computer_control) fn eval_value_in_active_tab(
-    expression: &str,
-    tab_id: i64,
-    session_id: Option<&str>,
-) -> anyhow::Result<Value> {
-    let params = json!({"expression": expression, "returnByValue": true, "awaitPromise": true});
-    let result = if super::capabilities::supports(super::capabilities::CDP_REQUIRE_ACTIVE) {
-        bridge::cdp_in_active_tab("Runtime.evaluate", params, session_id, tab_id)?
-    } else {
-        ensure_active_tab(tab_id)?;
-        let result = bridge::cdp_in_tab("Runtime.evaluate", params, session_id, tab_id)?;
-        ensure_active_tab(tab_id)?;
-        result
-    };
-    if let Some(exception) = result.get("exceptionDetails") {
-        anyhow::bail!("js exception: {}", js_exception_text(exception));
-    }
-    super::runtime_result_value(&result)
-}
-
 pub(in crate::overlay::computer_control) fn click_selector_on_active_tab(
     selector: &str,
     tab_id: i64,
@@ -296,17 +266,20 @@ fn atomic_activation(x: f64, y: f64) -> (&'static str, Value) {
     )
 }
 
-fn selector_center_expression(selector: &str) -> String {
+fn selector_center_expression(expected: TargetExpectation<'_>) -> String {
     format!(
-        r#"(async () => {{ const documentId = ({document_id});
+        r#"(async () => {{ let documentId = ({document_id});
             const initial = document.querySelector({selector});
-            if (!initial) return {{documentId, present:false}};
+            let elementId = initial && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(initial) || null);
+            if (documentId !== {expected_document} || !initial || elementId !== {expected_element})
+                return {{documentId, elementId, present:!!initial}};
             initial.scrollIntoView({{block:'center', inline:'center', behavior:'instant'}});
             await new Promise((resolve) => requestAnimationFrame(
                 () => requestAnimationFrame(resolve)));
+            documentId = ({document_id});
             const e = document.querySelector({selector});
             if (!e) return {{documentId, present:false}};
-            const elementId = e[Symbol.for('sgt.controller.element-id')] || null;
+            elementId = globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null;
             const r = e.getBoundingClientRect();
             const x = r.left + r.width / 2;
             const y = r.top + r.height / 2;
@@ -319,8 +292,10 @@ fn selector_center_expression(selector: &str) -> String {
                 focused:e===document.activeElement || e.contains(document.activeElement),
                 interactable, x, y, width:r.width, height:r.height,
                 viewportWidth, viewportHeight}}; }})()"#,
-        selector = json!(selector),
-        document_id = DOCUMENT_ID_JS,
+        selector = json!(expected.selector),
+        expected_document = json!(expected.document_id),
+        expected_element = json!(expected.element_id),
+        document_id = super::controller_isolated::DOCUMENT_ID_JS,
     )
 }
 
@@ -380,18 +355,8 @@ fn fill_in_impl(
         document_id: expected_document_id,
         element_id: expected_element_id,
     };
-    let focus = format!(
-        r#"(() => {{ const documentId = ({document_id});
-            const e=document.querySelector({selector});
-            if(!e) return {{documentId,present:false}};
-            const elementId=e[Symbol.for('sgt.controller.element-id')] || null;
-            e.focus(); if(e.select) e.select();
-            return {{documentId,elementId,present:true,
-                focused:e===document.activeElement || e.contains(document.activeElement)}}; }})()"#,
-        selector = json!(selector),
-        document_id = DOCUMENT_ID_JS,
-    );
-    let focused = match route.eval(&focus, tab_id, session) {
+    let focus = focus_target_expression(expected);
+    let focused = match route.eval_controller(&focus, tab_id, session) {
         Ok(value) => value,
         Err(error) => {
             return stale_target(
@@ -416,10 +381,56 @@ fn fill_in_impl(
     ) {
         return error;
     }
+    if focused.get("selectionUnsupported").and_then(Value::as_bool) == Some(true) {
+        return json!({
+            "ok": false,
+            "code": "ERR_BROWSER_SELECTION_UNSUPPORTED",
+            "dispatch_ok": false,
+            "effect_may_have_occurred": false,
+            "error": "This input type does not expose a verifiable full-value selection; use another supported interaction.",
+        });
+    }
+    if focused.get("selectionReady").and_then(Value::as_bool) != Some(true) {
+        return stale_target(
+            selector,
+            tab_id,
+            "focus",
+            "selection_unavailable",
+            expected_document_id,
+            expected_element_id,
+            Some(&focused),
+        );
+    }
     // Focus can be stolen by page script after focus()/select(). Check the same
     // document, element, and active focus immediately before trusted text input.
     if let Err(error) = inspect_target(route, expected, session, true, "before_insert_text") {
         return error;
+    }
+    let selection =
+        match route.eval_controller(&fill::selection_expression(expected), tab_id, session) {
+            Ok(value) => value,
+            Err(error) => {
+                return stale_target(
+                    selector,
+                    tab_id,
+                    "before_insert_text",
+                    &format!("selection_unavailable: {error}"),
+                    expected_document_id,
+                    expected_element_id,
+                    None,
+                );
+            }
+        };
+    if selection.get("selectionReady").and_then(Value::as_bool) != Some(true) {
+        return stale_target(
+            selector,
+            tab_id,
+            "before_insert_text",
+            "selection_changed",
+            expected_document_id,
+            expected_element_id,
+            Some(&selection),
+        );
     }
     match route.cdp("Input.insertText", json!({"text": text}), session, tab_id) {
         Ok(_) => json!({
@@ -434,6 +445,46 @@ fn fill_in_impl(
     }
 }
 
+fn focus_target_expression(expected: TargetExpectation<'_>) -> String {
+    format!(
+        r#"(() => {{ let documentId = ({document_id});
+            const e=document.querySelector({selector});
+            let elementId=e && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null);
+            if(documentId !== {expected_document} || !e || elementId !== {expected_element})
+                return {{documentId,elementId,present:!!e}};
+            e.focus();
+            documentId = ({document_id});
+            const current=document.querySelector({selector});
+            elementId=current && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(current) || null);
+            if(documentId !== {expected_document} || current !== e || elementId !== {expected_element})
+                return {{documentId,elementId,present:!!current}};
+            let selectionReady=false, selectionUnsupported=false;
+            if(!e.disabled && !e.readOnly) {{
+                if((e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) && typeof e.select === 'function') {{
+                    try {{ e.select(); selectionUnsupported=e.selectionStart===null || e.selectionEnd===null;
+                        selectionReady=!selectionUnsupported && e.selectionStart===0 && e.selectionEnd===e.value.length; }} catch (_) {{}}
+                }} else if(e.isContentEditable && !e.parentElement?.isContentEditable) {{
+                    const selection=document.getSelection();
+                    if(selection) {{ const range=document.createRange(); range.selectNodeContents(e);
+                        selection.removeAllRanges(); selection.addRange(range); selectionReady=true; }}
+                }}
+            }}
+            const r=e.getBoundingClientRect();
+            const x=r.left+r.width/2, y=r.top+r.height/2;
+            const viewportWidth=document.documentElement?.clientWidth || innerWidth || 0;
+            const viewportHeight=document.documentElement?.clientHeight || innerHeight || 0;
+            const interactable=r.width>0 && r.height>0 && Number.isFinite(x) && Number.isFinite(y) &&
+                x>=0 && y>=0 && x<viewportWidth && y<viewportHeight;
+            return {{documentId,elementId,present:true,
+                focused:e===document.activeElement || e.contains(document.activeElement),
+                interactable,selectionReady,selectionUnsupported,x,y}}; }})()"#,
+        selector = json!(expected.selector),
+        expected_document = json!(expected.document_id),
+        expected_element = json!(expected.element_id),
+        document_id = super::controller_isolated::DOCUMENT_ID_JS,
+    )
+}
+
 fn inspect_target(
     route: MutationRoute,
     expected: TargetExpectation<'_>,
@@ -442,8 +493,8 @@ fn inspect_target(
     phase: &str,
 ) -> std::result::Result<TargetSnapshot, Value> {
     let value = route
-        .eval(
-            &selector_center_expression(expected.selector),
+        .eval_controller(
+            &selector_center_expression(expected),
             expected.tab_id,
             session,
         )

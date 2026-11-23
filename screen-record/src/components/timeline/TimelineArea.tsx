@@ -9,6 +9,7 @@ import { TimelineTrackStack } from "./TimelineTrackStack";
 import { useTimelineDrag } from "./useTimelineDrag";
 import { useTimelineSegmentActions } from "./useTimelineSegmentActions";
 import { useTimelineViewport } from "./useTimelineViewport";
+import { useTimelineKeyboardEdits } from "./useTimelineKeyboardEdits";
 import { countFrontendRender } from "@/lib/frontendPerfDiagnostics";
 
 const TIMELINE_TRACK_GAP_PX = 2;
@@ -92,6 +93,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   audioTrackVolumePoints,
   onUpdateAudioTrackVolumePoints,
   narrationSegments,
+  audioTimeView,
   liveNarrationProjectId,
   onNarrationSegmentClick,
   onUpdateNarrationSegment,
@@ -265,6 +267,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     beginBatch,
     commitBatch,
   });
+  const keyboardEdits = useTimelineKeyboardEdits({
+    currentTime, duration, editingKeyframeId, setSegment, setEditingKeyframeId,
+  });
 
   const isTimelineInteracting =
     dragState.isDraggingTrimStart ||
@@ -399,6 +404,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 <TimelineTrackStack
                   segment={segment}
                   setSegment={setSegment}
+                  keyboardEdits={keyboardEdits}
                   duration={duration}
                   thumbnails={thumbnails}
                   editingKeyframeId={editingKeyframeId}
@@ -425,6 +431,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   currentRawMicAudioPath={currentRawMicAudioPath}
                   audioSegments={audioSegments}
                   narrationSegments={narrationSegments}
+                  audioTimeView={audioTimeView}
                   liveNarrationProjectId={liveNarrationProjectId}
                   selectedAudioSegmentIds={selectedAudioSegmentIds}
                   selectedAudioSegmentRange={selectedAudioSegmentRange}

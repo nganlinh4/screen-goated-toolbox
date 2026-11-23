@@ -24,17 +24,17 @@ body{font-family:'Google Sans Flex';user-select:none}
 .direct-host[hidden],.result-frame[hidden]{display:none!important}
 .result-card[data-presentation="text_only"] .direct-host,.result-card[data-presentation="text_only"] .result-frame{user-select:text;cursor:text}
 .resize-handle{position:absolute;z-index:4;touch-action:none;user-select:none}
-.resize-handle[data-edge="n"],.resize-handle[data-edge="s"]{left:8px;right:8px;height:6px;cursor:ns-resize}
+.resize-handle[data-edge="n"],.resize-handle[data-edge="s"]{left:calc(8px * var(--sgt-monitor-scale,1));right:calc(8px * var(--sgt-monitor-scale,1));height:calc(6px * var(--sgt-monitor-scale,1));cursor:ns-resize}
 .resize-handle[data-edge="n"]{top:0}.resize-handle[data-edge="s"]{bottom:0}
-.resize-handle[data-edge="e"],.resize-handle[data-edge="w"]{top:8px;bottom:8px;width:6px;cursor:ew-resize}
+.resize-handle[data-edge="e"],.resize-handle[data-edge="w"]{top:calc(8px * var(--sgt-monitor-scale,1));bottom:calc(8px * var(--sgt-monitor-scale,1));width:calc(6px * var(--sgt-monitor-scale,1));cursor:ew-resize}
 .resize-handle[data-edge="e"]{right:0}.resize-handle[data-edge="w"]{left:0}
-.resize-handle[data-edge="nw"],.resize-handle[data-edge="ne"],.resize-handle[data-edge="sw"],.resize-handle[data-edge="se"]{width:10px;height:10px}
+.resize-handle[data-edge="nw"],.resize-handle[data-edge="ne"],.resize-handle[data-edge="sw"],.resize-handle[data-edge="se"]{width:calc(10px * var(--sgt-monitor-scale,1));height:calc(10px * var(--sgt-monitor-scale,1))}
 .resize-handle[data-edge="nw"]{left:0;top:0;cursor:nwse-resize}.resize-handle[data-edge="ne"]{right:0;top:0;cursor:nesw-resize}
 .resize-handle[data-edge="sw"]{left:0;bottom:0;cursor:nesw-resize}.resize-handle[data-edge="se"]{right:0;bottom:0;cursor:nwse-resize}
 .result-card[data-source-replacement="true"] .resize-handle{display:none}
 </style></head><body><span class="font-prewarm" aria-hidden="true">SGT</span>
 <main id="scene"></main><aside id="button-container"></aside>
-<script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_TYPOGRAPHY_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
+<script>__SGT_GRID_RUNTIME__</script><script>__SGT_SHAPE_RUNTIME__</script><script>__SGT_DOM_PATCH_RUNTIME__</script><script>__SGT_REVEAL_RUNTIME__</script><script>__SGT_DIRECT_RUNTIME__</script><script>__SGT_PROCESSING_RUNTIME__</script><script>__SGT_RESIZE_TYPOGRAPHY_RUNTIME__</script><script>__SGT_RESIZE_RUNTIME__</script>
 <script>__SGT_SURFACE_RUNTIME__
 window.__SGT_RUN_FIT__ = function(streaming) { __SGT_FIT_RUNTIME__ };
 __SGT_SCENE_RUNTIME__
@@ -43,7 +43,3 @@ __SGT_HOST_COMMAND_RUNTIME__
 </script><script>__SGT_BUTTON_SCRIPT__</script><script>__SGT_BUTTON_SCENE_RUNTIME__</script><script>__SGT_SETTLED_REVEAL_RUNTIME__</script><script>__SGT_RENDERER_BOOTSTRAP__</script>
 </body>
 </html>"#;
-
-#[cfg(test)]
-#[path = "html_tests.rs"]
-mod tests;

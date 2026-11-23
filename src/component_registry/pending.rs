@@ -20,52 +20,87 @@ struct PendingRemovals {
 }
 
 pub(super) fn record(id: &str) -> Result<()> {
-    validate_identifier(id)?;
     let _guard = STORE_LOCK.lock().unwrap_or_else(|value| value.into_inner());
-    let mut state = read_unlocked()?;
+    record_at(&path(), id)
+}
+
+fn record_at(path: &std::path::Path, id: &str) -> Result<()> {
+    validate_identifier(id)?;
+    let mut state = read_at(path)?;
     state.component_ids.insert(id.to_string());
-    write_unlocked(&state)
+    write_at(path, &state)
 }
 
 pub(super) fn clear(id: &str) -> Result<()> {
-    validate_identifier(id)?;
     let _guard = STORE_LOCK.lock().unwrap_or_else(|value| value.into_inner());
-    let mut state = read_unlocked()?;
+    clear_at(&path(), id)
+}
+
+fn clear_at(path: &std::path::Path, id: &str) -> Result<()> {
+    validate_identifier(id)?;
+    let mut state = read_at(path)?;
     state.component_ids.remove(id);
-    write_unlocked(&state)
+    write_at(path, &state)
 }
 
 pub(super) fn list() -> Result<Vec<String>> {
+    Ok(snapshot()?.0)
+}
+
+pub(super) fn snapshot() -> Result<(Vec<String>, Vec<String>)> {
     let _guard = STORE_LOCK.lock().unwrap_or_else(|value| value.into_inner());
-    Ok(read_unlocked()?.component_ids.into_iter().collect())
+    Ok(partition(read_unlocked()?, |id| {
+        super::embedded_catalog().is_removable(id)
+    }))
 }
 
 fn read_unlocked() -> Result<PendingRemovals> {
-    let path = path();
-    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
-        return Ok(PendingRemovals {
-            schema_version: SCHEMA_VERSION,
-            component_ids: BTreeSet::new(),
-        });
+    read_at(&path())
+}
+
+fn read_at(path: &std::path::Path) -> Result<PendingRemovals> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
+        options
+            .share_mode(FILE_SHARE_READ.0)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(PendingRemovals {
+                schema_version: SCHEMA_VERSION,
+                component_ids: BTreeSet::new(),
+            });
+        }
+        Err(error) => return Err(error.into()),
     };
+    let metadata = file.metadata()?;
     if !metadata.is_file()
         || super::receipt::is_reparse_point(&metadata)
         || metadata.len() > MAX_FILE_BYTES
     {
         bail!("pending component-removal state is unsafe");
     }
-    let mut body = String::new();
-    std::fs::File::open(path)?
-        .take(MAX_FILE_BYTES + 1)
-        .read_to_string(&mut body)?;
-    let state: PendingRemovals = serde_json::from_str(&body)?;
+    let mut body = Vec::new();
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut body)?;
+    if body.len() as u64 > MAX_FILE_BYTES {
+        bail!("pending component-removal state is too large");
+    }
+    let state: PendingRemovals = serde_json::from_slice(&body)?;
     validate(&state)?;
     Ok(state)
 }
 
-fn write_unlocked(state: &PendingRemovals) -> Result<()> {
+fn write_at(path: &std::path::Path, state: &PendingRemovals) -> Result<()> {
     validate(state)?;
-    let path = path();
+    if serde_json::to_vec_pretty(state)?.len() as u64 > MAX_FILE_BYTES {
+        bail!("pending component-removal state is too large");
+    }
     if state.component_ids.is_empty() {
         match std::fs::remove_file(path) {
             Ok(()) => {}
@@ -77,9 +112,13 @@ fn write_unlocked(state: &PendingRemovals) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    crate::atomic_json::write_json_atomic(&path, state)?;
+    crate::atomic_json::write_json_atomic(path, state)?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "pending_store_tests.rs"]
+mod tests;
 
 fn validate(state: &PendingRemovals) -> Result<()> {
     if state.schema_version != SCHEMA_VERSION || state.component_ids.len() > MAX_PENDING {
@@ -87,11 +126,18 @@ fn validate(state: &PendingRemovals) -> Result<()> {
     }
     for id in &state.component_ids {
         validate_identifier(id)?;
-        if !super::embedded_catalog().is_removable(id) {
-            bail!("pending component-removal state names an unknown component");
-        }
     }
     Ok(())
+}
+
+fn partition(
+    state: PendingRemovals,
+    is_removable: impl Fn(&str) -> bool,
+) -> (Vec<String>, Vec<String>) {
+    state
+        .component_ids
+        .into_iter()
+        .partition(|id| is_removable(id))
 }
 
 fn path() -> std::path::PathBuf {

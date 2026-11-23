@@ -18,18 +18,30 @@ impl DownloadManager {
     ) {
         let theme = AppTheme::from_ui(ui);
         let state = self.sessions[idx].download_state.lock().unwrap().clone();
-        let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
+        let is_analyzing = self.sessions[idx].analysis.lock().unwrap().analyzing;
 
         // Primary download action routes through the accent fill; while the
         // analyzer is scanning, the same button becomes a "skip scan" warning.
         let (btn_text, btn_fill) = if is_analyzing {
             (
-                text.auxiliary.download.download_scan_ignore_btn,
+                if self.sessions[idx].download_type == super::super::types::DownloadType::Video {
+                    self.sessions[idx].selected_format.as_ref().map_or_else(
+                        || text.auxiliary.download.download_scan_ignore_btn.to_string(),
+                        |format| {
+                            text.auxiliary
+                                .download
+                                .download_scan_preferred_fmt
+                                .replace("{}", format)
+                        },
+                    )
+                } else {
+                    text.auxiliary.download.download_scan_ignore_btn.to_string()
+                },
                 theme.warning(),
             )
         } else {
             (
-                text.auxiliary.download.download_start_btn,
+                text.auxiliary.download.download_start_btn.to_string(),
                 theme.accent_fill(),
             )
         };
@@ -45,7 +57,7 @@ impl DownloadManager {
                     .insert(egui::TextStyle::Button, heading);
                 widgets::filled_button_sized(
                     ui,
-                    btn_text,
+                    &btn_text,
                     btn_fill,
                     on_btn,
                     10,
@@ -72,8 +84,8 @@ impl DownloadManager {
                     self.render_error_state(ui, ctx, text, idx, err);
                 }
             }
-            DownloadState::Finished(path, _msg) => {
-                self.render_finished_state(ui, text, path);
+            DownloadState::Finished(path, quality) => {
+                self.render_finished_state(ui, text, path, *quality);
                 if draw_download_btn(ui) && !self.sessions[idx].input_url.is_empty() {
                     self.start_media_download(
                         text.auxiliary
@@ -170,7 +182,13 @@ impl DownloadManager {
         }
     }
 
-    fn render_finished_state(&self, ui: &mut egui::Ui, text: &LocaleText, path: &std::path::Path) {
+    fn render_finished_state(
+        &self,
+        ui: &mut egui::Ui,
+        text: &LocaleText,
+        path: &std::path::Path,
+        quality: Option<u32>,
+    ) {
         let theme = AppTheme::from_ui(ui);
         ui.vertical_centered(|ui| {
             ui.label(
@@ -192,6 +210,9 @@ impl DownloadManager {
                     .replace("\u{FF5C}", "|")
                     .replace("\u{FF02}", "\"");
                 ui.label(egui::RichText::new(display_name).small());
+            }
+            if let Some(quality) = quality {
+                ui.label(egui::RichText::new(format!("{quality}p")).small());
             }
 
             ui.add_space(4.0);

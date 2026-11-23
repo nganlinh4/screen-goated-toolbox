@@ -34,6 +34,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,7 +86,7 @@ internal fun SgtMobileApp(
     providerKeys: ProviderKeysState,
     globalTtsSettings: MobileGlobalTtsSettings,
     presetRuntimeSettings: PresetRuntimeSettings,
-    customModels: List<CustomPresetModelDefinition>,
+    customModelEditor: dev.screengoated.toolbox.mobile.model.CustomModelEditorSnapshot,
     uiPreferences: MobileUiPreferences,
     locale: MobileLocaleText,
     historyBundle: HistoryUiBundle,
@@ -92,7 +94,10 @@ internal fun SgtMobileApp(
     shellSectionRequest: ShellSectionRequest? = null,
     edgeVoiceCatalogState: EdgeVoiceCatalogState,
     onPresetRuntimeSettingsChanged: (PresetRuntimeSettings) -> Unit,
-    onCustomModelsChanged: (List<CustomPresetModelDefinition>) -> Unit,
+    onCustomModelsChanged: (List<CustomPresetModelDefinition>, List<CustomPresetModelDefinition>) -> dev.screengoated.toolbox.mobile.model.CustomModelSubmission,
+    onCustomModelEdited: (dev.screengoated.toolbox.mobile.model.CustomModelRowIdentity, (CustomPresetModelDefinition) -> CustomPresetModelDefinition) -> dev.screengoated.toolbox.mobile.model.CustomModelSubmission,
+    onCustomModelDeleted: (dev.screengoated.toolbox.mobile.model.CustomModelRowIdentity) -> dev.screengoated.toolbox.mobile.model.CustomModelSubmission,
+    onRetryCustomModels: () -> Boolean,
     onUiLanguageSelected: (String) -> Unit,
     onThemeCycleRequested: () -> Unit,
     onGlobalTtsMethodChanged: (MobileTtsMethod) -> Unit,
@@ -109,6 +114,7 @@ internal fun SgtMobileApp(
     onPreviewGoogleTranslate: () -> Unit,
     onSessionToggle: () -> Unit,
     onResetHistoryDefaults: () -> Unit,
+    onRestoreAppSettingsDefaults: () -> Unit,
     onCheckForAppUpdates: () -> Unit,
     onOverlayOpacityChanged: (Int) -> Unit = {},
 ) {
@@ -127,9 +133,15 @@ internal fun SgtMobileApp(
     var showFeatureUnsupported by rememberSaveable { mutableStateOf(false) }
     var showDj by rememberSaveable { mutableStateOf(false) }
     var showTranslationGummy by rememberSaveable { mutableStateOf(false) }
-    var activePresetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var activePresetRowKey by rememberSaveable { mutableStateOf<String?>(null) }
     val presetRepository = appContainer.presetRepository
     val presetCatalog by presetRepository.catalogState.collectAsState()
+    var priorPresetRows by remember { mutableStateOf(presetCatalog.presets.map { it.rowIdentity }) }
+    LaunchedEffect(presetCatalog.presets) {
+        val currentRows = presetCatalog.presets.map { it.rowIdentity }
+        activePresetRowKey = reconcilePresetRowSelection(priorPresetRows, currentRows, activePresetRowKey)
+        priorPresetRows = currentRows
+    }
 
     if (showTtsSettings) {
         val ttsSnapshotAtOpen = remember { globalTtsSettings }
@@ -193,13 +205,16 @@ internal fun SgtMobileApp(
 
     if (showCustomModels) {
         CustomModelsDialog(
-            models = customModels,
+            snapshot = customModelEditor,
             openRouterApiKey = providerKeys.openRouterApiKey,
             ollamaBaseUrl = providerKeys.ollamaUrl,
             locale = locale,
             uiLanguage = uiPreferences.uiLanguage,
             onDismiss = { showCustomModels = false },
             onSave = onCustomModelsChanged,
+            onEditRow = onCustomModelEdited,
+            onDeleteRow = onCustomModelDeleted,
+            onRetry = onRetryCustomModels,
         )
     }
 
@@ -293,16 +308,8 @@ internal fun SgtMobileApp(
                         onResetDefaults = {
                             // Match Windows reset scope: reset everything except API keys and language
                             presetRepository.resetAllToDefaults()
-                            onPresetRuntimeSettingsChanged(PresetRuntimeSettings())
-                            onOverlayOpacityChanged(
-                                dev.screengoated.toolbox.mobile.model.DEFAULT_RESULT_OVERLAY_OPACITY_PERCENT,
-                            )
+                            onRestoreAppSettingsDefaults()
                             onResetHistoryDefaults()
-                            // Reset TTS to defaults
-                            onGlobalTtsMethodChanged(dev.screengoated.toolbox.mobile.model.MobileTtsMethod.GEMINI_LIVE)
-                            onGlobalTtsSpeedPresetChanged(dev.screengoated.toolbox.mobile.model.MobileTtsSpeedPreset.FAST)
-                            onGlobalTtsVoiceChanged(dev.screengoated.toolbox.mobile.model.TtsDefaults.DEFAULT_TTS_GEMINI_VOICE)
-                            onGlobalEdgeTtsSettingsChanged(dev.screengoated.toolbox.mobile.model.MobileEdgeTtsSettings())
                         },
                         onVoiceSettingsClick = {
                             onVoiceSettingsShown()
@@ -338,15 +345,7 @@ internal fun SgtMobileApp(
                                 ),
                             )
                         },
-                        onImageCreatorClick = {
-                            appContext.startActivity(
-                                CreationMiniAppActivity.intent(
-                                    appContext,
-                                    CreationTool.IMAGE_CREATOR,
-                                ),
-                            )
-                        },
-                        onPresetClick = { presetId -> activePresetId = presetId },
+                        onPresetClick = { rowKey -> activePresetRowKey = rowKey },
                     ),
                     uiPreferences = uiPreferences,
                     showEmbeddedHeader = isLandscape,
@@ -435,10 +434,12 @@ internal fun SgtMobileApp(
         }
 
         // Preset editor — opens directly (no inspector intermediary)
-        val activePreset = activePresetId?.let { id -> presetCatalog.findPreset(id) }
+        val activePreset = activePresetRowKey?.let { rowKey -> presetCatalog.findRow(rowKey) }
         if (activePreset != null) {
             val presetLang = uiPreferences.uiLanguage
-            androidx.activity.compose.BackHandler { activePresetId = null }
+            androidx.activity.compose.BackHandler {
+                activePresetRowKey = closePresetRowSelection(activePresetRowKey, activePreset.rowIdentity)
+            }
             androidx.compose.animation.AnimatedVisibility(
                 visible = true,
                 enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(
@@ -454,20 +455,24 @@ internal fun SgtMobileApp(
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surface),
                 ) {
+                    key(activePreset.rowIdentity) {
                     dev.screengoated.toolbox.mobile.preset.ui.PresetEditorScreen(
                         preset = activePreset.preset,
                         lang = presetLang,
-                        onBack = { activePresetId = null },
-                        onPresetChanged = { updated ->
-                            presetRepository.updateBuiltInOverride(activePreset.preset.id) {
-                                updated
+                        onBack = {
+                            activePresetRowKey = closePresetRowSelection(activePresetRowKey, activePreset.rowIdentity)
+                        },
+                        onPresetChanged = { previous, updated ->
+                            presetRepository.updatePresetRow(activePreset.rowIdentity) { current ->
+                                dev.screengoated.toolbox.mobile.preset.mergePresetEdit(current, previous, updated)
                             }
                         },
                         onRestoreDefault = {
-                            presetRepository.restoreBuiltInPreset(activePreset.preset.id)
+                            presetRepository.restorePresetRow(activePreset.rowIdentity)
                         },
                         providerSettings = presetRuntimeSettings.providerSettings,
                     )
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Read as _, Write as _};
+use std::io::{BufRead, Read as _, Write as _};
 use std::path::Path;
 use std::time::Instant;
 
@@ -11,6 +11,7 @@ use sgt_recorder_protocol::{
 const TOKEN_ENV: &str = "SGT_RECORDER_LAUNCH_TOKEN";
 const MAX_REPLAY_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_MEDIA_INPUT_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+mod input;
 
 pub(crate) fn run() -> Result<()> {
     let token = std::env::var(TOKEN_ENV).context("recorder launch token is missing")?;
@@ -22,76 +23,77 @@ pub(crate) fn run() -> Result<()> {
     unsafe {
         std::env::remove_var(TOKEN_ENV);
     }
+    crate::process_job::initialize_parent_job()?;
+    // The worker no longer downloads anything, so it reports no install
+    // progress; the host's channel variables are only scrubbed.
+    unsafe {
+        std::env::remove_var("SGT_RECORDER_PROGRESS_ADDR");
+        std::env::remove_var("SGT_RECORDER_PROGRESS_TOKEN");
+    }
+    super::worker_settings::initialize(token.clone())?;
     crate::initialization::init_com_and_dpi();
     drop(crate::APP.lock().unwrap());
     crate::api::gemini_live::init_gemini_live();
     crate::api::tts::init_tts();
     crate::model_config::trigger_ollama_model_scan();
 
-    let stdin = std::io::stdin();
-    let mut input = BufReader::new(stdin.lock());
-    let mut output = std::io::stdout();
-    let mut previous_request_id = 0_u64;
-    loop {
-        let Some(line) = read_bounded_line(&mut input, MAX_REQUEST_LINE_BYTES)? else {
-            break;
-        };
-        let request = match serde_json::from_slice::<Request>(&line) {
-            Ok(request) => request,
-            Err(error) => bail!("malformed recorder request: {error}"),
-        };
+    let result = serve(token);
+    super::cleanup_on_app_exit();
+    result
+}
+
+fn serve(token: String) -> Result<()> {
+    let input = input::start(token.clone());
+    let output = std::io::stdout();
+    while let Ok(event) = input.recv() {
+        let request = event.map_err(anyhow::Error::msg)?;
         let request_id = request.request_id;
-        let mut shutdown = false;
-        let response = match request.validate(&token, previous_request_id) {
-            Ok(()) => {
-                previous_request_id = request_id;
-                shutdown = matches!(&request.command, Command::Shutdown);
-                match handle(request.command) {
-                    Ok(result) => Response {
-                        protocol_version: PROTOCOL_VERSION,
-                        token: token.clone(),
-                        request_id,
-                        result: Some(result),
-                        error: None,
-                    },
-                    Err(error) => Response {
-                        protocol_version: PROTOCOL_VERSION,
-                        token: token.clone(),
-                        request_id,
-                        result: None,
-                        error: Some(format!("{error:#}")),
-                    },
-                }
-            }
+        let shutdown = matches!(&request.command, Command::Shutdown);
+        let response = match handle(request.command) {
+            Ok(result) => Response {
+                protocol_version: PROTOCOL_VERSION,
+                token: token.clone(),
+                request_id,
+                result: Some(result),
+                error: None,
+            },
             Err(error) => Response {
                 protocol_version: PROTOCOL_VERSION,
                 token: token.clone(),
                 request_id,
                 result: None,
-                error: Some(error),
+                error: Some(format!("{error:#}")),
             },
         };
         let body = serde_json::to_vec(&response)?;
         if body.len() > MAX_JSON_BYTES {
             bail!("recorder response exceeds protocol limit");
         }
-        output.write_all(RESPONSE_PREFIX.as_bytes())?;
-        output.write_all(&body)?;
-        output.write_all(b"\n")?;
-        output.flush()?;
+        let mut line = Vec::with_capacity(RESPONSE_PREFIX.len() + body.len() + 1);
+        line.extend_from_slice(RESPONSE_PREFIX.as_bytes());
+        line.extend_from_slice(&body);
+        line.push(b'\n');
+        let mut locked = output.lock();
+        locked.write_all(&line)?;
+        locked.flush()?;
         if shutdown {
             break;
         }
     }
-    super::cleanup_on_app_exit();
     Ok(())
 }
 
 fn handle(command: Command) -> Result<serde_json::Value> {
     match command {
-        Command::Ping => Ok(serde_json::json!({ "status": "ready" })),
+        Command::Ping => Ok(
+            serde_json::json!({ "status": "ready", "settingsProtocol": sgt_recorder_protocol::SETTINGS_PROTOCOL_VERSION, "shutdownProtocol": sgt_recorder_protocol::SHUTDOWN_PROTOCOL_VERSION }),
+        ),
+        Command::SettingsAck { .. } => bail!("settings acknowledgements are not ordinary commands"),
         Command::Show => {
             super::show_screen_record();
+            if super::close_show::is_closing() {
+                return Ok(serde_json::json!({ "status": "deferred" }));
+            }
             for attempt in 0..100 {
                 if super::is_screen_record_visible() {
                     return Ok(serde_json::json!({ "status": "shown" }));
@@ -148,7 +150,24 @@ fn handle(command: Command) -> Result<serde_json::Value> {
             super::notify_external_audio_capture_released(&reason);
             Ok(serde_json::json!({ "status": "scheduled" }))
         }
-        Command::Cleanup | Command::Shutdown => {
+        Command::Cleanup => {
+            super::cleanup_on_app_exit();
+            Ok(serde_json::json!({ "status": "stopped" }))
+        }
+        Command::PrepareShutdown => {
+            if let Err(error) = super::shutdown::prepare(0) {
+                let _ = super::post_script(
+                    "window.dispatchEvent(new Event('sr-shutdown-failed'));".to_string(),
+                );
+                return Err(error);
+            }
+            Ok(serde_json::json!({ "status": "ready" }))
+        }
+        Command::CancelShutdown => {
+            super::shutdown::cancel();
+            Ok(serde_json::json!({ "status": "cancelled" }))
+        }
+        Command::Shutdown => {
             super::cleanup_on_app_exit();
             Ok(serde_json::json!({ "status": "stopped" }))
         }
@@ -218,7 +237,8 @@ fn require_regular_input(path: &Path, maximum: u64) -> Result<()> {
 
 fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
+    use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
 }
 
 fn read_bounded_line(reader: &mut impl BufRead, maximum: usize) -> Result<Option<Vec<u8>>> {

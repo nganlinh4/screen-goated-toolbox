@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,7 +23,7 @@ class PresetGraphExecutorTest {
 
     @Test
     fun inputAdapterImageOverlayUsesHostedImageHtml() = runTest(dispatcher) {
-        val state = MutableStateFlow(PresetExecutionState())
+        val state = MutableStateFlow(PresetExecutionState(sessionId = "test-image", isExecuting = true))
         val executor = createExecutor(state)
 
         executor.executeGraph(
@@ -39,37 +40,32 @@ class PresetGraphExecutorTest {
 
     @Test
     fun inputAdapterAudioOverlayUsesHostedAudioHtml() = runTest(dispatcher) {
-        val state = MutableStateFlow(PresetExecutionState())
+        val state = MutableStateFlow(PresetExecutionState(sessionId = "test-audio", isExecuting = true))
         val executor = createExecutor(state)
+        val audioBytes = byteArrayOf(
+            'R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte(),
+            0, 0, 0, 0, 'W'.code.toByte(), 'A'.code.toByte(), 'V'.code.toByte(), 'E'.code.toByte(),
+        )
 
         executor.executeGraph(
             sessionId = "test-audio",
             preset = overlayOnlyPreset("preset_quick_record"),
-            input = PresetInput.Audio(
-                byteArrayOf(
-                    'R'.code.toByte(),
-                    'I'.code.toByte(),
-                    'F'.code.toByte(),
-                    'F'.code.toByte(),
-                    0, 0, 0, 0,
-                    'W'.code.toByte(),
-                    'A'.code.toByte(),
-                    'V'.code.toByte(),
-                    'E'.code.toByte(),
-                ),
-            ),
+            input = PresetInput.Audio(audioBytes),
         )
 
         val window = state.value.resultWindows.single()
+        assertSame(audioBytes, window.inputAudioBytes)
+        assertSame(window.markdownText, window.inputAudioHtml?.get())
         assertTrue(window.markdownText.contains("""class="audio-player""""))
         assertTrue(window.markdownText.contains("<audio"))
-        assertTrue(window.markdownText.contains("data:audio/wav;base64"))
+        assertTrue(window.markdownText.contains(INPUT_AUDIO_PREVIEW_PLACEHOLDER))
+        assertFalse(window.markdownText.contains("data:audio/wav;base64"))
         assertTrue(window.markdownText.contains("""data-sgt-input-adapter-media="audio""""))
     }
 
     @Test
     fun finalAutoPasteIsSkippedForStreamingAudioResults() = runTest(dispatcher) {
-        val state = MutableStateFlow(PresetExecutionState())
+        val state = MutableStateFlow(PresetExecutionState(sessionId = "test-streaming-skip", isExecuting = true))
         val postProcessActions = RecordingPostProcessActions()
         val executor = createExecutor(state, postProcessActions)
 
@@ -87,7 +83,7 @@ class PresetGraphExecutorTest {
 
     @Test
     fun finalAutoPasteStillRunsForNonStreamingAudioResults() = runTest(dispatcher) {
-        val state = MutableStateFlow(PresetExecutionState())
+        val state = MutableStateFlow(PresetExecutionState(sessionId = "test-streaming-allow", isExecuting = true))
         val postProcessActions = RecordingPostProcessActions()
         val executor = createExecutor(state, postProcessActions)
 
@@ -115,7 +111,7 @@ class PresetGraphExecutorTest {
             uiLanguage = { "en" },
             executionState = state,
             toastBus = AppToastBus(),
-            postProcessActions = postProcessActions,
+            postProcessActions = { postProcessActions },
         )
     }
 
@@ -149,13 +145,13 @@ class PresetGraphExecutorTest {
         val autoPasteCalled: Boolean
             get() = autoPasteCount > 0
 
-        override fun handleAutoCopy(block: ProcessingBlock, resultText: String) = Unit
+        override fun handleAutoCopy(block: ProcessingBlock, resultText: String, lease: PresetEffectLease) = Unit
 
-        override fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray) = Unit
+        override fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray, lease: PresetEffectLease) = Unit
 
-        override fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int) = Unit
+        override fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int, lease: PresetEffectLease) = Unit
 
-        override fun handleAutoPaste() {
+        override fun handleAutoPaste(lease: PresetEffectLease) {
             autoPasteCount += 1
         }
     }

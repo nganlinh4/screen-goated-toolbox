@@ -135,3 +135,23 @@ pub(super) fn validate_image_bytes(bytes: &[u8]) -> Result<(u32, u32), String> {
     }
     Ok((width, height))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_background_id, validate_download_request, validate_download_url};
+
+    #[test]
+    fn background_ids_are_single_safe_components() {
+        assert!(validate_background_id("warm-abstract").is_ok());
+        for value in ["../outside", r"..\outside", "C:outside", "a/b"] {
+            assert!(validate_background_id(value).is_err());
+        }
+    }
+
+    #[test]
+    fn download_urls_are_https_and_catalog_bound() {
+        assert!(validate_download_url("http://photos.google.com/a").is_err());
+        assert!(validate_download_url("https://127.0.0.1/a").is_err());
+        assert!(validate_download_request("warm-abstract", "https://example.com/a").is_err());
+    }
+}

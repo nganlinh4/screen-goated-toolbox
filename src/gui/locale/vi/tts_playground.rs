@@ -7,7 +7,6 @@ pub(super) fn get() -> TtsPlaygroundLocaleText {
         tts_playground_btn: "Sân chơi TTS",
         tts_playground_title: "Sân chơi TTS",
         tts_playground_tab_tts_clone: "TTS / Clone",
-        tts_playground_tab_audio_edit: "Chỉnh audio",
         tts_playground_text_label: "Văn bản cần đọc",
         tts_playground_text_hint: "Nhập hoặc dán văn bản để thử giọng sandbox này...",
         tts_playground_play: "Đọc",

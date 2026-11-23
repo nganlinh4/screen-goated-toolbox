@@ -4,6 +4,7 @@ mod footer;
 pub mod global;
 pub mod help_assistant;
 mod history;
+mod history_list;
 mod list_reorder;
 pub(crate) mod model_selector;
 pub mod node_graph;
@@ -16,12 +17,15 @@ mod tips_entry;
 pub use confirm_dialog::{ConfirmModal, ConfirmResult};
 pub(crate) use footer::{FOOTER_MARGIN, FOOTER_VERTICAL_MARGIN, footer_minimum_window_width};
 pub use footer::{FooterToggles, render_footer};
-pub use global::render_global_settings;
+pub(crate) use global::render_global_settings;
 pub use history::render_history_panel;
 pub use preset::render_preset_editor;
 pub(crate) use sidebar::cached_grid_width;
 pub use sidebar::get_localized_preset_name;
-pub use sidebar::{PresetIndexMove, SidebarRenderResponse, render_sidebar};
+pub use sidebar::{
+    PresetListChange, SidebarRenderResponse, owner_after_removal, render_sidebar,
+    selection_after_removal,
+};
 pub use tips::render_tips_modal;
 pub(crate) use tips_entry::render_tips_entry_button;
 

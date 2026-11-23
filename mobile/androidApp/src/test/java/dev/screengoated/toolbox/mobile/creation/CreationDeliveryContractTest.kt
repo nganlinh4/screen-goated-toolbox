@@ -1,5 +1,8 @@
 package dev.screengoated.toolbox.mobile.creation
 
+import dev.screengoated.toolbox.mobile.creation.CreationDeliveryTestFixture.prepared
+import dev.screengoated.toolbox.mobile.creation.CreationDeliveryTestFixture.record
+import dev.screengoated.toolbox.mobile.creation.CreationDeliveryTestFixture.request
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlinx.serialization.encodeToString
@@ -21,27 +24,16 @@ class CreationDeliveryContractTest {
         val saf = creationStorageRequirements(
             sourceSnapshotBytes = 100 * mib,
             resultBytes = 64 * mib,
-            managedDestination = false,
             pendingInternalBytes = 12 * mib,
             pendingDestinationBytes = 8 * mib,
         )
-        val managed = creationStorageRequirements(
-            sourceSnapshotBytes = 100 * mib,
+        val sourceLess = creationStorageRequirements(
+            sourceSnapshotBytes = 0,
             resultBytes = 64 * mib,
-            managedDestination = true,
-            pendingInternalBytes = 12 * mib,
         )
 
         assertEquals(176 * mib, saf.internalBytes)
         assertEquals(72 * mib, saf.destinationBytes)
-        assertEquals(240 * mib, managed.internalBytes)
-        assertEquals(0L, managed.destinationBytes)
-
-        val sourceLess = creationStorageRequirements(
-            sourceSnapshotBytes = 0,
-            resultBytes = 64 * mib,
-            managedDestination = false,
-        )
         assertEquals(64 * mib, sourceLess.internalBytes)
         assertEquals(64 * mib, sourceLess.destinationBytes)
     }
@@ -72,7 +64,7 @@ class CreationDeliveryContractTest {
         )
         val safPrepared = prepared(request("image_job", "dispatch_image_job")).copy(
             request = request("image_job", "dispatch_image_job").copy(
-                tool = CreationTool.IMAGE_CREATOR.wireName,
+                tool = CreationTool.IMAGE_TO_3D.wireName,
             ),
             mimeType = "image/png",
         )
@@ -396,7 +388,6 @@ class CreationDeliveryContractTest {
     fun `segmentation completion releases job inputs but never the prior artifact`() {
         val request = request().copy(
             operation = "segment",
-            imagePaths = listOf("creation/job-inputs/source.png"),
             previousOutputPath = "creation/library/original.glb",
         )
 
@@ -485,103 +476,5 @@ class CreationDeliveryContractTest {
         filesDir.deleteRecursively()
     }
 
-    @Test
-    fun `new image history stores presentation references without accepted input paths`() {
-        val unsigned = request().copy(
-            tool = CreationTool.IMAGE_CREATOR.wireName,
-            operation = CreationContract.IMAGE_CREATOR_OPERATION,
-            prompt = "A paper lantern",
-            outputPath = "creation/staging/result.png",
-            outputName = "result.png",
-        )
-        val request = unsigned.copy(requestFingerprint = creationRequestFingerprint(unsigned))
-        val metadata = creationHistoryMetadata(
-            FinishedCreation(
-                request,
-                CreationJobStatus(
-                    jobId = request.jobId,
-                    stage = "done",
-                    progressText = "ready",
-                    sourceImagePaths = request.imagePaths,
-                ),
-                segmented = false,
-                publishedPath = "creation/library/result.png",
-                continuation = null,
-            ),
-            presentationHandle = { "creation/presentation/reference.jpg" },
-        )
 
-        assertFalse("sourceImagePaths" in metadata)
-        assertEquals(
-            "creation/presentation/reference.jpg",
-            metadata.getValue("referencePreviewPaths")
-                .toString().trim('[', ']').trim('"'),
-        )
-    }
-
-    private fun prepared(request: CreationWorkerRequest = request()) = PreparedCreation(
-        engineId = "engine",
-        ownerId = "owner",
-        request = request,
-        current = CreationJobStatus(
-            jobId = request.jobId,
-            stage = "finalizing",
-            progressText = "working",
-        ),
-        event = CreationWorkerEvent(
-            jobId = request.jobId,
-            event = "completed",
-        ),
-        stagingPath = "creation/staging/result.commit",
-        mimeType = "model/gltf-binary",
-        imageDimensions = null,
-        segmented = false,
-        canSegment = true,
-        faces = 10,
-        vertices = 5,
-    )
-
-    private fun record(prepared: PreparedCreation): CreationDeliveryRecord =
-        CreationDeliveryRecord(
-            dispatchId = prepared.request.dispatchId,
-            engineId = prepared.engineId,
-            ownerId = prepared.ownerId,
-            request = prepared.request,
-            current = prepared.current,
-            event = prepared.event,
-            sealedPath = prepared.stagingPath,
-            mimeType = prepared.mimeType,
-            segmented = prepared.segmented,
-            canSegment = prepared.canSegment,
-            faces = prepared.faces,
-            vertices = prepared.vertices,
-            artifactSize = 4,
-            artifactSha256 = "a".repeat(64),
-            intent = CreationPublishIntent(
-                kind = "managed",
-                finalName = "result.glb",
-                mimeType = "model/gltf-binary",
-            ),
-        )
-
-    private fun request(
-        jobId: String = "3d_job",
-        dispatchId: String = "dispatch_3d_job",
-    ): CreationWorkerRequest {
-        val unsigned = CreationWorkerRequest(
-            jobId = jobId,
-            dispatchId = dispatchId,
-            sourceDescriptors = listOf(
-                CreationSourceDescriptor("creation/job-inputs/source.png", 4, "b".repeat(64)),
-            ),
-            tool = CreationTool.IMAGE_TO_3D.wireName,
-            generationMode = CreationGenerationMode.QUALITY.wireName,
-            operation = "generate",
-            imagePath = "creation/job-inputs/source.png",
-            imagePaths = listOf("creation/job-inputs/source.png"),
-            outputPath = "creation/staging/result.glb",
-            outputName = "result.glb",
-        )
-        return unsigned.copy(requestFingerprint = creationRequestFingerprint(unsigned))
-    }
 }

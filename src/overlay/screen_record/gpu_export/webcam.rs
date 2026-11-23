@@ -13,7 +13,8 @@ struct WebcamOverlayUniforms {
     shadow_px: f32,
     opacity: f32,
     mirror: f32,
-    _pad: [f32; 2],
+    render_scale: f32,
+    _pad: f32,
 }
 
 pub(super) struct WebcamOverlayState {
@@ -25,6 +26,16 @@ pub(super) struct WebcamOverlayState {
     frame_width: u32,
     frame_height: u32,
     has_frame: bool,
+}
+
+/// Output pixels per preview pixel for the shader's fixed lengths; 1 when the
+/// frame carries no usable scale.
+fn webcam_render_scale(scale: f64) -> f32 {
+    if scale.is_finite() && scale > 0.0 {
+        scale.clamp(0.05, 20.0) as f32
+    } else {
+        1.0
+    }
 }
 
 impl WebcamOverlayState {
@@ -119,7 +130,8 @@ impl WebcamOverlayState {
             shadow_px: frame.shadow_px.max(0.0) as f32,
             opacity: frame.opacity.clamp(0.0, 1.0) as f32,
             mirror: if frame.mirror { 1.0 } else { 0.0 },
-            _pad: [0.0, 0.0],
+            render_scale: webcam_render_scale(frame.render_scale),
+            _pad: 0.0,
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         true
@@ -180,4 +192,27 @@ fn create_bind_group(
             },
         ],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shader_uniforms_carry_the_render_scale() {
+        // The WGSL WebcamUniforms struct is 48 bytes with render_scale at 40.
+        assert_eq!(std::mem::size_of::<WebcamOverlayUniforms>(), 48);
+        assert_eq!(
+            std::mem::offset_of!(WebcamOverlayUniforms, render_scale),
+            40
+        );
+        assert_eq!(webcam_render_scale(2.0), 2.0);
+        assert_eq!(webcam_render_scale(0.5), 0.5);
+        for unusable in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(webcam_render_scale(unusable), 1.0);
+        }
+        let shader = include_str!("shader.rs");
+        assert!(shader.contains("max(2.0 * u.render_scale, u.shadow_px * 0.18)"));
+        assert!(shader.contains("    mirror: f32,\n    render_scale: f32,\n    _pad: f32,\n}"));
+    }
 }

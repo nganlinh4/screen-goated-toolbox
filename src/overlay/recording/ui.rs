@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering;
 
 pub fn generate_html() -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
-    let icon_pause = crate::overlay::html_components::icons::get_icon_svg("pause");
-    let icon_play = crate::overlay::html_components::icons::get_icon_svg("play_arrow");
-    let icon_close = crate::overlay::html_components::icons::get_icon_svg("close");
+    let icon_pause = crate::overlay::html_components::icons::OverlayIcon::Pause.svg();
+    let icon_play = crate::overlay::html_components::icons::OverlayIcon::PlayArrow.svg();
+    let icon_close = crate::overlay::html_components::icons::OverlayIcon::Close.svg();
     let (text_rec, text_proc, text_wait, text_init, subtext, text_paused, is_dark) = {
         let app = APP.lock().unwrap();
         let lang = app.config.ui_language.as_str();
@@ -18,26 +18,10 @@ pub fn generate_html() -> String {
         // Store initial theme state
         LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
         (
-            match lang {
-                "vi" => "Đang ghi âm...",
-                "ko" => "녹음 중...",
-                _ => "Recording...",
-            },
-            match lang {
-                "vi" => "Đang xử lý...",
-                "ko" => "처리 중...",
-                _ => "Processing...",
-            },
-            match lang {
-                "vi" => "Chuẩn bị...",
-                "ko" => "준비 중...",
-                _ => "Starting...",
-            },
-            match lang {
-                "vi" => "Đang kết nối...",
-                "ko" => "연결 중...",
-                _ => "Connecting...",
-            },
+            locale.shell.recording_status_recording,
+            locale.shell.recording_status_processing,
+            locale.shell.recording_status_starting,
+            locale.shell.recording_status_connecting,
             super::hint::stop_hint(locale.shell.recording_subtext, &[]),
             locale.shell.recording_paused,
             is_dark,
@@ -218,7 +202,7 @@ pub fn generate_html() -> String {
 </head>
 <body>
     <div class="container">
-        <div class="btn btn-pause" onclick="togglePause()" id="btn-pause">
+        <div class="btn btn-pause" onclick="togglePause(event)" id="btn-pause">
              <div id="icon-pause">{icon_pause}</div>
              <div id="icon-play" class="hidden">{icon_play}</div>
         </div>
@@ -232,7 +216,7 @@ pub fn generate_html() -> String {
             <canvas id="volume-canvas" width="200" height="60" style="width: 100px; height: 30px;"></canvas>
         </div>
 
-        <div class="btn btn-close" onclick="closeApp()">
+        <div class="btn btn-close" onclick="closeApp(event)">
             {icon_close}
         </div>
     </div>
@@ -477,18 +461,35 @@ pub fn generate_html() -> String {
             animationFrame = requestAnimationFrame(drawWaveform);
         }}
 
-        function togglePause() {{
-            window.ipc.postMessage('pause_toggle');
+        {control_ownership}
+        const controlOwner = createRecordingControlOwner();
+        document.addEventListener('pointerdown', event => {{
+            const button = event.target?.closest?.('.btn');
+            if (button) controlOwner.capturePointer(button);
+        }}, true);
+        document.addEventListener('keydown', event => {{
+            const button = event.target?.closest?.('.btn');
+            if (button && !event.repeat && (event.key === 'Enter' || event.key === ' ')) {{
+                controlOwner.captureKey(button);
+            }}
+        }}, true);
+        function controlSession(event) {{
+            return controlOwner.consume(event?.currentTarget, event?.detail === 0);
+        }}
+        function setRecordingSessionId(sessionId) {{ controlOwner.setSession(sessionId); }}
+        function togglePause(event) {{
+            window.ipc.postMessage({{type: 'pause_toggle', session_id: controlSession(event)}});
         }}
 
-        function closeApp() {{
-            window.ipc.postMessage('cancel');
+        function closeApp(event) {{
+            window.ipc.postMessage({{type: 'cancel', session_id: controlSession(event)}});
         }}
 
-        function resetState() {{
+        function resetState(sessionId) {{
+            setRecordingSessionId(sessionId);
             hideState();
             setTimeout(() => {{
-                 window.ipc.postMessage('ready');
+                 window.ipc.postMessage({{type: 'ready', session_id: sessionId}});
             }}, 10);
         }}
 
@@ -533,6 +534,7 @@ pub fn generate_html() -> String {
 </html>
     "#,
         font_css = font_css,
+        control_ownership = include_str!("control_ownership.js"),
         tx_rec = text_rec,
         tx_proc = text_proc,
         tx_wait = text_wait,

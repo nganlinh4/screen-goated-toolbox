@@ -15,15 +15,83 @@ use windows::Win32::Media::Audio::*;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Com::*;
 
-fn request_device_reconnect(reason: &str) {
-    eprintln!("Audio capture needs reconnect: {reason}");
-    DEVICE_RECONNECT_REQUESTED.store(true, Ordering::SeqCst);
+#[derive(Clone)]
+pub(crate) struct RealtimeCaptureOwner {
+    session_id: u64,
+    engine_revision: u64,
+    stop: Arc<AtomicBool>,
 }
 
-fn handle_capture_stream_error(error: cpal::Error) {
+impl RealtimeCaptureOwner {
+    pub(crate) fn new(session_id: u64, engine_revision: u64, stop: Arc<AtomicBool>) -> Self {
+        Self {
+            session_id,
+            engine_revision,
+            stop,
+        }
+    }
+}
+
+fn publish_capture_rms(rms: f32, owner: Option<&RealtimeCaptureOwner>) {
+    let publish = || REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+    if let Some(owner) = owner {
+        crate::overlay::realtime_webview::state::try_publish_if_engine_current(
+            owner.session_id,
+            &owner.stop,
+            owner.engine_revision,
+            publish,
+        );
+    } else {
+        publish();
+    }
+}
+
+fn request_device_reconnect(reason: &str, owner: Option<&RealtimeCaptureOwner>) {
+    eprintln!("Audio capture needs reconnect: {reason}");
+    let mut retired = Vec::new();
+    commit_owned_reconnect(
+        owner,
+        &crate::overlay::realtime_webview::state::TRANSCRIPTION_TRANSITION,
+        |owner| {
+            crate::overlay::realtime_webview::state::publish_if_engine_current(
+                owner.session_id,
+                &owner.stop,
+                owner.engine_revision,
+                || {
+                    crate::overlay::realtime_webview::state::TRANSCRIPTION_ENGINE_REVISION
+                        .fetch_add(1, Ordering::SeqCst);
+                    crate::overlay::realtime_webview::state::TRANSLATION_OPTIONS_REVISION
+                        .fetch_add(1, Ordering::SeqCst);
+                    DEVICE_RECONNECT_REQUESTED.store(true, Ordering::SeqCst);
+                },
+            )
+        },
+        || retired = crate::overlay::realtime_webview::controller::retire_read_playback(),
+    );
+    crate::overlay::realtime_webview::controller::notify_read_retired(retired);
+}
+
+fn commit_owned_reconnect<T>(
+    owner: Option<T>,
+    transition: &Mutex<()>,
+    invalidate: impl FnOnce(T) -> bool,
+    retire: impl FnOnce(),
+) -> bool {
+    let Some(owner) = owner else {
+        return false;
+    };
+    let _transition = transition.lock().unwrap_or_else(|error| error.into_inner());
+    if !invalidate(owner) {
+        return false;
+    }
+    retire();
+    true
+}
+
+fn handle_capture_stream_error(error: cpal::Error, owner: Option<&RealtimeCaptureOwner>) {
     if stream_error_requires_reconnect(error.kind()) {
         eprintln!("Audio stream error: {error}");
-        request_device_reconnect(&format!("stream error: {error}"));
+        request_device_reconnect(&format!("stream error: {error}"), owner);
     }
 }
 
@@ -39,19 +107,7 @@ fn stream_error_requires_reconnect(kind: cpal::ErrorKind) -> bool {
 
 #[cfg(target_os = "windows")]
 fn current_default_render_endpoint_id() -> Option<String> {
-    unsafe {
-        let com = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let result = (|| {
-            let enumerator: IMMDeviceEnumerator =
-                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-            device.GetId().ok()?.to_string().ok()
-        })();
-        if com.is_ok() {
-            CoUninitialize();
-        }
-        result
-    }
+    current_default_endpoint_id(eRender)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -60,16 +116,18 @@ fn current_default_render_endpoint_id() -> Option<String> {
 }
 
 mod lifetime;
+mod microphone_monitor;
 mod per_app;
 pub use lifetime::{CaptureStream, CaptureWorker};
-pub use per_app::start_per_app_capture;
+pub(crate) use per_app::start_per_app_capture;
 
 /// Start device loopback capture (captures all system audio)
 /// Returns the stream and device-monitor owner that must be kept alive.
-pub fn start_device_loopback_capture(
+fn start_device_loopback_capture(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    owner: Option<RealtimeCaptureOwner>,
 ) -> Result<CaptureStream> {
     #[cfg(target_os = "windows")]
     let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host());
@@ -78,13 +136,16 @@ pub fn start_device_loopback_capture(
 
     // Use default output device for loopback
     let device = host.default_output_device().ok_or_else(|| {
-        request_device_reconnect("no default output device available");
+        request_device_reconnect("no default output device available", owner.as_ref());
         anyhow::anyhow!("No output device available")
     })?;
     let config = match device.default_output_config() {
         Ok(config) => config,
         Err(err) => {
-            request_device_reconnect(&format!("failed to query default output config: {err}"));
+            request_device_reconnect(
+                &format!("failed to query default output config: {err}"),
+                owner.as_ref(),
+            );
             return Err(err.into());
         }
     };
@@ -102,9 +163,13 @@ pub fn start_device_loopback_capture(
 
     let stop_signal_audio = stop_signal.clone();
     let pause_signal_audio = pause_signal.clone();
-    let err_fn = handle_capture_stream_error;
+    let error_owner = owner.clone();
+    let err_fn = move |error| handle_capture_stream_error(error, error_owner.as_ref());
+    let meter_owner = owner.clone();
+    let mut drops = crate::api::audio::retention::DropReport::default();
 
     let stop_signal_monitor = stop_signal.clone();
+    let monitor_owner = owner.clone();
     let monitor = CaptureWorker::spawn("sgt-output-device-monitor", move |monitor_stop| {
         let Some(initial_id) = initial_default_output_id else {
             return;
@@ -119,7 +184,7 @@ pub fn start_device_loopback_capture(
             }
             let current_id = current_default_render_endpoint_id();
             if current_id.is_some() && current_id != Some(initial_id.clone()) {
-                request_device_reconnect("default output device changed");
+                request_device_reconnect("default output device changed", monitor_owner.as_ref());
                 break;
             }
         }
@@ -145,11 +210,8 @@ pub fn start_device_loopback_capture(
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         let dropped =
                             crate::api::audio::retention::append_pending(&mut buf, &resampled);
-                        if dropped > 0 {
-                            crate::log_info!(
-                                "[AudioCapture] owner=loopback pending_dropped_samples={dropped}"
-                            );
-                        }
+                        drop(buf);
+                        drops.note("loopback", dropped);
                     }
 
                     // Calculate RMS for volume visualization
@@ -159,14 +221,17 @@ pub fn start_device_loopback_capture(
                             .map(|&s| (s as f64 / 32768.0).powi(2))
                             .sum();
                         let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
-                        REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                        publish_capture_rms(rms, meter_owner.as_ref());
                     }
                 },
                 err_fn,
                 None,
             )
             .map_err(|err| {
-                request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+                request_device_reconnect(
+                    &format!("failed to build loopback stream: {err}"),
+                    owner.as_ref(),
+                );
                 err
             })?,
         cpal::SampleFormat::I16 => device
@@ -189,11 +254,8 @@ pub fn start_device_loopback_capture(
                     if let Ok(mut buf) = audio_buffer_clone.lock() {
                         let dropped =
                             crate::api::audio::retention::append_pending(&mut buf, &resampled);
-                        if dropped > 0 {
-                            crate::log_info!(
-                                "[AudioCapture] owner=loopback pending_dropped_samples={dropped}"
-                            );
-                        }
+                        drop(buf);
+                        drops.note("loopback", dropped);
                     }
 
                     // Calculate RMS for volume visualization
@@ -203,36 +265,44 @@ pub fn start_device_loopback_capture(
                             .map(|&s| (s as f64 / 32768.0).powi(2))
                             .sum();
                         let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
-                        REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                        publish_capture_rms(rms, meter_owner.as_ref());
                     }
                 },
                 err_fn,
                 None,
             )
             .map_err(|err| {
-                request_device_reconnect(&format!("failed to build loopback stream: {err}"));
+                request_device_reconnect(
+                    &format!("failed to build loopback stream: {err}"),
+                    owner.as_ref(),
+                );
                 err
             })?,
         _ => return Err(anyhow::anyhow!("Unsupported audio format")),
     };
 
     if let Err(err) = stream.play() {
-        request_device_reconnect(&format!("failed to start loopback stream: {err}"));
+        request_device_reconnect(
+            &format!("failed to start loopback stream: {err}"),
+            owner.as_ref(),
+        );
         return Err(err.into());
     }
     Ok(CaptureStream::with_monitor(stream, monitor))
 }
 
-pub fn start_device_loopback_capture_resilient(
+pub(crate) fn start_device_loopback_capture_resilient(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    owner: Option<RealtimeCaptureOwner>,
 ) -> Result<CaptureStream> {
     retry_capture_stream("device-loopback", || {
         start_device_loopback_capture(
             audio_buffer.clone(),
             stop_signal.clone(),
             pause_signal.clone(),
+            owner.clone(),
         )
     })
 }
@@ -256,7 +326,7 @@ fn current_default_endpoint_id(flow: EDataFlow) -> Option<String> {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
             let device = enumerator.GetDefaultAudioEndpoint(flow, eConsole).ok()?;
-            device.GetId().ok()?.to_string().ok()
+            crate::api::audio::endpoint_id::read(&device).ok().flatten()
         })();
         if com.is_ok() {
             CoUninitialize();
@@ -295,8 +365,15 @@ pub fn start_mic_capture(
     let diagnostics =
         crate::api::audio::capture_diagnostics::CaptureDiagnostics::new("realtime", "mic");
     diagnostics.controls(stop_signal.clone(), pause_signal.clone());
-    start_mic_capture_diagnosed(audio_buffer, stop_signal, pause_signal, diagnostics.clone())
-        .inspect_err(|error| diagnostics.event("open_error", &format!("{error:#}")))
+    start_mic_capture_diagnosed(
+        audio_buffer,
+        stop_signal,
+        pause_signal,
+        diagnostics.clone(),
+        None,
+    )
+    .inspect_err(|error| diagnostics.event("open_error", &format!("{error:#}")))
+    .map(|(stream, _)| stream)
 }
 
 fn start_mic_capture_diagnosed(
@@ -304,12 +381,16 @@ fn start_mic_capture_diagnosed(
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
     diagnostics: crate::api::audio::capture_diagnostics::CaptureDiagnostics,
-) -> Result<cpal::Stream> {
+    owner: Option<RealtimeCaptureOwner>,
+) -> Result<(cpal::Stream, Option<String>)> {
     let device = concrete_default_input_device()
         .ok_or_else(|| anyhow::anyhow!("No microphone available. Please connect a microphone."))?;
+    let opened_id = device.id().ok().map(|id| id.id().to_string());
     let config = device.default_input_config()?;
 
     let callback_diagnostics = diagnostics.clone();
+    let meter_owner = owner.clone();
+    let mut drops = crate::api::audio::retention::DropReport::default();
     let stream = crate::api::audio::pcm_capture::build(
         &device,
         &config,
@@ -321,37 +402,48 @@ fn start_mic_capture_diagnosed(
         },
         move |pcm| {
             let rms = crate::api::gemini_transcribe::compute_i16_rms(&pcm);
-            REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+            publish_capture_rms(rms, meter_owner.as_ref());
             if let Ok(mut buffer) = audio_buffer.lock() {
                 let dropped = crate::api::audio::retention::append_pending(&mut buffer, &pcm);
-                if dropped > 0 {
-                    crate::log_info!(
-                        "[AudioCapture] owner=realtime pending_dropped_samples={dropped}"
-                    );
-                }
+                drop(buffer);
+                drops.note("realtime", dropped);
             }
         },
-        handle_capture_stream_error,
+        move |error| handle_capture_stream_error(error, owner.as_ref()),
     )?;
 
     stream.play()?;
     diagnostics.event("playing", "target_rate=16000 mono");
-    Ok(stream)
+    Ok((stream, opened_id))
 }
 
-pub fn start_mic_capture_resilient(
+pub(crate) fn start_mic_capture_resilient(
     audio_buffer: Arc<Mutex<Vec<i16>>>,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    owner: Option<RealtimeCaptureOwner>,
 ) -> Result<CaptureStream> {
-    retry_capture_stream("mic", || {
-        start_mic_capture(
+    let diagnostics =
+        crate::api::audio::capture_diagnostics::CaptureDiagnostics::new("realtime", "mic");
+    let stream = retry_capture_stream("mic", || {
+        start_mic_capture_diagnosed(
             audio_buffer.clone(),
             stop_signal.clone(),
             pause_signal.clone(),
+            diagnostics.clone(),
+            owner.clone(),
         )
+        .inspect_err(|error| diagnostics.event("open_error", &format!("{error:#}")))
+    });
+    if let Err(error) = &stream {
+        request_device_reconnect(
+            &format!("microphone capture failed: {error:#}"),
+            owner.as_ref(),
+        );
+    }
+    stream.and_then(|(stream, opened_id)| {
+        microphone_monitor::attach(stream, opened_id, stop_signal, owner)
     })
-    .map(CaptureStream::from)
 }
 
 fn retry_capture_stream<T>(label: &str, mut start: impl FnMut() -> Result<T>) -> Result<T> {
@@ -383,6 +475,85 @@ fn is_overlapped_io_pending_error(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_or_unowned_capture_failure_cannot_restart_a_new_engine() {
+        use std::sync::atomic::AtomicU64;
+        let transition = Arc::new(Mutex::new(()));
+        let publication = Arc::new(Mutex::new(()));
+        let session = Arc::new(AtomicU64::new(3));
+        let revision = Arc::new(AtomicU64::new(4));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let retired = Arc::new(AtomicBool::new(false));
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker_transition = transition.clone();
+        let worker_publication = publication.clone();
+        let worker_session = session.clone();
+        let worker_revision = revision.clone();
+        let worker_stopped = stopped.clone();
+        let worker_retired = retired.clone();
+        let worker = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            commit_owned_reconnect(
+                Some(4),
+                &worker_transition,
+                |old_revision| {
+                    crate::overlay::realtime_webview::state::publish_if_engine_current_with(
+                        &worker_publication,
+                        &worker_session,
+                        &worker_revision,
+                        3,
+                        &worker_stopped,
+                        old_revision,
+                        || {
+                            worker_revision.fetch_add(1, Ordering::SeqCst);
+                        },
+                    )
+                },
+                || {
+                    worker_retired.store(true, Ordering::SeqCst);
+                },
+            )
+        });
+        ready_rx.recv().unwrap();
+        {
+            let _guard = publication.lock().unwrap();
+            revision.store(5, Ordering::SeqCst);
+        }
+        release_tx.send(()).unwrap();
+        assert!(!worker.join().unwrap());
+        assert!(!retired.load(Ordering::SeqCst));
+        assert!(!commit_owned_reconnect::<u64>(
+            None,
+            &transition,
+            |_| panic!("unowned invalidation"),
+            || panic!("unowned retirement")
+        ));
+        assert!(commit_owned_reconnect(
+            Some(5),
+            &transition,
+            |expected| {
+                crate::overlay::realtime_webview::state::publish_if_engine_current_with(
+                    &publication,
+                    &session,
+                    &revision,
+                    3,
+                    &stopped,
+                    expected,
+                    || {
+                        revision.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+            },
+            || {
+                retired.store(true, Ordering::SeqCst);
+            }
+        ));
+        assert_eq!(revision.load(Ordering::SeqCst), 6);
+        assert!(retired.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn recoverable_stream_notifications_do_not_request_device_reconnect() {

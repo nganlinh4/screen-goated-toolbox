@@ -125,6 +125,7 @@ internal fun captureAccessibilitySurface(
         (window.displayId to window.id) to window.surfaceLease(generation)
     }
     var truncated = false
+    val budget = AccessibilityTraversalBudget()
 
     for (window in windows) {
         val root = window.root ?: continue
@@ -144,6 +145,7 @@ internal fun captureAccessibilitySurface(
             windowAuthority = window.targetAuthority,
             surfaceLease = surfaceLease,
             maxElements = maxElements,
+            budget = budget,
             onTruncated = { truncated = true },
         )
     }
@@ -274,9 +276,10 @@ private fun traverseAccessibilityTree(
     windowAuthority: AccessibilityTargetAuthority,
     surfaceLease: AccessibilitySurfaceLease,
     maxElements: Int,
+    budget: AccessibilityTraversalBudget,
     onTruncated: () -> Unit,
 ) {
-    if (elements.size >= maxElements) {
+    if (elements.size >= maxElements || !budget.admit(path.size)) {
         onTruncated()
         return
     }
@@ -387,6 +390,7 @@ private fun traverseAccessibilityTree(
                 windowAuthority = windowAuthority,
                 surfaceLease = surfaceLease,
                 maxElements = maxElements,
+                budget = budget,
                 onTruncated = onTruncated,
             )
         }

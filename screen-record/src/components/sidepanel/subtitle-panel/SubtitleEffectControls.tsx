@@ -60,8 +60,8 @@ export function SubtitleEffectControls({
               max={1.5}
               step={0.01}
               value={resolvedStyle.animation?.inDuration ?? 0.3}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -77,8 +77,8 @@ export function SubtitleEffectControls({
               max={1.5}
               step={0.01}
               value={resolvedStyle.animation?.outDuration ?? 0.3}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -142,8 +142,8 @@ export function SubtitleEffectControls({
               max={1}
               step={0.01}
               value={resolvedStyle.background.opacity ?? 0.65}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -163,8 +163,8 @@ export function SubtitleEffectControls({
               max={64}
               step={1}
               value={resolvedStyle.background.paddingX}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -184,8 +184,8 @@ export function SubtitleEffectControls({
               max={48}
               step={1}
               value={resolvedStyle.background.paddingY}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -206,8 +206,8 @@ export function SubtitleEffectControls({
               max={32}
               step={1}
               value={resolvedStyle.background.borderRadius}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
+              onGestureStart={beginBatch}
+              onGestureEnd={commitBatch}
               onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                 ...subtitle,
                 style: {
@@ -258,8 +258,8 @@ export function SubtitleEffectControls({
                 max={16}
                 step={0.5}
                 value={resolvedStyle.stroke.width}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {
@@ -275,8 +275,8 @@ export function SubtitleEffectControls({
                 max={1}
                 step={0.01}
                 value={resolvedStyle.stroke.opacity ?? 1}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {
@@ -328,8 +328,8 @@ export function SubtitleEffectControls({
                 max={32}
                 step={1}
                 value={resolvedStyle.shadow.blur}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {
@@ -345,8 +345,8 @@ export function SubtitleEffectControls({
                 max={24}
                 step={1}
                 value={resolvedStyle.shadow.offsetX}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {
@@ -362,8 +362,8 @@ export function SubtitleEffectControls({
                 max={24}
                 step={1}
                 value={resolvedStyle.shadow.offsetY}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {
@@ -379,8 +379,8 @@ export function SubtitleEffectControls({
                 max={1}
                 step={0.01}
                 value={resolvedStyle.shadow.opacity ?? 0.7}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
+                onGestureStart={beginBatch}
+                onGestureEnd={commitBatch}
                 onChange={(value) => onUpdateSelectedSubtitles((subtitle) => ({
                   ...subtitle,
                   style: {

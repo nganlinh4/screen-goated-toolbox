@@ -2,9 +2,9 @@ import type { QueueItem } from "./types";
 import { canSubmitCreationSource } from "../../ui-shared/creation-source-provenance.ts";
 
 export function canSubmitItem(
-  item?: Pick<QueueItem, "sourceProvenance">,
+  item?: Pick<QueueItem, "sourceProvenance" | "generationMode">,
 ): boolean {
-  return Boolean(item && canSubmitCreationSource(item.sourceProvenance, 1, false));
+  return Boolean(item && item.generationMode === "quality" && canSubmitCreationSource(item.sourceProvenance, 1, false));
 }
 
 export function needsFreshSubmissionSession(

@@ -4,14 +4,16 @@
 //! The mini-app keeps creation, queueing, and result delivery in one product surface.
 
 mod asset_protocol;
+mod asset_protocol_async;
 mod asset_texture_validation;
 mod assets;
+mod background;
 mod export;
-pub(crate) mod file_dialogs;
-mod input_policy;
 mod ipc;
+mod ipc_worker;
 mod runtime;
 mod window;
+mod window_geometry;
 
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,17 +22,15 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::win_types::SendHwnd;
-
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 461;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 462;
 pub(super) const WM_APP_PREVIEW_REPLY: u32 = WM_USER + 463;
 pub(super) const WM_APP_REMOVE: u32 = WM_USER + 464;
+pub(super) const WM_APP_IPC_REPLY: u32 = WM_USER + 465;
 
 pub(super) static REGISTER_CLASS: Once = Once::new();
-pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-pub(super) static mut IS_READY: bool = false;
-pub(super) static mut IS_INITIALIZING: bool = false;
+pub(super) static WINDOW: crate::overlay::window_slot::WindowSlot =
+    crate::overlay::window_slot::WindowSlot::new();
 pub(super) static REMOVAL_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
@@ -43,7 +43,9 @@ thread_local! {
 }
 
 pub fn show_three_d_generator() {
-    let capability = crate::runtime_support::require_webview2("3D Generator");
+    let capability = crate::runtime_support::require_webview2(
+        crate::runtime_support::WebViewFeature::ThreeDGenerator,
+    );
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
@@ -92,17 +94,11 @@ fn stop_for_component_removal() -> anyhow::Result<()> {
     crate::overlay::creation_runtime::stop_for_component_removal();
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
-        let (hwnd, initializing) = unsafe {
-            (
-                std::ptr::addr_of!(WINDOW_HWND).read(),
-                std::ptr::addr_of!(IS_INITIALIZING).read(),
-            )
-        };
-        if !hwnd.is_invalid() {
+        if let Some(hwnd) = WINDOW.hwnd() {
             unsafe {
-                let _ = PostMessageW(Some(hwnd.0), WM_APP_REMOVE, WPARAM(0), LPARAM(0));
+                let _ = PostMessageW(Some(hwnd), WM_APP_REMOVE, WPARAM(0), LPARAM(0));
             }
-        } else if !initializing {
+        } else if !WINDOW.is_initializing() {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -120,13 +116,9 @@ pub(super) fn current_ui_language() -> String {
 }
 
 pub fn update_settings() {
-    unsafe {
-        if !IS_READY {
-            return;
-        }
-        let hwnd = std::ptr::addr_of!(WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = PostMessageW(Some(hwnd.0), WM_APP_SYNC, WPARAM(0), LPARAM(0));
+    if let Some(hwnd) = WINDOW.ready_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_APP_SYNC, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -135,6 +127,8 @@ pub fn shutdown() -> bool {
     crate::overlay::creation_runtime::verification::cancel();
     crate::overlay::creation_close::begin_product("3d");
     crate::overlay::creation_runtime::cancel_readiness("3d");
-    let _ = runtime::cancel_for_shutdown();
+    if !runtime::cancel_for_shutdown() {
+        return false;
+    }
     crate::overlay::creation_delivery::cancel_product_intents("3d")
 }

@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 use std::time::Instant;
 
 const FFMPEG_GIF_DITHER: &str = "bayer:bayer_scale=3";
@@ -33,23 +32,25 @@ pub(super) fn convert_mp4_to_gif(
         mp4_path.display(),
         gif_path.display()
     );
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            mp4_path.to_str().unwrap_or(""),
-            "-vf",
-            &filter,
-            "-loop",
-            "0",
-            gif_path.to_str().unwrap_or(""),
-        ])
-        .output()
-        .map_err(|err| format!("Failed to launch FFmpeg GIF export: {err}"))?;
-
+    let mut command = crate::process_job::HelperCommand::new(&ffmpeg);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        mp4_path.to_str().unwrap_or(""),
+        "-vf",
+        &filter,
+        "-loop",
+        "0",
+        gif_path.to_str().unwrap_or(""),
+    ]);
+    #[cfg(not(feature = "recorder-worker"))]
+    let resources = ffmpeg_component;
+    #[cfg(feature = "recorder-worker")]
+    let resources = ();
+    let output = super::run_ffmpeg(&command, resources)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("FFmpeg GIF export failed: {stderr}"));

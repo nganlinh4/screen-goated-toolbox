@@ -215,10 +215,10 @@ pub(in crate::overlay::computer_control) fn activate_at(
     let dispatch_state = Arc::new(AtomicU8::new(DISPATCH_PENDING));
     let worker_state = Arc::clone(&dispatch_state);
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(super::super::session_retention::inherit(move || {
         let result = activate_at_inner(x, y, &element, expected_window, dry_run, &worker_state);
         let _ = tx.send(result);
-    });
+    }));
 
     wait_for_result(rx, &dispatch_state, cancel)
 }
@@ -236,7 +236,7 @@ fn wait_for_result(
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            eprintln!("[cc] UIA activate_at timed out (>4s) - rejecting late dispatch");
+            cc_diagnostic!("[cc] UIA activate_at timed out (>4s) - rejecting late dispatch");
             let prevented = stop_pending_dispatch(dispatch_state, DISPATCH_EXPIRED);
             return Err(ActivationError::timeout(!prevented));
         }

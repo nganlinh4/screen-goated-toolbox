@@ -1,5 +1,6 @@
 //! Native visibility and clipping for the render-only host.
 use super::protocol::{SceneCard, SceneRect};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::HWND;
@@ -13,6 +14,19 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 static FIRST_SCENE_PAINTED: AtomicBool = AtomicBool::new(false);
+
+thread_local! { static TOOLTIP_RECT: RefCell<Option<SceneRect>> = const { RefCell::new(None) }; }
+
+pub(super) fn set_tooltip(rect: Option<SceneRect>) -> bool {
+    TOOLTIP_RECT.with(|current| {
+        let mut current = current.borrow_mut();
+        if *current == rect {
+            return false;
+        }
+        *current = rect;
+        true
+    })
+}
 
 pub(super) fn first_scene_painted() -> bool {
     FIRST_SCENE_PAINTED.load(Ordering::SeqCst)
@@ -58,7 +72,9 @@ pub(super) fn hide(hwnd: HWND) {
         }
         // Native visibility and the off-screen controller anchor already exclude
         // input. A failed optional render-throttling request must not kill the child.
-        let _ = super::child::set_renderer_visible(hwnd, false);
+        if !super::child::topology_transition::active() {
+            let _ = super::child::set_renderer_visible(hwnd, false);
+        }
         let mut bounds = windows::Win32::Foundation::RECT::default();
         if windows::Win32::Graphics::Gdi::GetWindowRgnBox(hwnd, &mut bounds)
             == windows::Win32::Graphics::Gdi::NULLREGION
@@ -91,6 +107,11 @@ pub(super) fn update(
     }
     rects.extend_from_slice(buttons);
     rects.extend(super::gesture::visual_preview_rects(cards));
+    if !super::button_input::is_dragging() {
+        // Tooltip pixels expand the render window only. The input window still
+        // uses the card and toolbar regions, so the tooltip is click-through.
+        TOOLTIP_RECT.with(|tooltip| rects.extend(tooltip.borrow().iter().cloned()));
+    }
     apply(hwnd, &rects, width, height)
 }
 
@@ -158,10 +179,13 @@ fn apply(hwnd: HWND, rects: &[SceneRect], width: i32, height: i32) -> bool {
                 hide(hwnd);
                 return false;
             }
-            if !first_scene_painted() {
+            if super::child::topology_transition::active() || !first_scene_painted() {
                 return true;
             }
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            if super::child::topology_transition::active() {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
         }
         true
     }

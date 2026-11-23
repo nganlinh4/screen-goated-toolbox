@@ -34,10 +34,12 @@ impl SessionCancellation {
 
     fn begin_session(&self) -> Arc<AtomicBool> {
         let signal = Arc::new(AtomicBool::new(false));
-        *self
+        let mut current = self
             .current
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = signal.clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        current.store(true, Ordering::SeqCst);
+        *current = signal.clone();
         signal
     }
 
@@ -48,6 +50,16 @@ impl SessionCancellation {
 
 static REALTIME_CANCELLATION: LazyLock<SessionCancellation> =
     LazyLock::new(SessionCancellation::new);
+pub(crate) static REALTIME_SESSION_PUBLICATION: Mutex<()> = Mutex::new(());
+pub(crate) static TRANSCRIPTION_TRANSITION: Mutex<()> = Mutex::new(());
+pub(crate) static TRANSLATION_OPTIONS_REVISION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+pub(crate) static TRANSCRIPTION_ENGINE_REVISION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+pub(crate) fn engine_is_current(engine_revision: u64) -> bool {
+    TRANSCRIPTION_ENGINE_REVISION.load(Ordering::SeqCst) == engine_revision
+}
 
 pub fn current_stop_signal() -> Arc<AtomicBool> {
     REALTIME_CANCELLATION.current()
@@ -57,9 +69,139 @@ pub fn begin_stop_signal_session() -> Arc<AtomicBool> {
     REALTIME_CANCELLATION.begin_session()
 }
 
-pub fn set_current_stop_signal(stopped: bool) {
+pub(crate) fn set_current_stop_signal_locked(stopped: bool) {
     REALTIME_CANCELLATION.set_current(stopped);
 }
+
+pub(crate) fn publish_if_current(
+    session_id: u64,
+    session_stopped: &AtomicBool,
+    effect: impl FnOnce(),
+) -> bool {
+    publish_if_session_with(
+        &REALTIME_SESSION_PUBLICATION,
+        &REALTIME_SESSION_ID,
+        session_id,
+        Some(session_stopped),
+        effect,
+    )
+}
+
+pub(crate) fn publish_if_engine_current(
+    session_id: u64,
+    session_stopped: &AtomicBool,
+    engine_revision: u64,
+    effect: impl FnOnce(),
+) -> bool {
+    publish_if_engine_current_with(
+        &REALTIME_SESSION_PUBLICATION,
+        &REALTIME_SESSION_ID,
+        &TRANSCRIPTION_ENGINE_REVISION,
+        session_id,
+        session_stopped,
+        engine_revision,
+        effect,
+    )
+}
+
+pub(crate) fn try_publish_if_engine_current(
+    session_id: u64,
+    session_stopped: &AtomicBool,
+    engine_revision: u64,
+    effect: impl FnOnce(),
+) -> bool {
+    try_publish_if_engine_current_with(
+        &REALTIME_SESSION_PUBLICATION,
+        &REALTIME_SESSION_ID,
+        &TRANSCRIPTION_ENGINE_REVISION,
+        session_id,
+        session_stopped,
+        engine_revision,
+        effect,
+    )
+}
+
+fn try_publish_if_engine_current_with(
+    publication: &Mutex<()>,
+    current_id: &std::sync::atomic::AtomicU64,
+    current_revision: &std::sync::atomic::AtomicU64,
+    session_id: u64,
+    session_stopped: &AtomicBool,
+    engine_revision: u64,
+    effect: impl FnOnce(),
+) -> bool {
+    let _publication = match publication.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return false,
+    };
+    if session_stopped.load(Ordering::SeqCst)
+        || current_id.load(Ordering::SeqCst) != session_id
+        || current_revision.load(Ordering::SeqCst) != engine_revision
+    {
+        return false;
+    }
+    effect();
+    true
+}
+
+pub(crate) fn publish_if_engine_current_with(
+    publication: &Mutex<()>,
+    current_id: &std::sync::atomic::AtomicU64,
+    current_revision: &std::sync::atomic::AtomicU64,
+    session_id: u64,
+    session_stopped: &AtomicBool,
+    engine_revision: u64,
+    effect: impl FnOnce(),
+) -> bool {
+    let mut published = false;
+    publish_if_session_with(
+        publication,
+        current_id,
+        session_id,
+        Some(session_stopped),
+        || {
+            if current_revision.load(Ordering::SeqCst) == engine_revision {
+                effect();
+                published = true;
+            }
+        },
+    );
+    published
+}
+
+pub(crate) fn publish_if_session(session_id: u64, effect: impl FnOnce()) -> bool {
+    publish_if_session_with(
+        &REALTIME_SESSION_PUBLICATION,
+        &REALTIME_SESSION_ID,
+        session_id,
+        None,
+        effect,
+    )
+}
+
+fn publish_if_session_with(
+    publication: &Mutex<()>,
+    current_id: &std::sync::atomic::AtomicU64,
+    session_id: u64,
+    session_stopped: Option<&AtomicBool>,
+    effect: impl FnOnce(),
+) -> bool {
+    let _publication = publication
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if session_stopped.is_some_and(|stop| stop.load(Ordering::SeqCst))
+        || current_id.load(Ordering::SeqCst) != session_id
+    {
+        return false;
+    }
+    effect();
+    true
+}
+
+#[cfg(test)]
+#[path = "publication_tests.rs"]
+mod publication_tests;
 /// True while a realtime session is winding down and must not be restarted yet.
 pub static REALTIME_SESSION_STOPPING: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
@@ -88,7 +230,7 @@ pub static NEW_TRANSLATION_MODEL: LazyLock<Mutex<String>> =
 /// Signal to change transcription model
 pub static TRANSCRIPTION_MODEL_CHANGE: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
-/// The new transcription model to use ("gemini", "parakeet", or "qwen3-asr-local")
+/// The new transcription model id requested by the overlay.
 pub static NEW_TRANSCRIPTION_MODEL: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new(String::new()));
 /// Visibility state for the two cards in the shared compositor.
@@ -114,25 +256,6 @@ pub static REALTIME_TTS_SPEED: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
 /// Auto-speed mode: automatically adjust speed based on queue length
 pub static REALTIME_TTS_AUTO_SPEED: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(true)));
-/// Queue of committed translation text segments to speak
-pub static COMMITTED_TRANSLATION_QUEUE: LazyLock<Mutex<std::collections::VecDeque<String>>> =
-    LazyLock::new(|| Mutex::new(std::collections::VecDeque::new()));
-/// Ordered direct S2S audio segments waiting for playback.
-pub static REALTIME_S2S_AUDIO_BACKLOG: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
-    LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(0)));
-/// Approximate queued source-audio duration waiting for S2S playback.
-pub static REALTIME_S2S_AUDIO_BACKLOG_MS: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
-    LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(0)));
-/// Latest measured queue-to-playback delay for S2S audio.
-pub static REALTIME_S2S_AUDIO_DELAY_MS: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
-    LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(0)));
-/// Translated S2S audio already ready after the currently playing ordered segment.
-pub static REALTIME_S2S_READY_BACKLOG_MS: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
-    LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(0)));
-
-/// Track how much of the committed text has been sent to TTS
-pub static LAST_SPOKEN_LENGTH: LazyLock<Arc<std::sync::atomic::AtomicUsize>> =
-    LazyLock::new(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
 /// Current effective TTS speed (including auto-speed boost) for UI display
 pub static CURRENT_TTS_SPEED: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
     LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(100)));
@@ -144,7 +267,8 @@ pub static CURRENT_TTS_VOLUME: LazyLock<Arc<std::sync::atomic::AtomicU32>> =
     LazyLock::new(|| Arc::new(std::sync::atomic::AtomicU32::new(100)));
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());
-pub static mut IS_ACTIVE: bool = false;
+/// Written by the realtime relay thread, read by hotkey and GUI threads.
+pub static IS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // The renderer thread owns exactly one WebView and one WebContext.
 thread_local! {

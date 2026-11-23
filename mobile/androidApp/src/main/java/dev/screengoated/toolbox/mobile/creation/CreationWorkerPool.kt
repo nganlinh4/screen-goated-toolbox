@@ -13,8 +13,6 @@ import dev.screengoated.toolbox.mobile.creation.runtime.CreationRuntimeStatus
 import dev.screengoated.toolbox.mobile.creation.runtime.runtimeSupportsOptionalInstruction
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorker
 import dev.screengoated.toolbox.mobile.creation.worker.ICreationWorkerCallback
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker0Service
-import dev.screengoated.toolbox.mobile.creation.worker.ImageCreatorWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker0Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageTo3dWorker1Service
 import dev.screengoated.toolbox.mobile.creation.worker.ImageToSvgWorker0Service
@@ -40,8 +38,6 @@ internal class CreationWorkerPool private constructor(private val context: Conte
         Worker("3d-1", CreationTool.IMAGE_TO_3D, 1, ImageTo3dWorker1Service::class.java),
         Worker("svg-0", CreationTool.IMAGE_TO_SVG, 0, ImageToSvgWorker0Service::class.java),
         Worker("svg-1", CreationTool.IMAGE_TO_SVG, 1, ImageToSvgWorker1Service::class.java),
-        Worker("image-0", CreationTool.IMAGE_CREATOR, 0, ImageCreatorWorker0Service::class.java),
-        Worker("image-1", CreationTool.IMAGE_CREATOR, 1, ImageCreatorWorker1Service::class.java),
     )
     private val handler = Handler(context.mainLooper)
     private val jobWorkers = ConcurrentHashMap<String, String>()

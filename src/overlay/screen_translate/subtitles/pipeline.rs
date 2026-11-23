@@ -277,13 +277,15 @@ fn publish(
     translation.member_ids = vec![track.group.unit.id];
     for selection in &mut translation.selections {
         selection.region_id = track.group.unit.id;
-        selection.bounds = track.group.candidate.bounds;
+        selection.bounds = track.group.candidate.bounds.prompt();
     }
-    translation.bounds = track.group.candidate.bounds;
+    translation.bounds = track.group.candidate.bounds.prompt();
     translation.source_text = track.source.clone();
     track.hide();
-    let (job, _) = runtime::begin_subtitle_job();
+    let (job, cancel) = runtime::begin_subtitle_job();
     track.job = Some(job);
+    let pixels = track.group.candidate.bounds.pixels();
+    track.rendered_size = Some((pixels.width, pixels.height));
     track.translation = Some(translation.clone());
     // Region changes hold view before scene, so never acquire view while holding scene.
     if session.stop.load(Ordering::Acquire) {
@@ -312,19 +314,104 @@ fn publish(
     ) {
         Ok(overlay) => {
             track.motion = Some(overlay.motion());
+            let reported = Arc::clone(&session.renderer_failure_reported);
             std::thread::spawn(move || {
-                if let Err(error) = overlay.complete(TranslationDocument {
-                    regions: vec![translation],
-                }) {
-                    runtime::cancel_job(job);
-                    crate::log_info!("[Subtitles] renderer failed: {error:#}");
+                let result = overlay
+                    .complete(TranslationDocument {
+                        regions: vec![translation],
+                    })
+                    .map(|_| ());
+                if result.is_err() {
+                    report_renderer_end(job, &cancel, result, &reported, notify_error);
                 }
             });
         }
         Err(error) => {
-            runtime::cancel_job(job);
+            report_renderer_end(
+                job,
+                &cancel,
+                Err(error),
+                &session.renderer_failure_reported,
+                notify_error,
+            );
             track.job = None;
-            crate::log_info!("[Subtitles] renderer failed: {error:#}");
         }
+    }
+}
+
+fn notify_error(cause: &str) {
+    super::super::capture::notify_error(cause);
+}
+
+/// Ends a subtitle line's job after its renderer stopped. A user stop or a
+/// superseded line stays silent; a real failure is shown once per session
+/// through the screen-translate error notification.
+fn report_renderer_end(
+    job: u64,
+    cancel: &AtomicBool,
+    result: anyhow::Result<()>,
+    reported: &AtomicBool,
+    notify: impl FnOnce(&str),
+) {
+    let cause = match runtime::end_job(job, cancel, result) {
+        runtime::JobEnd::Failed(error) => format!("{error:#}"),
+        runtime::JobEnd::ComponentFailed(cause) => cause,
+        runtime::JobEnd::Completed | runtime::JobEnd::Cancelled => String::new(),
+    };
+    runtime::cancel_job(job);
+    if cause.is_empty() {
+        return;
+    }
+    crate::log_info!("[Subtitles] renderer failed: {cause}");
+    if !reported.swap(true, Ordering::AcqRel) {
+        notify(&cause);
+    }
+}
+
+#[cfg(test)]
+mod renderer_report_tests {
+    use super::*;
+
+    #[test]
+    fn renderer_failures_notify_once_and_user_stops_stay_silent() {
+        let reported = AtomicBool::new(false);
+        let notices = std::cell::RefCell::new(Vec::new());
+        for cause in ["scene failed", "scene failed again"] {
+            let (job, cancel) = runtime::begin_subtitle_job();
+            report_renderer_end(
+                job,
+                &cancel,
+                Err(anyhow::anyhow!(cause)),
+                &reported,
+                |cause| notices.borrow_mut().push(cause.to_string()),
+            );
+            assert!(cancel.load(Ordering::SeqCst));
+            assert!(!runtime::is_current(job));
+        }
+        assert_eq!(*notices.borrow(), ["scene failed"]);
+
+        let reported = AtomicBool::new(false);
+        let (job, cancel) = runtime::begin_subtitle_job();
+        runtime::fail_job(job, "renderer mailbox failed");
+        report_renderer_end(
+            job,
+            &cancel,
+            Err(anyhow::anyhow!("stopped early")),
+            &reported,
+            |cause| notices.borrow_mut().push(cause.to_string()),
+        );
+        assert_eq!(notices.borrow().last().unwrap(), "renderer mailbox failed");
+
+        let reported = AtomicBool::new(false);
+        let (job, cancel) = runtime::begin_subtitle_job();
+        runtime::cancel_job(job);
+        report_renderer_end(
+            job,
+            &cancel,
+            Err(anyhow::anyhow!("stopped early")),
+            &reported,
+            |_| panic!("a user stop was reported"),
+        );
+        assert!(!reported.load(Ordering::SeqCst));
     }
 }

@@ -26,8 +26,16 @@ internal class CreationSafDeliveryStore(
         }
         val parentId = DocumentsContract.getTreeDocumentId(tree)
         val parent = DocumentsContract.buildDocumentUriUsingTree(tree, parentId)
+        // The reservation is created untyped, like the atomic-destination probe:
+        // FileSystemProvider-backed folders append a MIME-matched extension to a
+        // typed document, which would break the exact pending-name checks below.
         val pending = requireNotNull(
-            DocumentsContract.createDocument(resolver, parent, intent.mimeType, pendingName),
+            DocumentsContract.createDocument(
+                resolver,
+                parent,
+                CREATION_SAF_PENDING_MIME_TYPE,
+                pendingName,
+            ),
         ) { "Could not reserve output file" }
         return CreationPendingReservation(pending.toString(), requireNotNull(identity(pending)))
     }

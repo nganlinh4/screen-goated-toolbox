@@ -2,6 +2,7 @@ use crate::gui::locale::OverlayLocaleText;
 
 pub(super) fn get() -> OverlayLocaleText {
     OverlayLocaleText {
+        audio_preview_unavailable: "이 녹음은 미리 들을 수 없습니다. 처리에는 전체 오디오가 사용됩니다.",
         overlay_copy_tooltip: "복사",
         overlay_copy_image_tooltip: "번역된 이미지 복사",
         overlay_copy_image_failed: "번역된 이미지를 복사하지 못했습니다. 다시 시도해 주세요.",
@@ -10,6 +11,10 @@ pub(super) fn get() -> OverlayLocaleText {
         overlay_edit_tooltip: "편집 / 다듬기",
         overlay_refine_placeholder: "결과 수정...",
         overlay_download_tooltip: "HTML 저장",
+        overlay_download_busy: "저장 창이 이미 열려 있습니다. 먼저 완료해 주세요.",
+        overlay_download_failed: "HTML 파일을 저장하지 못했습니다. 다시 시도해 주세요.",
+        overlay_download_finish_before_exit: "종료하기 전에 HTML 저장을 완료하거나 취소해 주세요.",
+        overlay_download_exit_in_progress: "앱이 종료되는 동안에는 HTML 저장을 시작할 수 없습니다.",
         overlay_speaker_tooltip: "텍스트 읽기 (TTS)",
         overlay_result_handle_tooltip: "빗자루: 왼쪽 - 닫기 | 오른쪽 - 그룹 닫기 | 가운데 - 모두 닫기 | 드래그 - 이동 | 오른쪽 드래그 - 그룹 이동 | 가운데 드래그 - 모두 이동",
         overlay_back_tooltip: "뒤로",
@@ -26,5 +31,19 @@ pub(super) fn get() -> OverlayLocaleText {
         history_open_media_folder_tooltip: "미디어 폴더 열기",
         history_delete_tooltip: "삭제",
         history_copy_text_tooltip: "텍스트 복사",
+        chain_error_generic: "오류: {error}",
+        chain_error_http_400: "오류 400: {target}에 대한 잘못된 요청입니다. 설정을 확인해 주세요.",
+        chain_error_http_401: "오류 401: {provider} API 키가 유효하지 않거나 만료되었습니다.",
+        chain_error_http_402: "오류 402: {target} 계정의 결제 한도가 소진되었습니다. 제공업체의 결제 페이지를 확인해 주세요.",
+        chain_error_http_403: "오류 403: {provider}에 대한 접근 권한이 없습니다. API 키를 확인해 주세요.",
+        chain_error_http_404: "오류 404: {provider}에서 {model} 모델을 찾을 수 없습니다.",
+        chain_error_http_429: "오류 429: {target} 모델의 요청 제한 초과 (Rate Limit). 잠시 후 다시 시도해 주세요.",
+        chain_error_http_500: "오류 500: {provider} 서버 내부 오류입니다. 나중에 다시 시도해 주세요.",
+        chain_error_http_502: "오류 502: Bad Gateway - {provider}에 문제가 발생했습니다. 나중에 다시 시도해 주세요.",
+        chain_error_http_503: "오류 503: {provider} 서비스가 과부하 상태이거나 점검 중입니다. 나중에 다시 시도해 주세요.",
+        chain_error_http_504: "오류 504: {target} 응답 시간 초과. 다시 시도해 주세요.",
+        chain_error_http_other: "오류 {code}: {target}에서 오류가 발생했습니다 (HTTP {code}).",
+        chain_error_unnamed_model: "해당",
+        chain_retrying: "({model} 재시도 중...)",
     }
 }

@@ -10,6 +10,20 @@ pub(super) enum PushResult {
     AwaitingSnapshot,
 }
 
+/// Operations a scene snapshot cannot recreate: dictated refinement text and
+/// source-image requests exist only as commands, so recovery replays them
+/// after the snapshot instead of discarding them with the rest of the queue.
+pub(super) fn survives_snapshot(command: &HostCommand) -> bool {
+    matches!(
+        command,
+        HostCommand::RefineText {
+            is_insert: true,
+            ..
+        } | HostCommand::SourceImage { .. }
+            | HostCommand::SourceImageStatus { .. }
+    )
+}
+
 #[derive(Default)]
 pub(super) struct CommandBuffer {
     commands: VecDeque<HostCommand>,
@@ -19,9 +33,7 @@ pub(super) struct CommandBuffer {
 impl CommandBuffer {
     pub(super) fn push(&mut self, command: HostCommand) -> PushResult {
         if matches!(command, HostCommand::Snapshot { .. }) {
-            self.commands.clear();
-            self.commands.push_back(command);
-            self.awaiting_snapshot = false;
+            self.restart_from(command);
             return PushResult::Queued;
         }
         if matches!(command, HostCommand::Shutdown) {
@@ -31,6 +43,9 @@ impl CommandBuffer {
             return PushResult::Queued;
         }
         if self.awaiting_snapshot {
+            if survives_snapshot(&command) {
+                self.retain_operation(command);
+            }
             return PushResult::AwaitingSnapshot;
         }
         if self.replace_pending_stream(&command) || self.coalesce_adjacent(&command) {
@@ -40,8 +55,11 @@ impl CommandBuffer {
             self.remove_pending_stream(card.id);
         }
         if self.commands.len() >= MAX_BUFFERED_COMMANDS {
-            self.commands.clear();
+            self.commands.retain(survives_snapshot);
             self.awaiting_snapshot = true;
+            if survives_snapshot(&command) {
+                self.retain_operation(command);
+            }
             return PushResult::Overflowed;
         }
         self.commands.push_back(command);
@@ -49,9 +67,21 @@ impl CommandBuffer {
     }
 
     pub(super) fn replace_with_snapshot(&mut self, cards: Vec<super::protocol::SceneCard>) {
-        self.commands.clear();
-        self.commands.push_back(HostCommand::Snapshot { cards });
+        self.restart_from(HostCommand::Snapshot { cards });
+    }
+
+    fn restart_from(&mut self, snapshot: HostCommand) {
+        self.commands.retain(survives_snapshot);
+        self.commands.push_front(snapshot);
         self.awaiting_snapshot = false;
+    }
+
+    /// Bounded like the live queue; an operation beyond the bound is dropped
+    /// (source-image requests then fail through their own timeout).
+    fn retain_operation(&mut self, command: HostCommand) {
+        if !self.coalesce_adjacent(&command) && self.commands.len() < MAX_BUFFERED_COMMANDS {
+            self.commands.push_back(command);
+        }
     }
 
     pub(super) fn drain(&mut self) -> Vec<HostCommand> {
@@ -111,14 +141,17 @@ impl CommandBuffer {
                 id: previous_id,
                 text: previous_text,
                 is_insert: true,
+                edit_session: previous_session,
             },
             HostCommand::RefineText {
                 id: next_id,
                 text: next_text,
                 is_insert: true,
+                edit_session: next_session,
             },
         ) = (&mut *previous, command)
             && previous_id == next_id
+            && previous_session == next_session
         {
             previous_text.push_str(next_text);
             return true;
@@ -149,6 +182,7 @@ fn can_replace_adjacent(previous: &HostCommand, next: &HostCommand) -> bool {
     match (previous, next) {
         (HostCommand::Processing { .. }, HostCommand::Processing { .. })
         | (HostCommand::Theme { .. }, HostCommand::Theme { .. })
+        | (HostCommand::Locale { .. }, HostCommand::Locale { .. })
         | (HostCommand::ExternalDrag { .. }, HostCommand::ExternalDrag { .. }) => true,
         (HostCommand::Opacity { id: previous, .. }, HostCommand::Opacity { id: next, .. })
         | (HostCommand::Raise { id: previous, .. }, HostCommand::Raise { id: next, .. }) => {
@@ -158,14 +192,16 @@ fn can_replace_adjacent(previous: &HostCommand, next: &HostCommand) -> bool {
             HostCommand::RefineText {
                 id: previous,
                 is_insert: false,
+                edit_session: previous_session,
                 ..
             },
             HostCommand::RefineText {
                 id: next,
                 is_insert: false,
+                edit_session: next_session,
                 ..
             },
-        ) => previous == next,
+        ) => previous == next && previous_session == next_session,
         (HostCommand::Upsert { card: previous }, HostCommand::Upsert { card: next }) => {
             previous.id == next.id
         }
@@ -262,35 +298,114 @@ mod tests {
         assert!(matches!(&commands[1], HostCommand::Finalize { card } if card.body == "done"));
     }
 
+    fn opacity(id: isize) -> HostCommand {
+        HostCommand::Opacity { id, opacity: 50 }
+    }
+
+    fn dictated(text: &str) -> HostCommand {
+        HostCommand::RefineText {
+            id: 7,
+            text: text.to_string(),
+            is_insert: true,
+            edit_session: Some("1".to_string()),
+        }
+    }
+
+    fn fill_to_bound(buffer: &mut CommandBuffer) {
+        let mut id = 0;
+        while buffer.len() < MAX_BUFFERED_COMMANDS {
+            assert_eq!(buffer.push(opacity(id)), PushResult::Queued);
+            id += 1;
+        }
+    }
+
     #[test]
     fn stalled_consumer_has_a_hard_command_bound_until_snapshot() {
         let mut buffer = CommandBuffer::default();
-        for id in 0..MAX_BUFFERED_COMMANDS as isize {
-            assert_eq!(
-                buffer.push(HostCommand::NavigateBack { id }),
-                PushResult::Queued
-            );
-        }
+        fill_to_bound(&mut buffer);
         assert_eq!(
-            buffer.push(HostCommand::NavigateBack {
-                id: MAX_BUFFERED_COMMANDS as isize,
-            }),
+            buffer.push(opacity(MAX_BUFFERED_COMMANDS as isize)),
             PushResult::Overflowed
         );
         for id in 0..MAX_BUFFERED_COMMANDS as isize * 4 {
-            assert_eq!(
-                buffer.push(HostCommand::NavigateForward { id }),
-                PushResult::AwaitingSnapshot
-            );
+            assert_eq!(buffer.push(opacity(id)), PushResult::AwaitingSnapshot);
         }
         assert_eq!(buffer.len(), 0);
 
         buffer.replace_with_snapshot(Vec::new());
         assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer.push(opacity(999)), PushResult::Queued);
+    }
+
+    #[test]
+    fn overflow_recovery_replays_operations_the_snapshot_cannot_recreate() {
+        let mut buffer = CommandBuffer::default();
+        buffer.push(dictated("before "));
+        fill_to_bound(&mut buffer);
+        assert_eq!(buffer.push(dictated("lost?")), PushResult::Overflowed);
+        let status = HostCommand::SourceImageStatus {
+            id: 3,
+            success: true,
+        };
+        assert_eq!(buffer.push(status.clone()), PushResult::AwaitingSnapshot);
+        assert_eq!(buffer.push(opacity(1)), PushResult::AwaitingSnapshot);
         assert_eq!(
-            buffer.push(HostCommand::NavigateBack { id: 999 }),
-            PushResult::Queued
+            buffer.push(dictated(" after")),
+            PushResult::AwaitingSnapshot
         );
+
+        buffer.replace_with_snapshot(Vec::new());
+        assert_eq!(
+            buffer.drain(),
+            vec![
+                HostCommand::Snapshot { cards: Vec::new() },
+                dictated("before lost?"),
+                status,
+                dictated(" after"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_queued_snapshot_keeps_pending_dictation_after_it() {
+        let mut buffer = CommandBuffer::default();
+        buffer.push(opacity(1));
+        buffer.push(dictated("spoken"));
+        buffer.push(HostCommand::Snapshot { cards: Vec::new() });
+        assert_eq!(
+            buffer.drain(),
+            vec![
+                HostCommand::Snapshot { cards: Vec::new() },
+                dictated("spoken")
+            ]
+        );
+    }
+
+    #[test]
+    fn retained_operations_stay_bounded_while_awaiting_a_snapshot() {
+        let mut buffer = CommandBuffer::default();
+        fill_to_bound(&mut buffer);
+        buffer.push(opacity(MAX_BUFFERED_COMMANDS as isize));
+        for id in 0..MAX_BUFFERED_COMMANDS as isize * 4 {
+            buffer.push(HostCommand::SourceImageStatus { id, success: true });
+        }
+        assert_eq!(buffer.len(), MAX_BUFFERED_COMMANDS);
+    }
+
+    #[test]
+    fn only_operations_missing_from_the_snapshot_survive_it() {
+        assert!(survives_snapshot(&dictated("dictated")));
+        assert!(survives_snapshot(&HostCommand::SourceImageStatus {
+            id: 42,
+            success: true,
+        }));
+        assert!(!survives_snapshot(&HostCommand::RefineText {
+            id: 42,
+            text: "canonical".to_string(),
+            is_insert: false,
+            edit_session: Some("1".to_string()),
+        }));
+        assert!(!survives_snapshot(&opacity(42)));
     }
 
     #[test]
@@ -326,12 +441,68 @@ mod tests {
                 id: 42,
                 text: text.to_string(),
                 is_insert: true,
+                edit_session: Some("1".to_string()),
             });
         }
 
         let commands = buffer.drain();
         assert!(
             matches!(&commands[0], HostCommand::RefineText { text, is_insert: true, .. } if text == "hello world")
+        );
+    }
+
+    #[test]
+    fn insertions_from_different_edit_sessions_are_never_combined() {
+        let mut buffer = CommandBuffer::default();
+        for session in ["1", "2"] {
+            buffer.push(HostCommand::RefineText {
+                id: 42,
+                text: session.to_string(),
+                is_insert: true,
+                edit_session: Some(session.to_string()),
+            });
+        }
+        assert_eq!(buffer.drain().len(), 2);
+    }
+
+    #[test]
+    fn adjacent_locale_changes_keep_only_the_latest_complete_strings() {
+        let mut buffer = CommandBuffer::default();
+        for language in ["en", "vi", "ko"] {
+            assert_eq!(
+                buffer.push(super::super::localization::command_for(language)),
+                PushResult::Queued
+            );
+        }
+        assert_eq!(
+            buffer.drain(),
+            vec![super::super::localization::command_for("ko")]
+        );
+    }
+
+    #[test]
+    fn recovery_snapshot_admits_its_current_locale_after_queue_overflow() {
+        let mut buffer = CommandBuffer::default();
+        fill_to_bound(&mut buffer);
+        assert_eq!(
+            buffer.push(super::super::localization::command_for("en")),
+            PushResult::Overflowed
+        );
+        assert_eq!(
+            buffer.push(super::super::localization::command_for("vi")),
+            PushResult::AwaitingSnapshot
+        );
+        buffer.replace_with_snapshot(Vec::new());
+        assert_eq!(
+            buffer.push(super::super::localization::command_for("ko")),
+            PushResult::Queued
+        );
+        assert_eq!(
+            buffer.drain(),
+            vec![
+                HostCommand::Snapshot { cards: Vec::new() },
+                super::super::localization::command_for("ko"),
+            ]
         );
     }
 }

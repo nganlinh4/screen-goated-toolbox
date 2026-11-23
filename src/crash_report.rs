@@ -5,17 +5,14 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::backtrace::Backtrace;
-use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Win32::System::Diagnostics::Debug::{EXCEPTION_POINTERS, SetUnhandledExceptionFilter};
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
-use windows::core::PCWSTR;
 
 pub(crate) use monitor::run_if_requested as run_monitor_if_requested;
 
@@ -23,19 +20,13 @@ const MAX_PANIC_REPORTS: u32 = 4;
 static REPORTER: OnceLock<Reporter> = OnceLock::new();
 static PANICS: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CrashReportMode {
-    Interactive,
-    NonInteractive,
-}
-
 struct Reporter {
     directory: PathBuf,
     identity: String,
     monitor: Option<monitor::Client>,
 }
 
-pub(crate) fn install(mode: CrashReportMode) {
+pub(crate) fn install() {
     // Install before hashing the image or starting the observer: bootstrap
     // failures must also have a synchronous reporting path.
     std::panic::set_hook(Box::new(move |info| {
@@ -66,7 +57,7 @@ pub(crate) fn install(mode: CrashReportMode) {
                 1 + (number - 1) % (MAX_PANIC_REPORTS - 1)
             };
             // Write the original failure first, before symbol resolution or any
-            // modal can itself fail or re-enter Windows callbacks.
+            // later diagnostic work can itself fail.
             persist(&format!("panic-{slot}.txt"), &summary);
             let thread = std::thread::current();
             let stack = format!(
@@ -80,27 +71,22 @@ pub(crate) fn install(mode: CrashReportMode) {
             request_dump(0);
         }
         let _ = writeln!(std::io::stderr().lock(), "{summary}");
-        // Only the first panic can show a dialog. Child/protocol processes and
-        // recursive panic reporting must never wait for desktop interaction.
-        if mode == CrashReportMode::Interactive && number == 0 {
-            let message = format!("{summary}\n\nDiagnostics: {}", report_directory().display());
-            let message = wide(&message);
-            let title = wide("SGT Crash Report");
-            unsafe {
-                MessageBoxW(
-                    None,
-                    PCWSTR(message.as_ptr()),
-                    PCWSTR(title.as_ptr()),
-                    MB_ICONERROR | MB_OK,
-                );
-            }
-        }
     }));
 
     if !cfg!(test) {
         match prepare() {
             Ok(reporter) => {
                 let _ = REPORTER.set(reporter);
+                std::thread::spawn(|| {
+                    match storage::remove_legacy_dump_directory(&crate::paths::app_local_data_dir())
+                    {
+                        Ok(true) => record_event("[ProcessDiagnostic] removed legacy crash dumps"),
+                        Ok(false) => {}
+                        Err(error) => record_event(&format!(
+                            "[ProcessDiagnostic] legacy crash dump removal deferred: {error}"
+                        )),
+                    }
+                });
             }
             Err(error) => persist(
                 "bootstrap-error.txt",
@@ -178,6 +164,18 @@ fn persist(name: &str, message: &str) {
     ));
 }
 
+/// Local-data reset: removes finished crash reports under `crash_root` and
+/// legacy full-memory dumps under `local_app_data`. Reports of running
+/// processes and files this module did not write are kept.
+pub(crate) fn clear_for_reset(
+    crash_root: &std::path::Path,
+    local_app_data: &std::path::Path,
+) -> Result<()> {
+    let legacy = storage::remove_legacy_dump_directory(local_app_data);
+    storage::purge_finished(crash_root)?;
+    legacy.map(drop).map_err(Into::into)
+}
+
 pub(crate) fn record_event(message: &str) {
     if cfg!(test) && REPORTER.get().is_none() {
         return;
@@ -241,15 +239,4 @@ fn run_is_monitor() -> bool {
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
-}
-
-fn write_request(path: &std::path::Path, thread: u32, exception: usize) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .context("open crash snapshot request")?;
-    writeln!(file, "{thread} {exception}").context("write crash snapshot request")?;
-    file.sync_all().context("sync crash snapshot request")
 }

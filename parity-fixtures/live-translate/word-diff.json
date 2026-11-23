@@ -1,0 +1,10 @@
+{
+  "canonical_windows_files": ["src/overlay/html_components/js_logic.rs"],
+  "cases": [
+  {"text":"Yes says this", "tokens":["Yes", " ", "says", " ", "this"]},
+  {"text":"  a\tb\n", "tokens":["  ", "a", "\t", "b", "\n"]},
+  {"text":"café  emoji🙂", "tokens":["café", "  ", "emoji🙂"]},
+  {"text":"slash\\s space", "tokens":["slash\\s", " ", "space"]},
+  {"text":"", "tokens":[]}
+  ]
+}

@@ -3,6 +3,8 @@ mod mix_buffer;
 mod retime_plan;
 mod stretch_mix;
 mod time_map;
+#[cfg(test)]
+mod timeline_parity_tests;
 mod wav_fast;
 mod wsola;
 
@@ -132,7 +134,11 @@ pub fn build_preprocessed_audio_mix(
     let trim_segments = normalized_trim_segments(trim_start, duration, trim_segments);
     let output_duration =
         calculate_mix_output_duration(trim_start, duration, &trim_segments, speed_points);
-    let mut mixer = FloatMixBuffer::new(MIX_OUTPUT_CHANNELS as usize, output_duration);
+    let mut mixer = FloatMixBuffer::new(
+        MIX_OUTPUT_CHANNELS as usize,
+        output_duration,
+        temp_dir.join(format!("{file_stem}_audio_mix.f32")),
+    );
     let result = (|| -> Result<Option<PathBuf>, String> {
         let mut ffmpeg_path_cache = None;
         let t_mix = Instant::now();
@@ -169,12 +175,8 @@ pub fn build_preprocessed_audio_mix(
         }
 
         if !mixer.has_audio() {
-            // Returning None here makes the caller fall back to the raw source audio,
-            // which carries no speed map at all. That fallback is right for a
-            // genuinely silent project and wrong for a mixer bug, and the two are
-            // indistinguishable downstream — so say which happened.
             crate::log_info!(
-                "[Export][AudioPrep] mix came out silent for {} source(s); export will fall back to raw audio (no speed map)",
+                "[Export][AudioPrep] mix contained no audible samples for {} source(s)",
                 active_sources.len()
             );
             return Ok(None);

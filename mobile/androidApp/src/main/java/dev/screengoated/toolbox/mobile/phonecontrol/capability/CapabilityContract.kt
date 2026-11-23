@@ -8,16 +8,6 @@ internal enum class CapabilityState(val wireName: String) {
     REVOKED("revoked"),
     UNSUPPORTED("unsupported"),
     UNAVAILABLE("unavailable"),
-    ;
-
-    val isReadyForRouting: Boolean
-        get() = this == READY
-
-    companion object {
-        fun fromWireName(value: String): CapabilityState =
-            entries.firstOrNull { it.wireName == value }
-                ?: throw IllegalArgumentException("Unknown capability state: $value")
-    }
 }
 
 /** Provider identity is data, not a privilege ranking used by the router. */
@@ -47,35 +37,19 @@ internal data class CapabilityRoute(
     }
 }
 
-/**
- * One runtime probe. A provider may advertise several capabilities, each with
- * semantic facets that describe the complete behavior it can supply.
- */
+/** One runtime readiness probe of a provider, reported in the execution context. */
 internal class ProviderSnapshot(
     val providerId: String,
     val state: CapabilityState,
-    supportedCapabilities: Map<String, Set<String>>,
     val evidenceTimestampMs: Long,
     val requiredUserStep: String? = null,
 ) {
-    val supportedCapabilities: Map<String, Set<String>> = supportedCapabilities
-        .mapValues { (_, semantics) -> semantics.filter(String::isNotBlank).toSet() }
-        .toMap()
-
     init {
         require(providerId.isNotBlank()) { "provider id must not be blank" }
         require(evidenceTimestampMs >= 0) { "evidence timestamp must be non-negative" }
-        require(this.supportedCapabilities.keys.none(String::isBlank)) {
-            "supported capability ids must not be blank"
-        }
         require(requiredUserStep == null || requiredUserStep.isNotBlank()) {
             "required user step must be absent or non-blank"
         }
-    }
-
-    fun supplies(request: CapabilityRequest): Boolean {
-        val suppliedSemantics = supportedCapabilities[request.capability] ?: return false
-        return suppliedSemantics.containsAll(request.requiredSemantics)
     }
 }
 
@@ -92,12 +66,4 @@ internal data class CapabilityRequest(
             "required semantics must not contain blank values"
         }
     }
-}
-
-internal object PhoneControlCapabilityContract {
-    const val NORMAL_TURN_POLICY = "stable_full_catalog"
-    const val UNAVAILABLE_RESULT_CODE = "capability_unavailable"
-    const val DYNAMIC_HIDING = false
-    const val PHRASE_OR_LANGUAGE_GATES = false
-    const val SILENT_TOOL_REROUTES = false
 }

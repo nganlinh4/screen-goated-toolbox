@@ -11,6 +11,7 @@ import android.webkit.WebViewClient
 import dev.screengoated.toolbox.mobile.phonecontrol.GeneratedPhoneControlContract
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
 import dev.screengoated.toolbox.mobile.service.overlay.configureOverlayWebViewRendering
+import dev.screengoated.toolbox.mobile.ui.icons.MaterialSymbolSvgs
 import java.net.URI
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -166,6 +167,7 @@ internal class PhoneControlOrbView(
         .use { it.readText() }
         .replace("/*FONT_CSS*/", PHONE_CONTROL_ORB_RENDERER_CSS)
         .replace("/*CMD_PLACEHOLDER*/", "")
+        .let(MaterialSymbolSvgs.fromAssets(context)::resolveSlots)
 
     private fun applyVisual(
         next: PhoneControlOverlayVisual,

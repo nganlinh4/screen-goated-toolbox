@@ -13,6 +13,24 @@
 - Android ownership reducer and platform shim: [ProvisionalPasteSession.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/ProvisionalPasteSession.kt), [AccessibilityProvisionalPasteTarget.kt](../../mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/AccessibilityProvisionalPasteTarget.kt)
 
 ## Behavior Contract
+- Gemini REST completion accepts both ordinary `parts[].text` and structured
+  `parts[].audioTranscription.text`, in part order. Both platforms validate a
+  successful completion before accepting a unary result; truncated, blocked,
+  malformed or empty output remains a failure. The shared cases live in
+  `parity-fixtures/preset-system/gemini-completion.json`. Dedicated batch input
+  keeps `audioTranscriptionConfig` on the unary endpoint rather than forcing SSE,
+  and does not attach ordinary text-generation thinking controls.
+- Input transcription, translation to the selected language, and custom-prompt
+  audio remain distinct operations even when their catalog rows share an endpoint.
+  A translation endpoint alone cannot identify the requested operation: its
+  input-transcription row must not acquire a translation target. The catalog's
+  speech-output capability distinguishes that endpoint's translation row.
+- Windows input-only recording streaming admits only prompt-free transcription.
+  Translation records the complete audio before using the target-aware request;
+  custom-prompt audio retains its resolved prompt. The routing cases are in
+  [live-audio-routing.json](../../parity-fixtures/preset-system/live-audio-routing.json).
+  Android's finite request parity and real capture/provider acceptance for this
+  contract remain unverified; do not infer them from Windows routing tests.
 - Recorded native Live audio uses manual activity boundaries around the complete
   recording, independent of upload speed. Continuous capture keeps its existing
   automatic/hybrid VAD. Dedicated transcription and translation protocols retain
@@ -41,12 +59,13 @@
 - Audio-only input-adapter presets such as `preset_quick_record` and `preset_record_device` open the Windows-style audio-player result document rather than a text placeholder.
 - Audio result/media documents stay under the normal result-window runtime and preserve the Windows media markers and raw-html bridge contract.
 - The canonical `preset_transcribe` audio block should keep a generic transcription prompt in the default graph so alternate supported audio models inherit an instruction even though Whisper remains the default model.
-- `gemini-live-audio` and `parakeet-local` stream partial transcript updates during capture and hand the final transcript into the first Android `AUDIO` block without forcing a second full transcription pass.
+- `gemini-live-audio` streams partial transcript updates during capture and hand the final transcript into the first Android `AUDIO` block without forcing a second full transcription pass.
 - When a streamed audio preset has `autoPaste = true`, Android incrementally injects transcript deltas into the currently focused editable target during capture and suppresses the final preset-level auto-paste to avoid double insertion.
 - `autoPaste` is the sole automatic insertion switch, independent of preset name. Non-streaming models retain completed-result paste. Append-only streams append deltas; revisable streams can replace a session-owned provisional tail only in a verified editable destination. This policy does not change Live Translate's owned preview surface.
 - Provisional replacement requires a bound focused non-password target, a collapsed caret, and exact expected surrounding text. Before and after every mutation, verify identity, focus, text and caret. Never erase by an unverified backspace count, force focus, overwrite a user selection, or use the clipboard. Finalized text replaces the current provisional tail once and becomes immutable. A frame containing both interim and final consumes the final only. Unsupported replacement capabilities use committed-only insertion if a safe append target exists; an unidentifiable or protected target receives no automatic output.
 - Ownership loss or uncertain insertion suspends all further writes for that session, including final fallback; replaying a full result could duplicate or corrupt existing text. Pending interim updates may coalesce, but final segments retain order. Streaming control characters become spaces; no streaming output injects Enter or execution controls. Normal stop drains authoritative finals, then removes only a still-verifiably-owned provisional remainder. Abort discards queued output and attempts only verified provisional cleanup. Stale generations cannot write into a newer session. History/result handoff must not paste streamed output again.
 - Dedicated live-transcription presets retain the shared hybrid speech-boundary lifecycle: after a real speech turn and the shared silence boundary, send one `audioStreamEnd` without stopping capture or closing the socket, then rearm on the next speech. This is separate from provisional destination rendering.
+- Windows preset dictation follows the realtime dedicated-session rotation in `src/api/gemini_transcribe.rs`: a dedicated live-transcription session reconnects at once on `goAway` and, at a speech gap, after `ROTATE_AT`; the newest resumable handle is offered only on the first reconnect attempt, and a rejected handle falls back to a fresh session instead of ending dictation. Other Live models keep their connection until it fails. Connection setup (DNS, TCP, TLS and upgrade) is bounded by one deadline and stops on Stop/Abort.
 - Pending delivery is bounded to 128 events / 128 KiB UTF-8. Editable snapshots are bounded to 262,144 UTF-16 units and one insertion to 16,384 UTF-16 units. Exceeding a safety bound never triggers an unverified full-result paste.
 - Realtime audio is not a preset operation. Live Translate is launched only through its official mini-app entry, while audio presets remain record-then-process workflows.
 - Device-audio presets use inline permission/MediaProjection handoff through the app, then resume the pending preset launch automatically.
@@ -73,4 +92,4 @@
 - Windows has no global keyboard/mouse input watcher or input-epoch cancellation. Ordinary input, scrolling and zooming do not suspend dictation. Held shortcut modifiers defer dispatch until release, retaining queued speech and ownership without waiting for a provider final. This prevents modified Backspace from becoming word deletion.
 - Windows supports best-effort keyboard provisional revisions when accessibility cannot describe the destination. Missing detection does not block streaming; native foreground/focus identity remains bound to the invocation. Corrections preserve the common Unicode-scalar prefix and backspace the changed suffix before inserting its replacement in one tagged input batch. This assumes scalar backspace behavior; application transformations, concurrent user edits, grapheme deletion, and unobservable caret changes cannot be verified. It never retries uncertain delivery or replays the complete result. Explicit password/disabled controls remain excluded. Android retains its Accessibility-based insertion capability requirement.
 - Accessibility selection and input are separate platform operations, not an atomic compare-and-set. Both platforms validate immediately before and after effects and suspend on uncertainty. Windows uses a dedicated bounded worker; Android serializes native Accessibility actions on its service's Main dispatcher. A Windows worker that misses its finish deadline or is superseded cannot perform later cleanup, so an unverified provisional remainder may remain visible rather than risking user text.
-- Android does not currently implement the Windows local `parakeet-local` preset audio runtime. Until a real mobile Parakeet runtime is wired, presets that depend on `parakeet-local` must be marked unsupported with an explicit provider/runtime placeholder instead of launching and failing at execution time.
+- Android has no on-device preset audio runtime. The catalog generator omits on-device audio models from the Android preset catalog, so no Android preset can select one and fail at execution time.

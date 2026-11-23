@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { Blob as NodeBlob } from "node:buffer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildCompositionAssetKey,
   idbCreateProjectBundle,
@@ -72,6 +72,46 @@ function readBlobText(blob: Blob): Promise<string> {
 }
 
 describe.sequential("project storage transactions", () => {
+  it("aborts a stale guarded update inside the storage transaction", async () => {
+    const id = "guarded-stale-project";
+    const original = project(id, composition([clip("root", "root")]));
+    await idbCreateProjectBundle(original);
+    let checks = 0;
+    const revision = {};
+    let currentRevision = revision;
+    const inFlight = idbUpdateProjectBundle(id, { name: "stale" }, () => {
+      checks += 1;
+      return currentRevision === revision;
+    });
+    currentRevision = {};
+    const update = await inFlight;
+    expect(checks).toBe(1);
+    expect(update).toBeUndefined();
+    expect((await idbGet(PROJECTS_STORE, id))?.name).toBe(id);
+  });
+
+  it("aborts a queued record write when its editor owner is invalidated", async () => {
+    const id = "guarded-owner-project";
+    await idbCreateProjectBundle(project(id, composition([clip("root", "root")])));
+    let invalidate: (() => void) | undefined;
+    const put = IDBObjectStore.prototype.put;
+    const spy = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (value, key) {
+      const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
+      if (this.name === PROJECTS_STORE) invalidate?.();
+      return request;
+    });
+    try {
+      const update = await idbUpdateProjectBundle(id, { name: "stale" }, () => true, (listener) => {
+        invalidate = listener;
+        return () => { invalidate = undefined; };
+      });
+      expect(update).toBeUndefined();
+      expect((await idbGet(PROJECTS_STORE, id))?.name).toBe(id);
+      expect(invalidate).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it("rolls back a root project record when a media write cannot be cloned", async () => {
     const id = "fault-create-project";
     const invalid = project(id, composition([clip("root", "root")]));

@@ -4,6 +4,71 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 #[test]
+fn finality_identity_and_retry_match_shared_contract() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/live-translate/translation-request-identity.json"
+    )))
+    .unwrap();
+    for case in fixture["finalityCases"].as_array().unwrap() {
+        let mut state = RealtimeState::new();
+        state.set_transcription_method(super::TranscriptionMethod::GeminiTranscribe);
+        state.set_transcript_segments(
+            case["initialCommitted"].as_str().unwrap(),
+            case["initialDraft"].as_str().unwrap(),
+        );
+        let request = state.get_translation_request().unwrap();
+        state.set_transcript_segments(
+            case["currentCommitted"].as_str().unwrap(),
+            case["currentDraft"].as_str().unwrap(),
+        );
+        assert_eq!(
+            state.apply_translation_result(&request, "final", "draft"),
+            case["accepted"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+
+        let mut retry = RealtimeState::new();
+        retry.set_transcription_method(super::TranscriptionMethod::GeminiTranscribe);
+        retry.set_transcript_segments(
+            case["initialCommitted"].as_str().unwrap(),
+            case["initialDraft"].as_str().unwrap(),
+        );
+        let first = retry.get_translation_request().unwrap();
+        assert!(retry.apply_translation_result(&first, "final", "draft"));
+        retry.set_transcript_segments(
+            case["currentCommitted"].as_str().unwrap(),
+            case["currentDraft"].as_str().unwrap(),
+        );
+        assert_eq!(
+            !retry.is_transcript_unchanged(),
+            case["retry"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn translation_revision_changes_on_freeze_and_committed_source_reset() {
+    let mut state = RealtimeState::new();
+    state.committed_translation = "First".into();
+    let initial = state.translation_revision;
+    state.freeze_current_transcript();
+    assert_ne!(state.translation_revision, initial);
+
+    state.transcription_method = super::TranscriptionMethod::GeminiTranscribe;
+    state.set_transcript_segments("Original source.", "");
+    state.last_committed_pos = "Original source.".len();
+    state.committed_translation = "First".into();
+    let previous = state.translation_revision;
+    state.set_transcript_segments("Replacement.", "");
+    assert_ne!(state.translation_revision, previous);
+    assert!(state.committed_translation.is_empty());
+}
+
+#[test]
 fn shared_fixtures_match_windows_realtime_state() {
     let fixtures: FixtureDocument = serde_json::from_str(
         &fs::read_to_string(concat!(
@@ -210,6 +275,37 @@ fn gemini_force_commit_timeout_matches_windows_thresholds() {
     assert!(state.should_force_commit_on_timeout());
 }
 
+#[test]
+fn transcript_correction_rolls_translation_back_to_the_multibyte_divergence() {
+    let mut state = RealtimeState::new();
+    state.set_transcription_method(super::TranscriptionMethod::GeminiLive);
+    state.set_transcript_segments("héllo wörld. next", "");
+    state.last_committed_pos = state.full_transcript.len();
+    state.set_transcript_segments("héllo wörld, next", "");
+    assert_eq!(state.last_committed_pos, "héllo wörld".len());
+}
+
+#[test]
+fn long_session_transcript_updates_stay_linear() {
+    // A recognizer publishes the whole session transcript several times a
+    // second while the shared state lock is held; each update must not scan
+    // the transcript once per character.
+    let committed = "word ".repeat(12_000);
+    let mut state = RealtimeState::new();
+    state.set_transcription_method(super::TranscriptionMethod::GeminiLive);
+    state.set_transcript_segments(&committed, "draft");
+    let started = Instant::now();
+    for step in 0..10 {
+        state.set_transcript_segments(&committed, &format!("draft {step}"));
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "ten updates of a 60k-char transcript took {:?}",
+        started.elapsed()
+    );
+    assert!(state.full_transcript.ends_with("draft 9"));
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FixtureDocument {
@@ -294,59 +390,4 @@ struct FixtureExpectedState {
 struct FixtureHistoryEntry {
     source: String,
     translation: String,
-}
-
-#[test]
-fn shared_fixtures_match_offline_asr_commit() {
-    use super::offline_asr_commit::{OfflineAsrCommitState, offline_asr_commit_step};
-
-    #[derive(Deserialize)]
-    struct Doc {
-        cases: Vec<Case>,
-    }
-    #[derive(Deserialize)]
-    struct Case {
-        name: String,
-        steps: Vec<Step>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Step {
-        text: String,
-        has_native_punctuation: bool,
-        now_ms: u64,
-        expect_committed_history: String,
-        expect_active_draft: String,
-    }
-
-    let doc: Doc = serde_json::from_str(
-        &fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/parity-fixtures/offline-asr-stream/cases.json"
-        ))
-        .expect("fixture file"),
-    )
-    .expect("fixture json");
-
-    for case in doc.cases {
-        let mut state = OfflineAsrCommitState::default();
-        for (i, step) in case.steps.into_iter().enumerate() {
-            let active = offline_asr_commit_step(
-                &mut state,
-                &step.text,
-                step.has_native_punctuation,
-                step.now_ms,
-            );
-            assert_eq!(
-                state.committed_history, step.expect_committed_history,
-                "case '{}' step {} history",
-                case.name, i
-            );
-            assert_eq!(
-                active, step.expect_active_draft,
-                "case '{}' step {} draft",
-                case.name, i
-            );
-        }
-    }
 }

@@ -105,6 +105,16 @@ pub(super) fn build_constant_tempo_retime(
     speed_points: &[SpeedPoint],
     fallback_duration: f64,
 ) -> Option<ConstantTempoRetime> {
+    // Mapping clipped envelope control points to output time changes the shape
+    // of a cosine ramp. The stretcher samples the original source-time curve.
+    if let Some(first) = source.volume_points.first()
+        && source
+            .volume_points
+            .iter()
+            .any(|point| (point.volume - first.volume).abs() > FLAT_SPEED_EPSILON)
+    {
+        return None;
+    }
     let project_start = source_project_start_time(source);
     let project_end = source_timeline_end_time(source, trim_segments, fallback_duration);
     if project_end <= project_start + TIME_EPSILON {
@@ -392,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn volume_envelope_moves_onto_the_output_timeline() {
+    fn varying_volume_envelope_uses_source_time_stretcher() {
         let mut source = test_source();
         source.volume_points = vec![
             DeviceAudioPoint {
@@ -413,16 +423,7 @@ mod tests {
             &trim(&[(0.0, 10.0)]),
             &speed_curve(&[(0.0, 2.0), (10.0, 2.0)]),
             10.0,
-        )
-        .unwrap();
-
-        let times: Vec<f64> = retime
-            .volume_points
-            .iter()
-            .map(|point| point.time)
-            .collect();
-        assert!((times[0] - 0.0).abs() < 1e-3);
-        assert!((times[1] - 2.5).abs() < 1e-3, "mid point at {}", times[1]);
-        assert!((times[2] - 5.0).abs() < 1e-3, "end point at {}", times[2]);
+        );
+        assert!(retime.is_none());
     }
 }

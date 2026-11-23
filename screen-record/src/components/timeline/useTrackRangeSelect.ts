@@ -3,6 +3,7 @@ import {
   normalizeSelectionRange,
   type TrackSelectionRange,
 } from '@/lib/timelineSegmentSelection';
+import { isDeleteKey, isEditableKeyTarget, isHoveredPointDeleteClaimed } from './timelineDeleteKeys';
 
 export interface RangeSelectState {
   startX: number;
@@ -134,8 +135,7 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
   // Keyboard handler for selected segment tracks.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (isEditableKeyTarget(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA' && isPointerInsideTrack.current && segments.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -143,10 +143,9 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
         setSelectedRange(null);
         return;
       }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && selectedIds.size > 0) {
+      if (isDeleteKey(e) && selectedIds.size > 0 && !isHoveredPointDeleteClaimed()) {
         e.preventDefault();
         e.stopPropagation();
-        e.stopImmediatePropagation();
         onDeleteSelected?.(Array.from(selectedIds));
         setSelectedIds(new Set());
         return;
@@ -159,6 +158,23 @@ export function useTrackRangeSelect<T extends { id: string; startTime: number; e
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [segments, selectedIds, onDeleteSelected]);
+
+  // Working in another timeline lane ends this lane's selection, so its stale
+  // selection cannot take a later Delete meant for that lane.
+  useEffect(() => {
+    if (selectedIds.size === 0) return undefined;
+    const handlePointerDown = (e: PointerEvent) => {
+      const track = trackRef.current;
+      const target = e.target instanceof Element ? e.target : null;
+      if (!track || !target || track.contains(target)) return;
+      const lanes = track.closest('.timeline-tracks');
+      if (!lanes?.contains(target)) return;
+      setSelectedIds(new Set());
+      setSelectedRange(null);
+    };
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [selectedIds]);
 
   const handleTrackPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const isCtrlRangeGesture = allowCtrlDragAnywhere && e.ctrlKey;

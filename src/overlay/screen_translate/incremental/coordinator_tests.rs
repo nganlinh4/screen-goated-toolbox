@@ -4,7 +4,12 @@ fn cells(count: usize, bytes: usize) -> Vec<DetectedTextRegion> {
     (0..count)
         .map(|id| DetectedTextRegion {
             id: id as u16,
-            bounds: [0, 0, 100, 100].into(),
+            bounds: crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [0, 0, 100, 100].into(),
+                1000,
+                1000,
+            )
+            .unwrap(),
             source_text: format!("{id}:{}", "x".repeat(bytes)),
             source_alternatives: vec![],
             recognition: Default::default(),
@@ -244,4 +249,40 @@ fn many_short_labels_do_not_create_count_based_requests() {
         c.take_ready(&cells, now).unwrap().candidates.len(),
         cells.len()
     );
+}
+
+#[test]
+fn dense_short_labels_respect_request_contract_without_losing_or_reordering_units() {
+    for count in [
+        MAX_CANDIDATES - 1,
+        MAX_CANDIDATES,
+        MAX_CANDIDATES + 1,
+        1_000,
+    ] {
+        let cells = cells(count, 4);
+        let now = Instant::now();
+        let mut coordinator = Coordinator::with_cost(&cells, Cost::default());
+        for cell in cells.iter().rev() {
+            coordinator.completed(cell.id, now);
+        }
+
+        let mut ids = Vec::new();
+        while !coordinator.done() {
+            let batch = coordinator.take_ready(&cells, now).unwrap();
+            assert!(!batch.candidates.is_empty());
+            assert!(batch.candidates.len() <= MAX_CANDIDATES);
+            // Exercise the actual prompt boundary for every emitted request.
+            assert!(
+                super::super::super::contract::prompt_with_instruction(
+                    "English",
+                    "Translate naturally.",
+                    &batch.candidates,
+                )
+                .is_ok()
+            );
+            ids.extend(batch.candidates.iter().map(|candidate| candidate.id));
+            coordinator.finished(batch.lane, now);
+        }
+        assert_eq!(ids, (0..count as u16).collect::<Vec<_>>());
+    }
 }

@@ -84,7 +84,7 @@ class DownloaderRuntimeDeliveryTest {
     }
 
     @Test
-    fun fullBaseHasNoDownloaderJavaApiOrMutableUpdater() {
+    fun fullBaseHasNoDownloaderJavaApiOrFloatingPayloadUrl() {
         val sourceRoot = repoFile(
             "mobile/androidApp/src/full/java/dev/screengoated/toolbox/mobile/downloader",
         )
@@ -99,7 +99,7 @@ class DownloaderRuntimeDeliveryTest {
         assertFalse(source.contains("import com.yausername"))
         assertFalse(source.contains("YoutubeDL"))
         assertFalse(source.contains("UpdateChannel"))
-        assertFalse(source.contains("releases/latest"))
+        assertFalse(source.contains("releases/latest/download/"))
         assertFalse(gradle.contains("\"fullRuntimeOnly\"(libs.youtubedl.android.library)"))
         assertFalse(gradle.contains("\"fullRuntimeOnly\"(libs.youtubedl.android.ffmpeg)"))
         assertFalse(gradle.contains("\"fullImplementation\"(libs.youtubedl.android.library)"))

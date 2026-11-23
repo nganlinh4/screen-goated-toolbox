@@ -40,6 +40,11 @@ pub struct Preset {
     #[serde(default)]
     pub block_connections: Vec<(usize, usize)>,
 
+    /// An empty explicit graph has no edges; older presets without this flag
+    /// retain the legacy linear interpretation of an empty connection list.
+    #[serde(default)]
+    pub graph_explicit: bool,
+
     // -------------------------------------------------------------------------
     // Input Behavior
     // -------------------------------------------------------------------------
@@ -70,7 +75,7 @@ pub struct Preset {
     #[serde(default)]
     pub auto_paste: bool,
 
-    /// Add newline before pasting
+    /// Append a newline to copied text.
     #[serde(default = "default_true")]
     pub auto_paste_newline: bool,
 
@@ -158,6 +163,7 @@ impl Default for Preset {
             name: "New Preset".to_string(),
             blocks: vec![ProcessingBlock::default()],
             block_connections: vec![],
+            graph_explicit: false,
             prompt_mode: "fixed".to_string(),
             preset_type: "image".to_string(),
             text_input_mode: "select".to_string(),
@@ -337,6 +343,35 @@ impl PresetBuilder {
 // ============================================================================
 
 impl Preset {
+    /// First processing node reachable from the execution root, if any.
+    #[cfg(not(feature = "recorder-worker"))]
+    pub fn first_reachable_processing_index(&self) -> Option<usize> {
+        let mut pending = vec![0];
+        let mut visited = vec![false; self.blocks.len()];
+        while let Some(index) = pending.pop() {
+            let Some(block) = self.blocks.get(index) else {
+                continue;
+            };
+            if std::mem::replace(&mut visited[index], true) {
+                continue;
+            }
+            if block.block_type != "input_adapter" {
+                return Some(index);
+            }
+            if self.block_connections.is_empty() && !self.graph_explicit {
+                pending.push(index + 1);
+            } else {
+                pending.extend(
+                    self.block_connections
+                        .iter()
+                        .rev()
+                        .filter_map(|&(from, to)| (from == index).then_some(to)),
+                );
+            }
+        }
+        None
+    }
+
     /// Check if this is a built-in preset (ID starts with "preset_")
     pub fn is_builtin(&self) -> bool {
         self.id.starts_with("preset_")

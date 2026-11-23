@@ -7,16 +7,14 @@
 //! and the mixer integrate the same curve with the same step, the audio lands where
 //! the video frames do.
 
-use std::collections::VecDeque;
-
 use super::super::super::mf_audio::MfAudioDecoder;
 use super::super::config::{DeviceAudioPoint, SpeedPoint, TrimSegment};
 use super::mix_buffer::FloatMixBuffer;
 use super::time_map::{
     OutputTimeMapper, SegmentWalker, get_audio_volume, implicit_edge_fade_multiplier,
-    source_project_start_time, source_timeline_end_time, volume_points_in_output_time,
+    source_project_start_time, source_timeline_end_time,
 };
-use super::wav_fast::{DecodedAudioChunk, read_wav_fast_chunks};
+use super::wav_fast::{DecodedAudioChunk, WavChunkStream, read_wav_fast_chunks};
 use super::wsola::Wsola;
 use super::{ExportAudioSource, MIX_OUTPUT_CHANNELS, MIX_OUTPUT_SAMPLE_RATE};
 
@@ -31,14 +29,14 @@ fn time_to_frame(time: f64) -> i64 {
 }
 
 enum ChunkReader {
-    Wav(VecDeque<DecodedAudioChunk>),
+    Wav(WavChunkStream),
     Mf(Box<MfAudioDecoder>),
 }
 
 impl ChunkReader {
     fn open(path: &str) -> Result<(Self, &'static str), String> {
-        if let Some(chunks) = read_wav_fast_chunks(path)? {
-            return Ok((ChunkReader::Wav(chunks), "wsola_wav"));
+        if let Some(stream) = read_wav_fast_chunks(path)? {
+            return Ok((ChunkReader::Wav(stream), "wsola_wav"));
         }
         let decoder = MfAudioDecoder::new_with_output_format(
             path,
@@ -53,16 +51,7 @@ impl ChunkReader {
     fn seek(&mut self, source_time_sec: f64) {
         let target = source_time_sec.max(0.0);
         match self {
-            ChunkReader::Wav(chunks) => {
-                while let Some(chunk) = chunks.front() {
-                    let chunk_end = chunk.decoded_time + frames_to_time(chunk.frames());
-                    if chunk_end <= target {
-                        chunks.pop_front();
-                    } else {
-                        break;
-                    }
-                }
-            }
+            ChunkReader::Wav(stream) => stream.seek(target),
             ChunkReader::Mf(decoder) => {
                 let _ = decoder.seek((target * 10_000_000.0) as i64);
             }
@@ -71,7 +60,7 @@ impl ChunkReader {
 
     fn next_chunk(&mut self) -> Result<Option<DecodedAudioChunk>, String> {
         match self {
-            ChunkReader::Wav(chunks) => Ok(chunks.pop_front()),
+            ChunkReader::Wav(stream) => stream.next_chunk(),
             ChunkReader::Mf(decoder) => {
                 let Some((pcm, ts_100ns)) = decoder.read_samples()? else {
                     return Ok(None);
@@ -85,7 +74,6 @@ impl ChunkReader {
                 Ok(Some(DecodedAudioChunk {
                     samples,
                     decoded_time: ts_100ns as f64 / 10_000_000.0,
-                    channels: decoder.channels() as usize,
                 }))
             }
         }
@@ -105,6 +93,7 @@ fn apply_output_envelope(
     channels: usize,
     points: &[DeviceAudioPoint],
     fade: Option<(&OutputFootprint, f64)>,
+    gain_walker: &mut SegmentWalker,
 ) {
     if samples.is_empty() || channels == 0 {
         return;
@@ -122,7 +111,16 @@ fn apply_output_envelope(
                 implicit_edge_fade_multiplier(time, footprint.start, footprint.end, fade_sec)
             })
             .unwrap_or(1.0);
-        let gain = (get_audio_volume(time, points) * edge) as f32;
+        // Gain points are expressed in source time. Mapping only their control
+        // points to output time warps the curve across cuts and speed ramps.
+        let volume = if shapes_volume {
+            let value = get_audio_volume(gain_walker.project_time(), points);
+            let _ = gain_walker.advance(1.0 / MIX_OUTPUT_SAMPLE_RATE as f64);
+            value
+        } else {
+            1.0
+        };
+        let gain = (volume * edge) as f32;
         if (gain - 1.0).abs() < 0.0001 {
             continue;
         }
@@ -210,6 +208,12 @@ fn mix_one_span(
         span.output_start,
         speed_points.to_vec(),
     );
+    let mut gain_walker = SegmentWalker::new(
+        span.project_start,
+        span.project_end,
+        span.output_start,
+        speed_points.to_vec(),
+    );
 
     let hop_frames = Wsola::output_hop_frames();
     let hop_seconds = frames_to_time(hop_frames);
@@ -247,6 +251,7 @@ fn mix_one_span(
             channels,
             volume_points,
             fade,
+            &mut gain_walker,
         );
         mixer.mix_f32_at_frame(base_frame + emitted, &hop_samples, channels)?;
         emitted += keep;
@@ -275,12 +280,8 @@ pub(super) fn mix_source_with_stretch(
         start: first.output_start,
         end: last.output_start + frames_to_time(last.output_frames),
     };
-    let volume_points = volume_points_in_output_time(
-        &source.volume_points,
-        trim_segments,
-        speed_points,
-        footprint.end,
-    );
+    let mut volume_points = source.volume_points.clone();
+    volume_points.sort_by(|a, b| a.time.total_cmp(&b.time));
 
     let (mut reader, path_kind) = ChunkReader::open(&source.path)?;
     let context = SpanMixContext {
@@ -299,6 +300,51 @@ pub(super) fn mix_source_with_stretch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trimmed_envelope_uses_source_time_through_speed_ramp() {
+        let trims = vec![TrimSegment {
+            start_time: 2.0,
+            end_time: 5.0,
+        }];
+        let points = vec![
+            DeviceAudioPoint {
+                time: 0.0,
+                volume: 0.0,
+            },
+            DeviceAudioPoint {
+                time: 10.0,
+                volume: 1.0,
+            },
+        ];
+        for speeds in [
+            vec![],
+            vec![
+                SpeedPoint {
+                    time: 2.0,
+                    speed: 1.0,
+                },
+                SpeedPoint {
+                    time: 5.0,
+                    speed: 3.0,
+                },
+            ],
+        ] {
+            let mut mapper = OutputTimeMapper::new(trims.clone(), speeds.clone());
+            let sample_at_four = (mapper.map_source_time(4.0).unwrap()
+                * MIX_OUTPUT_SAMPLE_RATE as f64)
+                .round() as usize;
+            let total = (mapper.map_source_time(5.0).unwrap() * MIX_OUTPUT_SAMPLE_RATE as f64)
+                .ceil() as usize;
+            let mut samples = vec![1.0f32; total];
+            let mut walker = SegmentWalker::new(2.0, 5.0, 0.0, speeds);
+            apply_output_envelope(&mut samples, 0, 1, &points, None, &mut walker);
+            let expected_start = (1.0 - (0.2 * std::f64::consts::PI).cos()) / 2.0;
+            let expected_four = (1.0 - (0.4 * std::f64::consts::PI).cos()) / 2.0;
+            assert!((f64::from(samples[0]) - expected_start).abs() < 0.001);
+            assert!((f64::from(samples[sample_at_four]) - expected_four).abs() < 0.002);
+        }
+    }
 
     fn source_at(offset: f64) -> ExportAudioSource {
         ExportAudioSource {

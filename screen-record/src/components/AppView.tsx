@@ -2,18 +2,22 @@ import { lazy, Suspense } from "react";
 import { Header } from "@/components/Header";
 import { SequencePillChain } from "@/components/SequencePillChain";
 import { DragDropOverlay } from "@/components/DragDropOverlay";
-import { EditorMain } from "@/components/EditorMain";
 import { ResizeBorders } from "@/components/layout/ResizeBorders";
 import type { AppViewProps } from "@/components/appViewProps";
 
 const EditorOverlays = lazy(() => import("@/components/EditorOverlays").then(
   (module) => ({ default: module.EditorOverlays }),
 ));
+const RecoveryNotices = lazy(() => import("@/components/RecoveryNotices"));
+const EditorMain = lazy(() => import("@/components/EditorMain").then(
+  (module) => ({ default: module.EditorMain }),
+));
 
 export type { AppViewProps };
 
 export function AppView(props: AppViewProps) {
   const {
+    onPopulateS2sSubtitles,
     activeClipId,
     activePanel,
     applyNarrationAudioSegments,
@@ -33,7 +37,9 @@ export function AppView(props: AppViewProps) {
     closeHotkeyDialog,
     commitBatch,
     composition,
+    getNarrationSourceSnapshot,
     currentProjectData,
+    currentProjectIdRef,
     currentRawMicAudioPath,
     currentRawVideoPath,
     currentRecordingMode,
@@ -83,7 +89,6 @@ export function AppView(props: AppViewProps) {
     handleSelectMonitorCapture,
     handleSelectSequenceClip,
     handleSelectWindowCapture,
-    handleSelectWindowForRecording,
     handleSelectedSubtitleIdsChange,
     handleSelectedTextIdsChange,
     handleSequenceModeChange,
@@ -171,7 +176,6 @@ export function AppView(props: AppViewProps) {
     setSegmentSilently,
     setSelectedRecordingMode,
     setShowRawVideoDialog,
-    setShowWindowSelect,
     setSubtitleGeminiPrompt,
     setSubtitleGroqVocabulary,
     setSubtitleLanguageHint,
@@ -183,7 +187,6 @@ export function AppView(props: AppViewProps) {
     settings,
     showHotkeyDialog,
     showRawVideoDialog,
-    showWindowSelect,
     spreadFromClipId,
     subtitleGeminiPrompt,
     subtitleGenerationIndicator,
@@ -194,16 +197,16 @@ export function AppView(props: AppViewProps) {
     subtitleSource,
     subtitleStatusMessage,
     tempCanvasRef,
-    throttledUpdateZoom,
+    updateZoom,
     thumbnails,
     timelineRef,
     updatePlaceholderProjectDuration,
     videoRef,
     webcamConfig,
     webcamVideoRef,
-    windows,
     zoomFactor,
   } = props;
+
   const hasEditorOverlay = projects.showProjectsDialog
     || isProjectInteractionShieldVisible
     || isCropping
@@ -214,12 +217,12 @@ export function AppView(props: AppViewProps) {
     || audioDownloadHook.isProcessing
     || audioDownloadHook.showDialog
     || audioDownloadHook.showResultDialog
-    || showWindowSelect
     || showRawVideoDialog
     || showHotkeyDialog;
 
   return (
     <div className="app-container min-h-screen bg-[var(--surface)]">
+      <Suspense fallback={null}><RecoveryNotices ownerClipId={props.loadedClipId} /></Suspense>
       <DragDropOverlay
         disabled={isRecording || isImporting || isImportingAudio || isImportingSubtitle}
         onDropVideo={importVideo}
@@ -275,7 +278,10 @@ export function AppView(props: AppViewProps) {
         }
       />
 
-      <EditorMain
+      <Suspense fallback={null}><EditorMain
+        getNarrationSourceSnapshot={getNarrationSourceSnapshot}
+        renderedProjectEpoch={props.renderedProjectEpoch}
+        loadedClipId={props.loadedClipId}
         error={error}
         isOverlayMode={isOverlayMode}
         previewContainerRef={previewContainerRef}
@@ -341,6 +347,7 @@ export function AppView(props: AppViewProps) {
         segment={segment}
         setSegment={setSegment}
         setSegmentSilently={setSegmentSilently}
+        onPopulateS2sSubtitles={onPopulateS2sSubtitles}
         composition={composition}
         setComposition={setComposition}
         handleToggleKeystrokeMode={handleToggleKeystrokeMode}
@@ -356,7 +363,7 @@ export function AppView(props: AppViewProps) {
         zoomFactor={zoomFactor}
         setZoomFactor={setZoomFactor}
         handleDeleteKeyframe={handleDeleteKeyframe}
-        throttledUpdateZoom={throttledUpdateZoom}
+        updateZoom={updateZoom}
         webcamConfig={webcamConfig}
         setWebcamConfig={setWebcamConfig}
         recentUploads={recentUploads}
@@ -392,6 +399,7 @@ export function AppView(props: AppViewProps) {
         onSelectedTextIdsChange={handleSelectedTextIdsChange}
         onSelectedSubtitleIdsChange={handleSelectedSubtitleIdsChange}
         projectResetKey={currentProjectData?.id ?? null}
+        currentProjectIdRef={currentProjectIdRef}
         currentRawVideoPath={currentRawVideoPath}
         currentRawMicAudioPath={currentRawMicAudioPath}
         currentProjectName={currentProjectData?.name ?? null}
@@ -423,7 +431,7 @@ export function AppView(props: AppViewProps) {
         narrationTrackVolumePoints={composition?.narrationTrackVolumePoints}
         onUpdateNarrationTrackVolumePoints={handleUpdateNarrationTrackVolumePoints}
         onAudioTrackDownload={audioDownloadHook.openAudioDownloadDialog}
-      />
+      /></Suspense>
 
       {hasEditorOverlay && <Suspense fallback={null}><EditorOverlays
         showProjectsDialog={projects.showProjectsDialog}
@@ -454,10 +462,6 @@ export function AppView(props: AppViewProps) {
         exportHook={exportHook}
         audioDownloadHook={audioDownloadHook}
         videoRef={videoRef}
-        showWindowSelect={showWindowSelect}
-        onCloseWindowSelect={() => setShowWindowSelect(false)}
-        windows={windows}
-        onSelectWindowForRecording={handleSelectWindowForRecording}
         isVideoReady={isVideoReady}
         showRawVideoDialog={showRawVideoDialog}
         onCloseRawVideoDialog={() => setShowRawVideoDialog(false)}

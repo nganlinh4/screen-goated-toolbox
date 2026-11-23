@@ -1,5 +1,6 @@
 import type { VideoSegment } from '@/types/video';
 import { getVisibleSubtitleSegments } from '@/lib/subtitleTracks';
+import { getActiveTimedSegments } from '@/lib/timedSegmentIndex';
 import { getTextHitArea } from './overlayTextRenderer';
 
 export interface TextDragState {
@@ -47,16 +48,14 @@ export function handleMouseDown(
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * (canvas.width / rect.width);
   const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-  // Subtitles are already time-filtered by getVisibleSubtitleSegments.
-  // Text segments must be filtered too, otherwise hit-testing iterates every
-  // text in the project and the cursor can land on a hidden default-centered item.
-  const visibleTexts = currentTime !== undefined
-    ? (segment.textSegments ?? []).filter(
-        (text) => currentTime >= text.startTime && currentTime <= text.endTime,
-      )
-    : (segment.textSegments ?? []);
+  // Only overlays on screen are hittable, filtered exactly as drawFrame draws
+  // them. getVisibleSubtitleSegments is the active track, not the active time,
+  // so unfiltered hit-testing grabbed hidden captions at the default position.
+  const onScreen = <T extends { startTime: number; endTime: number }>(items: readonly T[]) =>
+    currentTime !== undefined ? getActiveTimedSegments(items, currentTime) : [...items];
+  const visibleTexts = onScreen(segment.textSegments ?? []);
   const overlays = [
-    ...getVisibleSubtitleSegments(segment).map((subtitle) => ({
+    ...onScreen(getVisibleSubtitleSegments(segment)).map((subtitle) => ({
       kind: 'subtitle' as const,
       segment: subtitle,
     })),

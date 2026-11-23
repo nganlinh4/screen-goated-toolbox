@@ -30,6 +30,7 @@ function handleResultDrag(e, hwnd, groupActions) {
     if (!gestureId) return;
     activeResultDragPreview = {
         gestureId: gestureId,
+        topologyEpoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
         hwnd: String(hwnd), targets: targets, pointerId: e.pointerId,
         startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, frame: 0,
         cardOrigins: cardOrigins, nativeTargets: nativeTargets
@@ -43,6 +44,7 @@ function handleResultDrag(e, hwnd, groupActions) {
 
     window.ipc.postMessage(JSON.stringify({
         action: action,
+        topology_epoch: activeResultDragPreview.topologyEpoch,
         hwnd: hwnd,
         gesture_id: gestureId,
         pointer_type: e.pointerType,
@@ -75,6 +77,7 @@ function renderResultDragPreview() {
         const scale = window.devicePixelRatio || 1;
         window.ipc.postMessage(JSON.stringify({
             action: 'result_drag_preview', hwnd: activeResultDragPreview.hwnd,
+            topology_epoch: activeResultDragPreview.topologyEpoch,
             gesture_id: activeResultDragPreview.gestureId,
             dx: Math.round(dx * scale), dy: Math.round(dy * scale)
         }));
@@ -100,6 +103,7 @@ function finishLocalResultDrag(event) {
     const scale = window.devicePixelRatio || 1;
     window.ipc.postMessage(JSON.stringify({
         action: 'result_drag_finish', hwnd: drag.hwnd,
+        topology_epoch: drag.topologyEpoch,
         gesture_id: drag.gestureId,
         cancelled: !event || event.type !== 'pointerup',
         dx: Math.round(drag.dx * scale), dy: Math.round(drag.dy * scale)
@@ -128,6 +132,13 @@ window.shouldPreserveResultDragGeometry = function(id) {
 };
 window.releaseResultDragGeometryLock = function() {
     settlingResultDragTargets.clear();
+};
+window.resetResultDragTopology = function() {
+    if (activeResultDragPreview?.frame) cancelAnimationFrame(activeResultDragPreview.frame);
+    activeResultDragPreview = null;
+    settlingResultDragTargets.clear();
+    window.clearResultDragControlPreview();
+    setResultDraggingCursor(false);
 };
 window.settleResultDragGesture = function(gestureId) {
     const drag = activeResultDragPreview;

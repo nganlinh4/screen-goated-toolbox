@@ -39,7 +39,7 @@ fn bind_surface(
         || foreground.hwnd == 0
         || foreground.pid == 0
         || foreground.generation == 0
-        || !super::controller_io::title_matches_window(extension.title, foreground.title)
+        || !title_corroborates(extension.title, foreground.title)
     {
         return None;
     }
@@ -49,6 +49,33 @@ fn bind_surface(
         pid: foreground.pid,
         generation: foreground.generation,
     })
+}
+
+/// UTF-16 units the native foreground read can return (a 256-unit buffer
+/// including its terminator); a title of this length may be truncated.
+const NATIVE_TITLE_UNITS: usize = 255;
+
+/// The window title is corroboration, not ownership evidence: the focused-window
+/// proof and the stable HWND/PID/generation tuple carry ownership. Browsers append
+/// their own decoration after the active tab's title (product, profile, counts of
+/// other pages), so any continuation that starts at a word boundary corroborates.
+/// A native title at the read limit may instead be a truncated prefix of the tab's.
+fn title_corroborates(tab_title: &str, window_title: &str) -> bool {
+    let tab = tab_title.trim();
+    let window = window_title.trim();
+    if tab.is_empty() || window.is_empty() {
+        return false;
+    }
+    if let Some(rest) = window.strip_prefix(tab) {
+        return rest
+            .chars()
+            .next()
+            .is_none_or(|next| !next.is_alphanumeric());
+    }
+    let truncated = window_title.encode_utf16().count() >= NATIVE_TITLE_UNITS;
+    // A truncated read can split a surrogate pair into a replacement character.
+    let window = window.trim_end_matches(char::REPLACEMENT_CHARACTER);
+    truncated && !window.is_empty() && tab.starts_with(window)
 }
 
 fn required_u64(value: &Value, field: &str) -> Result<u64> {
@@ -207,5 +234,49 @@ mod tests {
         let mut other = foreground(41, "SharedWidgetClass");
         other.title = "unrelated document - Desktop Shell";
         assert_eq!(bind_surface(&extension(true), &other), None);
+    }
+
+    #[test]
+    fn browser_decoration_after_the_tab_title_still_binds() {
+        for title in [
+            "active document",
+            "active document - Browser Shell",
+            "active document and 3 more pages - Work - Browser Shell",
+            "active document: Browser Shell",
+        ] {
+            let mut decorated = foreground(41, "SharedWidgetClass");
+            decorated.title = title;
+            assert!(
+                bind_surface(&extension(true), &decorated).is_some(),
+                "{title}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_longer_word_sharing_the_tab_title_prefix_does_not_corroborate() {
+        assert!(!title_corroborates(
+            "active doc",
+            "active documents - Shell"
+        ));
+        assert!(!title_corroborates("", "anything"));
+        assert!(!title_corroborates("active document", ""));
+    }
+
+    #[test]
+    fn a_window_title_truncated_at_the_native_read_limit_still_binds() {
+        let tab_title = format!("{}{}", "a".repeat(250), "b".repeat(40));
+        let native: String = tab_title.chars().take(NATIVE_TITLE_UNITS).collect();
+        assert!(title_corroborates(&tab_title, &native));
+        let emoji_tab = format!("{}\u{1F600}", "a".repeat(NATIVE_TITLE_UNITS - 1));
+        let split_read = format!("{}\u{FFFD}", "a".repeat(NATIVE_TITLE_UNITS - 1));
+        assert!(title_corroborates(&emoji_tab, &split_read));
+        let short: String = tab_title.chars().take(NATIVE_TITLE_UNITS - 1).collect();
+        assert!(
+            !title_corroborates(&tab_title, &short),
+            "an untruncated window title must contain the whole tab title"
+        );
+        let mismatch = format!("z{}", &native[1..]);
+        assert!(!title_corroborates(&tab_title, &mismatch));
     }
 }

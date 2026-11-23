@@ -1,5 +1,17 @@
+function updateCardMonitorScale(entry) {
+  if (!entry.geometry) return;
+  const scale = window.devicePixelRatio || 1, rect = entry.geometry;
+  const monitorScale = window.__SGT_MONITOR_SCALE_FOR_RECT__?.({x: rect.x / scale, y: rect.y / scale,
+    w: rect.width / scale, h: rect.height / scale}) || 1;
+  entry.card.style.setProperty('--sgt-monitor-scale', String(monitorScale));
+}
+window.__SGT_REFRESH_CARD_DPI__ = function() {
+  for (const entry of cards.values()) updateCardMonitorScale(entry);
+};
+
 function applyGeometry(entry, model) {
   entry.geometry = { ...model.rect };
+  updateCardMonitorScale(entry);
   const preservePosition = window.shouldPreserveResultDragGeometry?.(entry.card.dataset.id) === true;
   const scale = window.devicePixelRatio || 1; entry.card.style.setProperty('--sgt-box-radius', (__SGT_BOX_RADIUS_PX__ / scale) + 'px');
   const width = model.rect.width / scale;
@@ -41,7 +53,7 @@ window.__SGT_VERIFY_SCENE_GEOMETRY__ = function() {
 };
 
 function activateCard(entry, becameVisible) {
-  if (!entry.visible || entry.navigationDepth !== 0) return;
+  if (!entry.visible) return;
   if (entry.mode === 'direct' && entry.pendingContent) {
     // Terminal content supersedes the streaming batch; do not wait behind its frame.
     if (entry.pendingContent.type === 'finalize' && !entry.sourceReplacement) {
@@ -53,7 +65,7 @@ function activateCard(entry, becameVisible) {
     if (!entry.contentFrame) entry.contentFrame = requestAnimationFrame(function() {
       entry.contentFrame = null;
       if (cards.get(entry.card.dataset.id) !== entry) return;
-      if (entry.navigationDepth === 0) flushPendingContent(entry);
+      flushPendingContent(entry);
     });
     return;
   }

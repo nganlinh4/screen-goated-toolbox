@@ -85,8 +85,7 @@ pub(super) fn nvidia_vision_payload(
                     }
                 });
             }
-            crate::model_config::StructuredOutputPolicy::Unsupported
-            | crate::model_config::StructuredOutputPolicy::PromptOnly => {}
+            crate::model_config::StructuredOutputPolicy::Unsupported => {}
         }
     }
     crate::api::apply_ordinary_openai_reasoning_policy(&mut payload, "nvidia", model);
@@ -129,8 +128,7 @@ pub(super) fn openrouter_vision_payload(
                     }
                 });
             }
-            crate::model_config::StructuredOutputPolicy::Unsupported
-            | crate::model_config::StructuredOutputPolicy::PromptOnly => {}
+            crate::model_config::StructuredOutputPolicy::Unsupported => {}
         }
     }
     crate::api::apply_ordinary_openrouter_reasoning_policy(&mut payload, model);

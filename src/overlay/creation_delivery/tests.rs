@@ -1,16 +1,73 @@
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
+use crate::overlay::store_support::MAX_IDENTIFIER_BYTES;
+
+#[cfg(windows)]
+#[test]
+fn pending_primary_and_companion_paths_reject_missing_unicode_aliases() {
+    let root = root("case-reservations");
+    std::fs::create_dir(&root).unwrap();
+    let path = |name: &str| root.join(name).to_string_lossy().to_string();
+    let saved = DeliveryRecord {
+        product: "3d".to_string(),
+        job_id: "job".to_string(),
+        dispatch_id: "dispatch".to_string(),
+        request_fingerprint: "a".repeat(64),
+        source_path: String::new(),
+        output_name: "RÉSUMÉ.glb".to_string(),
+        staging_path: path("stage.glb"),
+        output_path: path("RÉSUMÉ.glb"),
+        publication_path: path("receipt"),
+        publication_claim: "b".repeat(64),
+        publication_file_identity: None,
+        metadata: Value::Null,
+        artifact_size_bytes: 1,
+        artifact_sha256: "c".repeat(64),
+        stage: DeliveryStage::Validated,
+        companion: Some(companion::CompanionRecord {
+            output_name: "résumé.fbx".to_string(),
+            staging_path: path("stage.fbx"),
+            output_path: path("résumé.fbx"),
+            artifact_size_bytes: 1,
+            artifact_sha256: "d".repeat(64),
+            file_identity: None,
+        }),
+    };
+    let store = DeliveryStore {
+        version: VERSION,
+        entries: vec![saved],
+        cancellations: Vec::new(),
+    };
+    let mut proposed = PublishedDelivery {
+        product: "3d",
+        job_id: "other".to_string(),
+        dispatch_id: "other-dispatch".to_string(),
+        request_fingerprint: "e".repeat(64),
+        source_path: String::new(),
+        output_name: "résumé.glb".to_string(),
+        staging_path: path("other-stage.glb"),
+        output_path: path("résumé.glb"),
+        companion: None,
+        metadata: Value::Null,
+    };
+    assert!(outputs_conflict(&store, &proposed).unwrap());
+    proposed.output_path = path("other.glb");
+    proposed.companion = Some(PublishedCompanion {
+        output_name: "RÉSUMÉ.FBX".to_string(),
+        staging_path: path("other-stage.fbx"),
+        output_path: path("RÉSUMÉ.FBX"),
+    });
+    assert!(outputs_conflict(&store, &proposed).unwrap());
+    proposed.companion.as_mut().unwrap().output_path = path("other.fbx");
+    assert!(!outputs_conflict(&store, &proposed).unwrap());
+    std::fs::remove_dir(root).unwrap();
+}
 
 fn root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "sgt-delivery-{label}-{}-{}",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        "{}-{label}",
+        crate::overlay::creation_identity::random_id("sgt-delivery-").unwrap()
     ))
 }
 
@@ -22,11 +79,8 @@ struct Fixture {
 impl Fixture {
     fn new(label: &str) -> Self {
         let root = root(label);
-        std::fs::create_dir_all(&root).unwrap();
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        std::fs::create_dir(&root).unwrap();
+        let nonce = crate::overlay::creation_identity::random_id("delivery_").unwrap();
         let dispatch_id = format!("image_dispatch_{nonce}");
         let output_name = format!("result-{dispatch_id}.png");
         let staging =
@@ -68,7 +122,7 @@ impl Fixture {
     fn commit_receipt(&mut self) {
         let reservation = publication::create_receipt(&self.record).unwrap();
         self.record.publication_file_identity = Some(reservation.identity().to_string());
-        reservation.commit().unwrap();
+        drop(reservation);
     }
 
     fn prepare(&mut self) {
@@ -100,7 +154,7 @@ fn receipt_created_before_identity_save_is_recovered_by_its_durable_claim() {
     drop(reservation);
     let recovered = publication::create_receipt(&fixture.record).unwrap();
     assert_eq!(recovered.identity(), identity);
-    recovered.commit().unwrap();
+    drop(recovered);
 }
 
 #[test]
@@ -251,8 +305,8 @@ fn one_cancellation_record_fits_the_reserved_serialized_budget() {
     let now = now_ms();
     let cancellation = CancellationRecord {
         product: "image".to_string(),
-        job_id: "j".repeat(MAX_ID_BYTES),
-        dispatch_id: "d".repeat(MAX_ID_BYTES),
+        job_id: "j".repeat(MAX_IDENTIFIER_BYTES),
+        dispatch_id: "d".repeat(MAX_IDENTIFIER_BYTES),
         request_fingerprint: "a".repeat(64),
         output_name: format!("{}.png", "o".repeat(240)),
         created_at_ms: now,
@@ -265,7 +319,32 @@ fn one_cancellation_record_fits_the_reserved_serialized_budget() {
 }
 
 #[test]
+fn cancellation_ids_follow_the_same_limit_as_every_creation_store() {
+    let cancellation = |dispatch_id: String| CancelledDelivery {
+        product: "image",
+        job_id: "job".to_string(),
+        dispatch_id,
+        request_fingerprint: "a".repeat(64),
+        output_name: "result.png".to_string(),
+    };
+    let longest = "d".repeat(MAX_IDENTIFIER_BYTES);
+    assert!(
+        crate::overlay::creation_output::assigned_name("in.png", &longest, None, "png").is_ok()
+    );
+    assert!(input::validate_cancellation(&cancellation(longest)).is_ok());
+    // The output store rejects this id, so delivery must not accept it either.
+    let too_long = "d".repeat(MAX_IDENTIFIER_BYTES + 1);
+    assert!(
+        crate::overlay::creation_output::assigned_name("in.png", &too_long, None, "png").is_err()
+    );
+    assert!(input::validate_cancellation(&cancellation(too_long)).is_err());
+}
+
+#[test]
 fn cooldown_requests_start_with_a_delay_instead_of_losing_retry_ownership() {
     assert_eq!(retry_start_delay_ms(10_000, 35_000), 25_000);
     assert_eq!(retry_start_delay_ms(35_000, 10_000), 0);
 }
+
+#[path = "tests/destination_tests.rs"]
+mod destination_tests;

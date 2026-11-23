@@ -58,6 +58,38 @@
       "expected_en": "Invalid OpenRouter API key!"
     },
     {
+      "name": "credential_provider_comes_from_marker_not_diagnostic_text",
+      "raw_error": "NO_API_KEY:gemini while contacting openrouter",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "Gemini",
+      "expected_en": "You haven't entered a Gemini API key!"
+    },
+    {
+      "name": "unknown_provider_identity_is_preserved",
+      "raw_error": "INVALID_API_KEY:future-provider while contacting groq",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "future-provider",
+      "expected_en": "Invalid future-provider API key!"
+    },
+    {
+      "name": "missing_key_without_provider",
+      "raw_error": "NO_API_KEY",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "API",
+      "expected_en": "You haven't entered an API key!"
+    },
+    {
+      "name": "invalid_key_without_provider",
+      "raw_error": "INVALID_API_KEY",
+      "surface": "preset_result_overlay",
+      "expected_notice": true,
+      "expected_provider": "API",
+      "expected_en": "Invalid API key!"
+    },
+    {
       "name": "invalid_nvidia_key",
       "raw_error": "INVALID_API_KEY:nvidia",
       "surface": "preset_result_overlay",

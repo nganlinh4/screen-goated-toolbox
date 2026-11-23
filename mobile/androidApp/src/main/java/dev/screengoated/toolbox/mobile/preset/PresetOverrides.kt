@@ -22,6 +22,7 @@ data class PresetOverride(
     val presetType: PresetType? = null,
     val blocks: List<ProcessingBlock>? = null,
     val blockConnections: List<Pair<Int, Int>>? = null,
+    val graphExplicit: Boolean? = null,
     val promptMode: String? = null,
     val textInputMode: String? = null,
     val audioSource: String? = null,
@@ -46,6 +47,7 @@ data class PresetOverride(
             presetType == null &&
             blocks == null &&
             blockConnections == null &&
+            graphExplicit == null &&
             promptMode == null &&
             textInputMode == null &&
             audioSource == null &&
@@ -73,6 +75,7 @@ fun Preset.applyOverride(override: PresetOverride): Preset {
         presetType = override.presetType ?: presetType,
         blocks = override.blocks ?: blocks,
         blockConnections = override.blockConnections ?: blockConnections,
+        graphExplicit = override.graphExplicit ?: graphExplicit,
         promptMode = override.promptMode ?: promptMode,
         textInputMode = override.textInputMode ?: textInputMode,
         audioSource = override.audioSource ?: audioSource,
@@ -95,6 +98,7 @@ fun Preset.toFullOverride(): PresetOverride {
     return PresetOverride(
         nameEn = nameEn, nameVi = nameVi, nameKo = nameKo,
         presetType = presetType, blocks = blocks, blockConnections = blockConnections,
+        graphExplicit = graphExplicit,
         promptMode = promptMode, textInputMode = textInputMode,
         audioSource = audioSource, videoCaptureMethod = videoCaptureMethod,
         autoPaste = autoPaste, autoPasteNewline = autoPasteNewline,
@@ -114,6 +118,7 @@ fun Preset.toOverrideComparedTo(canonical: Preset): PresetOverride {
         presetType = presetType.takeIf { it != canonical.presetType },
         blocks = blocks.takeIf { it != canonical.blocks },
         blockConnections = blockConnections.takeIf { it != canonical.blockConnections },
+        graphExplicit = graphExplicit.takeIf { it != canonical.graphExplicit },
         promptMode = promptMode.takeIf { it != canonical.promptMode },
         textInputMode = textInputMode.takeIf { it != canonical.textInputMode },
         audioSource = audioSource.takeIf { it != canonical.audioSource },

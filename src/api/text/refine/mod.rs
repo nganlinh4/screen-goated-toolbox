@@ -30,10 +30,12 @@ struct RefineCatalogState {
     custom_models: Vec<CustomModelDefinition>,
     saved_openrouter_api_key: String,
     saved_nvidia_api_key: String,
+    ollama_base_url: String,
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
     use_nvidia: bool,
+    use_ollama: bool,
 }
 
 impl Default for RefineCatalogState {
@@ -46,10 +48,12 @@ impl Default for RefineCatalogState {
             custom_models: Vec::new(),
             saved_openrouter_api_key: String::new(),
             saved_nvidia_api_key: String::new(),
+            ollama_base_url: "http://localhost:11434".to_string(),
             use_groq: crate::model_config::DEFAULT_USE_GROQ,
             use_gemini: crate::model_config::DEFAULT_USE_GEMINI,
             use_openrouter: crate::model_config::DEFAULT_USE_OPENROUTER,
             use_nvidia: crate::model_config::DEFAULT_USE_NVIDIA,
+            use_ollama: crate::model_config::DEFAULT_USE_OLLAMA,
         }
     }
 }
@@ -65,10 +69,12 @@ impl RefineCatalogState {
                 custom_models: app.config.custom_models.clone(),
                 saved_openrouter_api_key: app.config.openrouter_api_key.clone(),
                 saved_nvidia_api_key: app.config.nvidia_api_key.clone(),
+                ollama_base_url: app.config.ollama_base_url.clone(),
                 use_groq: app.config.use_groq,
                 use_gemini: app.config.use_gemini,
                 use_openrouter: app.config.use_openrouter,
                 use_nvidia: app.config.use_nvidia,
+                use_ollama: app.config.use_ollama,
             })
             .unwrap_or_default()
     }
@@ -99,6 +105,17 @@ impl RefineCatalogState {
             .map(|model| (model.id, model.provider))
     }
 
+    fn provider_enabled(&self, provider: &str) -> bool {
+        match Provider::from_wire(provider) {
+            Some(Provider::Google | Provider::GeminiLive) => self.use_gemini,
+            Some(Provider::Groq) => self.use_groq,
+            Some(Provider::OpenRouter) => self.use_openrouter,
+            Some(Provider::Nvidia) => self.use_nvidia,
+            Some(Provider::Ollama) => self.use_ollama,
+            Some(Provider::Taalas | Provider::GoogleGtx | Provider::Qrserver) | None => true,
+        }
+    }
+
     fn provider_is_available(
         &self,
         model: &ModelConfig,
@@ -117,6 +134,7 @@ impl RefineCatalogState {
             Some(Provider::Nvidia) => self.use_nvidia && !nvidia_api_key.trim().is_empty(),
             Some(Provider::Groq) => self.use_groq && !groq_api_key.trim().is_empty(),
             Some(Provider::Taalas) => true,
+            Some(Provider::Ollama) => self.use_ollama,
             _ => false,
         }
     }
@@ -140,7 +158,18 @@ where
     result.map(|output| normalizer.finish(output))
 }
 
-fn refine_text_streaming_inner<F>(request: RefineTextRequest<'_>, mut on_chunk: F) -> Result<String>
+fn refine_text_streaming_inner<F>(request: RefineTextRequest<'_>, on_chunk: F) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    refine_text_with_catalog(request, &RefineCatalogState::load(), on_chunk)
+}
+
+fn refine_text_with_catalog<F>(
+    request: RefineTextRequest<'_>,
+    catalog_state: &RefineCatalogState,
+    mut on_chunk: F,
+) -> Result<String>
 where
     F: FnMut(&str),
 {
@@ -158,7 +187,16 @@ where
         on_model_selected,
     } = request;
 
-    let catalog_state = RefineCatalogState::load();
+    if !original_model_id.trim().is_empty()
+        && crate::model_config::get_model_by_id_with_custom(
+            original_model_id,
+            &catalog_state.custom_models,
+        )
+        .is_none()
+    {
+        anyhow::bail!("MODEL_UNAVAILABLE:{original_model_id}");
+    }
+
     let nvidia_api_key = crate::api::provider_credentials::resolve(
         "NVIDIA_API_KEY",
         &catalog_state.saved_nvidia_api_key,
@@ -173,12 +211,13 @@ where
         previous_text, user_prompt
     );
 
+    let source_non_llm = original_model_is_non_llm(original_model_id, original_provider);
     let (mut target_id_or_name, mut target_provider) = match context {
-        RefineContext::Image(_) => (original_model_id.to_string(), original_provider.to_string()),
+        RefineContext::Image(_) if !source_non_llm => {
+            (original_model_id.to_string(), original_provider.to_string())
+        }
         _ => {
-            if !original_model_id.trim().is_empty()
-                && original_model_id != crate::model_config::DEFAULT_IMAGE_MODEL_ID
-            {
+            if original_model_can_refine_text(original_model_id, original_provider) {
                 (original_model_id.to_string(), original_provider.to_string())
             } else if let Some(model) = catalog_state.preferred_text_model(
                 groq_api_key,
@@ -203,6 +242,9 @@ where
     }
 
     on_model_selected(&target_model_id, &target_id_or_name, &target_provider);
+    if !catalog_state.provider_enabled(&target_provider) {
+        anyhow::bail!("PROVIDER_DISABLED:{target_provider}");
+    }
 
     let mut exec_text_only = |p_model: String, p_provider: String| -> Result<String> {
         refine_text_only(RefineTextOnlyRequest {
@@ -210,6 +252,7 @@ where
             gemini_api_key,
             openrouter_api_key: &openrouter_api_key,
             nvidia_api_key: &nvidia_api_key,
+            ollama_base_url: &catalog_state.ollama_base_url,
             final_prompt: &final_prompt,
             model: p_model,
             provider: p_provider,
@@ -221,6 +264,9 @@ where
     };
 
     match context {
+        RefineContext::Image(_) if source_non_llm => {
+            exec_text_only(target_id_or_name, target_provider)
+        }
         RefineContext::Image(img_bytes) => {
             if Provider::from_wire(&target_provider) == Some(Provider::Google) {
                 if gemini_api_key.trim().is_empty() {
@@ -244,7 +290,7 @@ where
                     on_chunk,
                 )
             } else if Provider::from_wire(&target_provider) == Some(Provider::GeminiLive) {
-                let mime = "image/jpeg".to_string();
+                let mime = original_image_mime_type(&img_bytes)?.to_string();
                 crate::api::gemini_live::gemini_live_generate(
                     crate::api::gemini_live::GeminiLiveGenerateRequest {
                         api_key: gemini_api_key.to_string(),
@@ -285,12 +331,31 @@ where
     }
 }
 
+fn original_model_can_refine_text(model_id: &str, provider: &str) -> bool {
+    !model_id.trim().is_empty()
+        && model_id != crate::model_config::DEFAULT_IMAGE_MODEL_ID
+        && !original_model_is_non_llm(model_id, provider)
+}
+
+fn original_model_is_non_llm(model_id: &str, provider: &str) -> bool {
+    crate::model_config::model_is_non_llm(model_id)
+        || matches!(
+            Provider::from_wire(provider),
+            Some(Provider::GoogleGtx | Provider::Qrserver)
+        )
+}
+
+fn original_image_mime_type(bytes: &[u8]) -> Result<&'static str> {
+    Ok(image::guess_format(bytes)?.to_mime_type())
+}
+
 // --- TEXT-ONLY REFINEMENT ---
 struct RefineTextOnlyRequest<'a, F> {
     groq_api_key: &'a str,
     gemini_api_key: &'a str,
     openrouter_api_key: &'a str,
     nvidia_api_key: &'a str,
+    ollama_base_url: &'a str,
     final_prompt: &'a str,
     model: String,
     provider: String,
@@ -309,6 +374,7 @@ where
         gemini_api_key,
         openrouter_api_key,
         nvidia_api_key,
+        ollama_base_url,
         final_prompt,
         model,
         provider,
@@ -366,7 +432,26 @@ where
             cancel_token,
             on_chunk,
         )
-    } else {
+    } else if Provider::from_wire(&provider) == Some(Provider::Ollama) {
+        if cancel_token
+            .as_ref()
+            .is_some_and(|token| token.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            anyhow::bail!("Refinement cancelled");
+        }
+        crate::api::ollama::ollama_generate_text_in_chain(
+            crate::api::ollama::OllamaChainTextRequest {
+                base_url: ollama_base_url,
+                model: &model,
+                prompt: final_prompt,
+                streaming_enabled,
+                ui_language,
+                cancel_token,
+                request_timeout: None,
+            },
+            on_chunk,
+        )
+    } else if Provider::from_wire(&provider) == Some(Provider::Groq) {
         providers::refine_groq(
             groq_api_key,
             final_prompt,
@@ -376,64 +461,10 @@ where
             cancel_token,
             on_chunk,
         )
+    } else {
+        anyhow::bail!("Unsupported refinement provider: {provider}")
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::RefineCatalogState;
-
-    #[test]
-    fn refinement_reports_resolved_identity_before_provider_dispatch() {
-        let id = crate::model_config::DEFAULT_IMAGE_MODEL_ID;
-        let model = crate::model_config::get_model_by_id_with_custom(id, &[]).unwrap();
-        let mut selected = None;
-        let result = super::refine_text_streaming(
-            super::RefineTextRequest {
-                groq_api_key: "",
-                gemini_api_key: "",
-                context: crate::overlay::result::RefineContext::Image(Vec::new()),
-                previous_text: "previous output".to_string(),
-                user_prompt: "shorten".to_string(),
-                original_model_id: id,
-                original_provider: "stale-provider",
-                streaming_enabled: false,
-                ui_language: "en",
-                cancel_token: None,
-                on_model_selected: &mut |id, name, provider| {
-                    selected = Some((id.to_string(), name.to_string(), provider.to_string()));
-                },
-            },
-            |_| panic!("invalid image and missing credentials must not produce output"),
-        );
-        assert!(result.is_err());
-        assert_eq!(selected, Some((model.id, model.full_name, model.provider)));
-    }
-
-    #[test]
-    fn fallback_selection_follows_priority_and_provider_availability() {
-        let mut state = RefineCatalogState::default();
-        assert_eq!(
-            state
-                .preferred_text_model("groq", "gemini", "openrouter", "")
-                .map(|model| model.0),
-            Some(crate::model_config::DEFAULT_TEXT_MODEL_ID.to_string())
-        );
-
-        state.use_groq = false;
-        assert_eq!(
-            state
-                .preferred_text_model("", "gemini", "openrouter", "")
-                .map(|model| model.0),
-            Some("google-gemini-3-5-flash-lite-text".to_string())
-        );
-
-        state.use_gemini = false;
-        assert_eq!(
-            state
-                .preferred_text_model("", "", "openrouter", "")
-                .map(|model| model.0),
-            Some("openrouter-dots-3-note-text".to_string())
-        );
-    }
-}
+mod tests;

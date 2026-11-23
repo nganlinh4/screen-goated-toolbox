@@ -43,7 +43,7 @@ pub(super) fn begin(
         &settings.translation_model,
         &settings.translation_prompt,
     );
-    evidence.detected(candidates, &[]);
+    evidence.detected(candidates);
     Some(evidence)
 }
 

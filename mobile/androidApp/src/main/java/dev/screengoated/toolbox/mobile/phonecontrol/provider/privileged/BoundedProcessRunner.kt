@@ -7,9 +7,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.nio.charset.StandardCharsets
 import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -35,6 +33,8 @@ internal interface ProcessGroupController {
 
 internal class BoundedProcessRunner(
     private val groupController: ProcessGroupController = AndroidProcessGroupController,
+    /** The pause between probes of a group whose leader already exited. */
+    private val idleWait: (Long) -> Unit = { Thread.sleep(it) },
     private val launcher: BoundedProcessLauncher = BoundedProcessLauncher(::launchOwnedProcessGroup),
 ) {
     private val operations = ConcurrentHashMap<String, ProcessOperation>()
@@ -53,7 +53,7 @@ internal class BoundedProcessRunner(
         validate(operationId, command, cwd, timeoutMs)?.let { message ->
             return failure("invalid_request", message, operationId, authorityUid, startedAt)
         }
-        val operation = ProcessOperation(operationId, authorityUid, groupController)
+        val operation = ProcessOperation(operationId, authorityUid, groupController, idleWait)
         if (operations.putIfAbsent(operationId, operation) != null) {
             return failure(
                 "duplicate_operation",
@@ -131,7 +131,7 @@ internal class BoundedProcessRunner(
         operation.attach(launched)
         if (operation.processStarted) onProcessStarted()
 
-        val output = BoundedOutput(MAX_OUTPUT_BYTES)
+        val output = BoundedCommandOutput(MAX_OUTPUT_BYTES)
         val readerFailure = AtomicReference<Throwable?>(null)
         val reader = Thread({ readOutput(process, output, readerFailure) }, COMMAND_OUTPUT_THREAD)
         reader.start()
@@ -148,11 +148,13 @@ internal class BoundedProcessRunner(
             operation.terminateAndAwait()
         }
         reader.join(READER_JOIN_MS)
-        if (reader.isAlive) reader.interrupt()
+        val readerTerminated = !reader.isAlive
+        if (!readerTerminated) reader.interrupt()
         val cancelled = operation.cancellationRequested
         val timedOut = operation.timedOut && !cancelled
         val terminationConfirmed = operation.isTerminal()
         val readerError = readerFailure.get()
+        val outputSnapshot = output.snapshot()
         return buildJsonObject {
             put("ok", completedNaturally && !cancelled && readerError == null)
             put(
@@ -170,9 +172,7 @@ internal class BoundedProcessRunner(
             put("process_started", true)
             put("terminal_cancellation_acknowledged", cancelled && terminationConfirmed)
             put("operation_id", operation.id)
-            put("output", output.text())
-            put("output_truncated", output.truncated)
-            put("output_bytes", output.totalBytes)
+            outputSnapshot.evidence(readerTerminated && readerError == null).forEach { (key, value) -> put(key, value) }
             put("authority_uid", authorityUid)
             put("duration_ms", elapsedMs(startedAt))
             readerError?.let { put("reader_error", it.message ?: it.javaClass.simpleName) }
@@ -233,7 +233,7 @@ internal class BoundedProcessRunner(
 
     private fun readOutput(
         process: Process,
-        output: BoundedOutput,
+        output: BoundedCommandOutput,
         readerFailure: AtomicReference<Throwable?>,
     ) {
         try {
@@ -286,6 +286,7 @@ internal class BoundedProcessRunner(
         val id: String,
         private val authorityUid: Int,
         private val groupController: ProcessGroupController,
+        private val idleWait: (Long) -> Unit,
     ) {
         private val lock = Any()
         private var process: Process? = null
@@ -323,8 +324,15 @@ internal class BoundedProcessRunner(
                 destroyOwnedProcessTree()
                 val root = synchronized(lock) { process }
                 if (isTerminal()) return
-                root?.let { running ->
-                    runCatching { running.waitFor(PROCESS_POLL_MS, TimeUnit.MILLISECONDS) }
+                // An exited leader's waitFor returns at once, so a group that is
+                // still alive or unconfirmed is re-polled on the interval rather
+                // than re-signalled (and, for root, re-spawning `su`) in a hot loop.
+                runCatching {
+                    if (root != null && root.isAlive) {
+                        root.waitFor(PROCESS_POLL_MS, TimeUnit.MILLISECONDS)
+                    } else {
+                        idleWait(PROCESS_POLL_MS)
+                    }
                 }
             }
         }
@@ -370,25 +378,6 @@ internal class BoundedProcessRunner(
         }
     }
 
-    private class BoundedOutput(private val limit: Int) {
-        private val bytes = ByteArrayOutputStream(limit)
-        var totalBytes: Long = 0
-            private set
-        var truncated: Boolean = false
-            private set
-
-        @Synchronized
-        fun write(buffer: ByteArray, offset: Int, length: Int) {
-            totalBytes += length
-            val remaining = limit - bytes.size()
-            if (remaining > 0) bytes.write(buffer, offset, minOf(length, remaining))
-            if (length > remaining) truncated = true
-        }
-
-        @Synchronized
-        fun text(): String = bytes.toString(StandardCharsets.UTF_8.name())
-    }
-
     private companion object {
         const val MAX_ARGS = 16
         const val MAX_OPERATION_ID_CHARS = 8_192
@@ -405,13 +394,12 @@ internal class BoundedProcessRunner(
 private fun launchOwnedProcessGroup(command: List<String>, cwd: String?): BoundedLaunchedProcess {
     val groupFile = File.createTempFile("sgt-phone-control-", ".pgrp")
     return try {
-        val script = "printf '%s\\n' \"\$\$\" > \"\$1\" || exit 125; shift; exec \"\$@\""
         val wrapped = listOf(
-            "/system/bin/setsid",
-            "/system/bin/sh",
+            SETSID_PROGRAM,
+            SHELL_PROGRAM,
             "-c",
-            script,
-            "sgt-phone-control",
+            OWNED_PROCESS_GROUP_SCRIPT,
+            OWNED_PROCESS_GROUP_NAME,
             groupFile.absolutePath,
         ) + command
         val process = ProcessBuilder(wrapped)
@@ -425,9 +413,18 @@ private fun launchOwnedProcessGroup(command: List<String>, cwd: String?): Bounde
     }
 }
 
+/**
+ * Only a root-owned group signalled from a non-root process needs the root
+ * manager's `su` client. A root process (root-started Shizuku or Sui) and a
+ * group this process owns use kill(2) directly, so they never spawn `su` and
+ * never depend on it being reachable.
+ */
+internal fun processGroupNeedsRootClient(authorityUid: Int, callerUid: Int): Boolean =
+    authorityUid == android.os.Process.ROOT_UID && callerUid != android.os.Process.ROOT_UID
+
 private object AndroidProcessGroupController : ProcessGroupController {
     override fun signal(groupId: Int, signal: Int, authorityUid: Int) {
-        if (authorityUid == android.os.Process.ROOT_UID) {
+        if (processGroupNeedsRootClient(authorityUid, Os.getuid())) {
             runRootKill(groupId, signal)
         } else {
             Os.kill(-groupId, signal)
@@ -435,7 +432,7 @@ private object AndroidProcessGroupController : ProcessGroupController {
     }
 
     override fun state(groupId: Int, authorityUid: Int): ProcessGroupState {
-        if (authorityUid == android.os.Process.ROOT_UID) {
+        if (processGroupNeedsRootClient(authorityUid, Os.getuid())) {
             return when (runRootKill(groupId, 0)) {
                 0 -> ProcessGroupState.ALIVE
                 1 -> ProcessGroupState.DEAD

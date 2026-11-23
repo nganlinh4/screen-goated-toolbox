@@ -8,6 +8,9 @@ mod runtime;
 mod theme;
 mod work_areas;
 
+use crate::overlay::html_components::icons::OverlayIcon;
+
+pub(super) use work_areas::dpi_for_rect as monitor_dpi_for_rect;
 pub(super) use work_areas::script as monitor_work_areas_script;
 
 pub(crate) fn document_css() -> &'static str {
@@ -15,39 +18,24 @@ pub(crate) fn document_css() -> &'static str {
 }
 
 pub(crate) fn document_script() -> String {
-    let lang = crate::APP.lock().unwrap().config.ui_language.clone();
-    let locale = crate::gui::locale::LocaleText::get(&lang);
-    let l10n = serde_json::json!({
-        "copy": locale.overlay.overlay_copy_tooltip,
-        "copy_image": locale.overlay.overlay_copy_image_tooltip,
-        "copy_image_failed": locale.overlay.overlay_copy_image_failed,
-        "undo": locale.overlay.overlay_undo_tooltip,
-        "redo": locale.overlay.overlay_redo_tooltip,
-        "edit": locale.overlay.overlay_edit_tooltip,
-        "download": locale.overlay.overlay_download_tooltip,
-        "speaker": locale.overlay.overlay_speaker_tooltip,
-        "result_handle": locale.overlay.overlay_result_handle_tooltip,
-        "back": locale.overlay.overlay_back_tooltip,
-        "forward": locale.overlay.overlay_forward_tooltip,
-        "opacity": locale.overlay.overlay_opacity_tooltip,
-        "cancel": locale.overlay.overlay_cancel_tooltip,
-        "overlay_refine_placeholder": locale.overlay.overlay_refine_placeholder,
-    })
-    .to_string();
-    let icon = |name| crate::overlay::html_components::icons::get_icon_svg(name).to_string();
+    let l10n = serde_json::to_string(&super::localization::strings_for("en"))
+        .expect("control locale must serialize");
+    let icon = |icon: OverlayIcon| icon.svg().to_string();
     let icons = serde_json::json!({
-        "arrow_back": icon("arrow_back"), "arrow_forward": icon("arrow_forward"),
-        "undo": icon("undo"), "redo": icon("redo"),
-        "hourglass_empty": icon("hourglass_empty"), "stop": icon("stop"),
-        "cleaning_services": icon("cleaning_services"), "content_copy": icon("content_copy"),
-        "check": icon("check"), "download": icon("download"),
-        "filter": icon("filter"),
-        "volume_up": icon("volume_up"), "mic": icon("mic"),
-        "send": icon("send"), "opacity": icon("opacity"), "close": icon("close"),
+        "arrow_back": icon(OverlayIcon::ArrowBack), "arrow_forward": icon(OverlayIcon::ArrowForward),
+        "undo": icon(OverlayIcon::Undo), "redo": icon(OverlayIcon::Redo),
+        "hourglass_empty": icon(OverlayIcon::HourglassEmpty), "stop": icon(OverlayIcon::Stop),
+        "cleaning_services": icon(OverlayIcon::CleaningServices), "content_copy": icon(OverlayIcon::ContentCopy),
+        "check": icon(OverlayIcon::Check), "download": icon(OverlayIcon::Download),
+        "filter": icon(OverlayIcon::Filter), "auto_awesome": icon(OverlayIcon::AutoAwesome),
+        "volume_up": icon(OverlayIcon::VolumeUp), "mic": icon(OverlayIcon::Mic),
+        "send": icon(OverlayIcon::Send), "opacity": icon(OverlayIcon::Opacity), "close": icon(OverlayIcon::Close),
     })
     .to_string();
     [
         runtime::get_javascript(),
+        include_str!("localization_runtime.js"),
+        include_str!("tooltip_runtime.js"),
         include_str!("source_anchor.js"),
         include_str!("source_dock.js"),
         include_str!("placement.js"),
@@ -84,124 +72,11 @@ mod tests {
     }
 
     #[test]
-    fn opacity_updates_preserve_the_active_slider_element() {
-        let script = include_str!("layout_runtime.js");
-        let actions = include_str!("actions.rs");
-
-        assert!(script.contains("const { opacityPercent, ...structuralState } = state;"));
-        assert!(script.contains("opacity.value = opacityPercent;"));
-        assert!(script.contains("JSON.stringify(structuralState)"));
-        assert!(actions.contains("scene_compositor::set_control_scope_opacity(hwnd, value)"));
-        assert!(!actions.contains("scene_compositor::sync_window"));
+    fn control_icons_are_downloaded_catalog_symbols() {
+        crate::overlay::html_components::icons::assert_only_catalog_icons(&super::document_script());
     }
 
-    #[test]
-    fn refinement_editor_is_persistent_typed_and_ime_aware() {
-        let controls = include_str!("layout_runtime.js");
-        let editor = super::refine_runtime::get_javascript();
-
-        assert!(
-            controls.contains("const editor = Boolean(window.__SGT_REFINE_EDITOR__?.reconcile")
-        );
-        assert!(controls.contains("!editor && group.dataset.lastState"));
-        assert!(controls.contains("classList.toggle('proximity-pinned', editor)"));
-        assert!(!controls.contains("generateRefineInputHTML"));
-        assert!(editor.contains("group.replaceChildren(editor.bar)"));
-        assert!(editor.contains("request_refine_focus"));
-        assert!(editor.contains("nativeFocusGranted"));
-        assert!(editor.contains("update_refine_draft"));
-        assert!(editor.contains("compositionstart"));
-        assert!(editor.contains("compositionend"));
-        assert!(editor.contains("event.isComposing"));
-        assert!(editor.contains("input.setRangeText"));
-    }
-
-    #[test]
-    fn model_badge_renders_immediately_left_of_the_opacity_control() {
-        let script = super::runtime::get_javascript();
-        let css = super::document_css();
-
-        let buttons = script
-            .split_once("function generateButtonsHTML")
-            .expect("button builder should exist")
-            .1;
-        let badge = buttons
-            .find("model-badge")
-            .expect("model badge should render");
-        let opacity = buttons
-            .find("opacity-btn-expandable")
-            .expect("opacity control should render");
-        assert!(
-            badge < opacity,
-            "the model badge must be emitted before the opacity control"
-        );
-
-        assert!(buttons.contains("state.modelLabel"));
-        assert!(buttons.contains("!isBrowsing && !state.groupActions && state.modelLabel"));
-        assert!(script.contains("function escapeText"));
-        assert!(buttons.contains("escapeText(state.modelLabel)"));
-
-        // Readable surface, but not a control: no hover and no pointer affordance.
-        assert!(!buttons.contains("btn model-badge"));
-        let badge_css = css
-            .split_once(".model-badge {")
-            .expect("badge styling should exist")
-            .1
-            .split_once('}')
-            .expect("badge rule should close")
-            .0;
-        assert!(badge_css.contains("background: var(--btn-bg)"));
-        assert!(badge_css.contains("border: 1px solid var(--btn-border)"));
-        assert!(badge_css.contains("cursor: default"));
-        assert!(badge_css.contains("pointer-events: none"));
-        assert!(!css.contains(".model-badge:hover"));
-        // The label always shows in full: never clipped or ellipsised.
-        assert!(!badge_css.contains("text-overflow"));
-        assert!(!badge_css.contains("max-width"));
-        assert!(!badge_css.contains("overflow: hidden"));
-    }
-
-    #[test]
-    fn anchored_controls_keep_canonical_proximity_and_support_scaled_buttons() {
-        let script = super::document_script();
-        let css = super::document_css();
-
-        assert!(script.contains("state.controlAnchor"));
-        assert!(script.contains("state.controlScalePercent"));
-        assert!(script.contains("data.sourceGeometry"));
-        assert!(script.contains("measureControlOrientations"));
-        assert!(script.contains("e.button === 0 && groupActions"));
-        assert!(script.contains("result_all_drag_start"));
-        assert!(script.contains("function renderResultDragPreview"));
-        assert!(script.contains("requestAnimationFrame(renderResultDragPreview)"));
-        assert!(script.contains("action: 'result_drag_finish'"));
-        assert!(script.contains("action: 'result_drag_preview'"));
-        assert!(script.contains("state?.isBrowsing"));
-        assert!(script.contains("card.style.transform = 'translate3d('"));
-        assert!(!script.contains("card.style.translate = offset"));
-        assert!(script.contains("function contrastingControlSurface"));
-        assert!(script.contains("local-control-surface-light"));
-        assert!(script.contains("local-control-surface-dark"));
-        let drag_handler = script
-            .split_once("function handleResultDrag")
-            .expect("drag handler should exist")
-            .1
-            .split_once("function renderResultDragPreview")
-            .expect("drag preview should follow the pointer handler")
-            .0;
-        assert!(!drag_handler.contains(".style.opacity"));
-        assert!(script.contains("action('${hwnd}', 'copy')"));
-        assert!(script.contains("action('${hwnd}', 'download')"));
-        assert!(script.contains("action('${hwnd}', 'speaker')"));
-        assert!(script.contains("const maxRadius = 150"));
-        assert!(css.contains("--control-scale: 1"));
-        assert!(css.contains("calc(24px * var(--control-scale))"));
-        assert!(css.contains("calc(6px * var(--control-scale))"));
-        assert!(css.contains("calc(12px * var(--control-scale))"));
-        assert!(css.contains("calc(9px * var(--control-scale))"));
-        assert!(css.contains(".button-group.local-control-surface-light"));
-        assert!(css.contains(".button-group.local-control-surface-dark"));
-        assert!(!script.contains("dismiss_chain"));
-        assert!(!script.contains("copy_all"));
-    }
+    // Control rendering, opacity echoes, refinement editing, the model badge,
+    // scaling, contrast surfaces, actions, proximity and drag starts run in
+    // controls_document.test.cjs and the other *.test.cjs suites here.
 }

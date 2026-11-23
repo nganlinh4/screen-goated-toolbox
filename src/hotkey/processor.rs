@@ -4,7 +4,9 @@
 use crate::APP;
 use crate::overlay;
 use crate::overlay::image_capture_target::ImageCaptureTarget;
-use crate::screen_capture::{capture_screen_fast, format_gui_resources, gui_resources_snapshot};
+use crate::screen_capture::{
+    capture_screen_fast, format_gui_resources, gui_resources_snapshot, with_published_capture,
+};
 use crate::win_types::SendHwnd;
 use std::sync::OnceLock;
 use windows::Win32::Foundation::*;
@@ -35,10 +37,19 @@ pub unsafe extern "system" fn hotkey_proc(
     unsafe {
         match msg {
             WM_HOTKEY => {
-                if !super::BINDING_CAPTURE_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
+                if !super::capture::active() {
                     handle_hotkey(wparam.0 as i32);
                 }
                 LRESULT(0)
+            }
+            WM_ENDSESSION if super::listener::session_is_ending(wparam) => {
+                super::listener::exit_for_session_end()
+            }
+            WM_SETTINGCHANGE => {
+                // A top-level window gets this broadcast even while the
+                // settings window is hidden and runs no frames.
+                crate::gui::utils::note_setting_change(lparam.0 as *const u16);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
@@ -115,7 +126,7 @@ fn handle_hotkey(id: i32) {
 
     // Check continuous mode states
     let mut just_activated_continuous = false;
-    let preset_idx_early = ((id - 1) / 1000) as usize;
+    let preset_idx_early = super::listener::preset_index(id);
 
     // Check image continuous mode
     if overlay::image_continuous_mode::is_active() {
@@ -163,23 +174,6 @@ fn handle_hotkey(id: i32) {
                 overlay::text_selection::cancel_selection();
             }
         }
-    } else if overlay::continuous_mode::is_pending_start() {
-        let pending_idx = overlay::continuous_mode::get_preset_idx();
-        if pending_idx == preset_idx_early {
-            crate::log_info!(
-                "[Hotkey] Promoting PENDING continuous mode for preset {}",
-                pending_idx
-            );
-            let hotkey = overlay::continuous_mode::get_hotkey_name();
-            overlay::continuous_mode::activate(pending_idx, hotkey);
-            just_activated_continuous = true;
-        } else {
-            crate::log_info!(
-                "[Hotkey] Ignoring PENDING continuous mode for diff preset (pending={}, early={})",
-                pending_idx,
-                preset_idx_early
-            );
-        }
     }
 
     // Dismiss preset wheel if active
@@ -188,7 +182,7 @@ fn handle_hotkey(id: i32) {
         return;
     }
 
-    let preset_idx = ((id - 1) / 1000) as usize;
+    let preset_idx = super::listener::preset_index(id);
 
     // Get preset context
     let (preset_type, text_mode, is_audio_stopping, hotkey_name) =
@@ -449,6 +443,10 @@ fn handle_text_type_mode(preset_idx: usize, hotkey_name: &str) {
             crate::gui::settings_ui::get_localized_preset_name(&preset.id, &config.ui_language);
 
         let hotkey_name_clone = hotkey_name.to_string();
+        let external = app.last_active_window;
+        drop(app);
+        let auto_paste_destination =
+            overlay::process::chain::AutoPasteDestination::capture(external);
         std::thread::spawn(move || {
             overlay::process::start_text_processing(
                 String::new(),
@@ -457,6 +455,7 @@ fn handle_text_type_mode(preset_idx: usize, hotkey_name: &str) {
                 preset,
                 localized_name,
                 hotkey_name_clone,
+                auto_paste_destination,
             );
         });
     }
@@ -468,16 +467,14 @@ fn handle_image_capture_target(
     id: i32,
     continuous_preset_idx: Option<usize>,
 ) {
-    if overlay::is_busy() || overlay::is_selection_overlay_active() {
+    if overlay::is_selection_overlay_active() || !overlay::try_claim_overlay() {
         overlay::continuous_mode::update_last_trigger_time();
         return;
     }
 
-    overlay::set_is_busy(true);
-
+    let destination = overlay::process::chain::AutoPasteDestination::capture_current();
     target.prepare();
 
-    let app_clone = APP.clone();
     std::thread::spawn(move || {
         let mut capture_attempt = 0usize;
         let diag_enabled = capture_diag_enabled();
@@ -510,13 +507,13 @@ fn handle_image_capture_target(
                             after.user_objects as i64 - before.user_objects as i64
                         );
                     }
-                    if let Ok(mut app) = app_clone.lock() {
-                        app.screenshot_handle = Some(capture);
-                    } else {
+                    if with_published_capture(capture, || {
+                        overlay::show_image_capture_overlay(target, id, destination)
+                    })
+                    .is_err()
+                    {
                         break;
                     }
-
-                    overlay::show_image_capture_overlay(target, id);
                 }
                 Err(e) => {
                     let after = gui_resources_snapshot();

@@ -27,9 +27,10 @@ test("the primary action is hidden only for the selected submitted or running se
 });
 
 test("only a source imported by this surface can create another model", () => {
-  assert.equal(canSubmitItem({ sourceProvenance: "surface-import" }), true);
-  assert.equal(canSubmitItem({ sourceProvenance: "presentation" }), false);
-  assert.equal(canSubmitItem({ sourceProvenance: "none" }), false);
+  assert.equal(canSubmitItem({ sourceProvenance: "surface-import", generationMode: "quality" }), true);
+  assert.equal(canSubmitItem({ sourceProvenance: "surface-import", generationMode: "fast" }), false);
+  assert.equal(canSubmitItem({ sourceProvenance: "presentation", generationMode: "quality" }), false);
+  assert.equal(canSubmitItem({ sourceProvenance: "none", generationMode: "quality" }), false);
 });
 
 test("only the first press consumes a draft and later presses clone frozen settings", () => {

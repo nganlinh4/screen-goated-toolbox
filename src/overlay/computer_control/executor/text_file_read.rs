@@ -69,6 +69,15 @@ impl ReadFailure {
 }
 
 pub(super) fn read_stable_bounded(path: &Path, max_bytes: u64) -> Result<Vec<u8>, ReadFailure> {
+    Ok(read_stable_snapshot(path, max_bytes)?.bytes)
+}
+
+struct StableRead {
+    pub(super) bytes: Vec<u8>,
+    pub(super) file: File,
+}
+
+fn read_stable_snapshot(path: &Path, max_bytes: u64) -> Result<StableRead, ReadFailure> {
     // Refuse write/delete sharing. A normal writer or pathname replacement can
     // neither overlap this snapshot nor make bytes and identity disagree.
     let mut file = OpenOptions::new()
@@ -95,7 +104,17 @@ pub(super) fn read_stable_bounded(path: &Path, max_bytes: u64) -> Result<Vec<u8>
     {
         return Err(ReadFailure::ConcurrentChange);
     }
-    Ok(first)
+    Ok(StableRead { bytes: first, file })
+}
+
+pub(in crate::overlay::computer_control) fn with_stable_file<T>(
+    path: &Path,
+    max_bytes: u64,
+    operation: impl FnOnce(&std::fs::File, &[u8]) -> T,
+) -> Option<T> {
+    read_stable_snapshot(path, max_bytes)
+        .ok()
+        .map(|snapshot| operation(&snapshot.file, &snapshot.bytes))
 }
 
 fn checked_metadata(file: &File, max_bytes: u64) -> Result<std::fs::Metadata, ReadFailure> {

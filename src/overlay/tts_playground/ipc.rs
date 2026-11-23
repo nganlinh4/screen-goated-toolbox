@@ -1,7 +1,7 @@
 //! IPC dispatcher between the React WebView and Rust.
 //!
-//! Handles WebView commands for window chrome, config patches, reference
-//! management, generation, playback, and exports.
+//! Handles WebView commands for window chrome, config patches, source audio,
+//! generation, playback, and exports.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,10 +29,17 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             return;
         }
     };
+    if envelope.cmd == "tts_exit_drain_ack" {
+        super::exit_drain::acknowledge(hwnd, &envelope.args);
+        return;
+    }
     super::runtime::tick_position();
     let reply = dispatch(hwnd, &envelope.cmd, &envelope.args);
+    let echo_state = envelope.cmd != "set_draft_text" || reply.is_err();
     send_reply(&envelope.id, reply);
-    state::sync_to_webview();
+    if echo_state {
+        state::sync_to_webview();
+    }
 }
 
 fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
@@ -53,7 +60,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         }
         "set_draft_text" => {
             let value = args.get("text").and_then(Value::as_str).unwrap_or("");
-            with_config(|cfg| cfg.tts_playground.draft_text = value.to_string());
+            super::draft_persistence::set_draft(value)?;
             Ok(Value::Null)
         }
         "patch_gemini" => {
@@ -126,118 +133,6 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             });
             Ok(Value::Null)
         }
-        "patch_step_audio" => {
-            apply_patch(args, |cfg, patch| {
-                if let Some(v) = patch.get("reference").and_then(Value::as_str) {
-                    cfg.tts_playground.step_audio_settings.reference_voice_id = v.to_string();
-                }
-            });
-            Ok(Value::Null)
-        }
-        "patch_magpie" => {
-            apply_patch(args, |cfg, patch| {
-                let s = &mut cfg.tts_playground.magpie_settings;
-                if let Some(v) = patch.get("voice").and_then(Value::as_str) {
-                    s.voice = v.to_string();
-                }
-                if let Some(list) = patch.get("voices").and_then(Value::as_array) {
-                    s.voice_configs = list
-                        .iter()
-                        .filter_map(|item| {
-                            let language = item.get("language")?.as_str()?.to_string();
-                            let voice = item.get("voice")?.as_str()?.to_string();
-                            Some(crate::config::MagpieVoiceConfig::new(
-                                &language, &language, &voice,
-                            ))
-                        })
-                        .collect();
-                }
-            });
-            Ok(Value::Null)
-        }
-        "patch_kokoro" => {
-            apply_patch(args, |cfg, patch| {
-                let s = &mut cfg.tts_playground.kokoro_settings;
-                if let Some(v) = patch.get("speed").and_then(Value::as_f64) {
-                    s.speed = v as f32;
-                }
-                if let Some(v) = patch.get("threads").and_then(Value::as_i64) {
-                    s.num_threads = v as i32;
-                }
-                if let Some(v) = patch.get("voice").and_then(Value::as_str) {
-                    s.voice = v.to_string();
-                }
-                if let Some(list) = patch.get("voices").and_then(Value::as_array) {
-                    s.voice_configs = list
-                        .iter()
-                        .filter_map(|item| {
-                            let language = item.get("language")?.as_str()?.to_string();
-                            let voice = item.get("voice")?.as_str()?.to_string();
-                            Some(crate::config::KokoroVoiceConfig::new(
-                                &language, &language, &voice,
-                            ))
-                        })
-                        .collect();
-                }
-            });
-            Ok(Value::Null)
-        }
-        "patch_supertonic" => {
-            apply_patch(args, |cfg, patch| {
-                let s = &mut cfg.tts_playground.supertonic_settings;
-                if let Some(v) = patch.get("speed").and_then(Value::as_f64) {
-                    s.speed = v as f32;
-                }
-                if let Some(v) = patch.get("threads").and_then(Value::as_i64) {
-                    s.num_threads = v as i32;
-                }
-                if let Some(v) = patch.get("steps").and_then(Value::as_i64) {
-                    s.num_steps = v as i32;
-                }
-                if let Some(list) = patch.get("voices").and_then(Value::as_array) {
-                    s.voice_configs = list
-                        .iter()
-                        .filter_map(|item| {
-                            let language = item.get("language")?.as_str()?.to_string();
-                            let voice = item.get("voice")?.as_str()?.to_string();
-                            Some(crate::config::SupertonicVoiceConfig::new(
-                                &language, &language, &voice,
-                            ))
-                        })
-                        .collect();
-                }
-            });
-            Ok(Value::Null)
-        }
-        "patch_vieneu" => {
-            apply_patch(args, |cfg, patch| {
-                if let Some(v) = patch.get("reference").and_then(Value::as_str) {
-                    cfg.tts_playground.vieneu_settings.reference_voice_id = v.to_string();
-                }
-            });
-            Ok(Value::Null)
-        }
-        "patch_audio_edit" => {
-            apply_patch(args, |cfg, patch| {
-                let s = &mut cfg.tts_playground.step_audio_edit_settings;
-                if let Some(v) = patch.get("sourcePath").and_then(Value::as_str) {
-                    s.source_audio_path = v.to_string();
-                }
-                if let Some(v) = patch.get("sourceText").and_then(Value::as_str) {
-                    s.source_text = v.to_string();
-                }
-                if let Some(v) = patch.get("editType").and_then(Value::as_str) {
-                    s.edit_type = v.to_string();
-                }
-                if let Some(v) = patch.get("editInfo").and_then(Value::as_str) {
-                    s.edit_info = v.to_string();
-                }
-                if let Some(v) = patch.get("targetText").and_then(Value::as_str) {
-                    s.target_text = v.to_string();
-                }
-            });
-            Ok(Value::Null)
-        }
         "set_s2s_target_language" => {
             let lang = args.get("language").and_then(Value::as_str).unwrap_or("");
             with_config(|cfg| cfg.realtime_target_language = lang.to_string());
@@ -252,7 +147,7 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
             Ok(Value::Null)
         }
         "clear" => {
-            super::runtime::clear_current();
+            super::runtime::clear_current()?;
             Ok(Value::Null)
         }
         "play" => {
@@ -331,61 +226,6 @@ fn dispatch(hwnd: HWND, cmd: &str, args: &Value) -> Result<Value, String> {
         }
         "stop_mic_recording" => {
             super::runtime::stop_mic_recording();
-            Ok(Value::Null)
-        }
-        "start_reference_mic" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            super::runtime::start_reference_mic(id);
-            Ok(Value::Null)
-        }
-        "stop_reference_mic" => {
-            super::runtime::stop_reference_mic();
-            Ok(Value::Null)
-        }
-        "use_current_as_source" => {
-            super::runtime::use_current_as_source();
-            Ok(Value::Null)
-        }
-        "add_reference" => {
-            super::runtime::add_reference();
-            Ok(Value::Null)
-        }
-        "update_reference" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            let label = args.get("label").and_then(Value::as_str);
-            let transcript = args.get("transcript").and_then(Value::as_str);
-            super::runtime::update_reference(id, label, transcript);
-            Ok(Value::Null)
-        }
-        "delete_reference" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            super::runtime::delete_reference(id);
-            Ok(Value::Null)
-        }
-        "pick_reference_audio" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            super::runtime::pick_reference_audio(id).map(|opt| match opt {
-                Some(path) => Value::String(path),
-                None => Value::Null,
-            })
-        }
-        "recognize_reference" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            super::runtime::recognize_reference(id);
-            Ok(Value::Null)
-        }
-        "play_reference" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            super::runtime::play_reference(id);
-            Ok(Value::Null)
-        }
-        "use_reference" => {
-            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
-            let target = args
-                .get("target")
-                .and_then(Value::as_str)
-                .unwrap_or("playground");
-            super::runtime::use_reference(id, target);
             Ok(Value::Null)
         }
         "close_window" => {

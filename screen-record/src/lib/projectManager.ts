@@ -1,6 +1,12 @@
 import type { Project, ProjectComposition } from "@/types/video";
 import { invoke } from "@/lib/ipc";
-import { isManagedCompositionSnapshotPath } from "@/lib/mediaServer";
+import { hasStoredProjectMedia } from '@/lib/projectRetention';
+import { forgetStoredProjectMedia, omitUnchangedProjectMedia, rememberStoredProjectMedia } from "@/lib/projectStoredMedia";
+import { assertAudioImportWriteAllowed, audioProjectWriteGuard, isAudioImportWriteAllowed, markAudioImportCommitted, subscribeAudioImportWriteInvalidation, type AudioImportWriteFence } from './audioImportWriteFence';
+import {
+  ownedSnapshotClipMediaPaths,
+  type SnapshotClipMediaPaths,
+} from "@/lib/mediaServer";
 import {
   APP_META_STORE,
   buildCompositionAssetKey,
@@ -9,6 +15,7 @@ import {
   idbDeleteCompositionAssetBundle,
   idbDeleteProjectBundle,
   idbGet,
+  idbCount,
   idbGetAll,
   idbPut,
   idbUpdateProjectBundle,
@@ -40,6 +47,7 @@ class ProjectManager {
   private migrationPromise: Promise<void> | null = null;
   private readonly writes = new ProjectWriteCoordinator();
   private activeProjectId: string | null = null;
+  private pruning: Promise<void> = Promise.resolve();
 
   setActiveProjectId(projectId: string | null): void {
     this.activeProjectId = projectId;
@@ -57,14 +65,18 @@ class ProjectManager {
     return this.writes.isLatest(intent);
   }
 
-  setLimit(newLimit: number) {
-    this.applyHostLimit(newLimit);
-    void invoke("set_project_limit", { limit: this.limit }).catch(() => {});
+  async setLimit(newLimit: number): Promise<void> {
+    const limit = normalizeProjectLimit(newLimit);
+    await invoke("set_project_limit", { limit });
+    this.limit = limit;
+    await this.pruneProjects();
   }
 
   applyHostLimit(newLimit: number) {
     this.limit = normalizeProjectLimit(newLimit);
-    void this.pruneProjects();
+    void this.pruneProjects().then(() => {
+      window.dispatchEvent(new Event("sr-project-retention-changed"));
+    }).catch((error) => console.error("Failed to apply project retention", error));
   }
 
   getLimit(): number {
@@ -81,17 +93,37 @@ class ProjectManager {
 
   async saveProject(
     project: Omit<Project, "id" | "createdAt" | "lastModified">,
+    recordingId?: string,
   ): Promise<Project> {
     await this.ensureProjectStoreReady();
 
+    if (recordingId && !/^[0-9a-f]{32}$/.test(recordingId)) {
+      throw new Error("Invalid recording identity");
+    }
+    const id = recordingId ? `recording-${recordingId}` : crypto.randomUUID();
+    const existing = recordingId ? await this.loadProjectRecord(id) : null;
+    if (existing) {
+      if (!project.rawVideoPath || existing.rawVideoPath !== project.rawVideoPath) {
+        throw new Error("Recording identity belongs to another project");
+      }
+      return existing;
+    }
+
     const newProject: Project = {
       ...project,
-      id: crypto.randomUUID(),
+      id,
       createdAt: Date.now(),
       lastModified: Date.now(),
     };
 
-    await idbCreateProjectBundle(newProject);
+    try {
+      await idbCreateProjectBundle(newProject, Boolean(recordingId));
+      rememberStoredProjectMedia(id, newProject);
+    } catch (error) {
+      const prior = recordingId ? await this.loadProjectRecord(id) : null;
+      if (!prior || !project.rawVideoPath || prior.rawVideoPath !== project.rawVideoPath) throw error;
+      return prior;
+    }
     await this.pruneProjects();
     return newProject;
   }
@@ -101,6 +133,16 @@ class ProjectManager {
   > {
     await this.ensureProjectStoreReady();
     return sortProjectsByDisplayOrder(await this.getProjectRecords());
+  }
+
+  /** One stored project record plus the stored key count, so a caller can patch its list in place. */
+  async getProjectListEntry(id: string): Promise<{
+    project: Omit<Project, "videoBlob" | "audioBlob" | "micAudioBlob" | "webcamBlob"> | null;
+    count: number;
+  }> {
+    await this.ensureProjectStoreReady();
+    const [project, count] = await Promise.all([this.loadProjectRecord(id), idbCount(PROJECTS_STORE)]);
+    return { project, count };
   }
 
   async loadProject(id: string): Promise<Project | null> {
@@ -116,6 +158,7 @@ class ProjectManager {
     const audioBlob = await this.loadAudioBlob(id);
     const micAudioBlob = await this.loadMicAudioBlob(id);
     const webcamBlob = await this.loadWebcamBlob(id);
+    rememberStoredProjectMedia(id, { videoBlob, audioBlob, micAudioBlob, webcamBlob });
     return {
       ...project,
       videoBlob: videoBlob || undefined,
@@ -130,28 +173,47 @@ class ProjectManager {
     await this.deleteProjectQueued(id);
   }
 
-  private async deleteProjectQueued(id: string): Promise<void> {
-    this.invalidateEditorWrites(id);
+  private async deleteProjectQueued(id: string, retention = false): Promise<boolean> {
+    assertAudioImportWriteAllowed(id, true);
+    if (!retention) this.invalidateEditorWrites(id);
     const result = await this.writes.enqueue(id, async () => {
+      assertAudioImportWriteAllowed(id, true);
       const project = await this.loadProjectRecord(id);
-      await idbDeleteProjectBundle(id, project);
-      await this.deleteProjectFiles(project);
+      if (!project || (retention && (id === this.activeProjectId || await hasStoredProjectMedia(project)
+        || id === this.activeProjectId))) {
+        return false;
+      }
+      if (retention) this.invalidateEditorWrites(id);
+      await idbDeleteProjectBundle(id, project, () => isAudioImportWriteAllowed(id),
+        (listener) => subscribeAudioImportWriteInvalidation(id, undefined, listener));
+      forgetStoredProjectMedia(id);
+      if (!retention) await this.deleteProjectFiles(project);
+      return true;
     });
     if (!result.applied) {
       throw new Error(`Failed to delete project ${id}`);
     }
+    return result.value === true;
   }
 
   async updateProject(
     id: string,
     updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
     intent?: ProjectWriteIntent,
+    canCommit?: () => boolean,
+    onInvalidated?: (listener: () => void) => () => void,
+    audioFence?: AudioImportWriteFence,
   ): Promise<boolean> {
     await this.ensureProjectStoreReady();
+    const timelineWrite = Object.keys(updates).length > 0;
+    const { isCurrent, subscribe } = audioProjectWriteGuard(id, timelineWrite, audioFence, canCommit, onInvalidated);
     const result = await this.writes.enqueue(
       id,
       async () => {
+        assertAudioImportWriteAllowed(id, timelineWrite, audioFence);
+        if (!isCurrent()) return false;
         const previousProject = await this.loadProjectRecord(id);
+        if (!isCurrent()) return false;
         if (PROJECT_SWITCH_DEBUG) {
           console.warn(
             `[ProjectSwitch] ${JSON.stringify({
@@ -162,15 +224,20 @@ class ProjectManager {
             })}`,
           );
         }
-        const updated = await idbUpdateProjectBundle(id, updates);
+        const changedUpdates = omitUnchangedProjectMedia(id, updates);
+        const updated = await idbUpdateProjectBundle(id, changedUpdates, isCurrent, subscribe);
+        if (updated === undefined) return false;
         if (!updated) {
           throw new Error(`Cannot update missing project ${id}`);
         }
+        rememberStoredProjectMedia(id, changedUpdates);
+        markAudioImportCommitted(id, audioFence);
+        return true;
       },
       intent,
     );
-    if (result.applied) await this.pruneProjects();
-    return result.applied;
+    if (result.applied && result.value) await this.pruneProjects();
+    return result.applied && result.value === true;
   }
 
   async renameProject(id: string, name: string): Promise<void> {
@@ -193,7 +260,11 @@ class ProjectManager {
     const key = buildCompositionAssetKey(projectId, clipId);
     const result = await this.writes.enqueue(
       projectId,
-      () => idbWriteCompositionAssetBundle(key, data),
+      () => {
+        assertAudioImportWriteAllowed(projectId, true);
+        return idbWriteCompositionAssetBundle(key, data, () => isAudioImportWriteAllowed(projectId),
+          (listener) => subscribeAudioImportWriteInvalidation(projectId, undefined, listener));
+      },
       intent,
     );
     return result.applied;
@@ -216,11 +287,14 @@ class ProjectManager {
     const result = await this.writes.enqueue(
       projectId,
       async () => {
+        assertAudioImportWriteAllowed(projectId, true);
         const updated = await idbUpdateProjectWithCompositionAssetBundle(
           projectId,
           clipId,
           composition,
           data,
+          () => isAudioImportWriteAllowed(projectId),
+          (listener) => subscribeAudioImportWriteInvalidation(projectId, undefined, listener),
         );
         if (!updated) {
           throw new Error(`Cannot update missing project ${projectId}`);
@@ -258,8 +332,10 @@ class ProjectManager {
     projectId: string,
     clipId: string,
   ): Promise<void> {
+    assertAudioImportWriteAllowed(projectId, true);
     const key = buildCompositionAssetKey(projectId, clipId);
-    await idbDeleteCompositionAssetBundle(key);
+    await idbDeleteCompositionAssetBundle(key, () => isAudioImportWriteAllowed(projectId),
+      (listener) => subscribeAudioImportWriteInvalidation(projectId, undefined, listener));
   }
 
   private async ensureProjectStoreReady(): Promise<void> {
@@ -346,21 +422,21 @@ class ProjectManager {
   }
 
   private async pruneProjects(): Promise<void> {
-    const projects = sortProjectsByDisplayOrder(await this.getProjectRecords());
-    if (projects.length <= this.limit) return;
+    const pending = this.pruning.catch(() => {}).then(() => this.pruneProjectsNow());
+    this.pruning = pending;
+    await pending;
+  }
 
-    const activeExists = projects.some(
-      (project) => project.id === this.activeProjectId,
-    );
-    const retainedNonActiveCount = Math.max(
-      0,
-      this.limit - (activeExists ? 1 : 0),
-    );
-    const projectsToDelete = projects
-      .filter((project) => project.id !== this.activeProjectId)
-      .slice(retainedNonActiveCount);
-    for (const project of projectsToDelete) {
-      await this.deleteProjectQueued(project.id);
+  private async pruneProjectsNow(): Promise<void> {
+    // Counting keys is cheap; only read every record when something can be pruned.
+    if (await idbCount(PROJECTS_STORE) <= this.limit) return;
+    const projects = sortProjectsByDisplayOrder(await this.getProjectRecords());
+    let count = projects.length;
+    for (const project of [...projects].reverse()) {
+      if (count <= this.limit) break;
+      if (project.id !== this.activeProjectId && await this.deleteProjectQueued(project.id, true)) {
+        count -= 1;
+      }
     }
   }
 
@@ -372,8 +448,11 @@ class ProjectManager {
         ...(project?.composition?.clips ?? []),
         ...(project?.composition?.retainedRemovedClips ?? []),
       ],
-      project?.rawVideoPath,
-      project?.rawWebcamVideoPath,
+      [
+        project?.rawVideoPath,
+        (project as Project | null | undefined)?.rawMicAudioPath,
+        project?.rawWebcamVideoPath,
+      ],
     );
     // Delete the root raw media files too (lived in `recordings/`).
     // Previously only ProjectsView.tsx did this, and it only covered
@@ -478,35 +557,13 @@ class ProjectManager {
   }
 
   private async deleteCompositionSnapshotFiles(
-    clips:
-      | Array<{
-          id?: string;
-          role?: string;
-          rawVideoPath?: string;
-          rawWebcamVideoPath?: string;
-        }>
-      | undefined,
-    rootRawVideoPath?: string,
-    rootRawWebcamVideoPath?: string,
+    clips: Array<SnapshotClipMediaPaths & { role?: string }> | undefined,
+    rootPaths: ReadonlyArray<string | undefined>,
   ): Promise<void> {
     if (!Array.isArray(clips)) return;
     for (const clip of clips) {
-      if (!clip || clip.role !== "snapshot") {
-        continue;
-      }
-
-      for (const path of [clip.rawVideoPath, clip.rawWebcamVideoPath]) {
-        const rootPath =
-          path === clip.rawWebcamVideoPath
-            ? rootRawWebcamVideoPath
-            : rootRawVideoPath;
-        if (
-          !path ||
-          path === rootPath ||
-          !isManagedCompositionSnapshotPath(path)
-        ) {
-          continue;
-        }
+      if (!clip || clip.role !== "snapshot") continue;
+      for (const path of ownedSnapshotClipMediaPaths(clip, rootPaths)) {
         try {
           await invoke("delete_file", { path });
         } catch {

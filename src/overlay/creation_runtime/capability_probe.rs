@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -12,15 +11,19 @@ struct RuntimeBinaryKey {
     modified_nanos: u128,
 }
 
+/// Generation modes a runtime may advertise. A runtime publishes any nonempty
+/// subset; an unadvertised mode has no optional instruction.
+const KNOWN_GENERATION_MODES: [&str; 2] = ["fast", "quality"];
+
 #[derive(Clone)]
 struct RuntimeCapabilities {
     binary: RuntimeBinaryKey,
-    fast_optional_instruction: bool,
-    quality_optional_instruction: bool,
+    /// Modes whose descriptor advertises `optionalInstruction: true`.
+    instruction_modes: Vec<&'static str>,
 }
 
 pub(crate) fn supports_optional_3d_instruction(mode: &str) -> bool {
-    if !matches!(mode, "fast" | "quality") {
+    if !KNOWN_GENERATION_MODES.contains(&mode) {
         return false;
     }
     let Some(binary) = runtime_binary_key() else {
@@ -40,8 +43,7 @@ pub(crate) fn supports_optional_3d_instruction(mode: &str) -> bool {
 
     let capabilities = query_runtime_capabilities(binary.clone()).unwrap_or(RuntimeCapabilities {
         binary,
-        fast_optional_instruction: false,
-        quality_optional_instruction: false,
+        instruction_modes: Vec::new(),
     });
     let supported = optional_instruction_for(&capabilities, mode);
     *cache.lock().unwrap_or_else(|value| value.into_inner()) = Some(capabilities);
@@ -49,11 +51,7 @@ pub(crate) fn supports_optional_3d_instruction(mode: &str) -> bool {
 }
 
 fn optional_instruction_for(capabilities: &RuntimeCapabilities, mode: &str) -> bool {
-    match mode {
-        "fast" => capabilities.fast_optional_instruction,
-        "quality" => capabilities.quality_optional_instruction,
-        _ => false,
-    }
+    capabilities.instruction_modes.contains(&mode)
 }
 
 fn runtime_binary_key() -> Option<RuntimeBinaryKey> {
@@ -76,7 +74,7 @@ fn runtime_binary_key() -> Option<RuntimeBinaryKey> {
 }
 
 fn query_runtime_capabilities(binary: RuntimeBinaryKey) -> Option<RuntimeCapabilities> {
-    let mut command = Command::new(&binary.path);
+    let mut command = super::configured_command(&binary.path).ok()?;
     command.arg("--capabilities");
     let output = super::process_query::run(&mut command, None, Duration::from_secs(5), 64 * 1024)?;
     if !output.status.success() || output.truncated {
@@ -86,7 +84,7 @@ fn query_runtime_capabilities(binary: RuntimeBinaryKey) -> Option<RuntimeCapabil
         binary,
         &output.bytes,
         crate::component_registry::creation::runtime_version(),
-        &["image_to_3d", "image_to_svg", "image_creator"],
+        &["image_to_3d", "image_to_svg"],
     )
 }
 
@@ -133,7 +131,7 @@ fn parse_runtime_capabilities(
         .iter()
         .copied()
         .collect::<std::collections::HashSet<_>>();
-    if feature_set.len() != feature_names.len() || feature_set != expected_set {
+    if feature_set.len() != feature_names.len() || !expected_set.is_subset(&feature_set) {
         return None;
     }
     let tools = result.get("tools")?.as_object()?;
@@ -145,19 +143,29 @@ fn parse_runtime_capabilities(
         return None;
     }
     let modes = tool.get("generationModes")?.as_object()?;
-    if !has_exact_keys(modes, &["fast", "quality"]) {
+    if modes.is_empty()
+        || !modes
+            .keys()
+            .all(|mode| KNOWN_GENERATION_MODES.contains(&mode.as_str()))
+    {
         return None;
     }
-    let optional_instruction = |mode: &str| {
-        let descriptor = modes.get(mode)?.as_object()?;
-        has_exact_keys(descriptor, &["optionalInstruction"])
-            .then(|| descriptor.get("optionalInstruction")?.as_bool())
-            .flatten()
-    };
+    let mut instruction_modes = Vec::new();
+    for mode in KNOWN_GENERATION_MODES {
+        let Some(descriptor) = modes.get(mode) else {
+            continue;
+        };
+        let descriptor = descriptor.as_object()?;
+        if !has_exact_keys(descriptor, &["optionalInstruction"]) {
+            return None;
+        }
+        if descriptor.get("optionalInstruction")?.as_bool()? {
+            instruction_modes.push(mode);
+        }
+    }
     Some(RuntimeCapabilities {
         binary,
-        fast_optional_instruction: optional_instruction("fast")?,
-        quality_optional_instruction: optional_instruction("quality")?,
+        instruction_modes,
     })
 }
 
@@ -169,57 +177,86 @@ fn has_exact_keys(object: &serde_json::Map<String, Value>, expected: &[&str]) ->
 mod tests {
     use super::*;
 
-    #[test]
-    fn product_capabilities_require_matching_version_and_feature_set() {
-        let binary = RuntimeBinaryKey {
+    fn binary() -> RuntimeBinaryKey {
+        RuntimeBinaryKey {
             path: PathBuf::from("runtime.exe"),
             size_bytes: 1,
             modified_nanos: 1,
-        };
-        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
-        let parsed = parse_runtime_capabilities(
-            binary.clone(),
-            valid,
-            "1.2.3",
-            &["image_to_3d", "image_to_svg", "image_creator"],
-        )
-        .unwrap();
-        assert!(parsed.fast_optional_instruction);
-        assert!(!parsed.quality_optional_instruction);
+        }
+    }
+
+    #[test]
+    fn product_capabilities_require_matching_version_and_required_features() {
+        let valid = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
+        let parsed =
+            parse_runtime_capabilities(binary(), valid, "1.2.3", &["image_to_3d", "image_to_svg"])
+                .unwrap();
+        assert!(optional_instruction_for(&parsed, "fast"));
+        assert!(!optional_instruction_for(&parsed, "quality"));
 
         assert!(
-            parse_runtime_capabilities(
-                binary.clone(),
-                valid,
-                "1.2.4",
-                &["image_to_3d", "image_to_svg", "image_creator"],
-            )
-            .is_none()
-        );
-        assert!(
-            parse_runtime_capabilities(binary, valid, "1.2.3", &["image_to_3d", "image_to_svg"],)
+            parse_runtime_capabilities(binary(), valid, "1.2.4", &["image_to_3d", "image_to_svg"],)
                 .is_none()
+        );
+        assert!(parse_runtime_capabilities(binary(), valid, "1.2.3", &["image_to_3d"]).is_some());
+        assert!(
+            parse_runtime_capabilities(binary(), valid, "1.2.3", &["unavailable_tool"]).is_none()
         );
     }
 
     #[test]
+    fn extra_delivered_features_do_not_block_shipped_capabilities() {
+        let extended = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","future_tool"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#;
+        let parsed = parse_runtime_capabilities(
+            binary(),
+            extended,
+            "1.2.3",
+            &["image_to_3d", "image_to_svg"],
+        )
+        .unwrap();
+        assert!(optional_instruction_for(&parsed, "fast"));
+        assert!(!optional_instruction_for(&parsed, "quality"));
+    }
+
+    #[test]
+    fn a_runtime_may_advertise_a_subset_of_generation_modes() {
+        let quality_only = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":true}}}}}}"#;
+        let parsed = parse_runtime_capabilities(
+            binary(),
+            quality_only,
+            "1.2.3",
+            &["image_to_3d", "image_to_svg"],
+        )
+        .unwrap();
+        assert!(optional_instruction_for(&parsed, "quality"));
+        assert!(!optional_instruction_for(&parsed, "fast"));
+
+        let without_instruction = br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":false}}}}}}"#;
+        let parsed = parse_runtime_capabilities(
+            binary(),
+            without_instruction,
+            "1.2.3",
+            &["image_to_3d", "image_to_svg"],
+        )
+        .unwrap();
+        assert!(!optional_instruction_for(&parsed, "quality"));
+    }
+
+    #[test]
     fn unknown_or_malformed_capability_schema_fails_closed() {
-        let binary = RuntimeBinaryKey {
-            path: PathBuf::from("runtime.exe"),
-            size_bytes: 1,
-            modified_nanos: 1,
-        };
-        let features = &["image_to_3d", "image_to_svg", "image_creator"];
+        let features = &["image_to_3d", "image_to_svg"];
         for invalid in [
-            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false},"future":{"optionalInstruction":true}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":"yes"},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg","image_creator"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true}}}}}}"#.as_slice(),
-            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"extra":1,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false},"future":{"optionalInstruction":true}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":"yes"},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_svg"],"tools":{"image_to_3d":{"generationModes":{"quality":{"optionalInstruction":true,"extra":1}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
+            br#"{"ok":true,"result":{"contractVersion":1,"runtimeVersion":"1.2.3","features":["image_to_3d","image_to_3d"],"tools":{"image_to_3d":{"generationModes":{"fast":{"optionalInstruction":true},"quality":{"optionalInstruction":false}}}}}}"#.as_slice(),
         ] {
             assert!(
                 parse_runtime_capabilities(
-                    binary.clone(),
+                    binary(),
                     invalid,
                     "1.2.3",
                     features,

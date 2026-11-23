@@ -1,17 +1,16 @@
-import { Dispatch, SetStateAction } from "react";
 import { Copy, Minus, Square, X } from '@/components/ui/MaterialIcon';
-import { invoke } from "@/lib/ipc";
 import type { Translations } from "@/i18n";
 
 interface HeaderWindowControlsProps {
   isWindowMaximized: boolean;
-  setIsWindowMaximized: Dispatch<SetStateAction<boolean>>;
+  /** Re-reads the host maximized state once the toggle has settled. */
+  onMaximizeToggled: () => void;
   t: Translations;
 }
 
 export function HeaderWindowControls({
   isWindowMaximized,
-  setIsWindowMaximized,
+  onMaximizeToggled,
   t,
 }: HeaderWindowControlsProps) {
   return (
@@ -32,10 +31,7 @@ export function HeaderWindowControls({
         onClick={(e) => {
           e.stopPropagation();
           (window as any).ipc.postMessage("toggle_maximize");
-          setTimeout(async () => {
-            const maximized = await invoke<boolean>("is_maximized");
-            setIsWindowMaximized(maximized);
-          }, 50);
+          onMaximizeToggled();
         }}
         className="window-btn-maximize ui-icon-button px-3 h-full text-[var(--on-surface)] flex items-center rounded-none"
         title={isWindowMaximized ? t.restore : t.maximize}

@@ -42,8 +42,8 @@ pub(in crate::overlay::screen_translate) fn append(
         pending
             .iter()
             .map(|member| {
-                region.bounds.top.abs_diff(member.bounds.top) as u32
-                    + region.bounds.left.abs_diff(member.bounds.left) as u32
+                u64::from(region.bounds.pixels().y.abs_diff(member.bounds.pixels().y))
+                    + u64::from(region.bounds.pixels().x.abs_diff(member.bounds.pixels().x))
             })
             .min()
             .unwrap_or(0)
@@ -59,7 +59,7 @@ pub(in crate::overlay::screen_translate) fn append(
         sources.push(serde_json::json!({
             "sourceId": region.id,
             "text": region.source_text,
-            "box_2d": <[u16; 4]>::from(region.bounds),
+            "box_2d": <[u16; 4]>::from(region.bounds.prompt()),
         }));
         if sources.len() == 32 {
             break;

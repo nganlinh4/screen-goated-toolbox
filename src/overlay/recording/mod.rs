@@ -2,6 +2,7 @@
 // Audio recording overlay with WebView-based waveform visualization.
 
 mod hint;
+mod lifecycle;
 mod messages;
 mod state;
 pub(crate) mod ui;
@@ -14,9 +15,12 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 // Re-export public items
-pub use state::{
-    AUDIO_ABORT_SIGNAL, AUDIO_INITIALIZING, AUDIO_PAUSE_SIGNAL, AUDIO_STOP_SIGNAL,
-    AUDIO_WARMUP_COMPLETE, CURRENT_RMS, update_audio_viz,
+pub use state::CURRENT_RMS;
+pub(crate) use state::stop_if_current_recording;
+pub(crate) use state::{
+    close_if_current_recording, close_recording_session, mark_ready_if_current_recording,
+    notify_if_current_recording, recording_session_id, set_initializing_if_current_recording,
+    update_viz_if_current_recording,
 };
 
 // --- PUBLIC API ---
@@ -43,19 +47,19 @@ fn valid_recording_hwnd() -> Option<HWND> {
 
 pub fn stop_recording_and_submit() {
     if is_recording_overlay_active() {
-        let was_stopped = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+        let was_stopped = is_current_recording_stopped();
 
         // If already stopped (processing) or aborted, hitting this again should FORCE CLOSE
         if was_stopped {
-            AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-            if let Some(hwnd) = valid_recording_hwnd() {
+            let session = cancel_recording_chain();
+            if let (Some(hwnd), Some(session)) = (valid_recording_hwnd(), session) {
                 unsafe {
-                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(session), LPARAM(0));
                 }
             }
         } else {
             // First time: Just stop and let it process
-            AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+            stop_current_recording();
             // Force update UI to "Processing"
             if let Some(hwnd) = valid_recording_hwnd() {
                 unsafe {
@@ -66,22 +70,28 @@ pub fn stop_recording_and_submit() {
     }
 }
 
-pub(crate) fn compositor_ready() {
-    if CURRENT_RECORDING_HIDDEN.load(Ordering::SeqCst) {
-        return;
-    }
+pub(crate) fn compositor_ready(session: usize) {
     if let Some(hwnd) = valid_recording_hwnd() {
         unsafe {
-            let _ = KillTimer(Some(hwnd), 99);
-            let _ = SetTimer(Some(hwnd), 2, 20, None);
+            let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(session), LPARAM(0));
         }
     }
 }
 
-pub(crate) fn compositor_toggle_pause() {
-    if is_recording_overlay_active() && !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
-        let paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);
-        AUDIO_PAUSE_SIGNAL.store(!paused, Ordering::SeqCst);
+pub(crate) fn compositor_toggle_pause(session: usize) {
+    if is_recording_overlay_active() {
+        toggle_recording_pause_id(session);
+    }
+}
+
+pub(crate) fn compositor_cancel_session(session: usize) {
+    if !is_recording_overlay_active() || !cancel_recording_id(session) {
+        return;
+    }
+    if let Some(hwnd) = valid_recording_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(session), LPARAM(0));
+        }
     }
 }
 
@@ -89,12 +99,8 @@ pub(crate) fn compositor_cancel() {
     if !is_recording_overlay_active() {
         return;
     }
-    AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
-    if let Some(hwnd) = valid_recording_hwnd() {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
-        }
+    if let Some(session) = cancel_recording_chain() {
+        compositor_cancel_session(session);
     }
 }
 
@@ -151,13 +157,6 @@ pub fn show_recording_overlay(preset_idx: usize) {
 
     // Wait for HWND to be valid (state is 1 or 2)
     if let Some(hwnd) = hwnd {
-        // Reset Signals
-        AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst);
-        CURRENT_RMS.store(0, Ordering::Relaxed);
-
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(preset_idx), LPARAM(0));
         }

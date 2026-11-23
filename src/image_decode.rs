@@ -2,43 +2,17 @@
 
 use anyhow::{Context as _, Result, bail};
 use image::{DynamicImage, ImageEncoder as _, RgbaImage};
-use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory,
     WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom, WICDecodeMetadataCacheOnDemand,
 };
-use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
-};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance};
 
-const MAX_ENCODED_BYTES: usize = 256 * 1024 * 1024;
-const MAX_AXIS: u32 = 32_768;
-const MAX_PIXELS: u64 = 100_000_000;
+use crate::com_scope::ComScope;
 
-struct ComScope(bool);
-
-impl ComScope {
-    fn enter() -> Result<Self> {
-        let status = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        if status.is_ok() {
-            Ok(Self(true))
-        } else if status == RPC_E_CHANGED_MODE {
-            // The thread already owns another COM apartment. WIC is apartment
-            // agile, and this call did not acquire an uninitialization lease.
-            Ok(Self(false))
-        } else {
-            Err(windows::core::Error::from_hresult(status).into())
-        }
-    }
-}
-
-impl Drop for ComScope {
-    fn drop(&mut self) {
-        if self.0 {
-            unsafe { CoUninitialize() };
-        }
-    }
-}
+pub(crate) const MAX_ENCODED_BYTES: usize = 256 * 1024 * 1024;
+pub(crate) const MAX_AXIS: u32 = 32_768;
+pub(crate) const MAX_PIXELS: u64 = 100_000_000;
 
 /// Decode a still image. Rust decoders keep common PNG/JPEG/WebP input fast;
 /// Windows Imaging Component supplies broad installed-format coverage without
@@ -77,7 +51,7 @@ pub fn load_for_pipeline(bytes: Vec<u8>) -> Result<(RgbaImage, Vec<u8>)> {
     Ok((rgba, png))
 }
 
-fn validate_dimensions(width: u32, height: u32) -> Result<()> {
+pub(crate) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
     let pixels = u64::from(width).saturating_mul(u64::from(height));
     if width == 0 || height == 0 || width > MAX_AXIS || height > MAX_AXIS || pixels > MAX_PIXELS {
         bail!("image dimensions {width}x{height} exceed the decode limits");
@@ -86,7 +60,7 @@ fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 }
 
 fn decode_with_wic(bytes: &[u8]) -> Result<DynamicImage> {
-    let _com = ComScope::enter()?;
+    let _com = ComScope::enter(COINIT_MULTITHREADED)?;
     let factory: IWICImagingFactory =
         unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER) }?;
     let stream = unsafe { factory.CreateStream() }?;

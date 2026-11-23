@@ -72,10 +72,7 @@ pub(in crate::overlay::computer_control::uia_task) fn screen_to_view_norm(
     sx: i32,
     sy: i32,
 ) -> (f64, f64) {
-    (
-        (sx - view.x) as f64 / view.w.max(1) as f64 * 1000.0,
-        (sy - view.y) as f64 / view.h.max(1) as f64 * 1000.0,
-    )
+    view.screen_to_norm(sx, sy)
 }
 
 pub(in crate::overlay::computer_control::uia_task) fn point_screen(
@@ -158,6 +155,18 @@ pub(in crate::overlay::computer_control::uia_task) fn guarded_direct_input_args(
     guarded_keyboard_args(args, target, source)
 }
 
+pub(in crate::overlay::computer_control::uia_task) fn guarded_artifact_paste_args(
+    args: Value,
+    target: Option<&str>,
+    source: Option<&FrameSource>,
+    refocus_required: bool,
+) -> Result<Value> {
+    if refocus_required {
+        anyhow::bail!("keyboard target requires a successful focus before pasting");
+    }
+    guarded_input_args(args, target, source)
+}
+
 fn guarded_keyboard_args(
     mut args: Value,
     pinned_target: Option<&str>,
@@ -227,5 +236,15 @@ mod tests {
         let source = FrameSource::native(1, (11, 12, 13));
         ensure_keyboard_window(&source, (11, 12)).unwrap();
         assert!(ensure_keyboard_window(&source, (11, 99)).is_err());
+    }
+
+    #[test]
+    fn artifact_paste_requires_an_observed_surface_and_no_failed_refocus() {
+        let source = FrameSource::native(1, (11, 12, 13));
+        assert!(guarded_artifact_paste_args(json!({"id":"a"}), None, None, false).is_err());
+        assert!(guarded_artifact_paste_args(json!({"id":"a"}), None, Some(&source), true).is_err());
+        let guarded =
+            guarded_artifact_paste_args(json!({"id":"a"}), None, Some(&source), false).unwrap();
+        assert_eq!(guarded["expected_input_target"], source.input_guard());
     }
 }

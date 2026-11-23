@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "target_language": "Korean",
+  "target_language_code": "ko",
+  "cases": [
+    {"model_id":"google-gemini-3-5-live-translate-audio","gemini_input_stream":false,"translate_to_selected_language":true},
+    {"model_id":"google-gemini-3-5-live-translate-transcribe-audio","gemini_input_stream":true,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-3-5-transcribe-live-audio","gemini_input_stream":true,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-2-5-live-transcribe-audio","gemini_input_stream":true,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-3-1-live-transcribe-audio","gemini_input_stream":true,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-3-8-live-transcribe-audio","gemini_input_stream":true,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-2-5-live-custom-audio","gemini_input_stream":false,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-3-1-live-custom-audio","gemini_input_stream":false,"translate_to_selected_language":false},
+    {"model_id":"google-gemini-3-8-live-custom-audio","gemini_input_stream":false,"translate_to_selected_language":false},
+    {"model_id":"groq-whisper-large-v3-audio","gemini_input_stream":false,"translate_to_selected_language":false}
+  ]
+}

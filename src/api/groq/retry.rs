@@ -26,7 +26,15 @@ pub(crate) fn groq_rate_limit_retry_delay(
 }
 
 pub(crate) fn wait_for_groq_retry(seconds: u64, cancel_token: &Option<Arc<AtomicBool>>) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(seconds);
+    wait_unless_cancelled(Duration::from_secs(seconds), cancel_token)
+}
+
+/// Waits for `duration`; returns false as soon as the request is cancelled.
+pub(crate) fn wait_unless_cancelled(
+    duration: Duration,
+    cancel_token: &Option<Arc<AtomicBool>>,
+) -> bool {
+    let deadline = Instant::now() + duration;
     loop {
         if cancel_token
             .as_ref()

@@ -1,8 +1,8 @@
 //! Durable, immutable source ownership for accepted creation dispatches.
 
+use crate::overlay::store_support::{now_ms, valid_identifier};
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use super::creation_source::{InspectedImage, SourceDescriptor};
 mod presentation;
 mod storage;
 mod sweep;
-pub(crate) use presentation::{presentation_path, presentation_paths};
+pub(crate) use presentation::presentation_path;
 use storage::*;
 pub(crate) use sweep::{sweep, sweep_pressure};
 
@@ -23,8 +23,6 @@ const MAX_MANIFEST_BYTES: u64 = 128 * 1024;
 const MAX_SOURCES: usize = 20;
 const MAX_OWNER_IDS: usize = 8;
 const ORPHAN_GRACE_MS: u64 = 60 * 60 * 1_000;
-
-static SNAPSHOT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,12 +89,13 @@ pub(crate) fn prepare(
     sources: &[InspectedImage],
 ) -> Result<SnapshotAssignment, String> {
     if !matches!(product, "3d" | "svg" | "image")
-        || !valid_id(dispatch_id)
+        || !valid_identifier(dispatch_id)
         || sources.is_empty()
         || sources.len() > MAX_SOURCES
     {
         return Err("Creation source assignment is invalid.".to_string());
     }
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     let root = snapshot_root()?;
     let directory = root.join(dispatch_id);
     std::fs::create_dir(&directory)
@@ -210,7 +209,7 @@ pub(crate) fn claim_intent(
     descriptors: &[SourceDescriptor],
     dispatch_id: &str,
 ) -> Result<(), String> {
-    if !valid_id(dispatch_id) {
+    if !valid_identifier(dispatch_id) {
         return Err("Creation source ownership is invalid.".to_string());
     }
     mutate_manifest(descriptors, |manifest| {
@@ -234,7 +233,10 @@ pub(crate) fn retain_continuation(
     continuation_id: &str,
     expires_at_ms: u64,
 ) -> Result<(), String> {
-    if !valid_id(dispatch_id) || !valid_id(continuation_id) || expires_at_ms <= now_ms() {
+    if !valid_identifier(dispatch_id)
+        || !valid_identifier(continuation_id)
+        || expires_at_ms <= now_ms()
+    {
         return Err("Creation continuation is invalid.".to_string());
     }
     mutate_manifest(descriptors, |manifest| {
@@ -333,9 +335,7 @@ pub(crate) fn release_for_cleared_intent(intent: &super::creation_intent_journal
 }
 
 fn release_intent(descriptors: &[SourceDescriptor], dispatch_id: &str) -> Result<(), String> {
-    let _guard = SNAPSHOT_LOCK
-        .lock()
-        .map_err(|_| "Creation source ownership is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     let root = snapshot_root()?;
     let snapshot_id = snapshot_id_from_descriptors(&root, descriptors)?;
     let directory = validate_snapshot_directory(&root, &snapshot_id)?;
@@ -357,9 +357,7 @@ fn release_intent(descriptors: &[SourceDescriptor], dispatch_id: &str) -> Result
 }
 
 fn cleanup_if_unowned(descriptors: &[SourceDescriptor]) -> Result<(), String> {
-    let _guard = SNAPSHOT_LOCK
-        .lock()
-        .map_err(|_| "Creation source ownership is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     let root = snapshot_root()?;
     let snapshot_id = snapshot_id_from_descriptors(&root, descriptors)?;
     let directory = validate_snapshot_directory(&root, &snapshot_id)?;
@@ -376,9 +374,7 @@ fn mutate_manifest(
     descriptors: &[SourceDescriptor],
     mutate: impl FnOnce(&mut SnapshotManifest) -> Result<(), String>,
 ) -> Result<(), String> {
-    let _guard = SNAPSHOT_LOCK
-        .lock()
-        .map_err(|_| "Creation source ownership is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     let root = snapshot_root()?;
     let snapshot_id = snapshot_id_from_descriptors(&root, descriptors)?;
     let directory = validate_snapshot_directory(&root, &snapshot_id)?;
@@ -416,7 +412,7 @@ fn snapshot_id_from_descriptors(
     let id = parent
         .file_name()
         .and_then(|value| value.to_str())
-        .filter(|value| valid_id(value))
+        .filter(|value| valid_identifier(value))
         .ok_or_else(|| "Creation source assignment is invalid.".to_string())?;
     Ok(id.to_string())
 }
@@ -424,12 +420,15 @@ fn snapshot_id_from_descriptors(
 fn validate_manifest(root: &Path, manifest: &SnapshotManifest) -> Result<(), String> {
     if manifest.version != VERSION
         || !matches!(manifest.product.as_str(), "3d" | "svg" | "image")
-        || !valid_id(&manifest.snapshot_id)
+        || !valid_identifier(&manifest.snapshot_id)
         || manifest.created_at_ms == 0
         || manifest.intent_owners.len() > MAX_OWNER_IDS
-        || manifest.intent_owners.iter().any(|owner| !valid_id(owner))
+        || manifest
+            .intent_owners
+            .iter()
+            .any(|owner| !valid_identifier(owner))
         || manifest.continuation.as_ref().is_some_and(|owner| {
-            !valid_id(&owner.id) || owner.expires_at_ms <= manifest.created_at_ms
+            !valid_identifier(&owner.id) || owner.expires_at_ms <= manifest.created_at_ms
         })
         || manifest.entries.is_empty()
         || manifest.entries.len() > MAX_SOURCES
@@ -482,23 +481,6 @@ fn validate_manifest(root: &Path, manifest: &SnapshotManifest) -> Result<(), Str
         }
     }
     Ok(())
-}
-
-fn valid_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 160
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

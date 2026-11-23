@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"duplicate_names_in_scan","existing":[],"scanned":["alpha/beta","alpha/beta"],"added":["alpha/beta"],"ids":["custom-ollama-alpha-beta"]},
+    {"name":"colliding_slugs_in_scan","existing":[],"scanned":["alpha/beta","alpha:beta"],"added":["alpha/beta","alpha:beta"],"ids":["custom-ollama-alpha-beta","custom-ollama-alpha-beta-2"]},
+    {"name":"existing_id_and_name","existing":["alpha/beta"],"scanned":["alpha/beta","alpha:beta"],"added":["alpha:beta"],"ids":["custom-ollama-alpha-beta-2"]}
+  ]
+}

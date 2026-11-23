@@ -146,54 +146,51 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
         .and_then(crate::overlay::shell_policy::prepare)
         .unwrap_or_default();
 
-        {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            states.insert(
-                hwnd.0 as isize,
-                WindowState {
-                    presentation: ResultPresentation::Standard,
-                    control_options: None,
-                    backdrop_data_url: None,
-                    foreground_color: None,
-                    preferred_font_size: None,
-                    source_vertical: false,
-                    source_regions: Vec::new(),
-                    source_segments: Vec::new(),
-                    copy_success: false,
-                    refine_session: super::refine_session::RefineSession::restored(
-                        start_editing,
-                        String::new(),
-                    ),
-                    context_data: context,
-                    full_text: initial_text.clone(),
-                    text_history: Vec::new(),
-                    redo_history: Vec::new(),
-                    is_refining: false,
-                    is_streaming_active: streaming_enabled,
-                    model_id,
-                    model_name,
-                    provider,
-                    streaming_enabled,
-                    bg_color: custom_bg_color,
-                    linked_windows: Vec::new(),
-                    preset_prompt,
-                    input_text: String::new(),
-                    cancellation_token: None,
-                    chain_id: None,
-                    latency_trace_id: latency_trace_id.clone(),
-                    is_browsing: false,
-                    is_navigation_loading: false,
-                    navigation_depth: 0,
-                    max_navigation_depth: 0,
-                    tts_request_id: 0,
-                    tts_loading: false,
-                    opacity_percent: favorite_overlay_opacity,
-                    preset_id: preset_id.clone(),
-                    is_chain_root,
-                    onboarding_pulse_claimed: false,
-                    onboarding_pulse_token: 0,
-                },
-            );
+        if !publish_window_state(hwnd, || WindowState {
+            presentation: ResultPresentation::Standard,
+            control_options: None,
+            backdrop_data_url: None,
+            foreground_color: None,
+            preferred_font_size: None,
+            source_vertical: false,
+            source_regions: Vec::new(),
+            source_segments: Vec::new(),
+            copy_success: false,
+            refine_session: super::refine_session::RefineSession::restored(
+                start_editing,
+                String::new(),
+            ),
+            context_data: context,
+            full_text: initial_text.clone(),
+            text_history: Vec::new(),
+            redo_history: Vec::new(),
+            is_refining: false,
+            is_streaming_active: streaming_enabled,
+            model_id,
+            model_name,
+            provider,
+            streaming_enabled,
+            bg_color: custom_bg_color,
+            linked_windows: Vec::new(),
+            preset_prompt,
+            input_text: String::new(),
+            cancellation_token: None,
+            refine_cancel_token: None,
+            chain_id: None,
+            latency_trace_id: latency_trace_id.clone(),
+            is_browsing: false,
+            is_navigation_loading: false,
+            navigation_depth: 0,
+            max_navigation_depth: 0,
+            tts_request_id: 0,
+            tts_loading: false,
+            opacity_percent: favorite_overlay_opacity,
+            preset_id: preset_id.clone(),
+            is_chain_root,
+            onboarding_pulse_claimed: false,
+            onboarding_pulse_token: 0,
+        }) {
+            return hwnd;
         }
         if let Some(trace_id) = latency_trace_id.as_deref() {
             super::latency::mark(trace_id, "window_created");
@@ -207,7 +204,21 @@ pub(crate) fn create_result_window_shell(params: ResultWindowParams) -> HWND {
     }
 }
 
+fn publish_window_state(hwnd: HWND, build: impl FnOnce() -> WindowState) -> bool {
+    if hwnd.is_invalid() {
+        return false;
+    }
+    WINDOW_STATES
+        .lock()
+        .unwrap()
+        .insert(hwnd.0 as isize, build());
+    true
+}
+
 pub(crate) fn initialize_result_window(hwnd: HWND) {
+    if hwnd.is_invalid() {
+        return;
+    }
     super::scene_compositor::register_window(hwnd);
     super::raw_webview::request_sync(hwnd);
 }
@@ -235,6 +246,9 @@ pub(crate) fn create_deferred_result_window_shell(
     chain_id: String,
 ) -> HWND {
     let hwnd = create_result_window_shell(params);
+    if hwnd.is_invalid() {
+        return hwnd;
+    }
     if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&(hwnd.0 as isize)) {
         state.chain_id = Some(chain_id);
     }
@@ -297,7 +311,6 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         state.full_text = text.to_string();
     }
     super::scene_compositor::queue_window_sync(hwnd);
-    super::raw_webview::request_sync(hwnd);
 }
 
 #[cfg(test)]
@@ -305,18 +318,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_native_creation_does_not_publish_window_state() {
+        assert!(!publish_window_state(HWND::default(), || {
+            panic!("failed creation must not construct or publish state")
+        }));
+    }
+
+    #[test]
     fn result_window_stays_hidden_until_the_caller_shows_it() {
         let (_, style) = result_window_styles();
 
         assert_eq!(style.0 & WS_VISIBLE.0, 0);
-    }
-
-    #[test]
-    fn streaming_updates_use_the_native_coalescing_scheduler() {
-        let source = include_str!("window.rs");
-        let event_handler = include_str!("event_handler/mod.rs");
-        assert!(source.contains("scene_compositor::queue_window_sync(hwnd)"));
-        assert!(!event_handler.contains("WM_TIMER =>"));
     }
 
     #[test]

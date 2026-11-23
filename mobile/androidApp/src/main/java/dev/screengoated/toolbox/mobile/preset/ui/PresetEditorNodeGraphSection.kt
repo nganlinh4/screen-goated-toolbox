@@ -73,31 +73,14 @@ import dev.screengoated.toolbox.mobile.shared.preset.Preset
 import dev.screengoated.toolbox.mobile.shared.preset.PresetType
 
 internal fun graphToPreset(graphState: NodeGraphState, currentPreset: Preset): Preset {
+    if (!currentPreset.graphIsEditable()) return currentPreset
     if (graphState.nodes.isEmpty()) {
-        return currentPreset.copy(blocks = emptyList(), blockConnections = emptyList())
+        return currentPreset.copy(blocks = emptyList(), blockConnections = emptyList(), graphExplicit = true)
     }
 
-    val adjacency = mutableMapOf<String, MutableList<String>>()
-    graphState.nodes.forEach { adjacency[it.id] = mutableListOf() }
-    graphState.connections.forEach { c -> adjacency[c.fromNodeId]?.add(c.toNodeId) }
-
-    val hasIncoming = graphState.connections.map { it.toNodeId }.toSet()
-    val roots = graphState.nodes.filter { it.id !in hasIncoming }.map { it.id }
-        .ifEmpty { listOf(graphState.nodes.first().id) }
-
-    val visited = mutableSetOf<String>()
-    val ordered = mutableListOf<NodePosition>()
-    val queue = ArrayDeque<String>()
-    roots.forEach { queue.add(it); visited.add(it) }
-    while (queue.isNotEmpty()) {
-        val cur = queue.removeFirst()
-        val node = graphState.nodes.find { it.id == cur } ?: continue
-        ordered.add(node)
-        adjacency[cur]?.forEach { neighbor ->
-            if (neighbor !in visited) { visited.add(neighbor); queue.add(neighbor) }
-        }
-    }
-    graphState.nodes.filter { it.id !in visited }.forEach { ordered.add(it) }
+    val root = graphState.nodes.firstOrNull { it.block.blockType == BlockType.INPUT_ADAPTER }
+        ?: graphState.nodes.first()
+    val ordered = listOf(root) + graphState.nodes.filter { it.id != root.id }
 
     val idToIdx = ordered.mapIndexed { idx, n -> n.id to idx }.toMap()
     val blocks = ordered.map { it.block }
@@ -106,19 +89,10 @@ internal fun graphToPreset(graphState: NodeGraphState, currentPreset: Preset): P
         val toIdx = idToIdx[c.toNodeId] ?: return@mapNotNull null
         fromIdx to toIdx
     }
-    return currentPreset.copy(blocks = blocks, blockConnections = connections)
+    return currentPreset.copy(blocks = blocks, blockConnections = connections, graphExplicit = true)
 }
 
-@Composable
-internal fun NodeGraphSection(
-    editState: Preset,
-    lang: String,
-    onUpdate: (Preset) -> Unit,
-    resetCounter: Int = 0,
-    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
-        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
-) {
-    var graphState by remember(editState.id, resetCounter) {
+internal fun presetToGraphState(editState: Preset): NodeGraphState {
         // Build node list from blocks, auto-inserting an Input node if none exists
         // (mirrors Windows blocks_to_snarl behavior)
         val hasInput = editState.blocks.any { it.blockType == BlockType.INPUT_ADAPTER }
@@ -130,11 +104,12 @@ internal fun NodeGraphSection(
 
         val seenIds = mutableSetOf<String>()
         val nodes = rawBlocks.mapIndexed { idx, block ->
-            var nodeId = block.id.ifBlank { "block_$idx" }
-            if (nodeId in seenIds) {
-                nodeId = "${nodeId}_$idx"
+            val baseId = block.id.ifBlank { "block_$idx" }
+            var nodeId = baseId
+            var suffix = 0
+            while (!seenIds.add(nodeId)) {
+                nodeId = "${baseId}_${idx}_${suffix++}"
             }
-            seenIds.add(nodeId)
             NodePosition(
                 id = nodeId,
                 x = 0f,
@@ -159,7 +134,7 @@ internal fun NodeGraphSection(
             } else {
                 mapped
             }
-        } else {
+        } else if (!editState.graphExplicit) {
             // No explicit connections — create linear chain through ALL nodes
             // (input adapter → block0 → block1 → ...)
             (0 until nodes.lastIndex).mapNotNull { i ->
@@ -167,9 +142,40 @@ internal fun NodeGraphSection(
                 val toId = nodes[i + 1].id
                 Connection(fromId, toId)
             }
+        } else if (!hasInput && nodes.size >= 2) {
+            listOf(Connection(nodes[0].id, nodes[1].id))
+        } else {
+            emptyList()
         }
 
-        mutableStateOf(NodeGraphState(nodes, connections))
+        return NodeGraphState(nodes, connections)
+}
+
+@Composable
+internal fun NodeGraphSection(
+    editState: Preset,
+    lang: String,
+    onUpdate: (Preset) -> Boolean,
+    resetCounter: Int = 0,
+    providerSettings: dev.screengoated.toolbox.mobile.preset.PresetProviderSettings =
+        dev.screengoated.toolbox.mobile.preset.PresetProviderSettings(),
+) {
+    if (!editState.graphIsEditable()) {
+        SectionCard {
+            Text(
+                localized(
+                    lang,
+                    "This graph contains connections the editor cannot represent. The graph is read-only; other settings remain editable.",
+                    "Biểu đồ có kết nối mà trình chỉnh sửa không hỗ trợ. Biểu đồ chỉ có thể xem; các cài đặt khác vẫn chỉnh sửa được.",
+                    "편집기에서 표현할 수 없는 연결이 있습니다. 그래프는 읽기 전용이며 다른 설정은 변경할 수 있습니다.",
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
+    var graphState by remember(editState.id, resetCounter) {
+        mutableStateOf(presetToGraphState(editState))
     }
 
     var selectedNodeId by remember { mutableStateOf<String?>(null) }
@@ -177,11 +183,22 @@ internal fun NodeGraphSection(
 
     // Prompt edit dialog state
     var editingPromptNodeId by remember { mutableStateOf<String?>(null) }
-    var editingPromptText by remember { mutableStateOf("") }
+    var promptDraft by remember { mutableStateOf(PresetTextDraft("", false)) }
 
-    fun syncToPreset(newGraphState: NodeGraphState) {
-        graphState = newGraphState
-        onUpdate(graphToPreset(newGraphState, editState))
+    fun syncToPreset(newGraphState: NodeGraphState): Boolean {
+        val saved = onUpdate(graphToPreset(newGraphState, editState))
+        if (saved) graphState = newGraphState
+        return saved
+    }
+
+    fun commitPromptDraft() {
+        val nodeId = editingPromptNodeId ?: return
+        promptDraft = savePresetTextDraft(promptDraft) { text ->
+            syncToPreset(graphState.copy(nodes = graphState.nodes.map {
+                if (it.id == nodeId) it.copy(block = it.block.copy(prompt = text)) else it
+            }))
+        }
+        if (!promptDraft.isOpen) editingPromptNodeId = null
     }
 
     val editorTypeGroup = editState.presetType.editorGroup()
@@ -190,18 +207,7 @@ internal fun NodeGraphSection(
     // Prompt edit dialog
     if (editingPromptNodeId != null) {
         androidx.compose.ui.window.Dialog(
-            onDismissRequest = {
-                val nodeId = editingPromptNodeId ?: return@Dialog
-                syncToPreset(
-                    graphState.copy(
-                        nodes = graphState.nodes.map {
-                            if (it.id == nodeId) it.copy(block = it.block.copy(prompt = editingPromptText))
-                            else it
-                        },
-                    ),
-                )
-                editingPromptNodeId = null
-            },
+            onDismissRequest = { commitPromptDraft() },
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Card(
@@ -220,8 +226,8 @@ internal fun NodeGraphSection(
                         fontWeight = FontWeight.SemiBold,
                     )
                     OutlinedTextField(
-                        value = editingPromptText,
-                        onValueChange = { editingPromptText = it },
+                        value = promptDraft.text,
+                        onValueChange = { promptDraft = promptDraft.copy(text = it) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 10,
@@ -231,17 +237,14 @@ internal fun NodeGraphSection(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        FilledTonalButton(onClick = {
-                            val nodeId = editingPromptNodeId ?: return@FilledTonalButton
-                            syncToPreset(
-                                graphState.copy(
-                                    nodes = graphState.nodes.map {
-                                        if (it.id == nodeId) it.copy(block = it.block.copy(prompt = editingPromptText))
-                                        else it
-                                    },
-                                ),
-                            )
+                        androidx.compose.material3.TextButton(onClick = {
+                            promptDraft = promptDraft.copy(isOpen = false)
                             editingPromptNodeId = null
+                        }) {
+                            Text(localized(lang, "Cancel", "Hủy", "취소"))
+                        }
+                        FilledTonalButton(onClick = {
+                            commitPromptDraft()
                         }) {
                             Text(localized(lang, "Done", "Xong", "완료"))
                         }
@@ -320,7 +323,7 @@ internal fun NodeGraphSection(
                         onConnectionAdded = { fromId, toId ->
                             syncToPreset(
                                 graphState.copy(
-                                    connections = graphState.connections + Connection(fromId, toId),
+                                    connections = replaceIncomingConnection(graphState.connections, fromId, toId),
                                 ),
                             )
                         },
@@ -359,8 +362,10 @@ internal fun NodeGraphSection(
                         onPromptEditRequest = { nodeId, _ ->
                             editingPromptNodeId = nodeId
                             // Read prompt from CURRENT graphState, not the stale callback param
-                            editingPromptText = graphState.nodes
-                                .find { it.id == nodeId }?.block?.prompt.orEmpty()
+                            promptDraft = PresetTextDraft(
+                                graphState.nodes.find { it.id == nodeId }?.block?.prompt.orEmpty(),
+                                true,
+                            )
                         },
                         modifier = Modifier.fillMaxSize(),
                         lang = lang,

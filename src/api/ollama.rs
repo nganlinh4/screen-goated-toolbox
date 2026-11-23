@@ -1,13 +1,12 @@
 //! Ollama API Integration
 //! Supports local LLM inference with vision and text models
 
-use super::client::UREQ_AGENT;
+use super::client::{UREQ_AGENT, UREQ_STREAM_AGENT};
 use crate::gui::locale::LocaleText;
-use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose};
-use image::{ImageBuffer, Rgba};
+use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
-use std::io::{BufRead, BufReader, Cursor};
+use std::io::{BufRead, BufReader};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Ollama streaming chunk response
 #[derive(Deserialize, Debug)]
@@ -18,6 +17,8 @@ pub struct OllamaStreamChunk {
     pub thinking: Option<String>,
     #[serde(default)]
     pub done: bool,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Ollama non-streaming response
@@ -69,12 +70,12 @@ pub fn fetch_ollama_models(base_url: &str) -> Result<Vec<OllamaModel>> {
     let resp = UREQ_AGENT
         .get(&url)
         .call()
-        .map_err(|e| anyhow::anyhow!("Failed to connect to Ollama: {}", e))?;
+        .map_err(|e| anyhow!("Failed to connect to Ollama: {}", e))?;
 
     let tags: OllamaTagsResponse = resp
         .into_body()
         .read_json()
-        .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
+        .map_err(|e| anyhow!("Failed to parse Ollama response: {}", e))?;
 
     Ok(tags.models)
 }
@@ -165,18 +166,133 @@ pub fn fetch_ollama_models_with_caps(base_url: &str) -> Result<Vec<OllamaModelWi
     Ok(result)
 }
 
-/// Generate text with Ollama (text-only, no image)
-pub fn ollama_generate_text<F>(
+fn ensure_active(cancel_token: Option<&AtomicBool>) -> Result<()> {
+    if cancel_token.is_some_and(|token| token.load(Ordering::SeqCst)) {
+        bail!("Ollama request cancelled");
+    }
+    Ok(())
+}
+
+/// Local models on a CPU can take minutes to load and generate, so a stream is
+/// bounded by its idle deadlines rather than the unary end-to-end cap.
+fn generate_agent(streaming: bool) -> &'static ureq::Agent {
+    if streaming {
+        &UREQ_STREAM_AGENT
+    } else {
+        &UREQ_AGENT
+    }
+}
+
+fn read_generate_response<F>(
+    resp: ureq::http::Response<ureq::Body>,
+    streaming: bool,
+    ui_language: &str,
+    cancel_token: Option<&AtomicBool>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    let full_content = if streaming {
+        read_generate_stream(
+            BufReader::new(resp.into_body().into_reader()),
+            ui_language,
+            cancel_token,
+            on_chunk,
+        )?
+    } else {
+        let ollama_resp: OllamaGenerateResponse = resp
+            .into_body()
+            .read_json()
+            .map_err(|e| anyhow!("Failed to parse Ollama response: {}", e))?;
+        ensure_active(cancel_token)?;
+        on_chunk(&ollama_resp.response);
+        ollama_resp.response
+    };
+    ensure_active(cancel_token)?;
+    Ok(full_content)
+}
+
+/// Reads Ollama's NDJSON generate stream. Only a stream that reaches `done`
+/// succeeds; an `error` line, an undecodable line or an early end is a
+/// provider failure so the retry chain can fall back instead of keeping a
+/// partial answer.
+fn read_generate_stream<F>(
+    reader: impl BufRead,
+    ui_language: &str,
+    cancel_token: Option<&AtomicBool>,
+    on_chunk: &mut F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    let locale = LocaleText::get(ui_language);
+    let mut full_content = String::new();
+    let mut thinking_shown = false;
+    let mut content_started = false;
+    for line in reader.lines() {
+        let line = line.map_err(|error| {
+            ensure_active(cancel_token)
+                .err()
+                .unwrap_or_else(|| error.into())
+        })?;
+        ensure_active(cancel_token)?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let chunk = serde_json::from_str::<OllamaStreamChunk>(&line).map_err(|error| {
+            anyhow!("PROVIDER_RESPONSE_INVALID:Malformed Ollama stream line: {error}")
+        })?;
+        if let Some(error) = chunk.error {
+            bail!("PROVIDER_RESPONSE_INVALID:Ollama error: {error}");
+        }
+        // Local reasoning tokens are generated output too, so they renew the
+        // idle window; only an empty keepalive line does not.
+        if !chunk.response.is_empty() || chunk.thinking.as_deref().is_some_and(|t| !t.is_empty()) {
+            note_output();
+        }
+        // Thinking tokens (qwen3 and similar models) show a placeholder that
+        // the first content chunk wipes.
+        if chunk
+            .thinking
+            .as_deref()
+            .is_some_and(|text| !text.is_empty())
+            && !thinking_shown
+            && !content_started
+        {
+            on_chunk(locale.global_settings.model_thinking);
+            ensure_active(cancel_token)?;
+            thinking_shown = true;
+        }
+        if !chunk.response.is_empty() {
+            full_content.push_str(&chunk.response);
+            if !content_started && thinking_shown {
+                on_chunk(&format!("{}{}", crate::api::WIPE_SIGNAL, full_content));
+            } else {
+                on_chunk(&chunk.response);
+            }
+            content_started = true;
+        }
+        if chunk.done {
+            return Ok(full_content);
+        }
+    }
+    bail!("PROVIDER_RESPONSE_INVALID:Ollama stream ended before completion")
+}
+
+pub fn ollama_generate_text_cancellable<F>(
     base_url: &str,
     model: &str,
     prompt: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: Option<&AtomicBool>,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    ensure_active(cancel_token)?;
     let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
 
     let payload = serde_json::json!({
@@ -185,169 +301,126 @@ where
         "stream": streaming_enabled
     });
 
-    let resp = UREQ_AGENT
+    let resp = generate_agent(streaming_enabled)
         .post(&url)
         .send_json(&payload)
-        .map_err(|e| anyhow::anyhow!("Ollama API Error: {}", e))?;
+        .map_err(|e| {
+            ensure_active(cancel_token)
+                .err()
+                .unwrap_or_else(|| anyhow!("Ollama API Error: {}", e))
+        })?;
+    ensure_active(cancel_token)?;
 
-    let mut full_content = String::new();
-
-    if streaming_enabled {
-        let reader = BufReader::new(resp.into_body().into_reader());
-        let mut thinking_shown = false;
-        let mut content_started = false;
-        let locale = LocaleText::get(ui_language);
-
-        for line in reader.lines() {
-            let line = line?;
-            if line.is_empty() {
-                continue;
-            }
-
-            match serde_json::from_str::<OllamaStreamChunk>(&line) {
-                Ok(chunk) => {
-                    // Handle thinking tokens (qwen3 and similar models)
-                    if let Some(thinking) = &chunk.thinking
-                        && !thinking.is_empty()
-                        && !thinking_shown
-                        && !content_started
-                    {
-                        on_chunk(locale.global_settings.model_thinking);
-                        thinking_shown = true;
-                    }
-
-                    // Handle response content
-                    if !chunk.response.is_empty() {
-                        if !content_started && thinking_shown {
-                            // Wipe thinking message on first content
-                            content_started = true;
-                            full_content.push_str(&chunk.response);
-                            let wipe_content =
-                                format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                            on_chunk(&wipe_content);
-                        } else {
-                            content_started = true;
-                            full_content.push_str(&chunk.response);
-                            on_chunk(&chunk.response);
-                        }
-                    }
-
-                    if chunk.done {
-                        break;
-                    }
-                }
-                Err(_) => continue,
-            }
-        }
-    } else {
-        let ollama_resp: OllamaGenerateResponse = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
-
-        full_content = ollama_resp.response;
-        on_chunk(&full_content);
-    }
-
-    Ok(full_content)
+    read_generate_response(
+        resp,
+        streaming_enabled,
+        ui_language,
+        cancel_token,
+        &mut on_chunk,
+    )
 }
 
-/// Generate with Ollama vision model (image + text)
-pub fn ollama_generate_vision<F>(
-    base_url: &str,
-    model: &str,
-    prompt: &str,
-    image: ImageBuffer<Rgba<u8>, Vec<u8>>,
-    streaming_enabled: bool,
-    ui_language: &str,
-    mut on_chunk: F,
+/// Renews the request's output deadline. The recorder worker has no
+/// request-scoped deadlines, so there it is a no-op.
+fn note_output() {
+    #[cfg(not(feature = "recorder-worker"))]
+    crate::api::client::first_token::received();
+}
+
+/// Text generation for a retry chain attempt.
+#[cfg(not(feature = "recorder-worker"))]
+pub struct OllamaChainTextRequest<'a> {
+    pub base_url: &'a str,
+    pub model: &'a str,
+    pub prompt: &'a str,
+    pub streaming_enabled: bool,
+    pub ui_language: &'a str,
+    pub cancel_token: &'a Option<std::sync::Arc<AtomicBool>>,
+    pub request_timeout: Option<crate::api::client::RequestTimeouts>,
+}
+
+/// Runs a streaming attempt under the chain's first-output and renewable idle
+/// deadlines, which also observe cancellation while a read is blocked, so a
+/// stalled or still-loading local model hands the chain back control instead
+/// of holding it for the shared agent's two-minute limits.
+#[cfg(not(feature = "recorder-worker"))]
+pub fn ollama_generate_text_in_chain<F>(
+    request: OllamaChainTextRequest<'_>,
+    on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
-    let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
-
-    // Encode image as base64 PNG
-    let mut image_data = Vec::new();
-    image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
-    let b64_image = general_purpose::STANDARD.encode(&image_data);
-
-    let payload = serde_json::json!({
-        "model": model,
-        "prompt": prompt,
-        "images": [b64_image],
-        "stream": streaming_enabled
-    });
-
-    let resp = UREQ_AGENT
-        .post(&url)
-        .send_json(&payload)
-        .map_err(|e| anyhow::anyhow!("Ollama Vision API Error: {}", e))?;
-
-    let mut full_content = String::new();
-
-    if streaming_enabled {
-        let reader = BufReader::new(resp.into_body().into_reader());
-        let mut thinking_shown = false;
-        let mut content_started = false;
-        let locale = LocaleText::get(ui_language);
-
-        for line in reader.lines() {
-            let line = line?;
-            if line.is_empty() {
-                continue;
-            }
-
-            match serde_json::from_str::<OllamaStreamChunk>(&line) {
-                Ok(chunk) => {
-                    // Handle thinking tokens
-                    if let Some(thinking) = &chunk.thinking
-                        && !thinking.is_empty()
-                        && !thinking_shown
-                        && !content_started
-                    {
-                        on_chunk(locale.global_settings.model_thinking);
-                        thinking_shown = true;
-                    }
-
-                    // Handle response content
-                    if !chunk.response.is_empty() {
-                        if !content_started && thinking_shown {
-                            content_started = true;
-                            full_content.push_str(&chunk.response);
-                            let wipe_content =
-                                format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
-                            on_chunk(&wipe_content);
-                        } else {
-                            content_started = true;
-                            full_content.push_str(&chunk.response);
-                            on_chunk(&chunk.response);
-                        }
-                    }
-
-                    if chunk.done {
-                        break;
-                    }
-                }
-                Err(_) => continue,
-            }
-        }
-    } else {
-        let ollama_resp: OllamaGenerateResponse = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
-
-        full_content = ollama_resp.response;
-        on_chunk(&full_content);
-    }
-
-    Ok(full_content)
+    let _deadline = crate::api::client::first_token::FirstTokenGuard::new(
+        request.streaming_enabled,
+        request.request_timeout,
+        request.cancel_token,
+    );
+    ollama_generate_text_cancellable(
+        request.base_url,
+        request.model,
+        request.prompt,
+        request.streaming_enabled,
+        request.ui_language,
+        request.cancel_token.as_deref(),
+        on_chunk,
+    )
 }
+
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "ollama_vision.rs"]
+mod vision;
+#[cfg(not(feature = "recorder-worker"))]
+pub use vision::{OllamaVisionRequest, ollama_generate_vision};
 
 #[cfg(test)]
 mod tests {
-    use super::ollama_model_has_vision;
+    use super::{ollama_model_has_vision, read_generate_stream};
+
+    fn read(body: &str) -> (anyhow::Result<String>, Vec<String>) {
+        let mut chunks = Vec::new();
+        let result = read_generate_stream(body.as_bytes(), "en", None, &mut |chunk: &str| {
+            chunks.push(chunk.to_string())
+        });
+        (result, chunks)
+    }
+
+    #[test]
+    fn completed_stream_returns_the_whole_answer() {
+        let (result, chunks) = read(concat!(
+            r#"{"response":"Hel"}"#,
+            "\n\n",
+            r#"{"response":"lo","done":true}"#,
+            "\n"
+        ));
+        assert_eq!(result.unwrap(), "Hello");
+        assert_eq!(chunks, ["Hel", "lo"]);
+    }
+
+    #[test]
+    fn error_lines_and_unfinished_streams_are_provider_failures() {
+        for body in [
+            concat!(
+                r#"{"response":"partial"}"#,
+                "\n",
+                r#"{"error":"model requires more system memory"}"#,
+                "\n"
+            ),
+            concat!(r#"{"response":"partial"}"#, "\n"),
+            concat!(
+                r#"{"response":"partial"}"#,
+                "\nnot json\n",
+                r#"{"done":true}"#,
+                "\n"
+            ),
+        ] {
+            let error = read(body).0.unwrap_err().to_string();
+            assert!(
+                error.starts_with("PROVIDER_RESPONSE_INVALID:"),
+                "{body}: {error}"
+            );
+        }
+    }
 
     #[test]
     fn detects_vision_from_families() {
@@ -379,3 +452,10 @@ mod tests {
         assert!(!ollama_model_has_vision("llama3.2:latest", &[], ""));
     }
 }
+
+#[cfg(test)]
+#[path = "ollama_cancellation_tests.rs"]
+mod cancellation_tests;
+#[cfg(all(test, not(feature = "recorder-worker")))]
+#[path = "ollama_chain_deadline_tests.rs"]
+mod chain_deadline_tests;

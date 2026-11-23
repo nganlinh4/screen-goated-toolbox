@@ -4,8 +4,6 @@ use super::super::server_frame::LiveServerFrame;
 pub enum LiveSessionKind {
     FiniteRequest,
     ContinuousStream,
-    SegmentedStream,
-    AgentSession,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -45,24 +43,6 @@ pub struct LiveLifecyclePolicy {
 }
 
 impl LiveLifecyclePolicy {
-    pub fn finite() -> Self {
-        Self {
-            kind: LiveSessionKind::FiniteRequest,
-            setup_timeout_ms: 15_000,
-            first_response_timeout_ms: Some(20_000),
-            content_idle_ms: Some(1_200),
-            hard_response_timeout_ms: Some(90_000),
-            server_idle_timeout_ms: None,
-            server_idle_min_input_chunks: 0,
-            rotate_after_ms: None,
-            rotation_quiet_ms: 0,
-            reconnect_enabled: false,
-            max_reconnect_attempts: None,
-            complete_on_turn: true,
-            complete_on_generation: true,
-        }
-    }
-
     pub fn continuous() -> Self {
         Self {
             kind: LiveSessionKind::ContinuousStream,
@@ -78,16 +58,6 @@ impl LiveLifecyclePolicy {
             max_reconnect_attempts: None,
             complete_on_turn: true,
             complete_on_generation: true,
-        }
-    }
-
-    pub fn agent() -> Self {
-        Self {
-            kind: LiveSessionKind::AgentSession,
-            max_reconnect_attempts: Some(6),
-            rotate_after_ms: None,
-            server_idle_timeout_ms: None,
-            ..Self::continuous()
         }
     }
 
@@ -141,7 +111,7 @@ impl LiveBackoffPolicy {
     }
 }
 
-pub(super) const CROSS_PLATFORM_MAX: u64 = i64::MAX as u64;
+pub(super) const CROSS_PLATFORM_MAX: u64 = super::super::response_deadlines::CLOCK_MAX;
 pub(super) const CROSS_PLATFORM_ATTEMPT_MAX: u32 = i32::MAX as u32;
 
 pub(super) fn cross_platform_clamp(value: u64) -> u64 {
@@ -149,9 +119,7 @@ pub(super) fn cross_platform_clamp(value: u64) -> u64 {
 }
 
 pub(super) fn cross_platform_add(left: u64, right: u64) -> u64 {
-    cross_platform_clamp(left)
-        .saturating_add(cross_platform_clamp(right))
-        .min(CROSS_PLATFORM_MAX)
+    super::super::response_deadlines::clock_add(left, right)
 }
 
 fn cross_platform_multiply(left: u64, right: u64) -> u64 {

@@ -83,6 +83,12 @@ pub struct ModelPriorityChains {
     pub image_to_text: Vec<String>,
     #[serde(default = "default_text_to_text_priority_chain")]
     pub text_to_text: Vec<String>,
+    #[cfg(not(feature = "recorder-worker"))]
+    #[serde(default)]
+    pub image_chosen_after: usize,
+    #[cfg(not(feature = "recorder-worker"))]
+    #[serde(default)]
+    pub text_chosen_after: usize,
 }
 
 impl Default for ModelPriorityChains {
@@ -90,6 +96,10 @@ impl Default for ModelPriorityChains {
         Self {
             image_to_text: default_image_to_text_priority_chain(),
             text_to_text: default_text_to_text_priority_chain(),
+            #[cfg(not(feature = "recorder-worker"))]
+            image_chosen_after: 0,
+            #[cfg(not(feature = "recorder-worker"))]
+            text_chosen_after: 0,
         }
     }
 }

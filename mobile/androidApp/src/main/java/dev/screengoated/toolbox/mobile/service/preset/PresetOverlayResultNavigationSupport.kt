@@ -19,17 +19,11 @@ internal fun PresetOverlayResultModule.handleResultPageFinishedSupport(
         restoreOriginalResultSurfaceSupport(id)
         return
     }
-    val shouldInjectHostedShell =
+    val shouldSyncNavigation =
         active.runtimeState.isRawHtml ||
             active.runtimeState.isBrowsing ||
             isExternalNavigationUrl(currentUrl)
-    if (!shouldInjectHostedShell) return
-    active.window.runScript(
-        presetHostedRawPageBootstrapScript(
-            windowId = id.wireValue(),
-            isDark = isDarkTheme(),
-        ),
-    )
+    if (!shouldSyncNavigation) return
     syncResultNavigationStateSupport(id, currentUrl)
 }
 
@@ -84,6 +78,7 @@ internal fun PresetOverlayResultModule.syncResultNavigationStateSupport(id: Pres
             copySuccess = it.copySuccess,
             disabledActions = it.disabledActions,
             isRawHtml = it.isRawHtml,
+            loadedRawHtml = it.loadedRawHtml,
         )
     }
 }
@@ -99,6 +94,8 @@ internal fun PresetOverlayResultModule.restoreOriginalResultSurfaceSupport(id: P
         onMessage = ::handleResultMessage,
         onPageFinished = ::handleResultPageFinished,
         onNavigationFailure = ::handleResultNavigationFailure,
+        isDark = isDarkTheme(),
+        uiLanguage = uiLanguage(),
     )
     val rendered = if (active.windowState.isError) {
         PresetRenderedContent(
@@ -115,13 +112,13 @@ internal fun PresetOverlayResultModule.restoreOriginalResultSurfaceSupport(id: P
             historyBaseIndex = 0,
             isBrowsing = false,
             isRawHtml = rendered.isRawHtmlDocument,
+            loadedRawHtml = rendered.html.takeIf { rendered.isRawHtmlDocument },
         ),
         window = replacementWindow,
     )
     resultWindows[id] = updated
     if (rendered.isRawHtmlDocument) {
-        replacementWindow.loadHtmlContent(rendered.html, RESULT_WINDOW_BASE_URL, clearHistoryAfterLoad = true)
-        replacementWindow.runScript("window.configureResultWindow && window.configureResultWindow(${JSONObject.quote(id.wireValue())});")
+        replacementWindow.loadHtmlContent(rendered.html, RESULT_WINDOW_BASE_URL, clearHistoryAfterLoad = true, untrustedContent = true, audioPreview = inputAudioForDownload(updated.windowState))
     } else {
         replacementWindow.loadHtmlContent(
             resultHtmlBuilder.build(PresetResultHtmlSettings(isDark = isDarkTheme())),

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { activateNarrationProject, setNarrationProjectId } from './narrationProjectOwnership';
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { cloneWebcamConfig, DEFAULT_WEBCAM_CONFIG } from "@/lib/webcam";
 import { installScreenRecordAppTestHarness } from "@/testHarness/appHarness";
@@ -56,7 +57,7 @@ export function useAppProjectHarness(args: AppProjectHarnessArgs) {
   latestArgsRef.current = args;
 
   useEffect(() => {
-    args.currentProjectIdRef.current = args.projects.currentProjectId;
+    setNarrationProjectId(args.currentProjectIdRef, args.projects.currentProjectId);
   }, [args.currentProjectIdRef, args.projects.currentProjectId]);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export function useAppProjectHarness(args: AppProjectHarnessArgs) {
       loadProject: (project) => {
         const current = latestArgsRef.current;
         current.editorHistory.withoutHistory(() => {
-          current.currentProjectIdRef.current = project.id;
+          activateNarrationProject(current.currentProjectIdRef, project.id);
           current.currentProjectDataRef.current = project;
           current.setCurrentProjectData(project);
           current.rawSetSegment(project.segment);

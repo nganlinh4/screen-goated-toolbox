@@ -75,20 +75,27 @@ function Test-PathInUse {
     param([string]$Path)
 
     $needle = [IO.Path]::GetFullPath($Path).ToLowerInvariant()
-    try {
-        $processes = Get-CimInstance Win32_Process -ErrorAction Stop
-        foreach ($process in $processes) {
-            $command = [string]$process.CommandLine
-            $executable = [string]$process.ExecutablePath
-            if ($command.ToLowerInvariant().Contains($needle) -or
-                $executable.ToLowerInvariant().StartsWith($needle)) {
-                return $true
-            }
+    # One process snapshot serves the whole run: per-file pruning asks for
+    # thousands of paths.
+    if ($null -eq $script:processSnapshot) {
+        try {
+            $script:processSnapshot = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+                ForEach-Object {
+                    [pscustomobject]@{
+                        Command = ([string]$_.CommandLine).ToLowerInvariant()
+                        Executable = ([string]$_.ExecutablePath).ToLowerInvariant()
+                    }
+                })
+        }
+        catch {
+            Write-Warning "Could not inspect process command lines; cache deletion is disabled: $_"
+            return $true
         }
     }
-    catch {
-        Write-Warning "Could not inspect process command lines; cache deletion is disabled: $_"
-        return $true
+    foreach ($process in $script:processSnapshot) {
+        if ($process.Command.Contains($needle) -or $process.Executable.StartsWith($needle)) {
+            return $true
+        }
     }
     return $false
 }
@@ -111,7 +118,15 @@ function Remove-CacheEntry {
         return $false
     }
     if ($PSCmdlet.ShouldProcess($Path, "Remove bounded SGT development cache entry")) {
-        Remove-Item -LiteralPath $Path -Recurse -Force
+        # A file can be held open without its path on any command line, such
+        # as the live log of a running dev app. Keep what is locked and go on.
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Host "KEEP (locked; removed what was free): $Path" -ForegroundColor Yellow
+            return $false
+        }
         Write-Host "REMOVED ($Reason): $Path" -ForegroundColor Green
         return $true
     }
@@ -214,6 +229,20 @@ if (Test-Path -LiteralPath $stagingRuntime) {
     })
 }
 
+# Each isolated runtime state root (the SGT_RUNTIME_STATE_ROOT of a test run)
+# is disposable once inactive. A running app does not name its state root on
+# its command line, so these leave by age only, never to meet the size cap.
+Get-ChildItem -LiteralPath $known.Runtime -Directory -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "staging" } |
+    ForEach-Object {
+        $candidates.Add([pscustomobject]@{
+            Path = $_.FullName
+            LastWriteUtc = Get-NewestWriteTime $_.FullName
+            Protected = $false
+            AgeOnly = $true
+        })
+    }
+
 $cargoRoot = Join-Path $root "cargo"
 $protectedCargoPaths = @(
     [IO.Path]::GetFullPath($known.DevCargo).TrimEnd('\')
@@ -291,6 +320,51 @@ Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue
         })
     }
 
+# Every test or clippy configuration links its own hashed executable into
+# `deps`, and each stale copy keeps a 100-300 MB program database beside it.
+# Nothing links against an executable, so all but the newest few per crate are
+# dead weight whatever their age; Cargo relinks one if it is needed again.
+$keepLinkedPerCrate = 2
+foreach ($cargoLanePath in @($known.DevCargo, $known.PackageCargo)) {
+    Get-ChildItem -LiteralPath $cargoLanePath -Directory -Filter "deps" -Recurse -Force `
+        -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Get-ChildItem -LiteralPath $_.FullName -File -Filter "*.exe" -Force `
+                -ErrorAction SilentlyContinue |
+                Where-Object { $_.BaseName -match '^(.+)-[0-9a-f]{16}$' } |
+                Group-Object { $_.BaseName -replace '-[0-9a-f]{16}$', '' } |
+                ForEach-Object {
+                    $_.Group | Sort-Object LastWriteTimeUtc -Descending |
+                        Select-Object -Skip $keepLinkedPerCrate
+                }
+        } |
+        ForEach-Object {
+            # The program database goes with its executable, and only when the
+            # executable itself is not running.
+            $database = [IO.Path]::ChangeExtension($_.FullName, ".pdb")
+            if (Remove-CacheEntry $_.FullName "superseded linked executable") {
+                Remove-CacheEntry $database "superseded linked executable" | Out-Null
+            }
+            elseif (-not $Apply -and -not (Test-PathInUse $_.FullName)) {
+                Remove-CacheEntry $database "superseded linked executable" | Out-Null
+            }
+        }
+}
+
+# rustc deletes its codegen objects once it links; an object that outlives a
+# day belongs to a build that was interrupted, and nothing ever reads it again.
+$orphanCutoff = [DateTime]::UtcNow.AddDays(-1)
+foreach ($cargoLanePath in @($known.DevCargo, $known.PackageCargo)) {
+    Get-ChildItem -LiteralPath $cargoLanePath -Directory -Filter "deps" -Recurse -Force `
+        -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Get-ChildItem -LiteralPath $_.FullName -File -Filter "*.rcgu.o" -Force `
+                -ErrorAction SilentlyContinue
+        } |
+        Where-Object { $_.LastWriteTimeUtc -lt $orphanCutoff } |
+        ForEach-Object { Remove-CacheEntry $_.FullName "orphaned codegen object" | Out-Null }
+}
+
 foreach ($candidate in $candidates | Where-Object {
     -not $_.Protected -and $_.LastWriteUtc -lt $cutoff
 } | Sort-Object LastWriteUtc) {
@@ -301,7 +375,7 @@ $limit = [int64]$MaxGiB * 1GB
 $total = Get-TreeSize $root
 if ($total -gt $limit) {
     foreach ($candidate in $candidates | Where-Object {
-        -not $_.Protected -and (Test-Path -LiteralPath $_.Path)
+        -not $_.Protected -and -not $_.AgeOnly -and (Test-Path -LiteralPath $_.Path)
     } | Sort-Object LastWriteUtc) {
         if ($total -le $limit) {
             break

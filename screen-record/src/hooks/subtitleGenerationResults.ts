@@ -1,6 +1,6 @@
 import type { Translations } from '@/i18n';
 import { localizeMessageKey } from '@/lib/statusFormat';
-import type { AudioSubtitleClipTransform } from '@/lib/subtitleGenerationPlan';
+import { audioSubtitleSourceToTimeline, type AudioSubtitleClipTransform } from '@/lib/subtitleGenerationPlan';
 import { smartSplitText, splitTimingByChunks } from '@/lib/segmentSmartSplit';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import {
@@ -217,10 +217,10 @@ export function buildInsertedSubtitle(
   return {
     id: buildSubtitleId(result.clipId, {
       ...entry,
-      startTime: entry.startTime + transform.timelineOffsetSec,
+      startTime: audioSubtitleSourceToTimeline(entry.startTime, transform),
     }, index),
-    startTime: entry.startTime + transform.timelineOffsetSec,
-    endTime: entry.endTime + transform.timelineOffsetSec,
+    startTime: audioSubtitleSourceToTimeline(entry.startTime, transform),
+    endTime: audioSubtitleSourceToTimeline(entry.endTime, transform),
     text: entry.text,
     style: subtitleStyle,
     splitGroupId: entry.splitGroupId,
@@ -228,10 +228,10 @@ export function buildInsertedSubtitle(
     splitGroupCount: entry.splitGroupCount,
     splitGroupText: entry.splitGroupText,
     splitGroupStartTime: entry.splitGroupStartTime !== undefined
-      ? entry.splitGroupStartTime + transform.timelineOffsetSec
+      ? audioSubtitleSourceToTimeline(entry.splitGroupStartTime, transform)
       : undefined,
     splitGroupEndTime: entry.splitGroupEndTime !== undefined
-      ? entry.splitGroupEndTime + transform.timelineOffsetSec
+      ? audioSubtitleSourceToTimeline(entry.splitGroupEndTime, transform)
       : undefined,
     provenance: {
       sourceKind: 'audio',

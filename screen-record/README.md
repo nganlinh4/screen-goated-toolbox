@@ -26,6 +26,12 @@ the TypeScript 7 API.
 
 Root `run-dev.ps1` builds and copies `dist/` into `src/overlay/screen_record/dist/` before running Rust.
 
+For cursor source adjustments in an independently debug-compiled worker,
+explicitly set `SGT_RECORDER_DEV_ASSET_ROOT` to the absolute repository root.
+The supported staged-host flow uses a release-profile worker, which ignores this
+setting and never reads or writes cursor assets from a source checkout. The
+setting does not select a recorder interface package.
+
 ## Validation
 
 Fast default validation runs the complete Vitest suite once and produces the
@@ -51,6 +57,10 @@ npm run test:wry
 # Timeline, renderer, history, media import, or large-project hot paths
 npm run test:perf
 ```
+
+For changes to recorder worker Rust files, check their formatting from the
+repository root with `./scripts/check-recorder-worker-format.ps1`. Host Rust
+files shared with the worker are covered by the root `cargo fmt` check.
 
 The Wry command launches an isolated test instance and exercises the real
 WebView2 shell through Playwright. It supersedes the old page-presence smoke
@@ -103,6 +113,22 @@ limit must prune its backing storage, not only the visible cards. An uploaded
 background file may be deleted only after reference-scanning the active editor,
 every retained project, and every composition clip. Recordings and exports are
 user output and are never removed by automatic retention or Downloaded Tools.
+Automatic project retention also preserves projects with media stored in
+IndexedDB; those projects can temporarily exceed the configured limit until the
+user explicitly removes them. The Projects limit slider saves only its released
+or settled value. A value below the current project count first asks the user to
+confirm deleting the named number of oldest projects (never the open one) with
+their raw media; cancelling keeps the previous limit and every project.
+
+### Subtitle recovery
+
+Completed subtitle results are retained until their project save is confirmed.
+If the project changes or the application restarts before that confirmation,
+the recorder offers an SRT export for each retained source and a separate
+confirmation before clearing the recovery. One recovery is retained at a time,
+up to 16 MiB. If recovery storage is unavailable, the result remains in the
+current window for export and a new subtitle generation is held until storage
+or recovery is resolved.
 
 ## Related guidance
 

@@ -302,8 +302,14 @@ fn native_tls_survives_read_polls_after_first_output() {
             ureq::tls::Certificate::from_pem(cert).unwrap(),
         ])))
         .build();
-    let agent =
-        super::super::token_transport::agent(ureq::Agent::config_builder().tls_config(tls).build());
+    // The server listens on IPv4 only. `localhost` can resolve to IPv6 first,
+    // making connection depend on the host's IPv6 fallback delay under load.
+    let agent = super::super::token_transport::agent(
+        ureq::Agent::config_builder()
+            .tls_config(tls)
+            .ip_family(ureq::config::IpFamily::Ipv4Only)
+            .build(),
+    );
     let mut budget = super::super::RequestTimeouts::uniform(Duration::from_millis(250));
     budget.connect = Duration::from_secs(3);
     budget.send = Duration::from_secs(3);

@@ -12,6 +12,7 @@ const NARRATION_GROUP_TEXT_BUDGET_KEY = 'screen-record-narration-group-text-budg
 const NARRATION_TARGET_SEGMENT_SEC_KEY = 'screen-record-narration-target-segment-sec-v1';
 const NARRATION_MODE_KEY = 'screen-record-narration-mode-v1';
 const DIRECT_VOICE_METHOD_KEY = 'screen-record-direct-voice-method-v1';
+const S2S_TARGET_LANGUAGE_KEY = 'screen-record-s2s-target-language-v1';
 
 export type StoredNarrationMode = 'subtitles' | 's2s';
 export type StoredDirectVoiceMethod = 's2s' | 'gemini-translate';
@@ -113,6 +114,32 @@ export function persistNarrationMode(value: StoredNarrationMode) {
 export function persistDirectVoiceMethod(value: StoredDirectVoiceMethod) {
   try {
     localStorage.setItem(DIRECT_VOICE_METHOD_KEY, value);
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+/**
+ * The speech-to-speech target the user last chose, else the UI language when
+ * it is a supported target, else the first supported target.
+ */
+export function getInitialS2sTargetLanguage(
+  supportedLanguages: readonly string[],
+  uiLanguage: string,
+): string {
+  try {
+    const raw = localStorage.getItem(S2S_TARGET_LANGUAGE_KEY);
+    if (raw && supportedLanguages.includes(raw)) return raw;
+  } catch {
+    // ignore persistence failures
+  }
+  const uiBase = uiLanguage.toLowerCase().split(/[-_]/)[0];
+  return supportedLanguages.find((language) => language === uiBase) ?? supportedLanguages[0] ?? uiBase;
+}
+
+export function persistS2sTargetLanguage(value: string) {
+  try {
+    localStorage.setItem(S2S_TARGET_LANGUAGE_KEY, value);
   } catch {
     // ignore persistence failures
   }

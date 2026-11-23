@@ -97,6 +97,7 @@ internal fun RenderGlobalTtsSettingsDialog(
 
     ExpressiveDialogSurface(
         title = locale.ttsSettingsTitle,
+        closeLabel = locale.closeLabel,
         icon = when (activeMethod) {
             MobileTtsMethod.GEMINI_LIVE -> R.drawable.ms_auto_awesome
             MobileTtsMethod.EDGE_TTS -> R.drawable.ms_graphic_eq

@@ -7,9 +7,13 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+mod diagnostics;
 mod privacy;
+mod storage;
+pub(super) use diagnostics::{diagnostic, human};
 #[path = "telemetry_retention.rs"]
 mod retention;
+mod writer;
 
 static START: OnceLock<Instant> = OnceLock::new();
 static TURN_ID: AtomicU64 = AtomicU64::new(0);
@@ -19,7 +23,16 @@ static FRAME_ID: AtomicU64 = AtomicU64::new(0);
 static ARTIFACT_ID: AtomicU64 = AtomicU64::new(0);
 static SESSION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static SESSION: OnceLock<Mutex<SessionState>> = OnceLock::new();
-static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static WRITE_LOCK: OnceLock<Mutex<writer::Writers>> = OnceLock::new();
+
+pub(super) fn with_closed_writers<T>(operation: impl FnOnce() -> T) -> T {
+    let mut writers = WRITE_LOCK
+        .get_or_init(|| Mutex::new(writer::Writers::default()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *writers = writer::Writers::default();
+    operation()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ActionTrace {
@@ -286,8 +299,8 @@ pub(super) fn frame_ready(frame: FrameReady<'_>) {
 }
 
 pub(super) fn event_for_turn(
-    event: &str,
-    component: &str,
+    event: &'static str,
+    component: &'static str,
     privacy: Privacy,
     turn_id: u64,
     fields: Value,
@@ -305,25 +318,13 @@ pub(super) fn event_for_turn(
     write_jsonl(record, privacy);
 }
 
-pub(super) fn human(component: &str, line: impl AsRef<str>) {
-    crate::log_info!("[{component}] {}", line.as_ref());
-}
-
-pub(super) fn event(event: &str, component: &str, privacy: Privacy, fields: Value) {
-    let inferred = fields
-        .get("action_id")
-        .or_else(|| fields.get("step_id"))
-        .and_then(Value::as_u64)
-        .map(|action_id| ActionTrace {
-            action_id,
-            turn_id: current_turn(),
-        });
-    event_with_context(event, component, privacy, inferred, fields);
+pub(super) fn event(event: &'static str, component: &'static str, privacy: Privacy, fields: Value) {
+    event_with_context(event, component, privacy, None, fields);
 }
 
 pub(super) fn event_for_action(
-    event: &str,
-    component: &str,
+    event: &'static str,
+    component: &'static str,
     privacy: Privacy,
     action: ActionTrace,
     fields: Value,
@@ -332,14 +333,27 @@ pub(super) fn event_for_action(
 }
 
 fn event_with_context(
-    event: &str,
-    component: &str,
+    event: &'static str,
+    component: &'static str,
     privacy: Privacy,
     action: Option<ActionTrace>,
     fields: Value,
 ) {
+    write_jsonl(
+        event_record(event, component, privacy, action, fields),
+        privacy,
+    );
+}
+
+fn event_record(
+    event: &'static str,
+    component: &'static str,
+    privacy: Privacy,
+    action: Option<ActionTrace>,
+    fields: Value,
+) -> Value {
     let fields = privacy::sanitize_safe_fields(privacy, fields);
-    let record = json!({
+    json!({
         "session_id": session_id(),
         "turn_id": action.map_or_else(current_turn, |trace| trace.turn_id),
         "action_id": action.map(|trace| trace.action_id),
@@ -347,8 +361,7 @@ fn event_with_context(
         "component": component,
         "privacy": privacy.as_str(),
         "fields": fields,
-    });
-    write_jsonl(record, privacy);
+    })
 }
 
 /// Content-free JSON diagnostics for values that may contain commands,
@@ -428,7 +441,7 @@ pub(super) fn artifact_write_failed(
     );
 }
 
-pub(super) fn typed_error(code: &str, component: &str, message: &str, fields: Value) {
+pub(super) fn typed_error(code: &str, component: &'static str, message: &str, fields: Value) {
     event(
         "typed_error",
         component,
@@ -439,7 +452,7 @@ pub(super) fn typed_error(code: &str, component: &str, message: &str, fields: Va
 
 pub(super) fn typed_error_for_action(
     code: &str,
-    component: &str,
+    component: &'static str,
     message: &str,
     action: ActionTrace,
     fields: Value,
@@ -470,12 +483,16 @@ fn mono_ms() -> u128 {
     START.get_or_init(Instant::now).elapsed().as_millis()
 }
 
-fn write_jsonl(mut record: Value, privacy: Privacy) {
+fn write_jsonl(record: Value, privacy: Privacy) {
     if cfg!(test) {
         return;
     }
-    let _guard = WRITE_LOCK
-        .get_or_init(|| Mutex::new(()))
+    super::session_retention::persist(|| write_jsonl_retained(record, privacy));
+}
+
+fn write_jsonl_retained(mut record: Value, privacy: Privacy) {
+    let mut writers = WRITE_LOCK
+        .get_or_init(|| Mutex::new(writer::Writers::default()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     // Sampling before this lock lets a preempted producer write an older
@@ -486,12 +503,13 @@ fn write_jsonl(mut record: Value, privacy: Privacy) {
     global.push("logs");
     global.push("cc-events.jsonl");
     let session = trace_dir().join("events.jsonl");
-    if privacy.may_write_global()
-        && let Err(error) = append_line(&global, &record)
+    let encoded = privacy::encode_records(&record, privacy);
+    if let Some(global_record) = encoded.global
+        && let Err(error) = writers.append(&global, global_record.as_bytes(), true)
     {
         report_telemetry_failure(&global, &error);
     }
-    if let Err(error) = append_line(&session, &record) {
+    if let Err(error) = writers.append(&session, encoded.session.as_bytes(), false) {
         report_telemetry_failure(&session, &error);
     }
 }
@@ -503,27 +521,28 @@ fn stamp_for_serialized_write(record: &mut Value, ts_ms: u128, mono_ms: u128) {
     }
 }
 
-fn append_line(path: &Path, record: &Value) -> std::io::Result<()> {
-    use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(file, "{record}")
-}
-
 fn session_state() -> &'static Mutex<SessionState> {
     SESSION.get_or_init(|| Mutex::new(new_session_state()))
 }
 
+fn trace_root(maintain: impl FnOnce(&Path)) -> PathBuf {
+    storage::prepare_root(
+        cfg!(test),
+        std::env::var_os("CC_TRACE_DIR").map(PathBuf::from),
+        crate::paths::app_runtime_local_data_dir(),
+        std::env::temp_dir(),
+        maintain,
+    )
+}
+
+/// Delete every per-session trace folder ("Clear all history"). Cached
+/// writers close first, so no open handle keeps a deleted file alive.
+pub(super) fn clear_session_traces() -> std::io::Result<()> {
+    with_closed_writers(|| retention::clear(&trace_root(|_| {})))
+}
+
 fn new_session_state() -> SessionState {
-    let root = std::env::var_os("CC_TRACE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| crate::paths::app_local_data_dir().join("cc-trace"));
-    retention::maintain(&root);
+    let root = trace_root(retention::maintain);
     let sequence = SESSION_SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1;
     let id = format!("cc-{}-{}-{sequence}", unix_ms(), std::process::id());
     SessionState {

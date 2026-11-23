@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"loaded_target","event":"read","expected":"target_pinned"},
+    {"name":"committed_successor","event":"commit","expected":"successor_pinned"},
+    {"name":"read_only_snapshot","event":"snapshot","expected":"no_retained_target"},
+    {"name":"writer_closed","event":"close","expected":"no_retained_target"}
+  ]
+}

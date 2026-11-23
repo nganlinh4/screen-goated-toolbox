@@ -1,30 +1,33 @@
 mod assets;
 mod ipc;
 mod runtime;
+mod startup;
 mod state;
+mod volume;
 mod window;
+
+#[cfg(test)]
+mod contract_tests;
 
 use std::sync::Once;
 use std::sync::atomic::AtomicBool;
 
-use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::{TranslationGummySettings, save_config};
 use crate::gui::locale::LocaleText;
-use crate::win_types::SendHwnd;
 
 pub use runtime::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
 
 pub(super) const WM_APP_SHOW: u32 = WM_USER + 321;
 pub(super) const WM_APP_SYNC: u32 = WM_USER + 322;
+pub(super) const WM_APP_METER: u32 = WM_USER + 323;
 
 pub static REQUEST_OPEN_TTS_SETTINGS: AtomicBool = AtomicBool::new(false);
 pub static REQUEST_DISMISS_SPLASH: AtomicBool = AtomicBool::new(false);
 pub(super) static REGISTER_CLASS: Once = Once::new();
-pub(super) static mut WINDOW_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-pub(super) static mut IS_READY: bool = false;
-pub(super) static mut IS_INITIALIZING: bool = false;
+pub(super) static WINDOW: crate::overlay::window_slot::WindowSlot =
+    crate::overlay::window_slot::WindowSlot::new();
 
 thread_local! {
     pub(super) static WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = const { std::cell::RefCell::new(None) };
@@ -32,7 +35,9 @@ thread_local! {
 }
 
 pub fn show_translation_gummy() {
-    let capability = crate::runtime_support::require_webview2("Translation Gummy");
+    let capability = crate::runtime_support::require_webview2(
+        crate::runtime_support::WebViewFeature::TranslationGummy,
+    );
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
@@ -66,11 +71,6 @@ pub fn update_settings() {
     state::request_sync();
 }
 
-pub(super) fn insert_session_separator() {
-    state::insert_session_separator();
-    state::request_sync();
-}
-
 pub(super) fn publish_connection(
     connection_state: TranslationGummyConnectionState,
     is_running: bool,
@@ -89,21 +89,6 @@ pub(super) fn publish_error(
     state::request_sync();
 }
 
-pub(super) fn publish_audio_level(level: f32) {
-    state::publish_audio_level(level);
-    state::request_sync();
-}
-
-pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool) {
-    state::upsert_transcript(role, text, is_final);
-    state::request_sync();
-}
-
-pub(super) fn finalize_transcripts() {
-    state::finalize_transcripts();
-    state::request_sync();
-}
-
 pub(super) fn auto_start_if_possible() {
     let applied = current_settings();
     if applied.is_valid() {
@@ -119,28 +104,38 @@ pub(super) fn start_if_possible(settings: TranslationGummySettings) {
         .lock()
         .map(|app| app.config.gemini_api_key.trim().is_empty())
         .unwrap_or(true);
-    if api_key_missing {
-        publish_error(
-            TranslationGummyConnectionState::Error,
-            locale
-                .translation_gummy
-                .translation_gummy_api_key_required
-                .to_string(),
-            false,
-        );
+    if !startup::admit_start(
+        !api_key_missing,
+        locale.translation_gummy.translation_gummy_api_key_required,
+        |effect| match effect {
+            startup::StartEffect::LocalError(message) => {
+                publish_error(TranslationGummyConnectionState::Error, message, false);
+            }
+            startup::StartEffect::GlobalNotice(message) => {
+                crate::overlay::auto_copy_badge::show_error_notification(&message);
+            }
+        },
+    ) {
         return;
     }
 
-    unsafe {
-        let hwnd = std::ptr::addr_of!(WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            runtime::start_session(hwnd.as_isize(), settings);
-        }
+    if let Some(hwnd) = WINDOW.hwnd() {
+        runtime::start_session(hwnd.0 as isize, settings);
     }
 }
 
+fn settings_for_apply(
+    draft: &TranslationGummySettings,
+    current: &TranslationGummySettings,
+) -> TranslationGummySettings {
+    let mut applied = draft.clone();
+    applied.hotkeys = current.hotkeys.clone();
+    applied.guide_seen = current.guide_seen;
+    applied
+}
+
 pub(super) fn apply_draft() {
-    let (draft, can_apply) = state::with_state(|ui| {
+    let (mut draft, can_apply) = state::with_state(|ui| {
         ui.normalize();
         (ui.draft.clone(), ui.draft.is_valid())
     });
@@ -150,16 +145,17 @@ pub(super) fn apply_draft() {
         return;
     }
 
+    runtime::stop_session();
+
     {
         let mut app = crate::APP.lock().unwrap();
-        // Preserve hotkeys (managed separately via add_hotkey/remove_hotkey)
-        let hotkeys = app.config.translation_gummy.hotkeys.clone();
+        draft = settings_for_apply(&draft, &app.config.translation_gummy);
         app.config.translation_gummy = draft.clone();
-        app.config.translation_gummy.hotkeys = hotkeys;
         save_config(&app.config);
     }
 
     state::insert_session_separator();
+    runtime::request_persist();
     state::with_state(|ui| {
         ui.applied = draft.clone();
         ui.draft = draft.clone();

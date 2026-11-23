@@ -1,12 +1,6 @@
 import type { Item } from "./types";
 import { canSubmitCreationSource } from "../../ui-shared/creation-source-provenance.ts";
-
-const ACTIVE_STAGES = new Set<Item["stage"]>([
-  "queued",
-  "preparing",
-  "generating",
-  "finalizing",
-]);
+import { creationJobIsTerminal } from "../../ui-shared/creation-poll-state.ts";
 
 export function canSubmitItem(item?: Pick<Item, "sourceProvenance">): boolean {
   return Boolean(item && canSubmitCreationSource(item.sourceProvenance, 1, false));
@@ -15,7 +9,7 @@ export function canSubmitItem(item?: Pick<Item, "sourceProvenance">): boolean {
 export function canActivatePrimaryAction(
   item?: Pick<Item, "sourceProvenance" | "stage">,
 ): boolean {
-  return Boolean(item && !ACTIVE_STAGES.has(item.stage) && canSubmitItem(item));
+  return Boolean(item && (item.stage === "draft" || creationJobIsTerminal(item.stage)) && canSubmitItem(item));
 }
 
 export function needsFreshSubmissionSession(item: Item): boolean {

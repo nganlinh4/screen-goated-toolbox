@@ -5,7 +5,7 @@ use super::state::*;
 use crate::APP;
 use crate::GdiCapture;
 use crate::overlay::image_continuous_mode::{dim_pixels, render_frozen_with_selection};
-use crate::win_types::SendHbitmap;
+use crate::overlay::rounded_selection::RoundedSelection;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -88,7 +88,7 @@ unsafe fn extract_crop_from_hbitmap_internal(
             let _ = ReleaseDC(None, hdc_screen);
             return empty_image();
         }
-        SelectObject(hdc_temp, hbm_temp.into());
+        let old_temp_obj = SelectObject(hdc_temp, hbm_temp.into());
 
         // Copy only the crop region from the huge screenshot
         // IMPORTANT: virtual screen coordinates calculation
@@ -100,6 +100,9 @@ unsafe fn extract_crop_from_hbitmap_internal(
         let src_y = crop_rect.top - v_y;
 
         let _ = BitBlt(hdc_temp, 0, 0, w, h, Some(hdc_mem), src_x, src_y, SRCCOPY).ok();
+
+        // GetDIBits requires the bitmap to be deselected, as does DeleteObject.
+        SelectObject(hdc_temp, old_temp_obj);
 
         // Now read pixels from small bitmap
         GetDIBits(
@@ -130,6 +133,54 @@ unsafe fn extract_crop_from_hbitmap_internal(
     }
 }
 
+#[cfg(test)]
+mod crop_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_crops_read_pixels_without_leaking_gdi_objects() {
+        unsafe {
+            let screen = GetDC(None);
+            assert!(!screen.is_invalid());
+            let dc = CreateCompatibleDC(Some(screen));
+            assert!(!dc.is_invalid());
+            let bitmap = CreateCompatibleBitmap(screen, 8, 8);
+            assert!(!bitmap.is_invalid());
+            let old = SelectObject(dc, bitmap.into());
+            PatBlt(dc, 0, 0, 8, 8, WHITENESS).unwrap();
+            SelectObject(dc, old);
+            DeleteDC(dc).unwrap();
+            ReleaseDC(None, screen);
+
+            let capture = GdiCapture {
+                hbitmap: bitmap,
+                width: 8,
+                height: 8,
+            };
+            let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            let rect = RECT {
+                left: x,
+                top: y,
+                right: x + 8,
+                bottom: y + 8,
+            };
+            let first = extract_crop_from_hbitmap_public(&capture, rect);
+            assert_eq!(first.get_pixel(0, 0).0, [255, 255, 255, 255]);
+            let before = crate::screen_capture::gui_resources_snapshot().gdi_objects;
+            for _ in 0..128 {
+                let crop = extract_crop_from_hbitmap_public(&capture, rect);
+                assert_eq!(crop.get_pixel(7, 7).0, [255, 255, 255, 255]);
+            }
+            let after = crate::screen_capture::gui_resources_snapshot().gdi_objects;
+            assert!(
+                after < before + 64,
+                "GDI objects grew from {before} to {after}"
+            );
+        }
+    }
+}
+
 // --- LAYERED WINDOW RENDERING ---
 
 /// High-performance renderer using UpdateLayeredWindow
@@ -145,41 +196,9 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         }
 
         // 1. Prepare/Cache 32-bit DIB Context
-        if std::ptr::addr_of!(CACHED_BITMAP).read().is_invalid()
-            || CACHED_W != width
-            || CACHED_H != height
-        {
-            if !std::ptr::addr_of!(CACHED_BITMAP).read().is_invalid() {
-                let _ = DeleteObject(CACHED_BITMAP.0.into());
-                CACHED_BITS = std::ptr::null_mut();
-            }
-
-            let bmi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: width,
-                    biHeight: -height, // Top-down
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-
-            let hdc_screen = GetDC(None);
-            let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbm = CreateDIBSection(Some(hdc_screen), &bmi, DIB_RGB_COLORS, &mut bits, None, 0);
-            ReleaseDC(None, hdc_screen);
-
-            if let Ok(h) = hbm {
-                CACHED_BITMAP = SendHbitmap(h);
-                CACHED_BITS = bits as *mut u8;
-                CACHED_W = width;
-                CACHED_H = height;
-            } else {
-                return;
-            }
+        let mut dib = CACHED_DIB.lock().unwrap_or_else(|error| error.into_inner());
+        if dib.ensure(width, height).is_none() {
+            return;
         }
 
         // 2. Draw using GDI to the DIB
@@ -192,7 +211,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
             let _ = ReleaseDC(None, hdc_screen);
             return;
         }
-        let old_bmp = SelectObject(mem_dc, CACHED_BITMAP.0.into());
+        let old_bmp = SelectObject(mem_dc, dib.bitmap().into());
 
         let effective_alpha = if let Some(zoom_alpha) = ZOOM_ALPHA_OVERRIDE {
             zoom_alpha.min(CURRENT_ALPHA)
@@ -201,7 +220,7 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
         };
 
         let total_pixels = (width * height) as usize;
-        let pixels_u32 = std::slice::from_raw_parts_mut(CACHED_BITS as *mut u32, total_pixels);
+        let pixels_u32 = std::slice::from_raw_parts_mut(dib.bits().cast::<u32>(), total_pixels);
 
         // === FROZEN SCREEN RENDERING ===
         // Blit the captured HBITMAP as overlay background for WYSIWYG integrity.
@@ -362,35 +381,20 @@ fn exit_surface_opacity(current_alpha: u8, start_alpha: Option<u8>) -> u8 {
 fn draw_rounded_selection_box(
     pixels_u32: &mut [u32],
     width: i32,
-    _height: i32,
+    height: i32,
     r: &RECT,
     effective_alpha: u8,
 ) {
-    let default_radius = crate::overlay::BOX_CORNER_RADIUS_PHYSICAL_PX;
-    let border_width = 2.0f32;
-
-    let l_f = r.left as f32;
-    let t_f = r.top as f32;
-    let r_f = r.right as f32;
-    let b_f = r.bottom as f32;
-
-    let hw = (r_f - l_f) / 2.0;
-    let hh = (b_f - t_f) / 2.0;
-    let cx = l_f + hw;
-    let cy = t_f + hh;
-
-    // ADAPTIVE RADIUS: Scale down if box is smaller than radius
-    let radius = default_radius.min(hw).min(hh);
-
+    let selection = RoundedSelection::new(r.left, r.top, r.right, r.bottom);
     let bg_alpha_f = effective_alpha as f32 / 255.0;
 
     // Only iterate over the bounding area of the selection
     let b_left = (r.left - 10).max(0);
     let b_top = (r.top - 10).max(0);
     let b_right = (r.right + 10).min(width);
-    let b_bottom = (r.bottom + 10).min(width); // Note: using width as proxy for height bound
+    let b_bottom = (r.bottom + 10).min(height);
 
-    let rad_int = radius.ceil() as i32;
+    let rad_int = selection.corner_rows();
     let top_band_end = (r.top + rad_int).min(b_bottom);
     let bottom_band_start = (r.bottom - rad_int).max(top_band_end);
 
@@ -423,28 +427,12 @@ fn draw_rounded_selection_box(
         }
 
         // --- SLOW PATH: Top/Bottom Bands (SDF for corners) ---
-        let py = py_int as f32 + 0.5;
         for px_int in b_left..b_right {
             let idx = row_base + px_int as usize;
             if idx >= pixels_u32.len() {
                 continue;
             }
-
-            let px = px_int as f32 + 0.5;
-
-            // Rounded Rect SDF
-            let dx = (px - cx).abs() - (hw - radius);
-            let dy = (py - cy).abs() - (hh - radius);
-
-            let dist = if dx > 0.0 && dy > 0.0 {
-                (dx * dx + dy * dy).sqrt() - radius
-            } else {
-                dx.max(dy) - radius
-            };
-
-            let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
-            let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
-            let border_alpha = alpha_outer - alpha_inner;
+            let (alpha_outer, border_alpha) = selection.coverage(px_int, py_int);
             let final_bg_alpha = bg_alpha_f * (1.0 - alpha_outer);
 
             let a = ((final_bg_alpha + border_alpha) * 255.0) as u32;
@@ -457,7 +445,25 @@ fn draw_rounded_selection_box(
 
 #[cfg(test)]
 mod tests {
-    use super::{exit_surface_opacity, selection_outline_visible};
+    use super::{draw_rounded_selection_box, exit_surface_opacity, selection_outline_visible};
+    use windows::Win32::Foundation::RECT;
+
+    #[test]
+    fn selections_below_the_width_of_a_portrait_screen_are_drawn() {
+        let (width, height) = (100, 300);
+        let mut pixels = vec![0x8000_0000_u32; (width * height) as usize];
+        let selection = RECT {
+            left: 20,
+            top: 200,
+            right: 80,
+            bottom: 280,
+        };
+        draw_rounded_selection_box(&mut pixels, width, height, &selection, 0x80);
+        let at = |x: i32, y: i32| pixels[(y * width + x) as usize];
+        assert_eq!(at(50, 240), 0, "selection interior is cleared");
+        assert_eq!(at(20, 240), 0xFFFF_FFFF, "left border is drawn");
+        assert_eq!(at(10, 240), 0x8000_0000, "outside stays dimmed");
+    }
 
     #[test]
     fn exit_fades_opaque_border_and_frozen_surface_to_zero() {

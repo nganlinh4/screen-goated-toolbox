@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -35,7 +36,9 @@ type SegmentSetter = (
 ) => void;
 
 interface UseAppHistoryStateOptions {
+  onHistoryRestore?: () => void;
   backgroundConfig: BackgroundConfig;
+  backgroundConfigRef: MutableRefObject<BackgroundConfig>;
   composition: ProjectComposition | null;
   currentProjectDataRef: MutableRefObject<Project | null>;
   currentRawMicAudioPath: string;
@@ -46,6 +49,7 @@ interface UseAppHistoryStateOptions {
   handleProjectRawVideoPathChange: (value: string) => void;
   isPlaying: boolean;
   isPlayingRef: MutableRefObject<boolean>;
+  isProjectTransitionRef: MutableRefObject<boolean>;
   pendingSilentSegmentRef: MutableRefObject<VideoSegment | null>;
   pendingSilentSegmentTimerRef: MutableRefObject<number | null>;
   rawSetBackgroundConfig: (
@@ -65,6 +69,7 @@ interface UseAppHistoryStateOptions {
   setLastRawSavedPath: (value: string) => void;
   setPreviewDuration: Dispatch<SetStateAction<number>>;
   webcamConfig: WebcamConfig;
+  webcamConfigRef: MutableRefObject<WebcamConfig>;
 }
 
 function preserveSilentAudioLanes(
@@ -76,23 +81,23 @@ function preserveSilentAudioLanes(
   const fallbackComposition = projectComposition ?? previousComposition;
   if (!fallbackComposition) return nextComposition;
   const audioSegments =
-    (nextComposition.audioSegments?.length ?? 0) === 0 &&
-    (fallbackComposition.audioSegments?.length ?? 0) > 0
+    nextComposition.audioSegments === undefined &&
+    fallbackComposition.audioSegments !== undefined
       ? fallbackComposition.audioSegments
       : nextComposition.audioSegments;
   const audioTrackVolumePoints =
-    (nextComposition.audioTrackVolumePoints?.length ?? 0) === 0 &&
-    (fallbackComposition.audioTrackVolumePoints?.length ?? 0) > 0
+    nextComposition.audioTrackVolumePoints === undefined &&
+    fallbackComposition.audioTrackVolumePoints !== undefined
       ? fallbackComposition.audioTrackVolumePoints
       : nextComposition.audioTrackVolumePoints;
   const narrationSegments =
-    (nextComposition.narrationSegments?.length ?? 0) === 0 &&
-    (fallbackComposition.narrationSegments?.length ?? 0) > 0
+    nextComposition.narrationSegments === undefined &&
+    fallbackComposition.narrationSegments !== undefined
       ? fallbackComposition.narrationSegments
       : nextComposition.narrationSegments;
   const narrationTrackVolumePoints =
-    (nextComposition.narrationTrackVolumePoints?.length ?? 0) === 0 &&
-    (fallbackComposition.narrationTrackVolumePoints?.length ?? 0) > 0
+    nextComposition.narrationTrackVolumePoints === undefined &&
+    fallbackComposition.narrationTrackVolumePoints !== undefined
       ? fallbackComposition.narrationTrackVolumePoints
       : nextComposition.narrationTrackVolumePoints;
   const retainedSource = nextComposition.retainedRemovedClips ??
@@ -133,6 +138,11 @@ function shallowObjectEqual<T extends object>(left: T, right: T) {
     leftKeys.every((key) => Object.is(left[key], right[key]));
 }
 
+function isRootClip(composition: ProjectComposition | null | undefined): boolean {
+  if (!composition || composition.clips.length <= 1) return true;
+  return (composition.focusedClipId ?? composition.selectedClipId ?? "root") === "root";
+}
+
 function applyCompositionToProject(
   project: Project,
   composition: ProjectComposition | null,
@@ -144,7 +154,9 @@ function applyCompositionToProject(
 }
 
 export function useAppHistoryState({
+  onHistoryRestore,
   backgroundConfig,
+  backgroundConfigRef,
   composition,
   currentProjectDataRef,
   currentRawMicAudioPath,
@@ -155,6 +167,7 @@ export function useAppHistoryState({
   handleProjectRawVideoPathChange,
   isPlaying,
   isPlayingRef,
+  isProjectTransitionRef,
   pendingSilentSegmentRef,
   pendingSilentSegmentTimerRef,
   rawSetBackgroundConfig,
@@ -172,8 +185,22 @@ export function useAppHistoryState({
   setLastRawSavedPath,
   setPreviewDuration,
   webcamConfig,
+  webcamConfigRef,
 }: UseAppHistoryStateOptions) {
+  const visualTransitionRef = useRef<MutableRefObject<boolean> | null>(null);
+  const bindVisualTransition = useCallback((ref: MutableRefObject<boolean>) => {
+    visualTransitionRef.current = ref;
+  }, []);
+  const isVisualTransition = useCallback(() =>
+    isProjectTransitionRef.current || visualTransitionRef.current?.current === true,
+  [isProjectTransitionRef]);
   const applyHistorySnapshot = useCallback((snapshot: EditorHistorySnapshot) => {
+    if (pendingSilentSegmentTimerRef.current !== null) {
+      window.clearTimeout(pendingSilentSegmentTimerRef.current);
+      pendingSilentSegmentTimerRef.current = null;
+    }
+    pendingSilentSegmentRef.current = null;
+    segmentRef.current = snapshot.segment;
     rawSetSegment(snapshot.segment);
     rawSetComposition(snapshot.composition);
     setBackgroundConfigState(cloneBackgroundConfig(snapshot.backgroundConfig));
@@ -186,14 +213,16 @@ export function useAppHistoryState({
     rawSetCurrentRawWebcamVideoPath(snapshot.currentRawWebcamVideoPath);
     const applyProjectSnapshot = (project: Project): Project => ({
       ...project,
-      backgroundConfig: cloneBackgroundConfig(snapshot.backgroundConfig),
+      backgroundConfig: isRootClip(snapshot.composition)
+        ? cloneBackgroundConfig(snapshot.backgroundConfig) : project.backgroundConfig,
       composition: snapshot.composition ?? undefined,
       duration: snapshot.duration,
       rawMicAudioPath: snapshot.currentRawMicAudioPath || undefined,
       rawVideoPath: snapshot.currentRawVideoPath || undefined,
       rawWebcamVideoPath: snapshot.currentRawWebcamVideoPath || undefined,
       segment: snapshot.segment ?? project.segment,
-      webcamConfig: cloneWebcamConfig(snapshot.webcamConfig),
+      webcamConfig: isRootClip(snapshot.composition)
+        ? cloneWebcamConfig(snapshot.webcamConfig) : project.webcamConfig,
     });
     currentProjectDataRef.current = currentProjectDataRef.current
       ? applyProjectSnapshot(currentProjectDataRef.current)
@@ -201,6 +230,8 @@ export function useAppHistoryState({
     setCurrentProjectData((prev) => prev ? applyProjectSnapshot(prev) : prev);
   }, [
     currentProjectDataRef,
+    pendingSilentSegmentRef,
+    pendingSilentSegmentTimerRef,
     rawSetComposition,
     rawSetCurrentRawMicAudioPath,
     rawSetCurrentRawVideoPath,
@@ -212,6 +243,7 @@ export function useAppHistoryState({
     setCurrentProjectData,
     setLastRawSavedPath,
     setPreviewDuration,
+    segmentRef,
   ]);
 
   const editorHistory = useEditorHistory({
@@ -229,14 +261,33 @@ export function useAppHistoryState({
     applySnapshot: applyHistorySnapshot,
   });
   const {
-    undo,
-    redo,
+    undo: undoHistory,
+    redo: redoHistory,
     canUndo,
     canRedo,
     isBatching,
-    beginBatch,
+    beginBatch: beginHistoryBatch,
     commitBatch,
   } = editorHistory;
+  const undo = useCallback(() => {
+    if (!canUndo || isVisualTransition()) return;
+    onHistoryRestore?.();
+    undoHistory();
+  }, [canUndo, isVisualTransition, onHistoryRestore, undoHistory]);
+  const redo = useCallback(() => {
+    if (!canRedo || isVisualTransition()) return;
+    onHistoryRestore?.();
+    redoHistory();
+  }, [canRedo, isVisualTransition, onHistoryRestore, redoHistory]);
+  const beginBatch = useCallback(() => {
+    editorHistory.replaceSnapshot({
+      backgroundConfig: backgroundConfigRef.current,
+      webcamConfig: webcamConfigRef.current,
+      ...(currentProjectDataRef.current
+        ? { composition: currentProjectDataRef.current.composition ?? null } : {}),
+    });
+    beginHistoryBatch();
+  }, [backgroundConfigRef, beginHistoryBatch, currentProjectDataRef, editorHistory, webcamConfigRef]);
 
   const setSegment = useCallback<SegmentSetter>((value) => {
     const baseSegment =
@@ -253,6 +304,7 @@ export function useAppHistoryState({
     }
     pendingSilentSegmentRef.current = null;
     editorHistory.setSegment(nextSegment);
+    segmentRef.current = nextSegment;
     rawSetSegment(nextSegment);
     if (nextSegment && currentProjectDataRef.current) {
       currentProjectDataRef.current = {
@@ -289,6 +341,7 @@ export function useAppHistoryState({
       : value;
     if (nextSegment === baseSegment) return;
     segmentRef.current = nextSegment;
+    editorHistory.replaceSnapshot({ segment: nextSegment });
     if (nextSegment && currentProjectDataRef.current) {
       currentProjectDataRef.current = {
         ...currentProjectDataRef.current,
@@ -306,6 +359,7 @@ export function useAppHistoryState({
     }
   }, [
     currentProjectDataRef,
+    editorHistory,
     flushPendingSilentSegment,
     isPlayingRef,
     pendingSilentSegmentRef,
@@ -333,7 +387,9 @@ export function useAppHistoryState({
   ]);
 
   const setComposition = useCallback<CompositionSetter>((value) => {
-    const previous = currentProjectDataRef.current?.composition ?? composition;
+    const previous = currentProjectDataRef.current
+      ? currentProjectDataRef.current.composition ?? null
+      : composition;
     const next = preserveSilentAudioLanes(
       typeof value === "function" ? value(previous ?? null) : value,
       previous,
@@ -352,13 +408,16 @@ export function useAppHistoryState({
   }, [composition, currentProjectDataRef, editorHistory, rawSetComposition, setCurrentProjectData]);
 
   const setCompositionSilently = useCallback<CompositionSetter>((value) => {
-    const previous = currentProjectDataRef.current?.composition ?? composition;
+    const previous = currentProjectDataRef.current
+      ? currentProjectDataRef.current.composition ?? null
+      : composition;
     const next = preserveSilentAudioLanes(
       typeof value === "function" ? value(previous ?? null) : value,
       previous,
       currentProjectDataRef.current?.composition,
     );
     if (next === previous) return;
+    editorHistory.replaceSnapshot({ composition: next });
     rawSetComposition(next);
     if (currentProjectDataRef.current) {
       currentProjectDataRef.current = applyCompositionToProject(
@@ -367,7 +426,7 @@ export function useAppHistoryState({
       );
       setCurrentProjectData(currentProjectDataRef.current);
     }
-  }, [composition, currentProjectDataRef, rawSetComposition, setCurrentProjectData]);
+  }, [composition, currentProjectDataRef, editorHistory, rawSetComposition, setCurrentProjectData]);
 
   const setEditorPreviewDuration = useCallback((value: number) => {
     const previous = currentProjectDataRef.current?.duration ?? duration;
@@ -400,36 +459,44 @@ export function useAppHistoryState({
   const setBackgroundConfig = useCallback((
     value: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
   ) => {
-    const previous = currentProjectDataRef.current?.backgroundConfig ?? backgroundConfig;
+    if (isVisualTransition()) return;
+    const previous = backgroundConfigRef.current;
     const next = typeof value === "function" ? value(previous) : value;
     if (next === previous || equalBackgroundConfig(next, previous)) return;
+    editorHistory.replaceSnapshot({ backgroundConfig: previous, webcamConfig: webcamConfigRef.current,
+      ...(currentProjectDataRef.current
+        ? { composition: currentProjectDataRef.current.composition ?? null } : {}) });
     editorHistory.setBackgroundConfig(next);
     rawSetBackgroundConfig(next);
-    if (currentProjectDataRef.current) {
+    if (currentProjectDataRef.current && isRootClip(currentProjectDataRef.current.composition)) {
       currentProjectDataRef.current = {
         ...currentProjectDataRef.current,
         backgroundConfig: next,
       };
       setCurrentProjectData(currentProjectDataRef.current);
     }
-  }, [backgroundConfig, currentProjectDataRef, editorHistory, rawSetBackgroundConfig, setCurrentProjectData]);
+  }, [backgroundConfigRef, currentProjectDataRef, editorHistory, isVisualTransition, rawSetBackgroundConfig, setCurrentProjectData, webcamConfigRef]);
 
   const setWebcamConfig = useCallback((
     value: WebcamConfig | ((prev: WebcamConfig) => WebcamConfig),
   ) => {
-    const previous = currentProjectDataRef.current?.webcamConfig ?? webcamConfig;
+    if (isVisualTransition()) return;
+    const previous = webcamConfigRef.current;
     const next = typeof value === "function" ? value(previous) : value;
     if (next === previous || shallowObjectEqual(next, previous)) return;
+    editorHistory.replaceSnapshot({ backgroundConfig: backgroundConfigRef.current, webcamConfig: previous,
+      ...(currentProjectDataRef.current
+        ? { composition: currentProjectDataRef.current.composition ?? null } : {}) });
     editorHistory.setWebcamConfig(next);
     rawSetWebcamConfig(next);
-    if (currentProjectDataRef.current) {
+    if (currentProjectDataRef.current && isRootClip(currentProjectDataRef.current.composition)) {
       currentProjectDataRef.current = {
         ...currentProjectDataRef.current,
         webcamConfig: next,
       };
       setCurrentProjectData(currentProjectDataRef.current);
     }
-  }, [currentProjectDataRef, editorHistory, rawSetWebcamConfig, setCurrentProjectData, webcamConfig]);
+  }, [backgroundConfigRef, currentProjectDataRef, editorHistory, isVisualTransition, rawSetWebcamConfig, setCurrentProjectData, webcamConfigRef]);
 
   useEffect(() => {
     editorHistory.replaceSnapshot({
@@ -440,7 +507,7 @@ export function useAppHistoryState({
       currentRawWebcamVideoPath,
       currentRecordingMode,
       duration,
-      segment,
+      segment: pendingSilentSegmentRef.current ?? segment,
       webcamConfig,
     });
   }, [
@@ -452,11 +519,13 @@ export function useAppHistoryState({
     currentRecordingMode,
     duration,
     editorHistory,
+    pendingSilentSegmentRef,
     segment,
     webcamConfig,
   ]);
 
   return {
+    bindVisualTransition,
     beginBatch,
     canRedo,
     canUndo,

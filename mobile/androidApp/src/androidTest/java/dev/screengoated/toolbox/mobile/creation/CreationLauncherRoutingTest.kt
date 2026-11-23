@@ -28,12 +28,6 @@ class CreationLauncherRoutingTest {
         assertLauncherRoute("app-card-image-to-svg", "creation-tool-svg")
     }
 
-    @Test
-    fun imageCreatorCardIsHiddenWhileReleaseGateIsDisabled() {
-        compose.onNodeWithTag("shell-tab-apps").performClick()
-        compose.onNodeWithTag("app-card-image-creator").assertDoesNotExist()
-    }
-
     private fun assertLauncherRoute(cardTag: String, surfaceTag: String) {
         compose.onNodeWithTag("shell-tab-apps").performClick()
         compose.onNodeWithTag("apps-carousel").performScrollToNode(hasTestTag(cardTag))

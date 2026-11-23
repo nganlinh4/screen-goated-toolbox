@@ -12,11 +12,7 @@ class DownloaderPersistence(
 
     fun load(): DownloaderSettings {
         return try {
-            if (configFile.exists()) {
-                json.decodeFromString<DownloaderSettings>(configFile.readText())
-            } else {
-                DownloaderSettings()
-            }
+            decodeDownloaderSettings(json, configFile.takeIf(File::exists)?.readText())
         } catch (_: Exception) {
             DownloaderSettings()
         }
@@ -30,3 +26,7 @@ class DownloaderPersistence(
         }
     }
 }
+
+internal fun decodeDownloaderSettings(json: Json, saved: String?): DownloaderSettings =
+    if (saved == null) DownloaderSettings(lastVideoFormat = DEFAULT_VIDEO_QUALITY)
+    else json.decodeFromString<DownloaderSettings>(saved)

@@ -1,10 +1,7 @@
 //! Structural effect evidence shared by execution, cancellation, delivery, and
-//! postcondition reporting. Stronger nested receipts always beat outer wrappers.
+//! postcondition reporting. Opaque payload data never supplies execution proof.
 
 use serde_json::{Value, json};
-
-const MAX_RECEIPT_DEPTH: usize = 12;
-const MAX_RECEIPT_NODES: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::overlay::computer_control) enum EffectStatus {
@@ -23,9 +20,17 @@ struct Evidence {
 
 impl EffectStatus {
     pub(in crate::overlay::computer_control) fn from_value(value: &Value) -> Self {
+        let Some(fields) = value.as_object() else {
+            return Self::Unknown;
+        };
+        if fields.get("effect_scope").and_then(Value::as_str) == Some("batch") {
+            return fields
+                .get("receipts")
+                .and_then(Value::as_array)
+                .map_or(Self::MayHaveOccurred, |receipts| batch_status(receipts));
+        }
         let mut evidence = Evidence::default();
-        let mut remaining = MAX_RECEIPT_NODES;
-        collect(value, 0, &mut remaining, &mut evidence);
+        collect_object(fields, &mut evidence);
         if evidence.verified {
             Self::Verified
         } else if evidence.may_have_occurred {
@@ -95,24 +100,25 @@ impl EffectStatus {
     }
 }
 
-fn collect(value: &Value, depth: usize, remaining: &mut usize, evidence: &mut Evidence) {
-    if depth >= MAX_RECEIPT_DEPTH || *remaining == 0 || evidence.verified {
-        return;
+/// Aggregate independent action receipts without allowing one verified step to
+/// hide an uncertain effect from another step.
+pub(in crate::overlay::computer_control) fn batch_status(receipts: &[Value]) -> EffectStatus {
+    let mut verified = false;
+    for receipt in receipts {
+        if receipt.get("effect_verified").and_then(Value::as_bool) == Some(true) {
+            verified = true;
+        } else if receipt
+            .get("effect_may_have_occurred")
+            .and_then(Value::as_bool)
+            != Some(false)
+        {
+            return EffectStatus::MayHaveOccurred;
+        }
     }
-    *remaining -= 1;
-    match value {
-        Value::Object(fields) => {
-            collect_object(fields, evidence);
-            for child in fields.values() {
-                collect(child, depth + 1, remaining, evidence);
-            }
-        }
-        Value::Array(items) => {
-            for child in items {
-                collect(child, depth + 1, remaining, evidence);
-            }
-        }
-        _ => {}
+    if verified {
+        EffectStatus::Verified
+    } else {
+        EffectStatus::ProvenNoEffect
     }
 }
 
@@ -156,16 +162,88 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_verified_receipt_beats_cancel_wrapper() {
+    fn untrusted_payload_receipt_fields_do_not_change_host_certainty() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/phone-control/effect-receipt-boundary.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            for placement in fixture["placements"].as_array().unwrap() {
+                let placement = placement.as_str().unwrap();
+                let mut response = case["host"].clone();
+                response[placement] = if placement == "items" {
+                    json!([case["payload"].clone()])
+                } else {
+                    case["payload"].clone()
+                };
+                assert_eq!(
+                    EffectStatus::after_dispatch(&response, case["mutating"].as_bool().unwrap())
+                        .code(),
+                    case["expected"].as_str().unwrap(),
+                    "placement={placement};case={case}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_batch_certainty_cases_apply_to_the_host_batch() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../parity-fixtures/phone-control/batch-effect-certainty.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let receipts: Vec<Value> = case["statuses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| match value.as_str() {
+                    Some("verified") => {
+                        json!({"effect_verified": true, "effect_may_have_occurred": true})
+                    }
+                    Some("proven_no_effect") => {
+                        json!({"effect_verified": false, "effect_may_have_occurred": false})
+                    }
+                    Some("may_have_occurred") => {
+                        json!({"effect_verified": false, "effect_may_have_occurred": true})
+                    }
+                    _ => json!({}),
+                })
+                .collect();
+            let expected = case["expected"].as_str().unwrap();
+            assert_eq!(batch_status(&receipts).code(), expected, "{case}");
+            let batch = json!({"effect_scope": "batch", "receipts": receipts});
+            assert_eq!(EffectStatus::from_value(&batch).code(), expected, "{case}");
+        }
+    }
+
+    #[test]
+    fn verified_batch_flag_cannot_hide_uncertain_step() {
+        let response = json!({
+            "effect_verified": true,
+            "effect_scope": "batch", "receipts": [
+                {"effect_verified": true, "effect_may_have_occurred": true},
+                {"effect_verified": false, "effect_may_have_occurred": true}
+            ]
+        });
+        assert_eq!(
+            EffectStatus::from_value(&response),
+            EffectStatus::MayHaveOccurred
+        );
+    }
+
+    #[test]
+    fn annotated_cancel_wrapper_keeps_host_certainty() {
         let mut response = json!({
             "cancelled": true,
             "executed": false,
             "action_result": {
                 "ok": false,
-                "effect_verified": true,
-                "effect_may_have_occurred": true,
+                "effect_verified": false,
+                "effect_may_have_occurred": false,
             },
         });
+        EffectStatus::Verified.annotate(&mut response);
         let status = EffectStatus::from_value(&response);
         assert_eq!(status, EffectStatus::Verified);
         status.annotate(&mut response);
@@ -180,6 +258,30 @@ mod tests {
         }));
         assert_eq!(status, EffectStatus::MayHaveOccurred);
         assert_eq!(status.executed(), None);
+    }
+
+    #[test]
+    fn incomplete_host_batch_cannot_claim_verification_or_no_effect() {
+        for receipts in [Value::Null, json!({}), json!(false)] {
+            let response = json!({"effect_scope":"batch", "receipts":receipts, "effect_verified":true, "executed":false});
+            assert_eq!(
+                EffectStatus::from_value(&response),
+                EffectStatus::MayHaveOccurred
+            );
+        }
+        assert_eq!(
+            EffectStatus::from_value(&json!({"effect_scope":"batch","effect_verified":true})),
+            EffectStatus::MayHaveOccurred
+        );
+    }
+
+    #[test]
+    fn payload_arrays_do_not_supply_effect_evidence() {
+        let response = json!([{"effect_verified":true,"executed":false}]);
+        assert_eq!(
+            EffectStatus::after_dispatch(&response, true),
+            EffectStatus::MayHaveOccurred
+        );
     }
 
     #[test]

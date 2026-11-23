@@ -8,29 +8,37 @@ pub(super) fn validate_request_profiles(
     model_profiles: &serde_json::Map<String, serde_json::Value>,
 ) {
     let request_profiles = object(manifest, "vision_request_profiles");
-    let expected: HashSet<String> = models
+    let ordinary_vision = models
         .iter()
         .filter_map(serde_json::Value::as_object)
         .filter(|model| {
-            model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true)
-                && string(model, "model_type") == "Vision"
-                && matches!(string(model, "provider"), "google" | "groq" | "openrouter")
-        })
-        .map(|model| {
-            format!(
-                "{}:{}",
-                string(model, "provider"),
-                string(model, "full_name")
-            )
-        })
-        .collect();
-    let actual: HashSet<String> = request_profiles.keys().cloned().collect();
-    assert_eq!(
-        actual, expected,
-        "vision_request_profiles must cover every enabled ordinary LLM vision endpoint exactly"
-    );
+            string(model, "model_type") == "Vision"
+                && matches!(
+                    string(model, "provider"),
+                    "google" | "groq" | "openrouter" | "nvidia"
+                )
+        });
+    let mut allowed_endpoints = HashSet::new();
+    for model in ordinary_vision {
+        let key = format!(
+            "{}:{}",
+            string(model, "provider"),
+            string(model, "full_name")
+        );
+        if model.get("enabled").and_then(serde_json::Value::as_bool) == Some(true) {
+            assert!(
+                request_profiles.contains_key(&key),
+                "missing vision request profile for enabled endpoint {key:?}"
+            );
+        }
+        allowed_endpoints.insert(key);
+    }
 
     for (profile_key, value) in request_profiles {
+        assert!(
+            allowed_endpoints.contains(profile_key),
+            "vision request profile has no ordinary vision row: {profile_key:?}"
+        );
         assert!(
             model_profiles.contains_key(profile_key),
             "vision request profile has no model profile: {profile_key:?}"

@@ -1,16 +1,15 @@
 //! Verified delivery and active-use ownership for Computer Control's data-only engine.
 
+use super::native_file::validate_x64_pe;
 use std::collections::HashSet;
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use anyhow::{Result, bail};
-use sha2::{Digest as _, Sha256};
 
 use super::receipt::{
     ComponentReceipt, OwnedComponentFile, RECEIPT_NAME, file_matches, file_size_matches,
-    is_reparse_point, resolve_owned_path,
+    resolve_owned_path,
 };
 use super::{ComponentLease, RemovalOutcome};
 
@@ -60,9 +59,16 @@ pub(crate) fn ensure_engine(
     on_progress: impl Fn(u64, u64),
 ) -> Result<ComputerControlEngineUse> {
     super::update_catalog::refresh_for_use(ID, "before-session");
-    let _mutation = super::acquire_mutation_guard()?;
     let delivery = delivery()?;
-    install::ensure(delivery, cancelled, on_progress)?;
+    let progress_guard = crate::install_progress::begin(ID);
+    let report = |done: u64, total: u64| {
+        progress_guard.report(done as f32 / total.max(1) as f32 * 100.0);
+        on_progress(done, total);
+    };
+    // The transfer holds only this component's transfer guard.
+    install::prefetch(delivery, cancelled, &report)?;
+    let _mutation = super::acquire_mutation_guard()?;
+    install::ensure(delivery, cancelled, report)?;
     let lease = super::acquire(ID)?;
     let root = version_root(delivery)?;
     let files = lock_component_files(&root, delivery.files)?;
@@ -284,66 +290,18 @@ fn same_file(left: &OwnedComponentFile, right: &OwnedComponentFile) -> bool {
 }
 
 fn lock_component_files(root: &Path, files: &[EngineFile]) -> Result<Vec<std::fs::File>> {
-    let mut locked = Vec::with_capacity(files.len());
-    for expected in files {
-        let path = resolve_owned_path(root, Path::new(expected.path))?;
-        let mut file = open_locked_regular_file(&path)?;
-        if file.metadata()?.len() != expected.size_bytes {
-            bail!("Computer Control engine changed while acquiring its lease");
-        }
-        let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 128 * 1024];
-        loop {
-            let read = file.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..read]);
-        }
-        if !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected.sha256) {
-            bail!("Computer Control engine changed while acquiring its lease");
-        }
-        locked.push(file);
-    }
-    Ok(locked)
-}
-
-fn open_locked_regular_file(path: &Path) -> Result<std::fs::File> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("Computer Control engine launch file is unsafe");
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    use std::os::windows::fs::OpenOptionsExt as _;
-    use windows::Win32::Storage::FileSystem::{FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ};
-    options
-        .share_mode(FILE_SHARE_READ.0)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0);
-    let file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("Computer Control engine launch file is unsafe");
-    }
-    Ok(file)
-}
-
-fn validate_x64_pe(path: &Path) -> Result<()> {
-    use std::io::{Read as _, Seek as _, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
-    let mut dos = [0_u8; 64];
-    file.read_exact(&mut dos)?;
-    if &dos[..2] != b"MZ" {
-        bail!("Computer Control engine is not a PE executable");
-    }
-    let offset = u32::from_le_bytes(dos[0x3c..0x40].try_into().unwrap());
-    file.seek(SeekFrom::Start(offset as u64))?;
-    let mut header = [0_u8; 6];
-    file.read_exact(&mut header)?;
-    if &header[..4] != b"PE\0\0" || u16::from_le_bytes([header[4], header[5]]) != 0x8664 {
-        bail!("Computer Control engine is not an x64 PE executable");
-    }
-    Ok(())
+    files
+        .iter()
+        .map(|expected| {
+            super::native_file::lock_verified(
+                root,
+                expected.path,
+                expected.size_bytes,
+                expected.sha256,
+                "Computer Control engine changed while acquiring its lease",
+            )
+        })
+        .collect()
 }
 
 fn receipt(delivery: &EngineDelivery) -> ComponentReceipt {

@@ -12,6 +12,7 @@ import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_ARENA_FAST_MODE
 import dev.screengoated.toolbox.mobile.shared.preset.PRESET_TEXT_GAME_MODEL_ID
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -28,6 +29,46 @@ import java.nio.file.Paths
 
 class PresetRetryChainTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun movedChosenRowMatchesWindowsAttemptOrder() {
+        val fixtureText = Files.readAllBytes(fixturePath("preset-attempt-order.json")).decodeToString()
+        val fixture = json.parseToJsonElement(fixtureText).jsonObject
+        fixture.getValue("cases").jsonArray.forEach { entry ->
+            val case = entry.jsonObject
+            assertEquals(
+                case.getValue("attempts").jsonArray.map { it.jsonPrimitive.content },
+                expandChosenModel(
+                    case.getValue("rows").jsonArray.map { it.jsonPrimitive.content },
+                    case.getValue("selected").jsonPrimitive.content,
+                ),
+            )
+        }
+        val live = fixture.getValue("live").jsonObject
+        val merged = mergePriorityRows(
+            live.getValue("rows").jsonArray.map { it.jsonPrimitive.content },
+            live.getValue("offered").jsonArray.map { it.jsonPrimitive.content },
+            PresetLiveModelOverrides(), 2,
+        ) { id -> AdaptiveCandidateRank(4, if (id == "live-auto") 100 else 2000) }
+        assertEquals(live.getValue("order").jsonArray.map { it.jsonPrimitive.content }, merged)
+        val case = fixture.getValue("runtime").jsonObject
+        val selected = case.getValue("selected").jsonPrimitive.content
+        val first = case.getValue("first").jsonPrimitive.content
+        val last = case.getValue("last").jsonPrimitive.content
+        val (rows, chosenAfter) = splitPriorityOrder(case.getValue("rows").jsonArray.map { it.jsonPrimitive.content })
+        val settings = PresetRuntimeSettings(
+            providerSettings = PresetProviderSettings(useGroq = true, useGemini = true, useOpenRouter = false),
+            modelPriorityChains = PresetModelPriorityChains(textToText = rows, textChosenAfter = chosenAfter),
+            adaptiveModelPriority = PresetAdaptiveModelPriority(textToText = false),
+        )
+        val keys = ApiKeys(groqKey = "test-groq", geminiKey = "test-gemini")
+        val kind = PresetRetryChainKind.TEXT_TO_TEXT
+        val order = PresetAttemptOrder(kind, selected, false, keys, settings)
+        assertEquals(first, order.initialId())
+        assertEquals(selected, PresetAttemptOrder(kind, selected, true, keys, settings).initialId())
+        assertEquals(selected, order.next(first, listOf(first), emptySet())?.id)
+        assertEquals(last, order.next(selected, listOf(first), emptySet())?.id)
+    }
 
     @After
     fun clearCircuitState() {
@@ -174,6 +215,28 @@ class PresetRetryChainTest {
     }
 
     @Test
+    fun staleAttemptCannotReleaseOrCompleteAnotherAttemptsProbe() {
+        val modelId = "owned-half-open-model"
+        val oldAttempt = PresetModelAttempt(modelId)
+        val probe = PresetModelAttempt(modelId)
+        val nextAttempt = PresetModelAttempt(modelId)
+
+        assertNull(claimPresetModelAttemptAt(modelId, 1_000L, oldAttempt))
+        recordPresetModelFailureAt(modelId, "HTTP 429 retry-after: 5", 1_000L)
+        assertNull(claimPresetModelAttemptAt(modelId, 6_000L, probe))
+
+        releasePresetModelProbeAt(modelId, 6_000L, oldAttempt)
+        recordPresetModelFailureAt(modelId, "request timed out", 6_000L, oldAttempt)
+        recordPresetModelSuccess(oldAttempt)
+        assertEquals("MODEL_COOLDOWN_PROBE_IN_FLIGHT:$modelId", claimPresetModelAttemptAt(modelId, 6_000L, nextAttempt))
+
+        releasePresetModelProbeAt(modelId, 6_000L, probe)
+        assertNull(claimPresetModelAttemptAt(modelId, 6_000L, nextAttempt))
+        recordPresetModelSuccess(nextAttempt)
+        assertNull(presetModelCircuitSkipReasonAt(modelId, 6_000L))
+    }
+
+    @Test
     fun unavailableAndBillingFailuresUseLongLivedTypedCircuits() {
         val unavailable = "withdrawn-model"
         val billing = "paid-model"
@@ -208,6 +271,7 @@ class PresetRetryChainTest {
                 ollamaBaseUrl = "http://localhost:11434",
             ),
             settings = PresetRuntimeSettings(),
+            searchEnabled = false,
         )
 
         assertNotNull(next)
@@ -215,6 +279,55 @@ class PresetRetryChainTest {
             GeneratedPresetModelCatalogData.modelPriorityChains.textToText.first(),
             next?.id,
         )
+    }
+
+    @Test
+    fun retrySelectionUsesRequestSearchIntentFromSharedFixture() {
+        val search = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
+            .jsonObject.getValue("search_retry").jsonObject
+        val chain = search.getValue("candidate_order").jsonArray.map { it.jsonPrimitive.content }
+        val settings = PresetRuntimeSettings(
+            modelPriorityChains = PresetModelPriorityChains(textToText = chain),
+            adaptiveModelPriority = PresetAdaptiveModelPriority(textToText = false),
+        )
+        val keys = ApiKeys(groqKey = "test", geminiKey = "test")
+        search.getValue("cases").jsonArray.forEach { raw ->
+            val case = raw.jsonObject
+            val next = resolveNextConfiguredRetryModel(
+                currentModelId = case.getValue("current_model_id").jsonPrimitive.content,
+                failedModelIds = case.getValue("failed_model_ids").jsonArray.map { it.jsonPrimitive.content },
+                blockedProviders = emptySet(),
+                chainKind = PresetRetryChainKind.TEXT_TO_TEXT,
+                apiKeys = keys,
+                settings = settings,
+                searchEnabled = case.getValue("search_enabled").jsonPrimitive.boolean,
+            )
+            assertEquals(case.getValue("name").jsonPrimitive.content,
+                case.getValue("expected_configured_model_id").jsonPrimitive.contentOrNull, next?.id)
+            if (next != null) {
+                val payload = json.parseToJsonElement(
+                    TextApiClient(okhttp3.OkHttpClient()).debugBuildRequestBody(
+                        next.id, "prompt", "input", searchEnabled = case.getValue("search_enabled").jsonPrimitive.boolean,
+                    ),
+                ).jsonObject
+                assertEquals(case.getValue("expected_search_tool").jsonPrimitive.boolean, payload.containsKey("tools"))
+            }
+        }
+        search.getValue("compatibility_cases").jsonArray.forEach { raw ->
+            val case = raw.jsonObject
+            val candidate = PresetModelDescriptor(
+                id = "fixture-model", provider = PresetModelProvider.GOOGLE,
+                fullName = "fixture-model", modelType = PresetModelType.TEXT, displayName = "Fixture",
+                supportsSearchOverride = case.getValue("candidate_supports_search").jsonPrimitive.boolean,
+                searchToolEnabledByDefault = case.getValue("candidate_search_tool_enabled_by_default").jsonPrimitive.boolean,
+            )
+            assertEquals(case.getValue("name").jsonPrimitive.content,
+                case.getValue("expected_eligible").jsonPrimitive.boolean,
+                retrySearchCompatible(candidate, case.getValue("search_enabled").jsonPrimitive.boolean))
+            assertEquals(case.getValue("name").jsonPrimitive.content,
+                case.getValue("search_enabled").jsonPrimitive.boolean || !candidate.searchToolEnabledByDefault,
+                runCatching { requireExplicitSearchOptIn(candidate, case.getValue("search_enabled").jsonPrimitive.boolean) }.isSuccess)
+        }
     }
 
     @Test
@@ -364,14 +477,14 @@ class PresetRetryChainTest {
         assertEquals(14, DefaultPresets.imagePresets.size)
     }
 
-    private fun fixturePath(): Path {
+    private fun fixturePath(name: String = "retry-runtime.json"): Path {
         val candidates = listOf(
-            Paths.get("..", "parity-fixtures", "preset-system", "retry-runtime.json"),
-            Paths.get("..", "..", "parity-fixtures", "preset-system", "retry-runtime.json"),
-            Paths.get("parity-fixtures", "preset-system", "retry-runtime.json"),
+            Paths.get("..", "parity-fixtures", "preset-system", name),
+            Paths.get("..", "..", "parity-fixtures", "preset-system", name),
+            Paths.get("parity-fixtures", "preset-system", name),
         )
         return candidates.firstOrNull(Files::exists)
-            ?: error("Could not locate retry-runtime parity fixture.")
+            ?: error("Could not locate $name parity fixture.")
     }
 
     private fun catalogFixturePath(): Path {

@@ -12,6 +12,14 @@ internal fun overlayLocalized(
     ko: String,
 ): String = triLang(uiLanguage, en, vi, ko)
 
+/** One copy toast for manual and auto-copy of any block type, so it never names the content. */
+internal fun copyToastText(uiLanguage: String, copied: Boolean): String =
+    if (copied) {
+        overlayLocalized(uiLanguage, "Copied", "Đã sao chép", "복사됨")
+    } else {
+        overlayLocalized(uiLanguage, "Could not copy result.", "Không thể sao chép kết quả.", "결과를 복사할 수 없습니다.")
+    }
+
 internal fun overlayIsDarkTheme(
     context: Context,
     themeMode: MobileThemeMode,

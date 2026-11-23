@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ORPHAN_GRACE_MS, SNAPSHOT_LOCK, cleanup_manifest_directory, cleanup_uncommitted_directory,
-    is_reparse_point, now_ms, presentation::PRESENTATION_LOCK, preview_root, read_manifest,
-    snapshot_id_from_descriptors, snapshot_root, valid_id, validate_manifest, write_manifest,
+    ORPHAN_GRACE_MS, cleanup_manifest_directory, cleanup_uncommitted_directory, is_reparse_point,
+    now_ms, preview_root, read_manifest, snapshot_id_from_descriptors, snapshot_root,
+    valid_identifier, validate_manifest, write_manifest,
 };
 
 const MAX_SCANNED_ENTRIES: usize = 4_096;
@@ -30,9 +30,8 @@ pub(crate) fn sweep_pressure() -> Result<(), String> {
 }
 
 fn sweep_with_grace(grace_ms: u64) -> Result<(), String> {
-    let _presentation_guard = PRESENTATION_LOCK
-        .lock()
-        .map_err(|_| "Creation preview cleanup is unavailable.".to_string())?;
+    let _lifecycle = crate::overlay::creation_lifecycle::acquire()?;
+    let _presentation_guard = crate::overlay::creation_lifecycle::acquire_presentation()?;
     let protected_dispatches = crate::overlay::creation_delivery::protected_dispatch_ids()?;
     let pending_previews = crate::overlay::creation_delivery::pending_source_paths()?;
     let live_previews = crate::overlay::generation_history::live_source_paths()?;
@@ -61,14 +60,14 @@ fn sweep_with_grace(grace_ms: u64) -> Result<(), String> {
             protected_snapshots.insert(snapshot_id);
         }
     }
+    #[cfg(test)]
+    pause_after_protected_snapshot()?;
     let mut protected_previews = pending_previews
         .into_iter()
         .chain(live_previews)
         .map(|path| path.to_ascii_lowercase())
         .collect();
-    let _guard = SNAPSHOT_LOCK
-        .lock()
-        .map_err(|_| "Creation source cleanup is unavailable.".to_string())?;
+    let _guard = crate::overlay::creation_lifecycle::acquire_snapshot()?;
     sweep_snapshots(
         &root,
         &active_dispatches,
@@ -78,6 +77,23 @@ fn sweep_with_grace(grace_ms: u64) -> Result<(), String> {
         grace_ms,
     )?;
     sweep_previews(&preview_root()?, &protected_previews, now_ms(), grace_ms)
+}
+
+#[cfg(test)]
+fn pause_after_protected_snapshot() -> Result<(), String> {
+    let Some(root) = std::env::var_os("SGT_TEST_CREATION_SWEEP_BARRIER") else {
+        return Ok(());
+    };
+    let root = PathBuf::from(root);
+    std::fs::write(root.join("sweep-ready"), b"ready").map_err(|error| error.to_string())?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !root.join("sweep-release").exists() {
+        if std::time::Instant::now() >= deadline {
+            return Err("Creation lifecycle test barrier timed out.".to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Ok(())
 }
 
 fn sweep_snapshots(
@@ -115,7 +131,7 @@ fn sweep_snapshots(
             }
             continue;
         }
-        if !valid_id(&name)
+        if !valid_identifier(&name)
             || !metadata.file_type().is_dir()
             || is_reparse_point(&metadata)
             || protected_snapshots.contains(&name)

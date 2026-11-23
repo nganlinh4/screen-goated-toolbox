@@ -56,40 +56,15 @@ pub(super) fn validate_exact_tree(root: &Path, delivery: &WebAssetDelivery) -> R
         .map(|file| PathBuf::from(file.path))
         .collect::<HashSet<_>>();
     expected.insert(PathBuf::from(RECEIPT_NAME));
-    let mut actual = HashSet::new();
-    collect_regular_files(root, root, &mut actual, 0)?;
+    let actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "web asset package",
+        MAX_ARCHIVE_ENTRIES + 1,
+    )?
+    .into_iter()
+    .collect::<HashSet<_>>();
     if actual != expected {
         bail!("web asset package contains unowned files");
-    }
-    Ok(())
-}
-
-fn collect_regular_files(
-    root: &Path,
-    directory: &Path,
-    files: &mut HashSet<PathBuf>,
-    depth: usize,
-) -> Result<()> {
-    if depth > 16 || files.len() > MAX_ARCHIVE_ENTRIES {
-        bail!("web asset package exceeds traversal limits");
-    }
-    let metadata = std::fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || is_reparse_point(&metadata) {
-        bail!("web asset package contains an unsafe directory");
-    }
-    for entry in std::fs::read_dir(directory)? {
-        if files.len() >= MAX_ARCHIVE_ENTRIES {
-            bail!("web asset package exceeds traversal limits");
-        }
-        let path = entry?.path();
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if metadata.is_dir() && !is_reparse_point(&metadata) {
-            collect_regular_files(root, &path, files, depth + 1)?;
-        } else if metadata.is_file() && !is_reparse_point(&metadata) {
-            files.insert(path.strip_prefix(root)?.to_path_buf());
-        } else {
-            bail!("web asset package contains an unsafe entry");
-        }
     }
     Ok(())
 }

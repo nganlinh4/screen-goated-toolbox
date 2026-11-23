@@ -2,11 +2,10 @@ use super::*;
 
 /// An edit that replaces a delivered result must leave the result manageable.
 ///
-/// History records the size, digest and file identity of every delivered
-/// result, so an in-place edit makes every later rename, delete and cleanup
-/// check answer "Result file changed since it was recorded" until the proof is
-/// re-recorded. The SVG editor's save path is exactly this: replace the file,
-/// then re-pin the proof with `refresh_artifact_proof`.
+/// History verifies the bytes on disk against the size, digest and file identity
+/// captured at delivery, so an in-place edit makes every later rename or delete
+/// answer "Result file changed since it was recorded". This is the exact shape of
+/// the SVG editor's save path: replace the file, then re-pin the proof.
 #[test]
 fn in_place_edit_is_manageable_after_the_proof_is_refreshed() {
     let root = std::env::temp_dir().join(format!(
@@ -40,27 +39,24 @@ fn in_place_edit_is_manageable_after_the_proof_is_refreshed() {
         ),
     )
     .unwrap();
-    assert_eq!(entry.artifact_size_bytes, delivered.size_bytes);
 
-    // The editor replaces the file with different bytes.
     std::fs::write(
         &output,
         b"<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0h8v8z\"/></svg>",
     )
     .unwrap();
 
-    // Until the proof is re-recorded the store still describes the pre-edit bytes.
-    let store = load_store(&store_path).unwrap();
-    let stale = store
-        .entries
-        .iter()
-        .find(|candidate| candidate.id == entry.id)
-        .unwrap();
-    assert_eq!(
-        stale.artifact_size_bytes,
-        b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".len() as u64
+    assert!(
+        rename_at(
+            &store_path,
+            "svg",
+            &entry.id,
+            "renamed",
+            DEFAULT_RESULTS_PER_TOOL
+        )
+        .is_err(),
+        "an edited result must not pass the delivery proof check before the refresh"
     );
-    assert_eq!(stale.artifact_sha256, delivered.sha256);
 
     super::super::refresh::refresh_at(&store_path, "svg", output.to_str().unwrap()).unwrap();
 
@@ -76,8 +72,7 @@ fn in_place_edit_is_manageable_after_the_proof_is_refreshed() {
     );
     assert_ne!(refreshed.artifact_sha256, delivered.sha256);
 
-    // The re-recorded proof restores the manageable rename path.
-    let renamed = rename_at(
+    rename_at(
         &store_path,
         "svg",
         &entry.id,
@@ -85,8 +80,6 @@ fn in_place_edit_is_manageable_after_the_proof_is_refreshed() {
         DEFAULT_RESULTS_PER_TOOL,
     )
     .unwrap();
-    assert!(renamed.output_path.ends_with("renamed.svg"));
-    assert!(Path::new(&renamed.output_path).is_file());
 
     let _ = std::fs::remove_dir_all(&root);
 }

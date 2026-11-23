@@ -10,12 +10,6 @@ data class MobileDownloaderLocale(
     // Downloaded tools UI
     val toolDescYtdlp: String,
     val toolDescFfmpeg: String,
-    val toolRuntimeMoonshine: String,
-    val toolRuntimeMoonshineDesc: String,
-    val toolRuntimeOrt: String,
-    val toolRuntimeOrtDesc: String,
-    val toolRuntimeSherpa: String,
-    val toolRuntimeSherpaDesc: String,
     val toolUpdate: String,
     val toolDelete: String,
     val toolUpdated: String,
@@ -31,16 +25,20 @@ data class MobileDownloaderLocale(
     val downloaderOpenFileFailed: String,
     val downloaderOpenFolderFailed: String,
     val downloaderStartNowPreferTemplate: String,
+    val preferQualityTemplate: String,
+    val scanFormats: String,
     val downloaderCopyVideo: String,
     val downloaderCopyVideoDone: String,
     val downloaderCopyVideoFailed: String,
-    // Downloaded tools dialog summaries / help (previously selected by matching closeLabel)
-    val moonshineLanguageSummary: String,
-    val zipformerLanguageSummary: String,
-    val moonshineHelpText: String,
-    val zipformerHelpText: String,
+    // Downloaded tools: one-click cleanup of files left by removed offline engines
+    val legacyOfflineModels: String,
+    val legacyOfflineModelsDesc: String,
+    val legacyOfflineModelsRemove: String,
+    val legacyOfflineModelsRemoveFailed: String,
 ) {
     fun downloaderStartNowPrefer(quality: String): String {
         return downloaderStartNowPreferTemplate.replace("{}", quality)
     }
+
+    fun preferQuality(quality: String): String = preferQualityTemplate.replace("{}", quality)
 }

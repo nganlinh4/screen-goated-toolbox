@@ -8,7 +8,7 @@ use super::protocol::{
     SceneStream, SceneTheme,
 };
 use crate::overlay::result::ResultPresentation;
-use crate::overlay::result::markdown_view::conversion::render_for_compositor;
+use crate::overlay::result::markdown_view::incremental::IncrementalMarkdown;
 use crate::overlay::result::state::WINDOW_STATES;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21,6 +21,9 @@ pub(super) static SCENES: LazyLock<Mutex<HashMap<isize, SceneCard>>> =
 pub(super) static SCENE_DISPATCH: Mutex<()> = Mutex::new(());
 static DEFERRED_SYNC: LazyLock<Mutex<HashSet<isize>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Streamed text grows at its end; each window reuses its stable blocks.
+static BODY_RENDERS: LazyLock<Mutex<HashMap<isize, IncrementalMarkdown>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 pub(super) static DRAGGING: AtomicBool = AtomicBool::new(false);
 static NEXT_STACK_ORDER: AtomicU64 = AtomicU64::new(1);
 
@@ -71,8 +74,6 @@ fn scene_card(hwnd: HWND, requested_visible: bool) -> Option<(SceneCard, String,
             state.full_text.clone(),
             state.is_refining,
             state.is_navigation_loading,
-            state.preset_prompt.clone(),
-            state.input_text.clone(),
             state.bg_color,
             state.opacity_percent,
             state.is_streaming_active,
@@ -87,10 +88,15 @@ fn scene_card(hwnd: HWND, requested_visible: bool) -> Option<(SceneCard, String,
         )
     };
 
-    let rendered = render_for_compositor(&snapshot.0, snapshot.1, &snapshot.3, &snapshot.4);
+    let rendered = BODY_RENDERS
+        .lock()
+        .unwrap()
+        .entry(hwnd_key)
+        .or_default()
+        .render(&snapshot.0);
     let body = rendered.body;
     let document = rendered.isolated_document.map(with_card_bridge);
-    let geometry = read_geometry(hwnd, requested_visible, snapshot.9)?;
+    let geometry = read_geometry(hwnd, requested_visible, snapshot.7)?;
     claim_window_onboarding_pulse(hwnd_key);
     let controls = super::controls::snapshot(hwnd_key).unwrap_or_default();
     let stack_order = SCENES
@@ -108,21 +114,21 @@ fn scene_card(hwnd: HWND, requested_visible: bool) -> Option<(SceneCard, String,
         external_navigation: super::super::raw_webview::is_active(hwnd),
         navigation_loading: snapshot.2,
         refining: snapshot.1,
-        background: format!("#{:06x}", snapshot.5 & 0x00ff_ffff),
-        opacity: snapshot.6,
+        background: format!("#{:06x}", snapshot.3 & 0x00ff_ffff),
+        opacity: snapshot.4,
         visible: geometry.visible,
-        streaming: snapshot.7,
-        streaming_enabled: snapshot.8,
+        streaming: snapshot.5,
+        streaming_enabled: snapshot.6,
         stack_order,
         controls,
-        presentation: snapshot.9,
-        backdrop_data_url: snapshot.10,
-        foreground_color: snapshot.11,
-        preferred_font_size: snapshot.12,
-        source_replacement: snapshot.12.is_some(),
-        source_vertical: snapshot.13,
-        source_regions: snapshot.14,
-        source_segments: snapshot.15,
+        presentation: snapshot.7,
+        backdrop_data_url: snapshot.8,
+        foreground_color: snapshot.9,
+        preferred_font_size: snapshot.10,
+        source_replacement: snapshot.10.is_some(),
+        source_vertical: snapshot.11,
+        source_regions: snapshot.12,
+        source_segments: snapshot.13,
     };
     Some((card, body, snapshot.0.chars().count()))
 }
@@ -299,45 +305,40 @@ fn read_geometry(
 ) -> Option<SceneGeometry> {
     let mut screen_rect = RECT::default();
     unsafe { GetWindowRect(hwnd, &mut screen_rect) }.ok()?;
-    let virtual_x = unsafe {
-        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-            windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
-        )
-    };
-    let scene_x = super::compositor_host_x(
-        virtual_x,
-        unsafe {
-            windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN,
-            )
-        }
-        .max(1),
-    );
-    let virtual_y = unsafe {
-        windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-            windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
-        )
-    };
+    Some(geometry_from_screen(
+        hwnd.0 as isize,
+        screen_rect,
+        requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() },
+        presentation,
+    ))
+}
+
+fn geometry_from_screen(
+    id: isize,
+    screen_rect: RECT,
+    visible: bool,
+    presentation: ResultPresentation,
+) -> SceneGeometry {
     let (x_inset, y_inset, width_inset, height_inset) = match presentation {
         ResultPresentation::Standard => (4, 2, 8, 4),
         ResultPresentation::TextOnly => (0, 0, 0, 0),
     };
-    Some(SceneGeometry {
-        id: hwnd.0 as isize,
+    SceneGeometry {
+        id,
         rect: SceneRect {
-            x: screen_rect.left - scene_x + x_inset,
-            y: screen_rect.top - virtual_y + y_inset,
+            x: screen_rect.left.saturating_add(x_inset),
+            y: screen_rect.top.saturating_add(y_inset),
             width: (screen_rect.right - screen_rect.left - width_inset).max(1),
             height: (screen_rect.bottom - screen_rect.top - height_inset).max(1),
         },
         control_rect: SceneRect {
-            x: screen_rect.left - scene_x,
-            y: screen_rect.top - virtual_y,
+            x: screen_rect.left,
+            y: screen_rect.top,
             width: (screen_rect.right - screen_rect.left).max(1),
             height: (screen_rect.bottom - screen_rect.top).max(1),
         },
-        visible: requested_visible && unsafe { IsWindowVisible(hwnd).as_bool() },
-    })
+        visible,
+    }
 }
 
 pub fn remove_window(hwnd: HWND) {
@@ -348,23 +349,12 @@ pub fn remove_window(hwnd: HWND) {
 fn remove_window_locked(hwnd: HWND) {
     let id = hwnd.0 as isize;
     DEFERRED_SYNC.lock().unwrap().remove(&id);
+    BODY_RENDERS.lock().unwrap().remove(&id);
     super::geometry_delivery::remove(id);
     if SCENES.lock().unwrap().remove(&id).is_some() {
         crate::log_trace!("[ResultCard] id={id} host=remove");
         send_command(HostCommand::Remove { id });
     }
-}
-
-pub fn go_back(hwnd: HWND) {
-    send_command(HostCommand::NavigateBack {
-        id: hwnd.0 as isize,
-    });
-}
-
-pub fn go_forward(hwnd: HWND) {
-    send_command(HostCommand::NavigateForward {
-        id: hwnd.0 as isize,
-    });
 }
 
 pub fn raise_window(hwnd: HWND) {
@@ -400,7 +390,7 @@ pub fn update_theme(is_dark: bool) {
     send_command(HostCommand::Theme { theme });
 }
 
-fn theme_command(is_dark: bool) -> SceneTheme {
+pub(super) fn theme_command(is_dark: bool) -> SceneTheme {
     let backgrounds: HashMap<isize, String> = WINDOW_STATES
         .lock()
         .unwrap()
@@ -491,11 +481,6 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
                 super::delivery::queue_snapshot();
             }
         }
-        ChildEvent::Navigation {
-            id,
-            depth,
-            max_depth,
-        } => update_navigation_state(id, depth, max_depth),
         ChildEvent::NavigationRequest { id, url } => {
             let hwnd = HWND(id as *mut std::ffi::c_void);
             super::super::raw_webview::request_navigation(hwnd, &url);
@@ -552,6 +537,7 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
             super::controls::sync_all();
         }
         ChildEvent::FitDiagnostic { id, payload } => log_fit_diagnostic(id, &payload),
+        ChildEvent::TopologyHold { active } => super::reconciliation::hold_for_topology(active),
         ChildEvent::StateAcknowledged {
             revision,
             visible_cards,
@@ -566,25 +552,6 @@ pub(super) fn handle_child_event(event: ChildEvent, generation: u64) {
         | ChildEvent::Heartbeat
         | ChildEvent::ResyncRequested
         | ChildEvent::RendererFailure { .. } => {}
-    }
-}
-
-fn update_navigation_state(id: isize, depth: usize, max_depth: usize) {
-    let updated = {
-        let mut states = WINDOW_STATES.lock().unwrap();
-        states.get_mut(&id).is_some_and(|state| {
-            state.navigation_depth = depth;
-            state.max_navigation_depth = max_depth;
-            state.is_browsing = depth > 0;
-            if state.is_browsing {
-                state.refine_session.cancel_edit();
-            }
-            true
-        })
-    };
-    if updated {
-        let hwnd = HWND(id as *mut std::ffi::c_void);
-        super::controls::sync(hwnd);
     }
 }
 

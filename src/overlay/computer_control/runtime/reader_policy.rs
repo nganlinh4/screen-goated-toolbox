@@ -19,7 +19,7 @@ pub(super) enum BoundaryOutcome {
     ActionComplete,
 }
 
-pub(super) fn apply_user_turn_policy(state: &mut Reader, _user_text: &str) -> bool {
+pub(super) fn apply_user_turn_policy(state: &mut Reader) -> bool {
     let superseded_generation = state.active || state.awaiting || state.pending.id.is_some();
     let cancelled_pending = state.pending.request_cancel();
     if cancelled_pending {
@@ -43,10 +43,15 @@ pub(super) fn mark_pending_interruption(state: &mut Reader) -> bool {
     if !turn_policy::is_mutating_tool(&tool) {
         return false;
     }
-    let newly_required = !state.reconciliation_required;
-    state.reconciliation_required = true;
+    let newly_required = !state.reconciliation.required();
+    if state.reconciliation.require_pending(&state.pending) {
+        super::reconciliation::warn_unresolved();
+    }
     if newly_required {
-        state.turn_outcomes.record_interrupted_effect(&tool);
+        state.turn_outcomes.record_interrupted_effect_for(
+            &tool,
+            super::reconciliation::JobIdentity::from_pending(&state.pending),
+        );
         telemetry::event(
             "interrupted_effect_reconciliation_required",
             "turn_policy",
@@ -60,7 +65,7 @@ pub(super) fn mark_pending_interruption(state: &mut Reader) -> bool {
     true
 }
 
-pub(super) fn refine_turn_mode(state: &mut Reader, _intent: &str, tool: &str) {
+pub(super) fn refine_turn_mode(state: &mut Reader, tool: &str) {
     if turn_policy::is_mutating_tool(tool) {
         state.turn_mode = turn_policy::TurnMode::Action;
     }
@@ -102,7 +107,6 @@ pub(super) fn begin_terminal_drain(state: &mut Reader, accepted: bool, boundary_
     state.ignore_stale_boundary = false;
     state.think_start = None;
     state.reasoning.clear();
-    state.thinking.clear();
 }
 
 pub(super) fn retire_terminal_for_user_turn(state: &mut Reader) -> bool {
@@ -151,8 +155,23 @@ pub(super) fn guard_tool_call(
     state: &mut Reader,
     id: &str,
     name: &str,
-    _args: &Value,
     action: telemetry::ActionTrace,
+) -> bool {
+    guard_tool_call_with_browser(
+        state,
+        id,
+        name,
+        action,
+        super::super::browser::effect_unsettled(),
+    )
+}
+
+fn guard_tool_call_with_browser(
+    state: &mut Reader,
+    id: &str,
+    name: &str,
+    action: telemetry::ActionTrace,
+    browser_unsettled: bool,
 ) -> bool {
     // One local action owns the executor at a time. Keep later calls from the
     // same model generation pending until the owner's result has been delivered;
@@ -224,7 +243,35 @@ pub(super) fn guard_tool_call(
         return true;
     }
 
-    if state.reconciliation_required && (turn_policy::is_mutating_tool(name) || name == "done") {
+    super::reconciliation::discharge_if_quiet(state, browser_unsettled);
+    if browser_unsettled && (turn_policy::is_mutating_tool(name) || name == "done") {
+        queue(
+            state,
+            id,
+            name,
+            serde_json::json!({
+                "ok": false,
+                "status": "blocked_browser_effect_settling",
+                "executed": false,
+                "effect_may_have_occurred": false,
+                "error": {
+                    "code": "browser_effect_settling",
+                    "message": "A prior browser operation is still settling. Wait for its terminal receipt or reconnect the extension before relying on fresh observations. If its extension worker restarted without a receipt, close the affected browser and restart Computer Control."
+                }
+            }),
+        );
+        state.awaiting = true;
+        state.recovery_owed = true;
+        state.think_start = Some(Instant::now());
+        return true;
+    }
+
+    if state.reconciliation.required() && (turn_policy::is_mutating_tool(name) || name == "done") {
+        let message = if state.reconciliation.unresolved() {
+            "The earlier action may have taken effect. Automatic reconciliation is unavailable in this session; inspect the affected state before starting another session."
+        } else {
+            "An interrupted action is still settling. Wait for its terminal receipt before any mutation or completion claim."
+        };
         queue(
             state,
             id,
@@ -235,7 +282,7 @@ pub(super) fn guard_tool_call(
                 "executed": false,
                 "error": {
                     "code": "interrupted_effect_reconciliation_required",
-                    "message": "An interrupted mutation still needs fresh observed state. Use a read or observation capability before any mutation or completion claim."
+                    "message": message
                 }
             }),
         );
@@ -270,9 +317,7 @@ pub(super) fn guard_tool_call(
 }
 
 fn queue(state: &mut Reader, id: &str, name: &str, response: Value) {
-    state
-        .immediate_tool_responses
-        .push_back((id.to_string(), name.to_string(), response));
+    super::tool_call_ids::enqueue(state, id, name, response);
 }
 
 #[cfg(test)]

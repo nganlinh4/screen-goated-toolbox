@@ -9,11 +9,12 @@ import { buildFlatDeviceAudioPoints } from "@/lib/deviceAudio";
 import { DEFAULT_BACKGROUND_CONFIG } from "@/lib/appUtils";
 import { createSubtitleTrackStateFromSegments } from "@/lib/subtitleTracks";
 import type { VideoSegment, Project } from "@/types/video";
+import { importProjectLoadCurrent, importStartOwnerCurrent, rememberImportedProjectOwner, type ImportProjectLoadResult, type ImportStartOwner } from './importProjectOwnership';
 
 export interface UseVideoImportResult {
   isImporting: boolean;
   importVideo: (file: File) => Promise<void>;
-  importVideoPath: (filePath: string) => Promise<Project | null>;
+  importVideoPath: (filePath: string, owner?: ImportStartOwner) => Promise<Project | null>;
 }
 
 function buildVideoImportTraceId() {
@@ -21,7 +22,8 @@ function buildVideoImportTraceId() {
 }
 
 export function useVideoImport(opts: {
-  onProjectCreated: (project: Project) => void | Promise<void>;
+  onProjectCreated: (project: Project, owner?: ImportStartOwner) => ImportProjectLoadResult | Promise<ImportProjectLoadResult>;
+  captureStartOwner?: () => ImportStartOwner;
 }): UseVideoImportResult {
   const [isImporting, setIsImporting] = useState(false);
   const isImportingRef = useRef(false);
@@ -73,6 +75,8 @@ export function useVideoImport(opts: {
   const importVideo = useCallback(async (file: File) => {
     if (!file.type.startsWith("video/")) return;
     if (isImportingRef.current) return;
+    const startOwner = opts.captureStartOwner?.();
+    if (!importStartOwnerCurrent(startOwner)) return;
 
     isImportingRef.current = true;
     setIsImporting(true);
@@ -84,10 +88,13 @@ export function useVideoImport(opts: {
         file.name,
         traceId,
       );
+      if (!importStartOwnerCurrent(startOwner)) return;
 
       const project = await createImportedVideoProject(rawVideoPath, hasAudio, file.name);
-      await opts.onProjectCreated(project);
+      if (!importStartOwnerCurrent(startOwner)) return;
+      if (!importProjectLoadCurrent(await opts.onProjectCreated(project, startOwner))) return;
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(`[VideoImport:${traceId}] failed`, err);
     } finally {
       isImportingRef.current = false;
@@ -95,9 +102,11 @@ export function useVideoImport(opts: {
     }
   }, [createImportedVideoProject, opts]);
 
-  const importVideoPath = useCallback(async (filePath: string): Promise<Project | null> => {
+  const importVideoPath = useCallback(async (filePath: string, expectedOwner?: ImportStartOwner): Promise<Project | null> => {
     if (!filePath.trim()) return null;
     if (isImportingRef.current) return null;
+    const startOwner = expectedOwner === undefined ? opts.captureStartOwner?.() : expectedOwner;
+    if (!importStartOwnerCurrent(startOwner)) return null;
 
     isImportingRef.current = true;
     setIsImporting(true);
@@ -107,11 +116,16 @@ export function useVideoImport(opts: {
         filePath,
         traceId,
       );
+      if (!importStartOwnerCurrent(startOwner)) return null;
       const fileName = filePath.split(/[\\/]/).pop() || "Imported Video";
       const project = await createImportedVideoProject(rawVideoPath, hasAudio, fileName);
-      await opts.onProjectCreated(project);
+      if (!importStartOwnerCurrent(startOwner)) return null;
+      const owner = await opts.onProjectCreated(project, startOwner);
+      if (!importProjectLoadCurrent(owner)) return null;
+      rememberImportedProjectOwner(project, owner);
       return project;
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return null;
       console.error(`[VideoImport:${traceId}] failed`, err);
       return null;
     } finally {

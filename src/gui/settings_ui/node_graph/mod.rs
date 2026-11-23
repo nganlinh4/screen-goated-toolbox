@@ -1,10 +1,12 @@
 pub mod body;
 pub mod conversion;
+#[cfg(test)]
+mod editor_chrome_parity_tests;
 pub mod node;
 pub mod utils;
 pub mod viewer;
 
-pub use conversion::{blocks_to_snarl, snarl_to_graph};
+pub use conversion::{blocks_to_snarl, graph_connections_valid, save_graph_to_preset};
 pub use node::ChainNode;
 pub use utils::request_node_graph_view_reset;
 pub use viewer::ChainViewer;
@@ -45,6 +47,10 @@ pub fn render_node_graph(
         .style(style)
         .min_size(egui::vec2(0.0, min_height))
         .show(snarl, &mut viewer, ui);
+
+    if !ui.is_enabled() {
+        return false;
+    }
 
     // Constraint Enforcement: Post-update cleanup
     // 1. No self-loops

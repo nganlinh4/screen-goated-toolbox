@@ -47,11 +47,10 @@ class CreationAcceptedJobRecoveryTest {
             assertNotNull("Recovered creation did not commit history", history)
             val output = File(requireNotNull(history).outputPath)
             assertTrue("Recovered creation artifact is missing", output.isFile)
-            when (tool) {
-                CreationTool.IMAGE_TO_3D -> CreationArtifactValidator.validateGlb(output)
-                CreationTool.IMAGE_TO_SVG -> CreationArtifactValidator.validateSvg(output)
-                CreationTool.IMAGE_CREATOR ->
-                    CreationArtifactValidator.validatePng(output, null, null)
+            if (tool == CreationTool.IMAGE_TO_3D) {
+                CreationArtifactValidator.validateGlb(output)
+            } else {
+                CreationArtifactValidator.validateSvg(output)
             }
         }
     }

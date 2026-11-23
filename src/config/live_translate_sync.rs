@@ -44,7 +44,8 @@ mod tests {
         overlay.realtime_audio_source = "mic".to_string();
         overlay.realtime_target_language = "Japanese".to_string();
         overlay.realtime_translation_model = "google-gtx".to_string();
-        overlay.realtime_transcription_model = "zipformer".to_string();
+        overlay.realtime_transcription_model =
+            "google-gemini-3-5-transcribe-live-audio".to_string();
         overlay.realtime_custom_vocabulary = vec!["Codex".to_string(), "WebView2".to_string()];
         overlay.realtime_transcription_language = "ja".to_string();
         overlay.realtime_font_size = 32;
@@ -55,7 +56,10 @@ mod tests {
         assert_eq!(modal.realtime_audio_source, "mic");
         assert_eq!(modal.realtime_target_language, "Japanese");
         assert_eq!(modal.realtime_translation_model, "google-gtx");
-        assert_eq!(modal.realtime_transcription_model, "zipformer");
+        assert_eq!(
+            modal.realtime_transcription_model,
+            "google-gemini-3-5-transcribe-live-audio"
+        );
         assert_eq!(modal.realtime_custom_vocabulary, ["Codex", "WebView2"]);
         assert_eq!(modal.realtime_transcription_language, "ja");
         assert_eq!(modal.realtime_font_size, 32);

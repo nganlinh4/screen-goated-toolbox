@@ -3,6 +3,7 @@ package dev.screengoated.toolbox.mobile.service
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.service.tts.AudioTrackPlayer
+import dev.screengoated.toolbox.mobile.service.tts.PlaybackWriteResult
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleEffect
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveLifecycleFrame
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveReceiveResult
@@ -25,7 +26,7 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
     model: String,
     sourceMode: SourceMode,
     player: AudioTrackPlayer,
-    audioChunks: kotlinx.coroutines.flow.Flow<ShortArray>,
+    audioChunks: kotlinx.coroutines.flow.Flow<S2sCapturedAudio>,
     settingsProvider: () -> GeminiS2sRuntimeSettings,
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     logTag: String,
@@ -33,15 +34,16 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
     val textState = LiveTranslateTextAccumulator()
     val stats = LiveTranslateStreamStats()
     val playbackEpoch = LiveTranslatePlaybackEpoch()
-    val playbackQueue = Channel<LiveTranslatePlaybackChunk>(LIVE_TRANSLATE_PLAYBACK_QUEUE_CAPACITY)
-    val pendingAudio = LiveTranslatePendingAudio(
+    val playbackQueue = Channel<VisibleLiveTranslateChunk>(LIVE_TRANSLATE_PLAYBACK_QUEUE_CAPACITY)
+    var pendingAudio = LiveTranslatePendingAudio(
         maxSamples = LIVE_TRANSLATE_PENDING_AUDIO_SAMPLES,
         frameSamples = FRAME_SAMPLES,
     )
     var lastHealthAtMs = SystemClock.elapsedRealtime()
     var userSpeaking = false
+    val streamEpoch = S2sStreamEpoch(visibilityGate.snapshot())
     lateinit var lifecycleAdapter: GeminiS2sLiveLifecycleAdapter
-    lifecycleAdapter = GeminiS2sLiveLifecycleAdapter(
+    fun newLifecycleAdapter() = GeminiS2sLiveLifecycleAdapter(
         clockMs = SystemClock::elapsedRealtime,
         openConnectedSession = {
             openGeminiLiveConnectedSession(httpClient, apiKey)
@@ -79,14 +81,23 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
             }
         },
     )
+    lifecycleAdapter = newLifecycleAdapter()
     if (sourceMode == SourceMode.MIC) {
         player.beginCommunicationSession()
     }
     val playbackJob = launch(Dispatchers.IO) {
+        val playbackOwner = requireNotNull(currentCoroutineContext()[kotlinx.coroutines.Job])
         for (chunk in playbackQueue) {
             val volumePercent = settingsProvider().realtime.volumePercent
-            playbackEpoch.playIfCurrent(chunk) { bytes ->
-                player.playNativePcm24k(bytes, volumePercent)
+            if (visibilityGate.isCurrent(chunk.visibilityEpoch) && playbackEpoch.isCurrent(chunk.chunk)) {
+                val canPlay = { playbackOwner.isActive && visibilityGate.isCurrent(chunk.visibilityEpoch) && playbackEpoch.isCurrent(chunk.chunk) }
+                val result = player.playNativePcm24kInterruptibly(chunk.chunk.bytes, volumePercent, canPlay) { effect ->
+                    var allowed = false
+                    visibilityGate.dispatch(chunk.visibilityEpoch) {
+                        if (playbackOwner.isActive) allowed = playbackEpoch.dispatch(chunk.chunk, effect)
+                    } && allowed
+                }
+                if (result == PlaybackWriteResult.FAILED) Log.w(logTag, "continuous playback write failed")
             }
             stats.playbackQueuedChunks.updateAndGet { (it - 1).coerceAtLeast(0) }
         }
@@ -97,7 +108,17 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
             if (!currentCoroutineContext().isActive) {
                 return@collect
             }
-            pendingAudio.append(chunk)
+            when (streamEpoch.observe(chunk.epoch, visibilityGate)) {
+                S2sStreamInput.DROP -> return@collect
+                S2sStreamInput.RESTART -> {
+                    lifecycleAdapter.cancel()
+                    lifecycleAdapter = newLifecycleAdapter()
+                    pendingAudio = LiveTranslatePendingAudio(LIVE_TRANSLATE_PENDING_AUDIO_SAMPLES, FRAME_SAMPLES)
+                    userSpeaking = false
+                }
+                S2sStreamInput.KEEP -> Unit
+            }
+            pendingAudio.append(chunk.samples)
             updateLiveTranslateWorkState(
                 lifecycleAdapter = lifecycleAdapter,
                 player = player,
@@ -159,6 +180,8 @@ internal suspend fun GeminiS2sClient.runLiveTranslateContinuousSession(
                     stats = stats,
                     playbackQueue = playbackQueue,
                     playbackEpoch = playbackEpoch,
+                    visibilityGate = visibilityGate,
+                    streamEpoch = streamEpoch.current(),
                     bufferedInputCount = pendingAudio.sampleCount.toLong(),
                     userSpeaking = userSpeaking,
                     logTag = logTag,
@@ -233,8 +256,10 @@ private suspend fun drainLiveTranslateSocket(
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     textState: LiveTranslateTextAccumulator,
     stats: LiveTranslateStreamStats,
-    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackQueue: Channel<VisibleLiveTranslateChunk>,
     playbackEpoch: LiveTranslatePlaybackEpoch,
+    visibilityGate: S2sVisibilityGate,
+    streamEpoch: Long?,
     bufferedInputCount: Long,
     userSpeaking: Boolean,
     logTag: String,
@@ -252,6 +277,8 @@ private suspend fun drainLiveTranslateSocket(
                     player = player,
                     playbackQueue = playbackQueue,
                     playbackEpoch = playbackEpoch,
+                    visibilityGate = visibilityGate,
+                    streamEpoch = streamEpoch,
                     stats = stats,
                     onDisplay = onDisplay,
                     textState = textState,
@@ -299,8 +326,10 @@ private fun handleLiveTranslateFrame(
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     textState: LiveTranslateTextAccumulator,
     stats: LiveTranslateStreamStats,
-    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackQueue: Channel<VisibleLiveTranslateChunk>,
     playbackEpoch: LiveTranslatePlaybackEpoch,
+    visibilityGate: S2sVisibilityGate,
+    streamEpoch: Long?,
     logTag: String,
 ) {
     val parsed = parseGeminiS2sUpdate(frame)
@@ -316,10 +345,13 @@ private fun handleLiveTranslateFrame(
     }
     if (parsed.audioChunks.isNotEmpty()) {
         parsed.audioChunks.forEach { bytes ->
-            val queued = playbackQueue.trySend(playbackEpoch.tag(bytes)).isSuccess
-            if (queued) {
+            val queued = if (visibilityGate.isCurrent(streamEpoch)) {
                 stats.playbackQueuedChunks.incrementAndGet()
-            } else {
+                val accepted = playbackQueue.trySend(VisibleLiveTranslateChunk(streamEpoch, playbackEpoch.tag(bytes))).isSuccess
+                if (!accepted) stats.playbackQueuedChunks.decrementAndGet()
+                accepted
+            } else false
+            if (!queued) {
                 stats.playbackDroppedChunks++
                 if (stats.playbackDroppedChunks <= 3 || stats.playbackDroppedChunks % 20 == 0) {
                     Log.w(
@@ -352,8 +384,10 @@ private fun applyLiveTranslateFeatureEffects(
     effects: List<GeminiLiveLifecycleEffect>,
     frame: GeminiLiveServerFrame,
     player: AudioTrackPlayer,
-    playbackQueue: Channel<LiveTranslatePlaybackChunk>,
+    playbackQueue: Channel<VisibleLiveTranslateChunk>,
     playbackEpoch: LiveTranslatePlaybackEpoch,
+    visibilityGate: S2sVisibilityGate,
+    streamEpoch: Long?,
     stats: LiveTranslateStreamStats,
     onDisplay: (S2sDisplaySnapshot) -> Unit,
     textState: LiveTranslateTextAccumulator,
@@ -369,11 +403,14 @@ private fun applyLiveTranslateFeatureEffects(
                 stats,
                 playbackQueue,
                 playbackEpoch,
+                visibilityGate,
+                streamEpoch,
                 logTag,
             )
         },
         stopPlayback = {
-            playbackEpoch.interrupt(player::stopImmediate)
+            playbackEpoch.invalidate()
+            player.stopImmediate()
         },
         discardQueuedOutput = {
             var removed = 0

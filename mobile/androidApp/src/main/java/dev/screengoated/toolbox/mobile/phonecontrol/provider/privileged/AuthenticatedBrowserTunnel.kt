@@ -11,9 +11,12 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.Deque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Semaphore
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.atomic.AtomicBoolean
@@ -39,6 +42,7 @@ internal class AuthenticatedBrowserTunnel(
 ) : Closeable {
     private val running = AtomicBoolean(true)
     private val slots = Semaphore(MAX_CLIENTS)
+    private val handshakes = ConcurrentLinkedDeque<Socket>()
     private val clients = ConcurrentHashMap.newKeySet<Client>()
     private val executor = Executors.newCachedThreadPool(TunnelThreadFactory())
     private val server = ServerSocket(
@@ -62,7 +66,9 @@ internal class AuthenticatedBrowserTunnel(
     override fun close() {
         if (!running.compareAndSet(true, false)) return
         runCatching(server::close)
-        clients.toList().forEach(Client::close)
+        closeDrained(handshakes)
+        // toArray snapshots safely while serving threads remove clients.
+        clients.toTypedArray().forEach(Client::close)
         executor.shutdownNow()
     }
 
@@ -74,28 +80,58 @@ internal class AuthenticatedBrowserTunnel(
                 if (!running.get()) return
                 continue
             }
-            if (!slots.tryAcquire()) {
-                socket.reject(HTTP_UNAVAILABLE)
-                continue
-            }
-            executor.execute {
-                try {
-                    serve(socket)
-                } finally {
-                    slots.release()
-                }
+            admitHandshake(socket)
+            try {
+                executor.execute { serve(socket) }
+            } catch (_: RejectedExecutionException) {
+                handshakes.remove(socket)
+                runCatching(socket::close)
+                return
             }
         }
     }
 
+    /**
+     * Unauthenticated sockets never hold a client slot. They wait in a bounded
+     * handshake queue where the oldest is evicted first, so slow local
+     * connections cannot lock out a client that presents its token promptly.
+     */
+    private fun admitHandshake(socket: Socket) {
+        handshakes.addLast(socket)
+        while (handshakes.size > MAX_PENDING_HANDSHAKES) {
+            handshakes.pollFirst()?.let { runCatching(it::close) }
+        }
+    }
+
     private fun serve(socket: Socket) {
-        socket.tcpNoDelay = true
-        socket.soTimeout = HEADER_TIMEOUT_MS
-        val request = runCatching { readAuthenticatedRequest(socket) }.getOrNull()
+        val request = try {
+            runCatching {
+                socket.tcpNoDelay = true
+                readAuthenticatedRequest(socket)
+            }.getOrNull()
+        } finally {
+            handshakes.remove(socket)
+        }
         if (request == null) {
             socket.reject(HTTP_FORBIDDEN)
             return
         }
+        if (!slots.tryAcquire()) {
+            socket.reject(HTTP_UNAVAILABLE)
+            return
+        }
+        try {
+            runCatching { relay(socket, request) }.onFailure { runCatching(socket::close) }
+        } finally {
+            slots.release()
+        }
+    }
+
+    /**
+     * Only the first request's header is authenticated and stripped, so a
+     * connection carries exactly that request, or the WebSocket it upgrades to.
+     */
+    private fun relay(socket: Socket, request: ForwardedTunnelRequest) {
         val upstream = try {
             openUpstream()
         } catch (_: Throwable) {
@@ -104,15 +140,20 @@ internal class AuthenticatedBrowserTunnel(
         }
         val client = Client(socket, upstream)
         clients += client
+        val upgraded = AtomicBoolean(false)
         try {
             socket.soTimeout = 0
-            upstream.output.write(request)
+            upstream.output.write(request.header)
             upstream.output.flush()
             val uplink = Thread(
                 {
                     runCatching {
-                        socket.getInputStream().copyTo(upstream.output, COPY_BUFFER_BYTES)
-                        upstream.output.flush()
+                        forwardTunnelClientStream(
+                            socket.getInputStream(),
+                            upstream.output,
+                            request.bodyLength,
+                            upgraded,
+                        )
                     }
                     client.close()
                 },
@@ -122,8 +163,12 @@ internal class AuthenticatedBrowserTunnel(
                 start()
             }
             runCatching {
-                upstream.input.copyTo(socket.getOutputStream(), COPY_BUFFER_BYTES)
-                socket.getOutputStream().flush()
+                val output = socket.getOutputStream()
+                val statusLine = readTunnelStatusLine(upstream.input)
+                if (isSwitchingProtocols(statusLine)) upgraded.set(true)
+                output.write(statusLine)
+                output.flush()
+                copyTunnelStreamFlushing(upstream.input, output)
             }
             client.close()
             try {
@@ -137,11 +182,13 @@ internal class AuthenticatedBrowserTunnel(
         }
     }
 
-    private fun readAuthenticatedRequest(socket: Socket): ByteArray? {
+    private fun readAuthenticatedRequest(socket: Socket): ForwardedTunnelRequest? {
         val input = socket.getInputStream()
         val header = ByteArrayOutputStream()
+        val deadlineNanos = System.nanoTime() + HEADER_TIMEOUT_MS * NANOS_PER_MILLI
         var matched = 0
         while (header.size() <= MAX_HEADER_BYTES) {
+            socket.soTimeout = headerReadTimeoutMs(deadlineNanos, System.nanoTime()) ?: return null
             val next = input.read()
             if (next < 0) return null
             header.write(next)
@@ -155,7 +202,9 @@ internal class AuthenticatedBrowserTunnel(
             if (matched == HEADER_TERMINATOR.size) break
         }
         if (matched != HEADER_TERMINATOR.size) return null
-        return sanitizedAuthenticatedHeader(header.toByteArray(), lease.bearerToken)
+        val sanitized = sanitizedAuthenticatedHeader(header.toByteArray(), lease.bearerToken) ?: return null
+        val bodyLength = tunnelRequestBodyLength(sanitized) ?: return null
+        return ForwardedTunnelRequest(sanitized, bodyLength)
     }
 
     private class Client(
@@ -190,9 +239,10 @@ internal class AuthenticatedBrowserTunnel(
         const val AUTH_HEADER = "X-SGT-Bridge-Token"
         private const val LISTEN_BACKLOG = 16
         private const val MAX_CLIENTS = 16
+        const val MAX_PENDING_HANDSHAKES = 16
+        private const val NANOS_PER_MILLI = 1_000_000L
         private const val MAX_HEADER_BYTES = 32 * 1_024
         private const val HEADER_TIMEOUT_MS = 5_000
-        private const val COPY_BUFFER_BYTES = 16 * 1_024
         private const val COPY_SETTLE_MS = 500L
         private val SUPPORTED_METHODS = setOf("GET", "PUT", "POST", "DELETE", "OPTIONS")
         private val HEADER_TERMINATOR =
@@ -232,6 +282,15 @@ internal class AuthenticatedBrowserTunnel(
             }.toByteArray(StandardCharsets.ISO_8859_1)
         }
 
+        /** Remaining whole-header budget as a socket read timeout; null once spent. */
+        fun headerReadTimeoutMs(deadlineNanos: Long, nowNanos: Long): Int? {
+            val remainingNanos = deadlineNanos - nowNanos
+            if (remainingNanos <= 0L) return null
+            return ((remainingNanos + NANOS_PER_MILLI - 1) / NANOS_PER_MILLI)
+                .coerceIn(1L, HEADER_TIMEOUT_MS.toLong())
+                .toInt()
+        }
+
         fun newBearerToken(): String {
             val bytes = ByteArray(32)
             SecureRandom().nextBytes(bytes)
@@ -251,5 +310,17 @@ internal class AuthenticatedBrowserTunnel(
                 parts[1].startsWith('/') &&
                 parts[2].startsWith("HTTP/1.")
         }
+    }
+}
+
+/**
+ * Closes every queued socket while serving threads remove entries
+ * concurrently. Kotlin's toList() reads size before iterating, so it can throw
+ * NoSuchElementException on a shrinking concurrent deque; polling cannot.
+ */
+internal fun closeDrained(sockets: Deque<Socket>) {
+    while (true) {
+        val socket = sockets.pollFirst() ?: break
+        runCatching(socket::close)
     }
 }

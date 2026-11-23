@@ -51,8 +51,12 @@ class HelpAssistantOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        val appContainer = (application as SgtMobileApplication).appContainerOrNull
+        if (appContainer == null) {
+            stopSelf()
+            return
+        }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val appContainer = (application as SgtMobileApplication).appContainer
         resultModule = PresetOverlayResultModule(
             context = this,
             windowManager = windowManager,
@@ -90,6 +94,10 @@ class HelpAssistantOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (resultModule == null) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val startIntent = intent ?: return START_NOT_STICKY
         val question = startIntent.getStringExtra(EXTRA_QUESTION)?.trim().orEmpty()
         if (question.isBlank()) return START_NOT_STICKY

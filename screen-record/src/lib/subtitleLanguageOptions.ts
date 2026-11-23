@@ -12,86 +12,11 @@ const AUTO_LANGUAGE_OPTION: SubtitleLanguageOption = {
   keywords: ['automatic', 'detect'],
 };
 
-const QWEN_LANGUAGE_ENTRIES: Array<[value: string, label: string, keywords?: string[]]> = [
-  ['ar', 'Arabic'],
-  ['cs', 'Czech'],
-  ['da', 'Danish'],
-  ['de', 'German'],
-  ['el', 'Greek'],
-  ['en', 'English'],
-  ['es', 'Spanish'],
-  ['fa', 'Persian', ['farsi']],
-  ['fi', 'Finnish'],
-  ['fil', 'Filipino', ['tagalog']],
-  ['fr', 'French'],
-  ['hi', 'Hindi'],
-  ['hu', 'Hungarian'],
-  ['id', 'Indonesian'],
-  ['it', 'Italian'],
-  ['ja', 'Japanese'],
-  ['ko', 'Korean'],
-  ['mk', 'Macedonian'],
-  ['ms', 'Malay'],
-  ['nl', 'Dutch'],
-  ['pl', 'Polish'],
-  ['pt', 'Portuguese'],
-  ['ro', 'Romanian'],
-  ['ru', 'Russian'],
-  ['sv', 'Swedish'],
-  ['th', 'Thai'],
-  ['tr', 'Turkish'],
-  ['vi', 'Vietnamese'],
-  ['yue', 'Cantonese (Yue)', ['cantonese']],
-  ['zh', 'Chinese'],
-  ['qwen-dialect-anhui', 'Chinese Dialect: Anhui'],
-  ['qwen-dialect-dongbei', 'Chinese Dialect: Dongbei'],
-  ['qwen-dialect-fujian', 'Chinese Dialect: Fujian'],
-  ['qwen-dialect-gansu', 'Chinese Dialect: Gansu'],
-  ['qwen-dialect-guizhou', 'Chinese Dialect: Guizhou'],
-  ['qwen-dialect-hebei', 'Chinese Dialect: Hebei'],
-  ['qwen-dialect-henan', 'Chinese Dialect: Henan'],
-  ['qwen-dialect-hubei', 'Chinese Dialect: Hubei'],
-  ['qwen-dialect-hunan', 'Chinese Dialect: Hunan'],
-  ['qwen-dialect-jiangxi', 'Chinese Dialect: Jiangxi'],
-  ['qwen-dialect-ningxia', 'Chinese Dialect: Ningxia'],
-  ['qwen-dialect-shandong', 'Chinese Dialect: Shandong'],
-  ['qwen-dialect-shaanxi', 'Chinese Dialect: Shaanxi'],
-  ['qwen-dialect-shanxi', 'Chinese Dialect: Shanxi'],
-  ['qwen-dialect-sichuan', 'Chinese Dialect: Sichuan'],
-  ['qwen-dialect-tianjin', 'Chinese Dialect: Tianjin'],
-  ['qwen-dialect-yunnan', 'Chinese Dialect: Yunnan'],
-  ['qwen-dialect-zhejiang', 'Chinese Dialect: Zhejiang'],
-  ['qwen-dialect-cantonese-hk', 'Chinese Dialect: Cantonese (Hong Kong)', ['hong kong cantonese']],
-  ['qwen-dialect-cantonese-gd', 'Chinese Dialect: Cantonese (Guangdong)', ['guangdong cantonese']],
-  ['qwen-dialect-wu', 'Chinese Dialect: Wu language', ['shanghainese']],
-  ['qwen-dialect-minnan', 'Chinese Dialect: Minnan language', ['hokkien']],
-];
-
-function buildOptions(entries: Array<[value: string, label: string, keywords?: string[]]>) {
-  return [
-    AUTO_LANGUAGE_OPTION,
-    ...entries.map(([value, label, keywords]) => ({ value, label, keywords })),
-  ];
-}
-
-export const SUBTITLE_LANGUAGE_OPTIONS_GROQ: SubtitleLanguageOption[] =
+export const SUBTITLE_LANGUAGE_OPTIONS: SubtitleLanguageOption[] =
   [AUTO_LANGUAGE_OPTION, ...whisperLanguages];
 
-export const SUBTITLE_LANGUAGE_OPTIONS_QWEN: SubtitleLanguageOption[] =
-  buildOptions(QWEN_LANGUAGE_ENTRIES);
-
-export const SUBTITLE_LANGUAGE_OPTIONS: SubtitleLanguageOption[] = SUBTITLE_LANGUAGE_OPTIONS_GROQ;
-
-export function getSubtitleLanguageOptionsForMethod(method: string): SubtitleLanguageOption[] {
-  if (method === 'qwen-local-0-6b' || method === 'qwen-local-1-7b') {
-    return SUBTITLE_LANGUAGE_OPTIONS_QWEN;
-  }
-  return SUBTITLE_LANGUAGE_OPTIONS_GROQ;
-}
-
 const SUBTITLE_LANGUAGE_OPTIONS_BY_VALUE = new Map(
-  [...SUBTITLE_LANGUAGE_OPTIONS_GROQ, ...SUBTITLE_LANGUAGE_OPTIONS_QWEN]
-    .map((option) => [option.value, option]),
+  SUBTITLE_LANGUAGE_OPTIONS.map((option) => [option.value, option]),
 );
 
 export function getSubtitleLanguageOption(

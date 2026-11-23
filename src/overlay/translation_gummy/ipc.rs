@@ -69,10 +69,15 @@ pub(super) fn handle_ipc(hwnd: HWND, body: &str) {
             let vol = envelope
                 .args
                 .get("volume")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(100) as u32;
-            crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
-                .store(vol.min(100), std::sync::atomic::Ordering::Relaxed);
+                .and_then(|v| v.as_i64())
+                .unwrap_or(100);
+            super::volume::OUTPUT_VOLUME.set_percent(vol);
+            super::state::request_sync();
+            Ok(Value::Null)
+        }
+        "toggle_tts_mute" => {
+            super::volume::OUTPUT_VOLUME.toggle_mute();
+            super::state::request_sync();
             Ok(Value::Null)
         }
         "open_tts_settings" => {

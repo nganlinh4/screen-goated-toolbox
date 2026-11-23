@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use super::super::job_registry::{self, JobHandle, JobState};
+use super::super::job_registry::{self, JobHandle, JobState, NarrationKind};
 use super::audio::{MIN_SUBTITLE_DURATION_SEC, compact_to_source_time};
 use super::media::prepare_clip_media;
 use super::postprocess::sanitize_segments;
@@ -13,6 +13,10 @@ use super::types::{
     SubtitleClipResult, SubtitleGenerationCapabilities, SubtitleGenerationRequest,
     SubtitleJobSnapshot, SubtitleSegmentResult, SubtitleSkippedClip,
 };
+
+#[cfg(test)]
+#[path = "job_cancellation_tests.rs"]
+mod job_cancellation_tests;
 
 impl JobState for SubtitleJobSnapshot {
     fn state(&self) -> &str {
@@ -41,7 +45,12 @@ pub fn handle_start_subtitle_generation(
         ));
     }
     job_registry::prepare_for_insert(&mut jobs)?;
-    let job_id = job_registry::uuid("subtitle");
+    let job_id = job_registry::start_id(args, "subtitle")?;
+    job_registry::claim_client_start(
+        &mut *job_registry::client_requests()?,
+        &job_id,
+        NarrationKind::Transcription,
+    )?;
     let snapshot = Arc::new(Mutex::new(SubtitleJobSnapshot {
         state: "queued".to_string(),
         message: "Queued".to_string(),
@@ -52,10 +61,7 @@ pub fn handle_start_subtitle_generation(
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        JobHandle {
-            snapshot: snapshot.clone(),
-            cancelled: cancelled.clone(),
-        },
+        JobHandle::new(snapshot.clone(), cancelled.clone()),
     );
     drop(jobs);
 
@@ -128,17 +134,30 @@ pub fn handle_cancel_subtitle_generation(
     let jobs = subtitle_jobs()
         .lock()
         .map_err(|_| "Subtitle jobs lock poisoned".to_string())?;
-    let handle = jobs
-        .get(job_id)
-        .ok_or_else(|| format!("Unknown subtitle job: {job_id}"))?;
-    handle.cancelled.store(true, Ordering::SeqCst);
-    if let Ok(mut snapshot) = handle.snapshot.lock() {
-        snapshot.state = "cancelled".to_string();
-        snapshot.message = "Cancelled".to_string();
-        snapshot.message_key = Some("subtitleStatusCancelled".to_string());
-        snapshot.message_params.clear();
-        snapshot.active_clip_id = None;
+    let Some(handle) = jobs.get(job_id) else {
+        return job_registry::cancel_job(
+            &jobs,
+            job_id,
+            NarrationKind::Transcription,
+            |_snapshot| {},
+        );
+    };
+    let mut snapshot = handle
+        .snapshot
+        .lock()
+        .map_err(|_| "Subtitle snapshot lock poisoned".to_string())?;
+    // Retirement and completion must be ordered under the same lock: once a
+    // completed result exists, return it instead of destroying the snapshot.
+    if snapshot.state == "completed" {
+        return serde_json::to_value(&*snapshot)
+            .map_err(|e| format!("Serialize subtitle status: {e}"));
     }
+    handle.cancelled.store(true, Ordering::SeqCst);
+    snapshot.state = "cancelled".to_string();
+    snapshot.message = "Cancelled".to_string();
+    snapshot.message_key = Some("subtitleStatusCancelled".to_string());
+    snapshot.message_params.clear();
+    snapshot.active_clip_id = None;
     Ok(serde_json::Value::Null)
 }
 

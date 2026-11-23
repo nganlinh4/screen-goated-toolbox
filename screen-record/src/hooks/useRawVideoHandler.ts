@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from '@/lib/ipc';
 import { notifyUserError } from '@/lib/userNotifications';
+import { useSynchronizedState } from '@/hooks/useSynchronizedState';
 
 const RAW_AUTO_COPY_KEY = 'screen-record-raw-auto-copy-v1';
 const RAW_SAVE_DIR_KEY = 'screen-record-raw-save-dir-v1';
@@ -23,6 +24,7 @@ function getInitialRawSaveDir(): string {
 
 export interface UseRawVideoHandlerReturn {
   currentRawVideoPath: string;
+  currentRawVideoPathRef: React.MutableRefObject<string>;
   setCurrentRawVideoPath: (path: string) => void;
   lastRawSavedPath: string;
   setLastRawSavedPath: (path: string) => void;
@@ -46,7 +48,7 @@ export interface UseRawVideoHandlerReturn {
 }
 
 export function useRawVideoHandler(): UseRawVideoHandlerReturn {
-  const [currentRawVideoPath, setCurrentRawVideoPath] = useState('');
+  const [currentRawVideoPath, setCurrentRawVideoPath, currentRawVideoPathRef] = useSynchronizedState(() => '');
   const [lastRawSavedPath, setLastRawSavedPath] = useState('');
   const [showRawVideoDialog, setShowRawVideoDialog] = useState(false);
   const [rawAutoCopyEnabled, setRawAutoCopyEnabled] = useState(getInitialRawAutoCopy);
@@ -214,6 +216,7 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
 
   return {
     currentRawVideoPath,
+    currentRawVideoPathRef,
     setCurrentRawVideoPath,
     lastRawSavedPath,
     setLastRawSavedPath,

@@ -5,6 +5,7 @@ import type {
   SubtitleSourceGroupAssignment,
   SubtitleSourceGroupKind,
 } from '@/types/video';
+import { audioSegmentPlaybackRate } from '@/lib/audioSegmentTime';
 
 export type SubtitleSourceGroupId =
   | 'video'
@@ -116,7 +117,8 @@ export function inferAudioSourceGroupAtRange(
 ): SubtitleSourceGroup {
   const midpoint = (startTime + endTime) / 2;
   const matches = (audioSegments ?? []).filter((segment) => {
-    const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0);
+    const visibleDuration = Math.max(segment.outPoint - segment.inPoint, 0)
+      / audioSegmentPlaybackRate(segment.playbackRate);
     return midpoint >= segment.startTime && midpoint <= segment.startTime + visibleDuration;
   });
   if (matches.length !== 1) {
@@ -143,14 +145,15 @@ export function getAudioLocalSubtitleTiming(
   subtitle: SubtitleSegment,
   audioSegment: ImportedAudioSegment,
 ): { startTime: number; endTime: number } | null {
-  const visibleDuration = Math.max(audioSegment.outPoint - audioSegment.inPoint, 0);
+  const rate = audioSegmentPlaybackRate(audioSegment.playbackRate);
+  const visibleDuration = Math.max(audioSegment.outPoint - audioSegment.inPoint, 0) / rate;
   const timelineStart = audioSegment.startTime;
   const timelineEnd = timelineStart + visibleDuration;
   const overlapStart = Math.max(subtitle.startTime, timelineStart);
   const overlapEnd = Math.min(subtitle.endTime, timelineEnd);
   if (overlapEnd - overlapStart <= 0.0001) return null;
   return {
-    startTime: audioSegment.inPoint + (overlapStart - timelineStart),
-    endTime: audioSegment.inPoint + (overlapEnd - timelineStart),
+    startTime: audioSegment.inPoint + (overlapStart - timelineStart) * rate,
+    endTime: audioSegment.inPoint + (overlapEnd - timelineStart) * rate,
   };
 }

@@ -10,10 +10,6 @@ pub(super) fn set_download_state(component: WebAssetComponent, progress: f32) {
     }
 }
 
-pub(super) fn download_title(component: WebAssetComponent) -> String {
-    progress_text(component).0
-}
-
 pub(super) fn finish_download_state(success: bool) {
     if let Ok(mut state) = crate::overlay::realtime_webview::state::REALTIME_STATE.lock() {
         state.is_downloading = false;

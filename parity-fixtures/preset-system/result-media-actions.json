@@ -1,0 +1,11 @@
+{
+  "cases": [
+    { "kind": "image", "originalContent": true, "copy": "image_uri", "disabled": ["speaker", "edit", "download"] },
+    { "kind": "audio", "originalContent": true, "copy": "disabled", "disabled": ["copy", "speaker", "edit"] },
+    { "kind": "image", "originalContent": false, "copy": "text", "disabled": [] },
+    { "kind": "audio", "originalContent": false, "copy": "text", "disabled": [] },
+    { "kind": "text", "originalContent": true, "copy": "text", "disabled": [] }
+  ],
+  "textCopy": { "maximumUtf16Units": 262144, "oversize": "error_without_clipboard_write", "binderFailure": "error_without_success" },
+  "imageCopy": { "successiveCopies": "distinct_immutable_files", "publicationFailure": "retain_uncertain_file", "preparationFailure": "remove_unpublished_file", "capacityExhausted": "error_without_clipboard_write" }
+}

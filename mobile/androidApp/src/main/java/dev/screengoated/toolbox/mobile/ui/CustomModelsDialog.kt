@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -31,8 +32,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +51,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.model.CustomModelStatus
+import dev.screengoated.toolbox.mobile.model.CustomModelEditorSnapshot
+import dev.screengoated.toolbox.mobile.model.CustomModelSubmission
+import dev.screengoated.toolbox.mobile.model.CustomModelRow
+import dev.screengoated.toolbox.mobile.model.CustomModelRowIdentity
 import dev.screengoated.toolbox.mobile.preset.CustomPresetModelDefinition
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelDescriptor
@@ -56,6 +64,7 @@ import dev.screengoated.toolbox.mobile.preset.PresetModelSource
 import dev.screengoated.toolbox.mobile.preset.PresetModelType
 import dev.screengoated.toolbox.mobile.preset.ui.providerIconRes
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private val CustomModelDialogMorphPair = ExpressiveMorphPair(
@@ -65,44 +74,107 @@ private val CustomModelDialogMorphPair = ExpressiveMorphPair(
 
 @Composable
 internal fun CustomModelsDialog(
-    models: List<CustomPresetModelDefinition>,
+    snapshot: CustomModelEditorSnapshot,
     openRouterApiKey: String,
     ollamaBaseUrl: String,
     locale: MobileLocaleText,
     uiLanguage: String,
     onDismiss: () -> Unit,
-    onSave: (List<CustomPresetModelDefinition>) -> Unit,
+    onSave: (List<CustomPresetModelDefinition>, List<CustomPresetModelDefinition>) -> CustomModelSubmission,
+    onEditRow: (CustomModelRowIdentity, (CustomPresetModelDefinition) -> CustomPresetModelDefinition) -> CustomModelSubmission,
+    onDeleteRow: (CustomModelRowIdentity) -> CustomModelSubmission,
+    onRetry: () -> Boolean,
 ) {
-    val draft = remember { mutableStateListOf<CustomPresetModelDefinition>() }
+    val models = snapshot.models
+    val status = snapshot.status
+    val dialogLifetime = remember { CustomModelActionLifetime() }
+    DisposableEffect(dialogLifetime) { onDispose { dialogLifetime.retire() } }
+    fun dismiss() { dialogLifetime.retire(); onDismiss() }
+    if (status == CustomModelStatus.DATA_UNREADABLE || status == CustomModelStatus.WRITE_UNCERTAIN) {
+        ExpressiveDialogSurface(
+            title = locale.customModelsTitle,
+            closeLabel = locale.closeLabel,
+            supporting = locale.customModelsDescription,
+            icon = R.drawable.ms_tune,
+            accent = MaterialTheme.colorScheme.primary,
+            morphPair = CustomModelDialogMorphPair,
+            onDismiss = ::dismiss,
+            widthFraction = 0.96f,
+            maxWidth = 720.dp,
+            heightFraction = 0.84f,
+            maxHeight = 760.dp,
+        ) {
+            val message = if (status == CustomModelStatus.WRITE_UNCERTAIN) locale.customModelsSaveUncertain
+                else locale.customModelsUnavailable
+            Text(message, color = MaterialTheme.colorScheme.error)
+            if (status == CustomModelStatus.WRITE_UNCERTAIN) {
+                Button(onClick = { dialogLifetime.run(onRetry) }) { Text(locale.customModelsRetry) }
+            }
+        }
+        return
+    }
+    val draft = remember { mutableStateListOf<CustomPresetModelDefinition>().apply { addAll(models) } }
+    val editorRows = remember { mutableStateListOf<CustomModelRow>().apply { addAll(snapshot.rows) } }
+    val revision = remember { CustomModelEditorRevision(snapshot.revision) }
+    val editorLifetime = remember { CustomModelActionLifetime() }
+    DisposableEffect(editorLifetime) { onDispose { editorLifetime.retire() } }
     val scope = rememberCoroutineScope()
     var importModels by remember { mutableStateOf<List<ImportableOpenRouterModel>>(emptyList()) }
     var statusText by remember { mutableStateOf<String?>(null) }
     var importing by remember { mutableStateOf(false) }
     val accent = MaterialTheme.colorScheme.primary
 
-    LaunchedEffect(models) {
-        draft.clear()
-        draft.addAll(models)
+    LaunchedEffect(snapshot) {
+        if (revision.admit(snapshot.revision)) {
+            draft.clear()
+            draft.addAll(models)
+            editorRows.clear()
+            editorRows.addAll(snapshot.rows)
+        }
     }
 
-    fun commit(next: List<CustomPresetModelDefinition>) {
-        draft.clear()
-        draft.addAll(next)
-        onSave(next)
+    fun accept(result: CustomModelSubmission): Boolean {
+        val accepted = when (result) {
+            is CustomModelSubmission.Accepted -> result.snapshot
+            is CustomModelSubmission.Conflict -> {
+                if (revision.admit(result.snapshot.revision)) {
+                    draft.clear(); draft.addAll(result.snapshot.models)
+                    editorRows.clear(); editorRows.addAll(result.snapshot.rows)
+                }
+                statusText = locale.customModelsChangedElsewhere
+                return false
+            }
+            CustomModelSubmission.Unavailable -> { statusText = locale.customModelsSaveUncertain; return false }
+        }
+        if (revision.admit(accepted.revision)) {
+            draft.clear()
+            draft.addAll(accepted.models)
+            editorRows.clear()
+            editorRows.addAll(accepted.rows)
+        }
+        statusText = null
+        return true
     }
+
+    fun perform(action: () -> CustomModelSubmission): Boolean =
+        dialogLifetime.run { editorLifetime.run { accept(action()) } }
+
+    fun commit(next: List<CustomPresetModelDefinition>): Boolean = perform { onSave(draft.toList(), next) }
 
     ExpressiveDialogSurface(
         title = locale.customModelsTitle,
+        closeLabel = locale.closeLabel,
         supporting = locale.customModelsDescription,
         icon = R.drawable.ms_tune,
         accent = accent,
         morphPair = CustomModelDialogMorphPair,
-        onDismiss = onDismiss,
+        onDismiss = ::dismiss,
         widthFraction = 0.96f,
         maxWidth = 720.dp,
         heightFraction = 0.84f,
         maxHeight = 760.dp,
     ) {
+        if (status == CustomModelStatus.SAVING) Text(locale.customModelsSaving, style = MaterialTheme.typography.bodySmall)
         statusText?.let {
             Text(
                 text = it,
@@ -122,8 +194,9 @@ internal fun CustomModelsDialog(
                 ProviderModelSection(
                     provider = provider,
                     draft = draft,
+                    rows = editorRows,
                     importModels = if (provider == PresetModelProvider.OPENROUTER) {
-                        importModels.take(30)
+                        importModels
                     } else {
                         emptyList()
                     },
@@ -133,39 +206,40 @@ internal fun CustomModelsDialog(
                     onAddModel = { model ->
                         commit(draft.toList() + model)
                     },
-                    onChangeModel = { index, model ->
-                        commit(draft.toList().toMutableList().also { it[index] = model })
+                    onChangeModel = { identity, transform ->
+                        perform { onEditRow(identity, transform) }
                     },
-                    onDeleteModel = { index ->
-                        commit(draft.toList().toMutableList().also { it.removeAt(index) })
+                    onDeleteModel = { identity ->
+                        perform { onDeleteRow(identity) }
                     },
                     onImportOpenRouter = {
                         importing = true
                         statusText = null
                         scope.launch {
-                            runCatching { fetchOpenRouterModels(openRouterApiKey) }
-                                .onSuccess { importModels = it }
-                                .onFailure { statusText = it.message }
-                            importing = false
+                            try {
+                                importModels = fetchOpenRouterModels(openRouterApiKey)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                statusText = error.message
+                            } finally { importing = false }
                         }
                     },
                     onScanOllama = {
                         importing = true
                         statusText = null
                         scope.launch {
-                            runCatching { fetchOllamaModels(ollamaBaseUrl) }
-                                .onSuccess { scanned ->
-                                    val additions = scanned.filter { candidate ->
-                                        draft.none {
-                                            it.provider == PresetModelProvider.OLLAMA &&
-                                                it.fullName == candidate.fullName
-                                        }
-                                    }
-                                    commit(draft.toList() + additions)
+                            try {
+                                val scanned = fetchOllamaModels(ollamaBaseUrl)
+                                val additions = planOllamaScan(scanned, draft)
+                                if (commit(draft.toList() + additions)) {
                                     statusText = ollamaStatusText(scanned.size, additions.size)
                                 }
-                                .onFailure { statusText = it.message }
-                            importing = false
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                statusText = error.message
+                            } finally { importing = false }
                         }
                     },
                 )
@@ -182,6 +256,8 @@ private fun ImportResultCard(
     onAddModel: (CustomPresetModelDefinition) -> Unit,
 ) {
     val accent = providerColor(PresetModelProvider.OPENROUTER)
+    var query by remember { mutableStateOf("") }
+    val visible = remember(models, query) { filterOpenRouterImports(models, query) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -194,7 +270,14 @@ private fun ImportResultCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            models.forEach { model ->
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(locale.customModelsImportSearch) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            visible.forEach { model ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -233,20 +316,21 @@ private fun ImportResultCard(
 private fun ProviderModelSection(
     provider: PresetModelProvider,
     draft: MutableList<CustomPresetModelDefinition>,
+    rows: List<CustomModelRow>,
     importModels: List<ImportableOpenRouterModel>,
     importing: Boolean,
     locale: MobileLocaleText,
     uiLanguage: String,
     onAddModel: (CustomPresetModelDefinition) -> Unit,
-    onChangeModel: (Int, CustomPresetModelDefinition) -> Unit,
-    onDeleteModel: (Int) -> Unit,
+    onChangeModel: (CustomModelRowIdentity, (CustomPresetModelDefinition) -> CustomPresetModelDefinition) -> Unit,
+    onDeleteModel: (CustomModelRowIdentity) -> Unit,
     onImportOpenRouter: () -> Unit,
     onScanOllama: () -> Unit,
 ) {
     val allModels = PresetModelCatalog.dialogModels().filter { it.provider == provider }
     val builtIns = allModels.filter { it.source == PresetModelSource.BUILT_IN }
     val discovered = allModels.filter { it.source == PresetModelSource.DISCOVERED }
-    val userModels = draft.withIndex().filter { it.value.provider == provider }
+    val userModels = rows.filter { it.model.provider == provider }
     val accent = providerColor(provider)
 
     Card(
@@ -299,14 +383,16 @@ private fun ProviderModelSection(
 
             if (userModels.isNotEmpty()) {
                 SectionCaption(locale.customModelsUserModels)
-                userModels.forEach { indexed ->
-                    CustomModelEditor(
-                        model = indexed.value,
-                        locale = locale,
-                        accent = accent,
-                        onChange = { onChangeModel(indexed.index, it) },
-                        onDelete = { onDeleteModel(indexed.index) },
-                    )
+                userModels.forEach { row ->
+                    key(row.identity) {
+                        CustomModelEditor(
+                            model = row.model,
+                            locale = locale,
+                            accent = accent,
+                            onChange = { onChangeModel(row.identity, it) },
+                            onDelete = { onDeleteModel(row.identity) },
+                        )
+                    }
                 }
             }
 
@@ -430,122 +516,3 @@ private fun LockedModelRow(
 
 internal fun lockedModelDisplayName(model: PresetModelDescriptor, uiLanguage: String): String =
     model.localizedName(uiLanguage)
-
-@Composable
-private fun TypeBadge(label: String) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier
-            .background(
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                MaterialTheme.shapes.small,
-            )
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    )
-}
-
-@Composable
-private fun CustomModelEditor(
-    model: CustomPresetModelDefinition,
-    locale: MobileLocaleText,
-    accent: Color,
-    onChange: (CustomPresetModelDefinition) -> Unit,
-    onDelete: () -> Unit,
-) {
-    var typeExpanded by remember { mutableStateOf(false) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = lerp(MaterialTheme.colorScheme.surfaceContainerLow, accent, 0.12f),
-        ),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.30f)),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Checkbox(
-                    checked = model.enabled,
-                    onCheckedChange = { onChange(model.copy(enabled = it)) },
-                )
-                Text(locale.customModelsEnabled)
-                Checkbox(
-                    checked = model.supportsSearch == true,
-                    onCheckedChange = { onChange(model.copy(supportsSearch = it)) },
-                )
-                Text(locale.customModelsSearch, modifier = Modifier.weight(1f))
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        painter = painterResource(R.drawable.ms_delete),
-                        contentDescription = locale.customModelsDelete,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            OutlinedTextField(
-                value = model.displayName,
-                onValueChange = { onChange(model.copy(displayName = it)) },
-                label = { Text(locale.customModelsDisplayName) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = model.fullName,
-                onValueChange = { onChange(model.copy(fullName = it)) },
-                label = { Text(locale.customModelsApiModel) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            ExposedDropdownMenuBox(
-                expanded = typeExpanded,
-                onExpandedChange = { typeExpanded = it },
-            ) {
-                OutlinedTextField(
-                    value = modelTypeLabel(model.modelType, locale),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(locale.customModelsType) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
-                    modifier = Modifier
-                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
-                        .fillMaxWidth(),
-                )
-                ExposedDropdownMenu(
-                    expanded = typeExpanded,
-                    onDismissRequest = { typeExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(locale.customModelsTextType) },
-                        onClick = {
-                            onChange(model.copy(modelType = PresetModelType.TEXT))
-                            typeExpanded = false
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(locale.customModelsVisionType) },
-                        onClick = {
-                            onChange(model.copy(modelType = PresetModelType.VISION))
-                            typeExpanded = false
-                        },
-                    )
-                }
-            }
-            Text(
-                text = model.id,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}

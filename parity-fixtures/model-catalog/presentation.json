@@ -18,9 +18,7 @@
       "openrouter": "openrouter-",
       "nvidia": "nvidia-",
       "taalas": "taalas-",
-      "qrserver": "qrserver-",
-      "parakeet": "local-",
-      "qwen3": "local-"
+      "qrserver": "qrserver-"
     }
   },
   "localized_name_prefixes": {
@@ -31,9 +29,7 @@
     "openrouter": "O ",
     "nvidia": "N ",
     "taalas": "T ",
-    "qrserver": "QR ",
-    "parakeet": "L ",
-    "qwen3": "L "
+    "qrserver": "QR "
   },
   "localized_name_cases": [
     {

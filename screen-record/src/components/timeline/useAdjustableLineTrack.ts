@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { claimHoveredPointDelete, isDeleteKey, isEditableKeyTarget } from "./timelineDeleteKeys";
 import {
   type AdjacentSegmentIndices,
   type AdjustableLineDragVisualMode,
@@ -11,6 +12,8 @@ import {
   sortPointsByTime,
   subscribeToAdjustableLineDragVisualMode,
 } from "./adjustableLineUtils";
+import { startTimelinePointerDrag } from "./timelinePointerDrag";
+import { curvePointKeyProps, type CurvePointValueScale } from "./curvePointKeyboard";
 
 /**
  * Shared "adjustable line / control-point curve" drag controller used by the
@@ -37,10 +40,10 @@ export interface PointMoveContext<TPoint> {
   dy: number;
   /** The point the drag started from (pre-drag snapshot). */
   startPoint: TPoint;
-  /** The drag-target bounding rect captured at pointer-down. */
+  /** The drag-target bounding rect, re-read on every move. */
   rect: DOMRect;
-  /** The raw MouseEvent for the current move (for absolute-Y mapping). */
-  event: MouseEvent;
+  /** The raw PointerEvent for the current move (for absolute-Y mapping). */
+  event: PointerEvent;
 }
 
 /** Per-move vertical resolution for a segment (plateau) drag. */
@@ -49,7 +52,7 @@ export interface SegmentMoveContext {
   dy: number;
   /** The interpolated value sampled at segment-drag start. */
   startValue: number;
-  /** The drag-target bounding rect captured at pointer-down. */
+  /** The drag-target bounding rect, re-read on every move. */
   rect: DOMRect;
 }
 
@@ -91,7 +94,7 @@ export interface AdjustableLineTrackParams<TPoint extends { time: number }> {
    * a badge for this lane, e.g. the zoom-influence lane). Called on every move
    * for both point and segment drags. Omit entirely to disable badges.
    */
-  makeBadge?: (event: MouseEvent, value: number) => DragBadge | null;
+  makeBadge?: (event: PointerEvent, value: number) => DragBadge | null;
   /** Optional begin-batch hook (called at pointer-down before mutating). */
   beginBatch?: () => void;
   /** Optional commit-batch hook (called on mouse-up). */
@@ -123,7 +126,7 @@ export interface AdjustableLineTrackController<TPoint extends { time: number }> 
     activeIdx: number,
     startClientX: number,
     startClientY: number,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     initialPoints: TPoint[],
   ) => void;
   /** Begin a segment (plateau) drag from a pre-built plan. */
@@ -131,7 +134,7 @@ export interface AdjustableLineTrackController<TPoint extends { time: number }> 
     activeIndices: number[],
     fixedTimes: number[],
     startClientY: number,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     startValue: number,
     initialPoints: TPoint[],
   ) => void;
@@ -142,18 +145,24 @@ export interface AdjustableLineTrackController<TPoint extends { time: number }> 
    */
   handleTrackPointerDown: (
     e: React.PointerEvent<HTMLDivElement>,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     time: number,
   ) => void;
   /** Control-point pointer-down: begin dragging that point. */
   handlePointPointerDown: (
-    rect: DOMRect,
+    trackElement: HTMLElement,
     clientX: number,
     clientY: number,
     idx: number,
   ) => void;
   /** Track pointer-move: update the hovered-segment highlight. */
   handleTrackPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  /** Focus, slider semantics and keyboard editing for one control point. */
+  getPointKeyProps: (
+    idx: number,
+    label: string,
+    scale: CurvePointValueScale,
+  ) => ReturnType<typeof curvePointKeyProps> & { onFocus: () => void; onBlur: () => void };
   setHoveredSegmentIndices: (indices: AdjacentSegmentIndices | null) => void;
 }
 
@@ -245,9 +254,14 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
   }, []);
 
   useEffect(() => {
+    if (disableDeleteHandler || hoveredIdx === null) return;
+    return claimHoveredPointDelete();
+  }, [disableDeleteHandler, hoveredIdx]);
+
+  useEffect(() => {
     if (disableDeleteHandler) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (!isDeleteKey(e) || isEditableKeyTarget(e.target)) return;
       if (hoveredIdx === null) return;
       const current = pointsRef.current;
       if (hoveredIdx === 0 || hoveredIdx === current.length - 1) return;
@@ -266,7 +280,7 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     activeIdx: number,
     startClientX: number,
     startClientY: number,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     initialPoints: TPoint[],
   ) => {
     draggingIdxRef.current = activeIdx;
@@ -281,7 +295,7 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     pointAxisLockRef.current = null;
     applyDragVisualMode("free");
 
-    const mm = (me: MouseEvent) => {
+    const mm = (me: PointerEvent, rect: DOMRect) => {
       if (draggingIdxRef.current === null) return;
 
       const mx = me.clientX - rect.left;
@@ -344,8 +358,6 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     };
 
     const mu = () => {
-      window.removeEventListener("mousemove", mm);
-      window.removeEventListener("mouseup", mu);
       draggingIdxRef.current = null;
       setActiveDragIdx(null);
       if (axisLockEnabled) updateAxisLockMode(null);
@@ -359,15 +371,14 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
       onCommit?.();
     };
 
-    window.addEventListener("mousemove", mm);
-    window.addEventListener("mouseup", mu);
+    startTimelinePointerDrag({ element: trackElement, onMove: mm, onEnd: mu });
   };
 
   const startDraggingSegment = (
     activeIndices: number[],
     fixedTimes: number[],
     startClientY: number,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     startValue: number,
     initialPoints: TPoint[],
   ) => {
@@ -379,7 +390,7 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     ]);
     applyDragVisualMode("vertical");
 
-    const mm = (me: MouseEvent) => {
+    const mm = (me: PointerEvent, rect: DOMRect) => {
       const dy = me.clientY - startClientY;
       const value = resolveSegmentValue({ dy, startValue, rect });
 
@@ -398,8 +409,6 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     };
 
     const mu = () => {
-      window.removeEventListener("mousemove", mm);
-      window.removeEventListener("mouseup", mu);
       setIsSegmentDragActive(false);
       setActiveSegmentIndices(null);
       applyDragVisualMode(null);
@@ -411,16 +420,16 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
       onCommit?.();
     };
 
-    window.addEventListener("mousemove", mm);
-    window.addEventListener("mouseup", mu);
+    startTimelinePointerDrag({ element: trackElement, onMove: mm, onEnd: mu });
   };
 
   const handleTrackPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
-    rect: DOMRect,
+    trackElement: HTMLElement,
     time: number,
   ) => {
     if (e.ctrlKey) {
+      const rect = trackElement.getBoundingClientRect();
       const plan = buildSegmentDragPlan({
         points: pointsRef.current,
         time,
@@ -438,7 +447,7 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
         e.clientY,
-        rect,
+        trackElement,
         plan.startValue,
         plan.points,
       );
@@ -464,17 +473,17 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     pointsRef.current = nextPoints;
     onUpdatePoints(nextPoints);
 
-    startDraggingPoint(activeIdx, e.clientX, e.clientY, rect, nextPoints);
+    startDraggingPoint(activeIdx, e.clientX, e.clientY, trackElement, nextPoints);
   };
 
   const handlePointPointerDown = (
-    rect: DOMRect,
+    trackElement: HTMLElement,
     clientX: number,
     clientY: number,
     idx: number,
   ) => {
     beginBatch?.();
-    startDraggingPoint(idx, clientX, clientY, rect, pointsRef.current);
+    startDraggingPoint(idx, clientX, clientY, trackElement, pointsRef.current);
   };
 
   const handleTrackPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -504,6 +513,26 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     );
   };
 
+  const getPointKeyProps = (idx: number, label: string, scale: CurvePointValueScale) => ({
+    ...curvePointKeyProps({
+      idx,
+      label,
+      scale,
+      points,
+      getValue,
+      createPoint,
+      clampNewValue,
+      commit: (next: TPoint[]) => {
+        pointsRef.current = next;
+        onUpdatePoints(next);
+        onCommit?.();
+      },
+    }),
+    // A focused point shows the hover state, the same feedback a pointer gets.
+    onFocus: () => setHoveredIdx(idx),
+    onBlur: () => setHoveredIdx(null),
+  });
+
   const highlightedSegmentIndices =
     activeSegmentIndices ??
     (globalDragVisualMode === null && isCtrlPressed
@@ -526,5 +555,6 @@ export function useAdjustableLineTrack<TPoint extends { time: number }>(
     handlePointPointerDown,
     handleTrackPointerMove,
     setHoveredSegmentIndices,
+    getPointKeyProps,
   };
 }

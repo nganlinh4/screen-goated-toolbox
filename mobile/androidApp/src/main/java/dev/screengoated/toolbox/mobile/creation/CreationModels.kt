@@ -7,8 +7,7 @@ internal enum class CreationTool(
     val wireName: String,
 ) {
     IMAGE_TO_3D("3d"),
-    IMAGE_TO_SVG("svg"),
-    IMAGE_CREATOR("image");
+    IMAGE_TO_SVG("svg");
 
     companion object {
         fun fromWireName(value: String?): CreationTool? = entries.firstOrNull {
@@ -52,7 +51,6 @@ internal data class CreationJobStatus(
     val sourceImagePath: String? = null,
     val sourceImagePaths: List<String> = emptyList(),
     val prompt: String? = null,
-    val instruction: String? = null,
     val mimeType: String? = null,
     val width: Int? = null,
     val height: Int? = null,
@@ -106,7 +104,6 @@ internal data class CreationWorkerRequest(
     val operation: String,
     val topology: String? = null,
     val imagePath: String,
-    val imagePaths: List<String> = emptyList(),
     val prompt: String? = null,
     val instruction: String? = null,
     val outputPath: String,

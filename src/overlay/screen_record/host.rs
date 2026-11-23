@@ -12,8 +12,11 @@ mod host_launcher;
 pub mod mf_audio;
 #[path = "mf_decode_min.rs"]
 mod mf_decode;
+mod runtime_paths;
 mod thumbnail;
+mod window_responsiveness;
 
+pub(crate) use runtime_paths::export_replay_args_path;
 pub(crate) use thumbnail::capture_window_thumbnail;
 
 #[derive(Clone, Debug, Serialize)]
@@ -133,8 +136,8 @@ pub fn notify_external_audio_capture_released(reason: &str) {
     });
 }
 
-pub fn cleanup_on_app_exit() {
-    host_launcher::shutdown();
+pub fn cleanup_on_app_exit() -> anyhow::Result<()> {
+    host_launcher::shutdown()
 }
 
 pub(crate) fn decode_audio_with_optional_worker(path: &std::path::Path) -> Option<Vec<u8>> {
@@ -143,10 +146,9 @@ pub(crate) fn decode_audio_with_optional_worker(path: &std::path::Path) -> Optio
     if !input_metadata.is_file() {
         return None;
     }
-    let workspace = crate::component_registry::worker_workspace(
-        crate::component_registry::recorder::WORKER_ID,
-    )
-    .ok()?;
+    let workspace =
+        crate::component_registry::worker_workspace(crate::component_registry::recorder::WORKER_ID)
+            .ok()?;
     let mut random = [0_u8; 16];
     getrandom::fill(&mut random).ok()?;
     let mut token = String::with_capacity(random.len() * 2);
@@ -202,13 +204,5 @@ pub(crate) fn run_export_replay(
         path: path.to_string(),
         runs,
         keep_outputs,
-    })
-}
-
-pub(crate) fn export_replay_args_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| {
-        base.join("screen-goated-toolbox")
-            .join("export-debug")
-            .join("last_export_args.json")
     })
 }

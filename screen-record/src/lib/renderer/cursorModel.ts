@@ -97,6 +97,18 @@ export function isCursorRenderKind(value: string): value is CursorRenderKind {
   return CURSOR_RENDER_KIND_SET.has(value as CursorRenderKind);
 }
 
+/**
+ * Canonical cursor atlas slot formula (packIndex * kinds + kindIndex), shared by
+ * export staging, animated-cursor capture and the export shader's `slot % 12`
+ * kind lookup. MUST stay aligned with Rust `cursor_type_to_id` in
+ * src/overlay/screen_record/native_export/cursor.rs (same pack/kind ordering).
+ */
+export function buildCursorSlotId(pack: CursorPack, kindIndex: number): number {
+  const packIndex = CURSOR_PACKS.indexOf(pack);
+  if (packIndex < 0) return -1;
+  return (packIndex * CURSOR_RENDER_KINDS.length) + kindIndex;
+}
+
 export function toCursorRenderType(pack: CursorPack, kind: CursorRenderKind): CursorRenderType {
   return `${kind}-${pack}` as CursorRenderType;
 }

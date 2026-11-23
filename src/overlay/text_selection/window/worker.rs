@@ -15,6 +15,7 @@ pub(super) fn spawn_worker_thread(hwnd_val: usize, preset_idx_for_thread: usize,
 
 /// Worker thread for processing text selection.
 unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize, generation: u64) {
+    let destination = crate::overlay::process::chain::AutoPasteDestination::capture_foreground();
     unsafe {
         let hwnd_copy = HWND(hwnd_val as *mut std::ffi::c_void);
 
@@ -104,7 +105,7 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize, generatio
             }
 
             if SELECTION_LIFECYCLE.is_current(generation) {
-                process_selected_text(preset_idx, clipboard_text);
+                process_selected_text(preset_idx, clipboard_text, destination);
             }
         }
 
@@ -117,7 +118,7 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize, generatio
 }
 
 fn maybe_activate_continuous_mode(preset_idx: &mut usize) {
-    let trigger_modifiers = unsafe { TRIGGER_MODIFIERS };
+    let trigger_modifiers = TRIGGER_MODIFIERS.load(Ordering::SeqCst);
     let mut held = if trigger_modifiers == 0 {
         IS_HOTKEY_HELD.load(Ordering::SeqCst)
     } else {

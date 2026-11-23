@@ -37,9 +37,28 @@ impl CaptureState {
             include_str!(concat!(env!("OUT_DIR"), "/capture_fs.hlsl")),
         );
 
+        // Passthrough HLSL has no reflection from which wgpu can infer a layout.
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture_copy_bind_group_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("texture_copy_pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("texture_copy"),
-            layout: None,
+            layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
@@ -61,8 +80,6 @@ impl CaptureState {
             multiview_mask: None,
             cache: None,
         });
-
-        let bind_group_layout = pipeline.get_bind_group_layout(0);
 
         let (texture, padding, bind_group) =
             Self::create_texture(device, surface_texture, &bind_group_layout);

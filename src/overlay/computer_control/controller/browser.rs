@@ -11,7 +11,6 @@
 
 use anyhow::Result;
 use serde_json::Value;
-use unicode_normalization::UnicodeNormalization;
 
 use super::super::browser as web;
 use super::verify::ReadBack;
@@ -38,18 +37,11 @@ impl BrowserSurface {
     }
 
     fn eval(&self, expression: &str, tab_id: i64, session: Option<&str>) -> Result<Value> {
-        match self.exact_tab_id {
-            Some(_) => web::eval_value_in_exact_tab(expression, tab_id, session),
-            None => web::eval_value_in_active_tab(expression, tab_id, session),
-        }
+        web::eval_controller(expression, tab_id, session, self.exact_tab_id.is_none())
     }
 
-    fn child_frames(&self, tab_id: i64) -> Vec<String> {
-        if self.exact_tab_id.is_some() {
-            web::child_frames_on_tab(tab_id)
-        } else {
-            web::child_frames()
-        }
+    fn child_frames(&self, tab_id: i64) -> Result<web::FrameInventory> {
+        web::child_frames_on_tab(tab_id, self.exact_tab_id.is_none())
     }
 
     fn click(&self, selector: &str, tab_id: i64, document_id: &str, element_id: &str) -> Value {
@@ -93,15 +85,16 @@ impl BrowserSurface {
         let inspect = format!(
             r#"(() => {{ const documentId=({document_identity});
                 const e=document.querySelector({selector_json});
-                const elementId=e && (e[Symbol.for('sgt.controller.element-id')] || null);
+                const elementId=e && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null);
                 if(documentId!=={document_json}) return {{status:'stale',reason:'document_changed',documentId,elementId}};
                 if(!e) return {{status:'stale',reason:'target_missing',documentId,elementId}};
                 if(elementId!=={element_json}) return {{status:'stale',reason:'element_changed',documentId,elementId}};
                 if(!(e instanceof HTMLSelectElement)) return {{status:'not a select'}};
+                if(e.matches(':disabled')) return {{status:'disabled',reason:'select_disabled'}};
                 return {{status:'ok', options:[...e.options].map((o,index)=>({{
-                    index, text:o.text, value:o.value
+                    index, text:o.text, value:o.value, disabled:o.matches(':disabled')
                 }}))}}; }})()"#,
-            document_identity = web::DOCUMENT_ID_JS,
+            document_identity = web::CONTROLLER_DOCUMENT_ID_JS,
         );
         let inspected = self.eval(&inspect, tab_id, session)?;
         if inspected.get("status").and_then(Value::as_str) == Some("stale") {
@@ -118,6 +111,9 @@ impl BrowserSurface {
                 inspected.clone(),
             ));
         }
+        if inspected.get("status").and_then(Value::as_str) == Some("disabled") {
+            return Err(errors::disabled_select_failure("select_disabled"));
+        }
         if inspected.get("status").and_then(Value::as_str) != Some("ok") {
             anyhow::bail!(
                 "{}",
@@ -133,6 +129,11 @@ impl BrowserSurface {
             .ok_or_else(|| anyhow::anyhow!("select options unavailable"))?;
         let index = unique_option_index(options, value)?;
         let option = &options[index];
+        match option.get("disabled").and_then(Value::as_bool) {
+            Some(false) => {}
+            Some(true) => return Err(errors::disabled_select_failure("option_disabled")),
+            None => anyhow::bail!("select option enabled state unavailable"),
+        }
         let original_index = option
             .get("index")
             .and_then(Value::as_u64)
@@ -144,17 +145,19 @@ impl BrowserSurface {
         let apply = format!(
             r#"(() => {{ const documentId=({document_identity});
                 const e=document.querySelector({selector_json});
-                const elementId=e && (e[Symbol.for('sgt.controller.element-id')] || null);
+                const elementId=e && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null);
                 if(documentId!=={document_json}) return {{status:'stale',reason:'document_changed',documentId,elementId}};
                 if(!e) return {{status:'stale',reason:'target_missing',documentId,elementId}};
                 if(elementId!=={element_json}) return {{status:'stale',reason:'element_changed',documentId,elementId}};
                 if(!(e instanceof HTMLSelectElement)) return {{status:'changed',reason:'not_a_select'}};
                 const o=e.options[{original_index}];
                 if(!o || o.text!=={expected_text} || o.value!=={expected_value}) return {{status:'changed',reason:'options_changed'}};
+                if(e.matches(':disabled')) return {{status:'disabled',reason:'select_disabled'}};
+                if(o.matches(':disabled')) return {{status:'disabled',reason:'option_disabled'}};
                 e.selectedIndex={original_index};
                 e.dispatchEvent(new Event('input',{{bubbles:true}}));
                 e.dispatchEvent(new Event('change',{{bubbles:true}})); return {{status:'ok'}}; }})()"#,
-            document_identity = web::DOCUMENT_ID_JS,
+            document_identity = web::CONTROLLER_DOCUMENT_ID_JS,
         );
         let applied = self.eval(&apply, tab_id, session)?;
         match applied.get("status").and_then(Value::as_str) {
@@ -170,6 +173,12 @@ impl BrowserSurface {
                 document_id,
                 element_id,
                 applied.clone(),
+            )),
+            Some("disabled") => Err(errors::disabled_select_failure(
+                applied
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("disabled"),
             )),
             Some(_) => anyhow::bail!(
                 "{}",
@@ -200,12 +209,12 @@ impl BrowserSurface {
         let expr = format!(
             r#"(() => {{ const documentId=({document_identity});
                 const e=document.querySelector({selector_json});
-                const elementId=e && (e[Symbol.for('sgt.controller.element-id')] || null);
+                const elementId=e && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null);
                 if(documentId!=={document_json}) return {{status:'stale',reason:'document_changed',documentId,elementId}};
                 if(!e) return {{status:'stale',reason:'target_missing',documentId,elementId}};
                 if(elementId!=={element_json}) return {{status:'stale',reason:'element_changed',documentId,elementId}};
                 e.scrollIntoView({{block:'center'}}); e.click(); return {{status:'ok'}}; }})()"#,
-            document_identity = web::DOCUMENT_ID_JS,
+            document_identity = web::CONTROLLER_DOCUMENT_ID_JS,
         );
         let clicked = self.eval(&expr, tab_id, Some(session))?;
         match clicked.get("status").and_then(Value::as_str) {
@@ -227,15 +236,7 @@ impl BrowserSurface {
     }
 }
 
-fn normalize_option(value: &str) -> String {
-    value
-        .nfkc()
-        .flat_map(char::to_lowercase)
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
+use super::verify::normalize_option;
 
 fn unique_option_index(options: &[Value], requested: &str) -> Result<usize> {
     let requested = normalize_option(requested);
@@ -261,10 +262,16 @@ fn unique_option_index(options: &[Value], requested: &str) -> Result<usize> {
 
 impl Surface for BrowserSurface {
     fn identity(&mut self) -> Result<SurfaceIdentity> {
-        let (tab_id, document_id, window) = web::active_document_identity()?;
+        let (tab_id, _, window) = web::active_document_identity()?;
         if self.exact_tab_id.is_some_and(|expected| expected != tab_id) {
             anyhow::bail!("controlled browser tab is not the foreground browser surface");
         }
+        let document_id = self
+            .eval(web::CONTROLLER_DOCUMENT_ID_JS, tab_id, None)?
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("controller document identity is unavailable"))?
+            .to_string();
         Ok(SurfaceIdentity::Browser {
             tab_id,
             document_id,
@@ -277,6 +284,7 @@ impl Surface for BrowserSurface {
         let SurfaceIdentity::Browser { tab_id, .. } = &identity else {
             unreachable!();
         };
+        let frames = self.child_frames(*tab_id)?;
         // Top frame first; then each cross-origin child frame, its @ids continuing
         // from the running total so every id is globally unique + resolvable.
         let mut world = parse_world(
@@ -285,13 +293,23 @@ impl Surface for BrowserSurface {
             *tab_id,
             identity.clone(),
         );
-        for sid in self.child_frames(*tab_id) {
+        for sid in &frames.sessions {
             let base = world.elements.len() as u32;
-            if let Ok(v) = self.eval(&perception_js(base), *tab_id, Some(&sid)) {
-                world
-                    .elements
-                    .extend(parse_world(&v, Some(sid.clone()), *tab_id, identity.clone()).elements);
-            }
+            let v = self
+                .eval(&perception_js(base), *tab_id, Some(sid))
+                .map_err(|error| {
+                    web::incomplete_frame_coverage(format!(
+                        "child frame could not be observed: {error}"
+                    ))
+                })?;
+            world
+                .elements
+                .extend(parse_world(&v, Some(sid.clone()), *tab_id, identity.clone()).elements);
+        }
+        if self.child_frames(*tab_id)? != frames {
+            return Err(web::incomplete_frame_coverage(
+                "child frames changed during observation",
+            ));
         }
         if self.identity()? != identity {
             anyhow::bail!("browser target changed while observing controls");
@@ -364,7 +382,10 @@ impl Surface for BrowserSurface {
         Ok(result)
     }
 
-    fn read_back(&mut self, el: &IndexedElement) -> ReadBack {
+    fn read_back(&mut self, el: &IndexedElement, expected: &SurfaceIdentity) -> ReadBack {
+        if !self.identity().is_ok_and(|identity| identity == *expected) {
+            return ReadBack::default();
+        }
         let ElHandle::Browser {
             selector,
             session,
@@ -383,18 +404,30 @@ impl Surface for BrowserSurface {
         let expr = format!(
             r#"(() => {{ const documentId=({document_identity});
                 const e=document.querySelector({selector_json});
-                const elementId=e && (e[Symbol.for('sgt.controller.element-id')] || null);
+                const elementId=e && (globalThis[Symbol.for('sgt.controller.private-state')].nodes.get(e) || null);
                 if(documentId!=={document_json} || elementId!=={element_json}) return null;
                 const t=(e.type||'').toLowerCase();
-                return {{ value: (t==='password' ? null
+                if ((t==='password') !== {expected_protected}) return null;
+                return {{ protected: t==='password', selectedText: e instanceof HTMLSelectElement && e.selectedIndex >= 0 ? e.options[e.selectedIndex].text : null,
+                    value: (t==='password' || (e instanceof HTMLSelectElement && e.selectedIndex < 0) ? null
                         : ('value' in e ? e.value : (e.isContentEditable ? e.innerText : null))),
                     validity: e.validationMessage || null }}; }})()"#,
-            document_identity = web::DOCUMENT_ID_JS,
+            document_identity = web::CONTROLLER_DOCUMENT_ID_JS,
+            expected_protected = el.protected,
         );
-        match self.eval(&expr, *tab_id, session.as_deref()) {
+        let result = self.eval(&expr, *tab_id, session.as_deref());
+        if !self.identity().is_ok_and(|identity| identity == *expected) {
+            return ReadBack::default();
+        }
+        match result {
             Ok(Value::Null) | Err(_) => ReadBack::default(),
             Ok(v) => ReadBack {
                 value: v.get("value").and_then(Value::as_str).map(str::to_string),
+                protected: v.get("protected").and_then(Value::as_bool).unwrap_or(false),
+                selected_text: v
+                    .get("selectedText")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 validity: v
                     .get("validity")
                     .and_then(Value::as_str)
@@ -453,7 +486,9 @@ fn parse_el(
             .unwrap_or("")
             .to_string(),
         value: e.get("value").and_then(Value::as_str).map(str::to_string),
+        value_preview: None,
         editable: e.get("editable").and_then(Value::as_bool).unwrap_or(false),
+        protected: e.get("protected").and_then(Value::as_bool).unwrap_or(false),
         state: e.get("state").and_then(Value::as_str).map(str::to_string),
         enabled: !e.get("disabled").and_then(Value::as_bool).unwrap_or(false),
         required: e.get("required").and_then(Value::as_bool).unwrap_or(false),
@@ -489,10 +524,10 @@ const PERCEPTION_JS: &str = r#"(() => {
   const out = []; let id = 0;
   const nonce = () => (globalThis.crypto && crypto.randomUUID)
       ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  const documentKey = Symbol.for('sgt.controller.document-id');
-  const elementKey = Symbol.for('sgt.controller.element-id');
-  if (!globalThis[documentKey]) globalThis[documentKey] = nonce();
-  const documentId = globalThis[documentKey];
+  const privateKey = Symbol.for('sgt.controller.private-state');
+  if (!globalThis[privateKey]) globalThis[privateKey] = { documentId: nonce(), nodes: new WeakMap() };
+  const { documentId, nodes } = globalThis[privateKey];
+  for (const el of document.querySelectorAll('[data-sgt-id]')) el.removeAttribute('data-sgt-id');
   const forms = [...document.forms];
   const formIndex = (el) => { const f = el.form || el.closest('form'); return f ? forms.indexOf(f) : -1; };
   const labelFor = (el) => { try {
@@ -550,35 +585,13 @@ const PERCEPTION_JS: &str = r#"(() => {
         risk = 'submits a password or payment details';
     } catch (e) {} }
     id += 1; el.setAttribute('data-sgt-id', String(id));
-    if (!el[elementKey]) el[elementKey] = nonce();
-    const elementId = el[elementKey];
-    out.push({ id, elementId, role, name: labelFor(el), value, editable, state, required, submit, form: formIndex(el), risk,
+    if (!nodes.has(el)) nodes.set(el, nonce());
+    const elementId = nodes.get(el);
+    out.push({ id, elementId, role, name: labelFor(el), value, editable, protected: type === 'password', state, required, submit, form: formIndex(el), risk,
       disabled: el.disabled === true || el.getAttribute('aria-disabled') === 'true' });
   } catch (e) {} }
   return { documentId, title: document.title, url: location.href, elements: out.slice(0, 200) };
 })()"#;
 
 #[cfg(test)]
-mod tests {
-    use super::unique_option_index;
-    use serde_json::json;
-
-    #[test]
-    fn select_does_not_confuse_one_with_ten() {
-        let options = vec![
-            json!({"index": 0, "text": "10", "value": "10"}),
-            json!({"index": 1, "text": "1", "value": "1"}),
-        ];
-        assert_eq!(unique_option_index(&options, "1").unwrap(), 1);
-    }
-
-    #[test]
-    fn select_requires_a_unique_exact_normalized_option() {
-        let options = vec![
-            json!({"index": 0, "text": " Standard ", "value": "a"}),
-            json!({"index": 1, "text": "standard", "value": "b"}),
-        ];
-        let error = unique_option_index(&options, "STANDARD").unwrap_err();
-        assert!(error.to_string().contains("ambiguous option"));
-    }
-}
+mod tests;

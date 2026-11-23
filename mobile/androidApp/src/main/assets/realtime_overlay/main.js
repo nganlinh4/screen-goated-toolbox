@@ -25,14 +25,12 @@
             toggleHeaderTitle: 'Toggle header',
             micInputTitle: 'Microphone input',
             deviceAudioTitle: 'Device audio',
-            unavailableSuffix: 'Unavailable',
             llmLabel: 'LLM',
             gtxLabel: 'Google Translate',
             transcriptionModelTitle: 'Transcription model',
             customVocabularyTitle: 'Custom vocabulary',
             customVocabularyPrompt: 'Type a term, then press Enter or +. You can also paste comma- or line-separated terms.',
             translationModelTitle: 'Translation model',
-            transcriptionLanguageTitle: 'Transcription language',
             targetLanguageTitle: 'Target language',
             s2sTranslationModelTitle: 'Gemini S2S uses the TTS Gemini Live model',
             s2sTargetLanguageTitle: 'Change target language and restart the current S2S session',
@@ -44,9 +42,6 @@
             ttsSpeed: 'Speed',
             ttsAuto: 'Auto',
             ttsVolume: 'Volume',
-            downloadingModelTitle: 'Downloading model',
-            pleaseWaitText: 'Please wait...',
-            cancelText: 'Cancel',
         };
         let s2sMode = false;
         let customVocabulary = [];
@@ -142,9 +137,6 @@
             if (modelName === 'gemini-live-s2s') {
                 return labels['google-gemini-3-5-live-translate-audio'];
             }
-            if (modelName === 'parakeet') {
-                return labels[modelName] + ' (' + (overlayLocale.unavailableSuffix || 'Unavailable') + ')';
-            }
             return labels[modelName] || modelName;
         }
 
@@ -231,52 +223,6 @@
             content.style.minHeight = '';
         }
 
-        // Transcription language badge
-        const transLangBadge = document.getElementById('trans-lang-badge');
-        let currentTransLangCode = 'EN';
-
-        function updateTransLangBadgeState(modelName) {
-            if (!transLangBadge) return;
-            if (modelName && (modelName.includes('gemini') || modelName.includes('qwen'))) {
-                transLangBadge.textContent = 'ALL';
-                transLangBadge.dataset.code = 'ALL';
-                transLangBadge.classList.add('greyed');
-                transLangBadge.hidden = true;
-            } else if (modelName && modelName.includes('moonshine')) {
-                transLangBadge.textContent = 'EN';
-                transLangBadge.dataset.code = 'EN';
-                transLangBadge.classList.add('greyed');
-                transLangBadge.hidden = true;
-            } else if (modelName === 'zipformer') {
-                // Zipformer — show current language, pressable
-                transLangBadge.textContent = currentTransLangCode.toUpperCase();
-                transLangBadge.classList.remove('greyed');
-                transLangBadge.hidden = false;
-            }
-        }
-
-        // Override setTranscriptionModel to also update badge
-        const _origSetTranscriptionModel = setTranscriptionModel;
-        setTranscriptionModel = function(modelName) {
-            _origSetTranscriptionModel(modelName);
-            updateTransLangBadgeState(modelName);
-        };
-
-        window.setTranscriptionLanguage = function(langCode, langName) {
-            if (!transLangBadge) return;
-            currentTransLangCode = langCode || 'EN';
-            transLangBadge.textContent = currentTransLangCode.toUpperCase();
-            transLangBadge.dataset.code = currentTransLangCode;
-            if (langName) transLangBadge.title = langName;
-        };
-
-        if (transLangBadge) {
-            transLangBadge.addEventListener('click', function() {
-                if (this.classList.contains('greyed')) return;
-                if (window.ipc) window.ipc.postMessage('showTranscriptionLanguagePicker');
-            });
-        }
-
         window.setAudioSource = setAudioSource;
         window.setTranslationModel = setTranslationModel;
         window.setTranscriptionModel = setTranscriptionModel;
@@ -295,8 +241,6 @@
         const ttsVolumeLabel = document.getElementById('tts-volume-label');
         const speedSlider = document.getElementById('speed-slider');
         const speedValue = document.getElementById('speed-value');
-        const downloadFootnote = document.getElementById('download-footnote');
-        const downloadCancelText = document.getElementById('download-cancel-text');
         let ttsEnabled = false;
         let ttsSpeed = 100;
         const PERF_THRESHOLD_MS = 8;

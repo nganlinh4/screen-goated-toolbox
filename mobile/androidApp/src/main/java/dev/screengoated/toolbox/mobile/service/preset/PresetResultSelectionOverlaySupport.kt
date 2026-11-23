@@ -60,6 +60,7 @@ internal fun presetResultSelectionOverlayJavascript(): String {
             action.className = 'sgt-selection-action';
             action.textContent = 'Copy';
             action.addEventListener('click', event => {
+                if (!event.isTrusted) return;
                 event.preventDefault();
                 event.stopPropagation();
                 copyCustomSelection();

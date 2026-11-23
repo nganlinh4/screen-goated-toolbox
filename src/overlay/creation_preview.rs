@@ -11,15 +11,16 @@ use serde_json::{Value, json};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
+// Previews must cover every image that creation admits as a source.
+use crate::overlay::creation_source::{MAX_SOURCE_DIMENSION, MAX_SOURCE_PIXELS};
 use crate::win_types::SendHwnd;
 
 const DEFAULT_MAX_EDGE: u32 = 1_600;
 const MIN_MAX_EDGE: u32 = 64;
 const MAX_MAX_EDGE: u32 = 2_048;
 const MAX_SOURCE_BYTES: u64 = 100 * 1024 * 1024;
-const MAX_SOURCE_DIMENSION: u32 = 32_768;
-const MAX_SOURCE_PIXELS: u64 = 32 * 1024 * 1024;
-const MAX_DECODE_BYTES: u64 = 160 * 1024 * 1024;
+// The widest 8-bit decode (RGBA) of the largest admitted source.
+const MAX_DECODE_BYTES: u64 = MAX_SOURCE_PIXELS * 4;
 const MAX_PREVIEW_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 const MAX_PENDING_REPLY_BYTES: usize = 8 * 1024 * 1024;
 const JPEG_QUALITY: u8 = 82;
@@ -304,9 +305,9 @@ pub(crate) fn project_thumbnail_data_url(path: &str) -> Result<String> {
     bail!("Project thumbnail exceeds its storage limit.")
 }
 
-pub(super) struct EncodedImagePreview {
-    pub(super) mime: &'static str,
-    pub(super) encoded: Vec<u8>,
+struct EncodedImagePreview {
+    mime: &'static str,
+    encoded: Vec<u8>,
     source_size_bytes: u64,
     width: u32,
     height: u32,
@@ -314,10 +315,7 @@ pub(super) struct EncodedImagePreview {
     preview_height: u32,
 }
 
-pub(super) fn encode_image_preview(
-    source: &Path,
-    max_edge: Option<u32>,
-) -> Result<EncodedImagePreview> {
+fn encode_image_preview(source: &Path, max_edge: Option<u32>) -> Result<EncodedImagePreview> {
     let metadata = std::fs::metadata(source)
         .with_context(|| format!("Could not inspect image: {}", source.display()))?;
     if !metadata.is_file() {
@@ -411,9 +409,20 @@ fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        PROJECT_THUMBNAIL_BYTES, ReplyBucket, project_thumbnail_data_url, push_bounded_reply,
-        read_image_preview,
+        MAX_DECODE_BYTES, PROJECT_THUMBNAIL_BYTES, ReplyBucket, project_thumbnail_data_url,
+        push_bounded_reply, read_image_preview, validate_dimensions,
     };
+
+    #[test]
+    fn every_admitted_source_size_has_a_preview() {
+        // A 48 MP phone photo is admitted as a creation source.
+        const { assert!(crate::overlay::creation_source::MAX_SOURCE_PIXELS >= 8_000 * 6_000) };
+        validate_dimensions(8_000, 6_000).unwrap();
+        let side = (crate::overlay::creation_source::MAX_SOURCE_PIXELS as f64).sqrt() as u32;
+        validate_dimensions(side, side).unwrap();
+        assert!(MAX_DECODE_BYTES >= u64::from(side) * u64::from(side) * 4);
+        assert!(validate_dimensions(side + 1, side + 1).is_err());
+    }
     use base64::{Engine as _, engine::general_purpose};
     use image::{ImageBuffer, Rgb, Rgba};
     use std::time::{SystemTime, UNIX_EPOCH};

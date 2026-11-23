@@ -1,7 +1,6 @@
 package dev.screengoated.toolbox.mobile.phonecontrol
 
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
-import dev.screengoated.toolbox.mobile.phonecontrol.capability.PhoneControlCapabilityContract
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderDefinition
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.ProviderRouter
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.PrivilegedCommandProvider
@@ -58,23 +57,23 @@ class PhoneControlAuthorityMatrixTest {
         )
         assertEquals(
             catalog.getValue("normalTurnPolicy").jsonPrimitive.content,
-            PhoneControlCapabilityContract.NORMAL_TURN_POLICY,
+            "stable_full_catalog",
         )
         assertEquals(
             catalog.getValue("unavailableResultCode").jsonPrimitive.content,
-            PhoneControlCapabilityContract.UNAVAILABLE_RESULT_CODE,
+            "capability_unavailable",
         )
         assertEquals(
             catalog.getValue("dynamicHiding").jsonPrimitive.boolean,
-            PhoneControlCapabilityContract.DYNAMIC_HIDING,
+            false,
         )
         assertEquals(
             catalog.getValue("phraseOrLanguageGates").jsonPrimitive.boolean,
-            PhoneControlCapabilityContract.PHRASE_OR_LANGUAGE_GATES,
+            false,
         )
         assertEquals(
             catalog.getValue("silentToolReroutes").jsonPrimitive.boolean,
-            PhoneControlCapabilityContract.SILENT_TOOL_REROUTES,
+            false,
         )
         val modelExecution = fixture.root.getValue("modelExecutionContract").jsonObject
         assertTrue(

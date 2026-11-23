@@ -1,5 +1,6 @@
+use crate::overlay::creation_process::CreationProcess;
 use std::io::{Read as _, Write as _};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 pub(super) struct BoundedOutput {
@@ -10,7 +11,6 @@ pub(super) struct BoundedOutput {
 
 struct RuntimeProcessGuard {
     pid: u32,
-    _component_lease: crate::component_registry::ComponentLease,
 }
 
 impl Drop for RuntimeProcessGuard {
@@ -19,10 +19,15 @@ impl Drop for RuntimeProcessGuard {
     }
 }
 
-fn terminate_and_reap(child: &mut Child) {
-    crate::overlay::creation_recovery::terminate_process_tree(child.id());
-    let _ = child.kill();
-    let _ = child.wait();
+fn terminate_and_reap(child: &mut CreationProcess) {
+    let _ = child.terminate();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if matches!(child.try_wait(), Ok(Some(_))) && matches!(child.active_processes(), Ok(0)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 pub(super) fn run(
@@ -41,7 +46,11 @@ pub(super) fn run_cancellable(
     maximum_output_bytes: usize,
     cancelled: impl Fn() -> bool,
 ) -> Option<BoundedOutput> {
-    if maximum_output_bytes == 0 || super::runtime_shutting_down() || cancelled() {
+    if maximum_output_bytes == 0
+        || timeout.is_zero()
+        || super::runtime_shutting_down()
+        || cancelled()
+    {
         return None;
     }
     command.stdout(Stdio::piped()).stderr(Stdio::null());
@@ -52,27 +61,26 @@ pub(super) fn run_cancellable(
     });
     super::hide_command_window(command);
     let component_lease = crate::component_registry::acquire("creation-windows").ok()?;
-    let mut child = command.spawn().ok()?;
-    if !super::register_runtime_process(child.id()) {
+    let deadline = Instant::now() + timeout;
+    let mut child = CreationProcess::spawn(command, component_lease).ok()?;
+    if !super::register_runtime_process(&child) {
         terminate_and_reap(&mut child);
         return None;
     }
-    let _process_guard = RuntimeProcessGuard {
-        pid: child.id(),
-        _component_lease: component_lease,
+    let _process_guard = RuntimeProcessGuard { pid: child.id() };
+    let input_result = if let Some(input) = input {
+        let mut stdin = child.take_stdin()?;
+        let bytes = input.to_vec();
+        let (sent, result) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let _ = sent.send(stdin.write_all(&bytes).is_ok());
+        });
+        Some(result)
+    } else {
+        None
     };
-    if let Some(input) = input {
-        let write_result = child
-            .stdin
-            .take()
-            .and_then(|mut stdin| stdin.write_all(input).ok());
-        if write_result.is_none() {
-            terminate_and_reap(&mut child);
-            return None;
-        }
-    }
 
-    let Some(mut stdout) = child.stdout.take() else {
+    let Some(mut stdout) = child.take_stdout() else {
         terminate_and_reap(&mut child);
         return None;
     };
@@ -107,8 +115,26 @@ pub(super) fn run_cancellable(
         let _ = sender.send(result);
     });
 
-    let deadline = Instant::now() + timeout;
+    if super::runtime_shutting_down()
+        || cancelled()
+        || Instant::now() >= deadline
+        || child.resume().is_err()
+    {
+        terminate_and_reap(&mut child);
+        return None;
+    }
+    let mut input_written = input_result.is_none();
     let status = loop {
+        if let Some(result) = input_result.as_ref().filter(|_| !input_written) {
+            match result.try_recv() {
+                Ok(true) => input_written = true,
+                Ok(false) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    terminate_and_reap(&mut child);
+                    return None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {}
@@ -123,13 +149,25 @@ pub(super) fn run_cancellable(
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    let (bytes, truncated) = receiver.recv_timeout(Duration::from_secs(1)).ok()??;
+    let remaining =
+        || Duration::from_secs(1).min(deadline.saturating_duration_since(Instant::now()));
+    if !input_written && !input_result?.recv_timeout(remaining()).ok()? {
+        return None;
+    }
+    let (bytes, truncated) = receiver.recv_timeout(remaining()).ok()??;
+    if super::runtime_shutting_down() || cancelled() || Instant::now() >= deadline {
+        return None;
+    }
     Some(BoundedOutput {
         status,
         bytes,
         truncated,
     })
 }
+
+#[cfg(test)]
+#[path = "process_query/tests.rs"]
+mod process_tests;
 
 #[cfg(test)]
 mod tests {

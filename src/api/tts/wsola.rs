@@ -105,28 +105,19 @@ impl WsolaStretcher {
     /// Time-stretch the input samples.
     /// speed_ratio > 1.0 = faster (compress time), < 1.0 = slower (expand time)
     pub fn stretch(&mut self, input: &[i16], speed_ratio: f64) -> Vec<i16> {
-        // Bypass for normal speed
-        if (speed_ratio - 1.0).abs() < 0.05 || input.is_empty() {
-            // Flush any remaining overlap buffer
-            if !self.output_overlap.is_empty() {
-                let result: Vec<i16> = self
-                    .output_overlap
-                    .drain(..)
-                    .map(|s| s.clamp(-32768.0, 32767.0) as i16)
-                    .collect();
-                // Also return the input
-                let mut combined = result;
-                combined.extend(input.iter().cloned());
-                return combined;
-            }
-            return input.to_vec();
+        if input.is_empty() {
+            return Vec::new();
         }
-
-        // Clear buffers if speed changed significantly (avoid artifacts)
-        if (speed_ratio - self.last_speed).abs() > 0.15 {
-            self.input_buffer.clear();
-            self.output_overlap.clear();
+        if (speed_ratio - 1.0).abs() < 0.05 {
+            let mut output = self.finish();
+            output.extend_from_slice(input);
+            return output;
         }
+        let mut prefix = if (speed_ratio - self.last_speed).abs() > 0.15 {
+            self.finish()
+        } else {
+            Vec::new()
+        };
         self.last_speed = speed_ratio;
 
         // Add input samples to buffer (convert to f32)
@@ -134,7 +125,7 @@ impl WsolaStretcher {
 
         // Need at least one frame + search range to process
         if self.input_buffer.len() < self.frame_size + self.search_range {
-            return Vec::new();
+            return prefix;
         }
 
         // Ideal analysis hop
@@ -189,12 +180,16 @@ impl WsolaStretcher {
 
         // The "complete" output is everything up to the start of the last frame's tail
         let complete_len = output_pos.min(output.len());
+        if complete_len == 0 {
+            return prefix;
+        }
 
         // Save the tail for next call's overlap
         self.output_overlap.clear();
         if complete_len < output.len() {
-            self.output_overlap
-                .extend_from_slice(&output[complete_len..]);
+            self.output_overlap.extend_from_slice(
+                &output[complete_len..output.len().min(complete_len + self.hop_size)],
+            );
         }
 
         // Remove consumed input
@@ -205,9 +200,41 @@ impl WsolaStretcher {
         }
 
         // Return the complete portion as i16
-        output[..complete_len]
+        prefix.extend(
+            output[..complete_len]
+                .iter()
+                .map(|&s| s.clamp(-32768.0, 32767.0) as i16),
+        );
+        prefix
+    }
+
+    pub fn finish(&mut self) -> Vec<i16> {
+        let start = if self.output_overlap.is_empty() {
+            0
+        } else {
+            self.hop_size.min(self.input_buffer.len())
+        };
+        let result = self.input_buffer[start..]
             .iter()
-            .map(|&s| s.clamp(-32768.0, 32767.0) as i16)
-            .collect()
+            .enumerate()
+            .map(|(i, &raw)| {
+                let value = self.output_overlap.get(i).map_or(raw, |overlap| {
+                    overlap + raw * (1.0 - self.window[self.hop_size + i])
+                });
+                value.clamp(-32768.0, 32767.0) as i16
+            })
+            .collect();
+        self.reset();
+        result
+    }
+
+    pub fn reset(&mut self) {
+        self.input_buffer.clear();
+        self.output_overlap.clear();
+        self.last_speed = 1.0;
     }
 }
+
+#[cfg(test)]
+#[path = "wsola_tests.rs"]
+mod tests;

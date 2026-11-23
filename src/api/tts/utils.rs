@@ -2,20 +2,24 @@
 use windows::Win32::Foundation::HWND;
 #[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Graphics::Gdi::InvalidateRect;
-#[cfg(not(feature = "recorder-worker"))]
-use windows::Win32::Media::Audio::*;
-#[cfg(not(feature = "recorder-worker"))]
-use windows::Win32::System::Com::*;
 
 #[cfg(not(feature = "recorder-worker"))]
 use crate::overlay::result::state::WINDOW_STATES;
 
-/// Clear the TTS loading state for a window and trigger repaint
-pub fn clear_tts_loading_state(hwnd: isize) {
-    #[cfg(feature = "recorder-worker")]
-    {
-        let _ = hwnd;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) fn set_tts_request(hwnd: isize, request_id: u64) {
+    if hwnd == 0 {
+        return;
     }
+    if let Some(state) = WINDOW_STATES.lock().unwrap().get_mut(&hwnd) {
+        state.tts_request_id = request_id;
+        state.tts_loading = true;
+    }
+}
+
+/// Clear the TTS loading state for a window and trigger repaint
+#[cfg(not(feature = "recorder-worker"))]
+pub fn clear_tts_loading_state(hwnd: isize, request_id: u64) {
     #[cfg(not(feature = "recorder-worker"))]
     {
         // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
@@ -25,7 +29,10 @@ pub fn clear_tts_loading_state(hwnd: isize) {
 
         {
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd) {
+            if let Some(state) = states
+                .get_mut(&hwnd)
+                .filter(|state| state.tts_request_id == request_id)
+            {
                 state.tts_loading = false;
             }
         }
@@ -41,11 +48,8 @@ pub fn clear_tts_loading_state(hwnd: isize) {
 }
 
 /// Clear TTS state completely when speech ends
-pub fn clear_tts_state(hwnd: isize) {
-    #[cfg(feature = "recorder-worker")]
-    {
-        let _ = hwnd;
-    }
+#[cfg(not(feature = "recorder-worker"))]
+pub fn clear_tts_state(hwnd: isize, request_id: u64) {
     #[cfg(not(feature = "recorder-worker"))]
     {
         // Skip window state management for hwnd=0 (no associated window, e.g. auto-speak without overlay)
@@ -55,7 +59,10 @@ pub fn clear_tts_state(hwnd: isize) {
 
         {
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&hwnd) {
+            if let Some(state) = states
+                .get_mut(&hwnd)
+                .filter(|state| state.tts_request_id == request_id)
+            {
                 state.tts_loading = false;
                 state.tts_request_id = 0;
             }
@@ -76,6 +83,9 @@ pub fn get_language_instruction_for_text(
     text: &str,
     conditions: &[crate::config::TtsLanguageCondition],
 ) -> Option<String> {
+    if conditions.is_empty() {
+        return None;
+    }
     let detected_code = crate::lang_detect::detect_language(text)?;
     get_language_instruction_for_code(&detected_code, conditions)
 }
@@ -141,41 +151,4 @@ pub fn resolve_edge_voice_for_language(
         String::new(),
         "default-fallback",
     )
-}
-
-/// List available audio output devices (ID, Name)
-#[cfg(not(feature = "recorder-worker"))]
-pub fn get_output_devices() -> Vec<(String, String)> {
-    let mut devices = Vec::new();
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        if let Ok(enumerator) =
-            CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
-            && let Ok(collection) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
-            && let Ok(count) = collection.GetCount()
-        {
-            for i in 0..count {
-                if let Ok(device) = collection.Item(i)
-                    && let Ok(id) = device.GetId()
-                {
-                    let id_str = id.to_string().unwrap_or_default();
-                    // Try to get friendly name
-                    let name = if let Ok(_props) = device.OpenPropertyStore(STGM_READ) {
-                        // PKEY_Device_FriendlyName would be ideal but requires property key definition
-                        // For now, let's just use the ID or partial ID if needed,
-                        // but usually we rely on the ID.
-                        // If we really need the name, we would need to implement property getters.
-                        // Given the original code had this logic, we keep it simple or reuse if possible.
-                        // The original code comment said: "In windows 0.62, PropVariant access is verbose."
-                        // and "Let's rely on the ID matching...".
-                        id_str.clone()
-                    } else {
-                        id_str.clone()
-                    };
-                    devices.push((id_str, name));
-                }
-            }
-        }
-    }
-    devices
 }

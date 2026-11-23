@@ -11,7 +11,7 @@ use super::raster::{
 };
 use super::{Frame, Rgb, VoxelDraw};
 use crate::WINDOW_WIDTH;
-use eframe::egui::{Color32, Pos2, Vec2};
+use eframe::egui::{Color32, Pos2, Rect, Vec2};
 use std::cell::RefCell;
 
 // --- LAYER 0: BACKGROUND (sky + haze) --------------------------------------
@@ -480,22 +480,40 @@ const MOON_SPRITE: [&str; THEME_SPRITE] = [
     "...............",
 ];
 
-/// Paints one sprite as `cell`-sized blocks, snapped to whole framebuffer
-/// pixels so no block straddles a pixel boundary.
+/// The backing chip: the icon art plus a one-cell margin all round, authored
+/// rather than rasterised so its edge steps symmetrically.
+const CHIP_SPRITE: [&str; THEME_SPRITE + 2] = [
+    "......#####......",
+    "....#########....",
+    "...###########...",
+    "..#############..",
+    ".###############.",
+    ".###############.",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    "#################",
+    ".###############.",
+    ".###############.",
+    "..#############..",
+    "...###########...",
+    "....#########....",
+    "......#####......",
+];
+
+/// Paints a square sprite as `cell`-sized blocks with its top-left corner at
+/// `origin`, a whole framebuffer pixel, so no block straddles a pixel boundary.
 fn blit_sprite(
     buf: &mut [Color32],
     f: &Frame,
-    sprite: &[&str; THEME_SPRITE],
-    centre: (f32, f32),
+    sprite: &[&str],
+    origin: (f32, f32),
     cell: f32,
     col: Rgb,
     alpha: f32,
 ) {
-    let cell = cell.max(1.0).round();
-    let span = cell * THEME_SPRITE as f32;
-    let ox = (centre.0 - span * 0.5).round();
-    let oy = (centre.1 - span * 0.5).round();
-
+    let (ox, oy) = origin;
     for (row, line) in sprite.iter().enumerate() {
         for (col_idx, glyph) in line.bytes().enumerate() {
             if glyph != b'#' {
@@ -512,15 +530,31 @@ fn blit_sprite(
     }
 }
 
-pub(super) fn paint_theme_button(buf: &mut [Color32], f: &Frame) {
+/// Paints the theme toggle and returns the framebuffer cells its chip covers,
+/// which are the button's click target.
+pub(super) fn paint_theme_button(buf: &mut [Color32], f: &Frame) -> Rect {
     let s = f.s;
-    let cx = 32.0 * s;
-    let cy = 30.0 * s;
-    // Subtle chip backing.
-    fill_disc(buf, f, (cx, cy), 17.0 * s, (8.0, 8.0, 14.0), 0.35);
-
-    // One art pixel per ~2.6 logical pixels keeps the disc the size it was.
+    // One art pixel per ~2.6 logical pixels: a single cell at common scales.
     let cell = (2.6 * s).round().max(1.0);
+    let chip_span = cell * CHIP_SPRITE.len() as f32;
+    let chip = Rect::from_min_size(
+        Pos2::new(
+            (32.0 * s - chip_span * 0.5).round(),
+            (30.0 * s - chip_span * 0.5).round(),
+        ),
+        Vec2::splat(chip_span),
+    );
+    // Subtle chip backing, with the icon inset by one art pixel.
+    blit_sprite(
+        buf,
+        f,
+        &CHIP_SPRITE,
+        (chip.min.x, chip.min.y),
+        cell,
+        (8.0, 8.0, 14.0),
+        0.35,
+    );
+
     let (sprite, ink) = if f.is_dark {
         // Sun: click to switch to light.
         (&SUN_SPRITE, (250.0, 196.0, 60.0))
@@ -528,5 +562,7 @@ pub(super) fn paint_theme_button(buf: &mut [Color32], f: &Frame) {
         // Moon: click to switch to dark.
         (&MOON_SPRITE, (226.0, 234.0, 252.0))
     };
-    blit_sprite(buf, f, sprite, (cx, cy), cell, ink, 0.98);
+    let icon = (chip.min.x + cell, chip.min.y + cell);
+    blit_sprite(buf, f, sprite, icon, cell, ink, 0.98);
+    chip
 }

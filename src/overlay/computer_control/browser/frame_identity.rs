@@ -31,8 +31,9 @@ fn document_id(value: Value) -> Result<String> {
 pub(in crate::overlay::computer_control) fn active_document_identity()
 -> Result<(i64, String, BrowserWindowIdentity)> {
     let (tab_id, window) = super::surface_binding::active()?;
-    let value = super::controller_io::eval_value_in_active_tab(
-        super::controller_io::DOCUMENT_ID_JS,
+    let value = super::controller_isolated::eval(
+        super::controller_io::MutationRoute::Active,
+        super::controller_isolated::DOCUMENT_ID_JS,
         tab_id,
         None,
     )?;
@@ -44,9 +45,11 @@ pub(in crate::overlay::computer_control) fn active_document_identity()
 pub(in crate::overlay::computer_control) fn document_identity_on_tab(
     tab_id: i64,
 ) -> Result<String> {
-    document_id(super::eval_value_on_tab(
-        super::controller_io::DOCUMENT_ID_JS,
+    document_id(super::controller_isolated::eval(
+        super::controller_io::MutationRoute::Exact,
+        super::controller_isolated::DOCUMENT_ID_JS,
         tab_id,
+        None,
     )?)
 }
 
@@ -158,11 +161,7 @@ fn main_document_state_from_tree(tree: &Value) -> Result<MainDocumentState> {
     Ok(MainDocumentState {
         frame_id: required("id")?,
         loader_id: required("loaderId")?,
-        url: frame
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        url: super::frame_url::from_frame(frame)?,
     })
 }
 
@@ -236,6 +235,19 @@ mod tests {
                 .to_string()
                 .contains("positive tab id")
         );
+    }
+
+    #[test]
+    fn binding_tracks_the_cdp_fragment_across_samples() {
+        let tree = |fragment| {
+            serde_json::json!({"frameTree":{"frame":{
+                "id":"main", "loaderId":"loader", "url":"https://example.test/", "urlFragment":fragment
+            }}})
+        };
+        let first = main_document_state_from_tree(&tree("#first")).unwrap();
+        let second = main_document_state_from_tree(&tree("#second")).unwrap();
+        assert_eq!(first.url, "https://example.test/#first");
+        assert!(validate_binding_candidate(&first, &second, "doc".into(), None, true).is_err());
     }
 
     fn state(url: &str, loader_id: &str) -> MainDocumentState {

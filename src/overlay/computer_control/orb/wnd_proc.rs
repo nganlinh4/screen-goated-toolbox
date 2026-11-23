@@ -12,17 +12,18 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::SetWindowRgn;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, GetForegroundWindow, HCURSOR, HWND_TOPMOST, IsWindow, KillTimer, MA_ACTIVATE,
-    MA_NOACTIVATE, PostQuitMessage, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER,
-    SetCursor, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, WM_CLOSE, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_RBUTTONDOWN,
-    WM_RBUTTONUP, WM_SETCURSOR, WM_TIMER,
+    DefWindowProcW, DestroyWindow, GetForegroundWindow, HCURSOR, HWND_TOPMOST, IsWindow, KillTimer,
+    MA_ACTIVATE, MA_NOACTIVATE, PostQuitMessage, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
+    SWP_NOZORDER, SetCursor, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, WM_CLOSE,
+    WM_DESTROY, WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_TIMER,
 };
 use windows::core::{HSTRING, Interface, PCWSTR};
 
 use super::{
     HIDE_TIMER_ID, LEAVE_TIMER_ID, ORB_COMP, ORB_TEXT_MODE, ORB_WEBVIEW, WM_APP_HIDE_ORB,
-    WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB, visibility_message_is_current,
+    WM_APP_ORB_PROCESS_FAILED, WM_APP_RUN_ORB_SCRIPT, WM_APP_SHOW_ORB,
+    visibility_message_is_current,
 };
 
 pub(super) unsafe extern "system" fn orb_wnd_proc(
@@ -109,8 +110,16 @@ pub(super) unsafe extern "system" fn orb_wnd_proc(
                 LRESULT(0)
             }
 
+            // A user close only hides the orb; the host stays warm for the next show.
             WM_CLOSE => {
                 let _ = ShowWindow(hwnd, SW_HIDE);
+                LRESULT(0)
+            }
+
+            // A dead WebView cannot recover in place: end this host so the window
+            // thread's cleanup clears the warm state and restarts on demand.
+            WM_APP_ORB_PROCESS_FAILED => {
+                let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
 
@@ -199,4 +208,73 @@ fn forward_mouse(msg: u32, wparam: WPARAM, lparam: LPARAM) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
+        RegisterClassW, SendMessageW, WINDOW_EX_STYLE, WM_QUIT, WNDCLASSW, WS_POPUP,
+    };
+    use windows::core::w;
+
+    #[test]
+    fn process_failure_ends_the_host_loop_while_user_close_only_hides() {
+        std::thread::spawn(|| unsafe {
+            let instance = GetModuleHandleW(None).unwrap();
+            let class = w!("SGTComputerControlOrbProcFailureTest");
+            RegisterClassW(&WNDCLASSW {
+                lpfnWndProc: Some(orb_wnd_proc),
+                hInstance: instance.into(),
+                lpszClassName: class,
+                ..Default::default()
+            });
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                w!(""),
+                WS_POPUP,
+                0,
+                0,
+                1,
+                1,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+            .unwrap();
+
+            SendMessageW(hwnd, WM_CLOSE, None, None);
+            assert!(
+                IsWindow(Some(hwnd)).as_bool(),
+                "a user close must keep the host"
+            );
+
+            PostMessageW(Some(hwnd), WM_APP_ORB_PROCESS_FAILED, WPARAM(0), LPARAM(0)).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut quit = false;
+            while !quit && Instant::now() < deadline {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    if msg.message == WM_QUIT {
+                        quit = true;
+                        break;
+                    }
+                    DispatchMessageW(&msg);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                quit,
+                "the host message loop must end so cleanup can restart it"
+            );
+            assert!(!IsWindow(Some(hwnd)).as_bool());
+        })
+        .join()
+        .unwrap();
+    }
 }

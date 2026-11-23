@@ -111,12 +111,8 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
                 return Err(error);
             }
         };
-    let source = FrameSource {
-        frame_id,
-        surface: frame_surface,
-    };
-    let perception_matched = perception_matches(perception_surface, &source.surface);
-    let surface = source.surface.clone();
+    let perception_matched = perception_matches(perception_surface, &frame_surface);
+    let surface = frame_surface.clone();
     let capture_ms = capture_t0.elapsed().as_millis();
     let existing_marks = if perception_matched {
         existing_marks
@@ -145,6 +141,11 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
             return Err(error);
         }
     };
+    let source = FrameSource {
+        frame_id,
+        surface: frame_surface,
+        view: shown,
+    };
     let encode_ms = encode_t0.elapsed().as_millis();
     // Fingerprint the CLEAN region around the click (no grid/marker overlay), so we
     // can tell whether the click changed ITS OWN cell - ignoring a timer/animation
@@ -156,13 +157,15 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
     let turn_id = action.map_or_else(telemetry::current_turn, |trace| trace.turn_id);
     let file_name = frame_file_name(frame_id, turn_id, action.map(|trace| trace.action_id), step);
     let path = std::path::Path::new(dir).join(&file_name);
-    let artifact_write_ok = match std::fs::write(&path, &jpeg) {
-        Ok(()) => true,
-        Err(error) => {
-            telemetry::artifact_write_failed("frame", &path, action, &error);
-            false
-        }
-    };
+    let artifact_write_ok =
+        match super::super::session_retention::persist(|| std::fs::write(&path, &jpeg)) {
+            Some(Ok(())) => true,
+            Some(Err(error)) => {
+                telemetry::artifact_write_failed("frame", &path, action, &error);
+                false
+            }
+            None => false,
+        };
     frame_event(
         "frame_ready",
         action,
@@ -183,7 +186,7 @@ pub(super) fn render_view(request: RenderRequest<'_>) -> Result<Rendered> {
             "coarse_grid_shown": shown_grid.is_some(),
         }),
     );
-    eprintln!(
+    cc_diagnostic!(
         "[cc] step {step:02} frame {frame_id} {} KB -> {}",
         jpeg.len() / 1024,
         path.display()
@@ -207,7 +210,11 @@ fn perception_matches(
     perception == Some(frame)
 }
 
-fn frame_event(event: &str, action: Option<super::super::telemetry::ActionTrace>, fields: Value) {
+fn frame_event(
+    event: &'static str,
+    action: Option<super::super::telemetry::ActionTrace>,
+    fields: Value,
+) {
     use super::super::telemetry::{self, Privacy};
     match action {
         Some(trace) => telemetry::event_for_action(event, "capture", Privacy::Safe, trace, fields),
@@ -238,22 +245,7 @@ pub(super) fn zoom_to_cell(view: View, grid: &Grid, label: u32) -> Option<View> 
 
 /// Control types we treat as clickable targets.
 pub(super) fn is_clickable(ct: &str) -> bool {
-    matches!(
-        ct,
-        "Button"
-            | "MenuItem"
-            | "TabItem"
-            | "ListItem"
-            | "CheckBox"
-            | "RadioButton"
-            | "Edit"
-            | "ComboBox"
-            | "Hyperlink"
-            | "SplitButton"
-            | "TreeItem"
-            | "Slider"
-            | "Tab"
-    )
+    uia::control_types::role_for_name(ct).is_some()
 }
 
 /// Inline summary of the read-only text elements (the live "values"), for logging.
@@ -268,30 +260,7 @@ pub(super) fn readouts_inline(elements: &[UiElement]) -> String {
 
 /// Order-independent signature of accessible identity, value, state, and geometry.
 pub(super) fn state_signature(elements: &[UiElement]) -> String {
-    let mut states: Vec<String> = elements
-        .iter()
-        .filter(|e| {
-            !e.name.trim().is_empty() && (e.control_type == "Text" || is_clickable(e.control_type))
-        })
-        .map(|e| {
-            format!(
-                "{}|{}|value={:?}|state={:?}|enabled={}|required={}|rect={},{},{},{}",
-                e.control_type,
-                e.name,
-                e.value,
-                e.state,
-                e.enabled,
-                e.required,
-                e.left,
-                e.top,
-                e.right,
-                e.bottom,
-            )
-        })
-        .collect();
-    states.sort_unstable();
-    states.dedup();
-    states.join("\n")
+    super::state_signature::state_signature(elements)
 }
 
 /// The structured state the model sees each turn: window title, live READOUTS
@@ -308,15 +277,18 @@ pub(super) fn format_state(
     show_grid: bool,
     indexed_controls: Option<&str>,
 ) -> String {
+    use super::super::model_text_budget::{
+        Lines, MAX_FIELD_BYTES, MAX_READOUT_BYTES, MAX_WORLD_BYTES, OMITTED_LINE, field, wire_len,
+    };
     let title = elements
         .iter()
         .find(|e| e.control_type == "Window" && !e.name.trim().is_empty())
-        .map(|e| e.name.clone())
+        .map(|e| field(&e.name, MAX_FIELD_BYTES))
         .or_else(|| {
             let title = uia::pointer_context().0;
-            (!title.trim().is_empty()).then_some(title)
+            (!title.trim().is_empty()).then(|| field(&title, MAX_FIELD_BYTES))
         })
-        .or_else(|| target.map(str::to_string))
+        .or_else(|| target.map(|value| field(value, MAX_FIELD_BYTES)))
         .unwrap_or_else(|| "(unknown)".to_string());
 
     let cell_of = |e: &UiElement| -> String {
@@ -339,42 +311,70 @@ pub(super) fn format_state(
     let mut readouts = String::new();
     let mut clickable = String::new();
     let mut seen = std::collections::HashSet::new();
+    let mut omitted = false;
     for e in elements {
         let name = e.name.trim();
         if name.is_empty() {
             continue;
         }
-        if readouts.len() + clickable.len() > 3200 {
-            break;
-        }
+        let was_clipped = name.len() > MAX_FIELD_BYTES
+            || e.state
+                .as_ref()
+                .is_some_and(|value| value.len() > MAX_FIELD_BYTES);
+        let name = field(name, MAX_FIELD_BYTES);
         // Ground-truth control state (on/off/selected/expanded/value) as a tag,
         // so the model reads state as text instead of guessing from pixels.
         let state = e
             .state
             .as_deref()
-            .map(|s| format!(" [{s}]"))
+            .map(|s| format!(" [{}]", field(s, MAX_FIELD_BYTES)))
             .unwrap_or_default();
-        if e.control_type == "Text" {
-            let line = format!("- {name}{state}{}\n", cell_of(e));
-            if seen.insert(line.clone()) {
-                readouts.push_str(&line);
-            }
+        let is_readout = e.control_type == "Text";
+        let line = if is_readout {
+            format!("- {name}{state}{}\n", cell_of(e))
         } else if is_clickable(e.control_type) {
             let flag = if e.enabled { "" } else { " [disabled]" };
-            let line = format!(
+            format!(
                 "- {} \"{name}\"{flag}{state}{}\n",
                 e.control_type,
                 cell_of(e)
-            );
-            if seen.insert(line.clone()) {
-                clickable.push_str(&line);
-            }
+            )
+        } else {
+            continue;
+        };
+        // Distinct source names may share the same visible prefix. Keep both
+        // rather than deduplicating identities solely by their clipped display.
+        if !was_clipped && !seen.insert(line.clone()) {
+            continue;
         }
+        if wire_len(&readouts) + wire_len(&clickable) + wire_len(&line) + wire_len(OMITTED_LINE)
+            > MAX_READOUT_BYTES
+        {
+            omitted = true;
+            break;
+        }
+        if is_readout {
+            readouts.push_str(&line);
+        } else {
+            clickable.push_str(&line);
+        }
+    }
+    if omitted {
+        readouts.push_str(OMITTED_LINE);
     }
     if readouts.is_empty() {
         readouts.push_str("(none)\n");
     }
-    let controls = indexed_controls.unwrap_or(&clickable);
+    let indexed = indexed_controls.map(|text| {
+        let mut lines = Lines::new(MAX_WORLD_BYTES);
+        for line in text.split_inclusive('\n') {
+            if !lines.push(line) {
+                break;
+            }
+        }
+        lines.finish()
+    });
+    let controls = indexed.as_deref().unwrap_or(&clickable);
     let spatial = if show_grid { ", with grid cell" } else { "" };
     let blind_route = if show_grid {
         "use a vision mark when present, otherwise zoom a grid cell before click_at"
@@ -388,10 +388,16 @@ pub(super) fn format_state(
     )
 }
 
-pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
+pub(super) fn wait_for_setup(
+    socket: &mut Sock,
+    stop: &std::sync::atomic::AtomicBool,
+    attempt_stop: &std::sync::atomic::AtomicBool,
+    attempt_deadline: Instant,
+) -> Result<()> {
     set_socket_short_timeout(socket)?;
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
+        session::check_connection_attempt(stop, Some(attempt_stop), Some(attempt_deadline))?;
         if Instant::now() > deadline {
             anyhow::bail!("timed out waiting for setupComplete");
         }
@@ -406,10 +412,8 @@ pub(super) fn wait_for_setup(socket: &mut Sock) -> Result<()> {
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        for ev in parse_server_message(&text)? {
-            if matches!(ev, ServerEvent::SetupComplete) {
-                return Ok(());
-            }
+        if session::setup_frame_ready(&text)? {
+            return Ok(());
         }
     }
 }
@@ -470,3 +474,7 @@ mod tests {
         assert!(!perception_matches(None, &browser_frame));
     }
 }
+
+#[cfg(test)]
+#[path = "render_budget_tests.rs"]
+mod budget_tests;

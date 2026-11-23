@@ -16,7 +16,7 @@ Phone Control uses the same stable product contract in Full and Play distributio
 
 ## Creation projects
 
-Image to 3D, Image to SVG, and Image Creator share the project-style Creation flow. Jobs may continue in the background, and completed artifacts remain in project history until the user chooses what to download. Downloads are published through Android's user-visible storage rather than exposed from the app's private files directory.
+Image to 3D and Image to SVG share the project-style Creation flow. Jobs may continue in the background, and completed artifacts remain in project history until the user chooses what to download. Downloads are published through Android's user-visible storage rather than exposed from the app's private files directory.
 
 ## Full and Play distributions
 

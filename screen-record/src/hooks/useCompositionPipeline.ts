@@ -19,9 +19,11 @@ export interface UseCompositionPipelineParams {
   setComposition: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
   setCompositionSilently: (c: ProjectComposition | null | ((prev: ProjectComposition | null) => ProjectComposition | null)) => void;
   currentProjectData: Project | null;
+  currentProjectDataRef: MutableRefObject<Project | null>;
   setCurrentProjectData: (p: Project | null) => void;
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
+  webcamConfig: WebcamConfig;
   mousePositions: MousePosition[];
   duration: number;
   currentRawVideoPath: string;
@@ -77,9 +79,11 @@ export function useCompositionPipeline({
   setComposition,
   setCompositionSilently,
   currentProjectData,
+  currentProjectDataRef,
   setCurrentProjectData,
   segment,
   backgroundConfig,
+  webcamConfig,
   mousePositions,
   duration,
   currentRawVideoPath,
@@ -122,6 +126,7 @@ export function useCompositionPipeline({
   const clipMediaCache = useClipMediaCache({
     composition,
     currentProjectData,
+    currentProjectDataRef,
     currentVideo,
     currentAudio,
     currentMicAudio,
@@ -150,6 +155,7 @@ export function useCompositionPipeline({
   });
   const {
     loadedClipId,
+    loadedClipIdRef,
     setLoadedClipId,
     isSwitchingCompositionClipRef,
     clipAssetCacheRef,
@@ -196,6 +202,7 @@ export function useCompositionPipeline({
     currentProjectData,
     setCurrentProjectData,
     backgroundConfig,
+    webcamConfig,
     segment,
     mousePositions,
     duration,
@@ -226,6 +233,7 @@ export function useCompositionPipeline({
   return {
     // Clip media cache outputs
     loadedClipId,
+    loadedClipIdRef,
     setLoadedClipId,
     isSwitchingCompositionClipRef,
     clipExportSourcePathCacheRef,

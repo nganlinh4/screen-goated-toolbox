@@ -11,19 +11,14 @@ use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
-use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, ExpandCollapseState_Collapsed, ExpandCollapseState_Expanded,
-    ExpandCollapseState_PartiallyExpanded, IUIAutomation, IUIAutomationElement,
-    IUIAutomationExpandCollapsePattern, IUIAutomationRangeValuePattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
-    ToggleState_Indeterminate, ToggleState_On, TreeScope_Descendants, UIA_ExpandCollapsePatternId,
-    UIA_RangeValuePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationValuePattern,
+    UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GW_OWNER, GetClassNameW, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindow,
     GetWindowTextW, GetWindowThreadProcessId, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SetForegroundWindow,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
 #[derive(Debug, Clone)]
@@ -37,14 +32,14 @@ pub(super) struct UiElement {
     pub right: i32,
     pub bottom: i32,
     pub enabled: bool,
+    pub protected: bool,
     /// Ground-truth control state from UIA patterns (e.g. "on"/"off"/"selected"/
     /// "expanded"/"value 30"), when the element exposes one - so the model reads
     /// state as text instead of (unreliably) eyeballing a few-pixel toggle.
     pub state: Option<String>,
-    /// Current text of a value-bearing control (Edit / Document / ComboBox) via
-    /// UIA ValuePattern: `Some("")` for an empty field, `None` for a control with
-    /// no value concept. Powers the native controller's perception + fill verify.
-    pub value: Option<String>,
+    /// Bounded text observation and independent value/editing capability.
+    /// Exact post-action verification uses a targeted authoritative read.
+    pub value: value_preview::ValuePreview,
     /// The control must be filled for its form to be valid (UIA IsRequiredForForm).
     pub required: bool,
 }
@@ -53,59 +48,6 @@ impl UiElement {
     /// Center in physical screen pixels.
     pub fn center(&self) -> (i32, i32) {
         ((self.left + self.right) / 2, (self.top + self.bottom) / 2)
-    }
-}
-
-/// Best-effort ground-truth STATE of an interactive element, via UIA control
-/// patterns - the on/off, selected, expanded, or value the model would otherwise
-/// have to (unreliably) read from a few pixels. `None` when it exposes no state.
-/// Unsupported patterns return `Err` (windows-rs null-checks the out-pointer), so
-/// the `if let Ok` chains simply fall through.
-unsafe fn read_state(el: &IUIAutomationElement) -> Option<String> {
-    unsafe {
-        // Toggle = checkbox / switch / toggle-button (on | off | mixed).
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
-            && let Ok(st) = p.CurrentToggleState()
-        {
-            let s = if st == ToggleState_On {
-                "on"
-            } else if st == ToggleState_Indeterminate {
-                "mixed"
-            } else {
-                "off"
-            };
-            return Some(s.to_string());
-        }
-        // Selection = tab / list item / radio: surface only the SELECTED one.
-        if let Ok(p) =
-            el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
-            && let Ok(sel) = p.CurrentIsSelected()
-            && sel.as_bool()
-        {
-            return Some("selected".to_string());
-        }
-        // Expand/collapse = tree / menu / combo open state (LeafNode → no tag).
-        if let Ok(p) = el
-            .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId)
-            && let Ok(st) = p.CurrentExpandCollapseState()
-        {
-            if st == ExpandCollapseState_Expanded {
-                return Some("expanded".to_string());
-            } else if st == ExpandCollapseState_Collapsed {
-                return Some("collapsed".to_string());
-            } else if st == ExpandCollapseState_PartiallyExpanded {
-                return Some("partly-expanded".to_string());
-            }
-        }
-        // Range = slider / progress: the numeric value (trimmed of float noise).
-        if let Ok(p) =
-            el.GetCurrentPatternAs::<IUIAutomationRangeValuePattern>(UIA_RangeValuePatternId)
-            && let Ok(v) = p.CurrentValue()
-        {
-            let r = (v * 100.0).round() / 100.0;
-            return Some(format!("value {r}"));
-        }
-        None
     }
 }
 
@@ -136,13 +78,13 @@ fn with_timeout<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
 ) -> T {
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(super::session_retention::inherit(move || {
         let _ = tx.send(f());
-    });
+    }));
     match rx.recv_timeout(std::time::Duration::from_secs(secs)) {
         Ok(v) => v,
         Err(_) => {
-            eprintln!("[cc] UIA {label} timed out (>{secs}s) - using fallback");
+            cc_diagnostic!("[cc] UIA {label} timed out (>{secs}s) - using fallback");
             fallback
         }
     }
@@ -151,17 +93,64 @@ fn with_timeout<T: Send + 'static>(
 /// The text value of whatever value-bearing control sits at screen point (x, y),
 /// via UIA `ElementFromPoint` + ValuePattern — the native controller's fill
 /// read-back. Timeout-guarded (ElementFromPoint is a no-timeout cross-process call).
-pub(super) fn read_value_at(x: i32, y: i32) -> Option<String> {
-    with_timeout("read_value_at", 4, None, move || read_value_at_inner(x, y))
+pub(super) enum ReadValue {
+    Value(String),
+    Protected,
 }
 
-fn read_value_at_inner(x: i32, y: i32) -> Option<String> {
+pub(super) fn read_value_at(
+    x: i32,
+    y: i32,
+    expected: ExpectedNativeElement<'_>,
+    protected: bool,
+) -> Option<ReadValue> {
+    let role = expected.role.to_string();
+    let name = expected.provider_name.to_string();
+    let automation_id = expected.automation_id.to_string();
+    let runtime_id = expected.runtime_id.to_vec();
+    with_timeout("read_value_at", 4, None, move || {
+        read_value_at_inner(x, y, &role, &name, &automation_id, &runtime_id, protected)
+    })
+}
+
+fn read_value_at_inner(
+    x: i32,
+    y: i32,
+    role: &str,
+    name: &str,
+    automation_id: &str,
+    runtime_id: &[i32],
+    protected: bool,
+) -> Option<ReadValue> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let uia: IUIAutomation =
             CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
-        let el = uia.ElementFromPoint(POINT { x, y }).ok()?;
-        read_value(&el)
+        let hit = uia.ElementFromPoint(POINT { x, y }).ok()?;
+        let el =
+            target::matching_observed_ancestor(&uia, hit, role, name, automation_id, runtime_id)?;
+        let is_protected = el.CurrentIsPassword().ok()?.as_bool();
+        if is_protected != protected {
+            return None;
+        }
+        let result = if is_protected {
+            ReadValue::Protected
+        } else {
+            ReadValue::Value(read_value(&el)?)
+        };
+        let hit_after = uia.ElementFromPoint(POINT { x, y }).ok()?;
+        let after = target::matching_observed_ancestor(
+            &uia,
+            hit_after,
+            role,
+            name,
+            automation_id,
+            runtime_id,
+        )?;
+        if after.CurrentIsPassword().ok()?.as_bool() != protected {
+            return None;
+        }
+        Some(result)
     }
 }
 
@@ -169,20 +158,46 @@ unsafe fn pick_window(
     uia: &IUIAutomation,
     target: Option<&str>,
 ) -> Result<(IUIAutomationElement, HWND)> {
-    unsafe {
-        if let Some(t) = target {
-            let hwnd = windowing::find_top_window(t).map_err(anyhow::Error::new)?;
-            let foreground = GetForegroundWindow();
-            let active = if foreground == hwnd || window_is_owned_by(foreground, hwnd) {
-                foreground
-            } else {
-                hwnd
-            };
-            return Ok((uia.ElementFromHandle(active)?, active));
-        }
-        let foreground = GetForegroundWindow();
-        Ok((uia.ElementFromHandle(foreground)?, foreground))
-    }
+    let active = active_window(target)?;
+    unsafe { Ok((uia.ElementFromHandle(active)?, active)) }
+}
+
+/// The window whose accessibility tree represents `target`: its owned
+/// foreground dialog when one is active, otherwise the exactly resolved
+/// top-level window; without a target, the foreground window. Win32 reads only,
+/// so it can run before a timeout-guarded UIA worker is admitted.
+fn active_window(target: Option<&str>) -> Result<HWND> {
+    let foreground = unsafe { GetForegroundWindow() }.0 as usize;
+    active_window_with(
+        target,
+        |selector| {
+            windowing::find_top_window(selector)
+                .map(|hwnd| hwnd.0 as usize)
+                .map_err(anyhow::Error::new)
+        },
+        foreground,
+        |candidate, root| unsafe {
+            window_is_owned_by(HWND(candidate as *mut _), HWND(root as *mut _))
+        },
+    )
+    .map(|raw| HWND(raw as *mut _))
+}
+
+fn active_window_with(
+    target: Option<&str>,
+    find: impl FnOnce(&str) -> Result<usize>,
+    foreground: usize,
+    owned_by: impl FnOnce(usize, usize) -> bool,
+) -> Result<usize> {
+    let Some(target) = target else {
+        return Ok(foreground);
+    };
+    let hwnd = find(target)?;
+    Ok(if foreground == hwnd || owned_by(foreground, hwnd) {
+        foreground
+    } else {
+        hwnd
+    })
 }
 
 unsafe fn window_is_owned_by(mut candidate: HWND, root: HWND) -> bool {
@@ -227,18 +242,6 @@ fn target_window_rect_inner(target: Option<&str>) -> Option<(i32, i32, i32, i32)
             None
         }
     }
-}
-
-/// Re-assert the foreground window as the focused keyboard target before sending
-/// keys, so keystrokes land on the on-screen window even if focus has drifted
-/// (e.g. to this app's own overlay). The `AttachThreadInput` trick lets a
-/// background process legally call `SetForegroundWindow`/`SetFocus`. Best-effort;
-/// a web canvas's DOM focus still requires a click on it first. Wrapped in
-/// `with_timeout`: `GetWindowTextW` (WM_GETTEXT) blocks forever on a non-pumping
-/// window and `SetForegroundWindow` can stall on a wedged thread - the same hang
-/// class - so a stuck target can never freeze the key-send path.
-pub(super) fn focus_foreground() {
-    with_timeout("focus_foreground", 4, (), focus_foreground_inner);
 }
 
 pub(super) fn input_target_snapshot() -> serde_json::Value {
@@ -317,54 +320,6 @@ pub(super) fn validate_native_identity(hwnd: u64, pid: u64, generation: u64) -> 
     window_instance::validate(hwnd, pid, generation)
 }
 
-fn focus_foreground_inner() {
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() {
-            return;
-        }
-        // Diagnostic: which on-screen window will receive the keystrokes? If this
-        // logs our own overlay / SGT window instead of the target app, that's why
-        // app-specific shortcuts (Explorer Ctrl+A, F2, …) don't land.
-        let mut buf = [0u16; 128];
-        let n = GetWindowTextW(hwnd, &mut buf);
-        let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
-        eprintln!(
-            "[cc] keys -> target title has {} chars",
-            title.chars().count()
-        );
-        let this_tid = GetCurrentThreadId();
-        let fg_tid = GetWindowThreadProcessId(hwnd, None);
-        let attach = fg_tid != 0 && fg_tid != this_tid;
-        if attach {
-            let _ = AttachThreadInput(this_tid, fg_tid, true);
-        }
-        // Re-assert the window as foreground if focus has DRIFTED (no-op if it's
-        // already foreground). We deliberately do NOT call SetFocus(hwnd) here -
-        // that moves keyboard focus to the TOP-LEVEL window, wiping the child
-        // control (e.g. Explorer's file list) that a prior click just focused, so
-        // shortcuts like Shift+Delete / F2 land on nothing.
-        let requested = SetForegroundWindow(hwnd).as_bool();
-        if attach {
-            let _ = AttachThreadInput(this_tid, fg_tid, false);
-        }
-        let after = GetForegroundWindow();
-        super::telemetry::event(
-            "input_focus_verified",
-            "input",
-            super::telemetry::Privacy::Safe,
-            serde_json::json!({
-                "requested_hwnd": hwnd.0 as usize,
-                "requested_title": title,
-                "set_foreground_returned": requested,
-                "foreground_after_hwnd": after.0 as usize,
-                "verified": after.0 == hwnd.0,
-                "attached_thread_input": attach,
-            }),
-        );
-    }
-}
-
 /// Per-turn grounding context: (active window title, cursor x, cursor y, the
 /// accessible element currently under the cursor). One COM pass. Best-effort —
 /// empty strings if unavailable. Wrapped in `with_timeout` (it runs every turn
@@ -416,15 +371,19 @@ pub(super) fn virtual_desktop() -> (i32, i32, i32, i32) {
 }
 
 mod activation;
+mod cached_element;
 mod circuit;
+pub(super) mod control_types;
 mod enumeration;
 mod target;
+mod value_preview;
 mod window_instance;
 mod windowing;
 pub(super) use activation::{ActivationError, FailureKind, activate_at};
-pub(super) use enumeration::{enumerate, enumerate_best_effort};
+pub(super) use enumeration::{enumerate, enumerate_best_effort, enumerate_for_snapshot};
 pub(super) use target::{
-    ExpectedNativeElement, validate_native_element_at, validate_native_focused_element,
+    ExpectedNativeElement, focused_editable_guard, validate_focused_editable,
+    validate_native_element_at, validate_native_focused_element,
     validate_native_provider_ownership,
 };
 pub(crate) use windowing::{

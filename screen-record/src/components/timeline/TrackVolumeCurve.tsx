@@ -16,6 +16,7 @@ import {
   yToVolume,
 } from "./audioVolumeTrackGeometry";
 import { useAdjustableLineTrack } from "./useAdjustableLineTrack";
+import { VOLUME_POINT_SCALE } from "./curvePointKeyboard";
 import { useSettings } from "@/hooks/useSettings";
 
 const TRACK_TOP_PX = 5;
@@ -98,6 +99,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     startDraggingSegment,
     handlePointPointerDown,
     setHoveredSegmentIndices,
+    getPointKeyProps,
   } = useAdjustableLineTrack<AudioGainPoint>({
     points: effective,
     duration: safeDuration,
@@ -180,7 +182,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
         plan.activeIndices,
         plan.activeIndices.map((index) => plan.points[index]?.time ?? time),
         e.clientY,
-        rect,
+        e.currentTarget,
         plan.startValue,
         plan.points,
       );
@@ -199,7 +201,7 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
     next = sortPointsByTime(next);
     const newIdx = next.indexOf(newPoint);
     onChange(next);
-    startDraggingPoint(newIdx, e.clientX, e.clientY, rect, next);
+    startDraggingPoint(newIdx, e.clientX, e.clientY, e.currentTarget, next);
   };
 
   const handleAreaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -228,9 +230,9 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
   ) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const rect = e.currentTarget.parentElement?.getBoundingClientRect();
-    if (!rect) return;
-    handlePointPointerDown(rect, e.clientX, e.clientY, idx);
+    const trackElement = e.currentTarget.parentElement;
+    if (!trackElement) return;
+    handlePointPointerDown(trackElement, e.clientX, e.clientY, idx);
   };
 
   const highlightedSegmentPath = getHighlightedVolumeSegmentPath({
@@ -313,6 +315,8 @@ export const TrackVolumeCurve: React.FC<TrackVolumeCurveProps> = ({
           onMouseEnter={() => setHoveredIdx(i)}
           onMouseLeave={() => setHoveredIdx(null)}
           onPointerDown={(e) => onPointPointerDown(e, i)}
+          // The controller indexes `effective`; `sorted` holds the same point objects.
+          {...getPointKeyProps(effective.indexOf(point), `${t.timelineVolumePoint} ${i + 1}`, VOLUME_POINT_SCALE)}
           title={`${point.time.toFixed(2)}s · ${(point.volume * 100).toFixed(0)}% (${t.volumePointRemoveHint})`}
         />
       ))}

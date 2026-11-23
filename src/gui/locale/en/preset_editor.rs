@@ -2,6 +2,7 @@ use crate::gui::locale::PresetEditorLocaleText;
 
 pub(super) fn get() -> PresetEditorLocaleText {
     PresetEditorLocaleText {
+        graph_invalid_readonly: "This graph has invalid data and is read-only. Its saved data is preserved.",
         text_input_mode_label: "Mode:",
         text_mode_select: "Hotkey then Select Text",
         text_mode_type: "Hotkey then Type",
@@ -25,6 +26,10 @@ pub(super) fn get() -> PresetEditorLocaleText {
         add_text_preset_btn: "+ Text",
         add_image_preset_btn: "+ Image",
         add_audio_preset_btn: "+ Audio",
+        controller_mode_title: "Controller Mode",
+        controller_mode_description: "This is a MASTER preset. When activated, a selection wheel will appear letting you choose which preset to use.
+
+Assign a single hotkey for quick access to multiple presets.",
         node_input_prefix: "Input:",
         node_input_audio: "Audio",
         node_input_image: "Image",
@@ -39,5 +44,16 @@ pub(super) fn get() -> PresetEditorLocaleText {
         node_menu_add_special_audio: "Add Audio → Text Node",
         input_auto_copy_tooltip: "Auto-copy (Source)",
         input_auto_speak_tooltip: "Speak Source",
+        node_model_label: "Model:",
+        node_scanning_local_models: "Scanning local models...",
+        node_language_label: "Language:",
+        node_input_language_label: "Input language:",
+        node_prompt_label: "Prompt:",
+        node_add_language: "+ Language",
+        node_prompt_placeholder: "Prompt…",
+        node_language_search: "Search...",
+        node_stream_on: "Stream on",
+        node_stream_off: "Stream off",
+        node_delete: "Delete Node",
     }
 }

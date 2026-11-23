@@ -1,4 +1,4 @@
-use super::protocol::{ButtonAction, ChildEvent, SceneCard, SceneRect};
+use super::protocol::{ButtonAction, ChildEvent, SceneCard, SceneControls, SceneRect};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -16,13 +16,28 @@ pub(super) enum RendererInput {
     Unhandled,
     Handled,
     RefreshRegion,
-    FocusRefine { id: isize },
+    FocusRefine { id: isize, session: u64 },
     ReleaseRefineFocus,
     Event(ChildEvent),
     EventAndRefresh(ChildEvent),
 }
 
 static BUTTON_REGIONS: LazyLock<Mutex<Vec<SceneRect>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+pub(super) fn clear_regions() {
+    BUTTON_REGIONS.lock().unwrap().clear();
+}
+
+pub(super) fn keeps_refine_focus(visible: bool, controls: &SceneControls) -> bool {
+    visible
+        && !controls.hidden
+        && controls.is_editing
+        && controls
+            .edit_session
+            .as_deref()
+            .and_then(|session| session.parse::<u64>().ok())
+            .is_some_and(|session| session != 0)
+}
 
 pub(super) fn handle_renderer_message(
     body: &str,
@@ -77,7 +92,23 @@ pub(super) fn handle_renderer_message(
     }
     match action {
         "interact" => RendererInput::Event(ChildEvent::Interaction { id }),
-        "request_refine_focus" => RendererInput::FocusRefine { id },
+        "request_refine_focus" => {
+            let session = message
+                .get("editSession")
+                .and_then(|value| value.as_str())
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|session| *session != 0);
+            match session.filter(|session| {
+                cards.get(&id).is_some_and(|card| {
+                    keeps_refine_focus(card.visible, &card.controls)
+                        && card.controls.edit_session.as_deref()
+                            == Some(session.to_string().as_str())
+                })
+            }) {
+                Some(session) => RendererInput::FocusRefine { id, session },
+                None => RendererInput::Handled,
+            }
+        }
         "result_drag_start" => begin_drag(id, DragMode::One, &message, cards, host),
         "result_group_drag_start" => begin_drag(id, DragMode::Group, &message, cards, host),
         "result_all_drag_start" => begin_drag(id, DragMode::All, &message, cards, host),
@@ -107,6 +138,14 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
             .unwrap_or_default()
             .to_string()
     };
+    let session = || {
+        message
+            .get("editSession")?
+            .as_str()?
+            .parse::<u64>()
+            .ok()
+            .filter(|id| *id != 0)
+    };
     let action = match name {
         "copy" => ButtonAction::Copy,
         "copy_image" => ButtonAction::CopyImage,
@@ -125,12 +164,28 @@ fn button_action(id: isize, name: &str, message: &serde_json::Value) -> Option<C
                 .clamp(10.0, 100.0)
                 .round() as u8,
         },
-        "update_refine_draft" => ButtonAction::UpdateRefineDraft { text: text() },
-        "submit_refine" => ButtonAction::SubmitRefine { text: text() },
-        "cancel_refine" => ButtonAction::CancelRefine,
-        "history_up_refine" => ButtonAction::HistoryUpRefine { text: text() },
-        "history_down_refine" => ButtonAction::HistoryDownRefine { text: text() },
-        "mic" => ButtonAction::Mic,
+        "update_refine_draft" => ButtonAction::UpdateRefineDraft {
+            text: text(),
+            session: session()?,
+        },
+        "submit_refine" => ButtonAction::SubmitRefine {
+            text: text(),
+            session: session()?,
+        },
+        "cancel_refine" => ButtonAction::CancelRefine {
+            session: session()?,
+        },
+        "history_up_refine" => ButtonAction::HistoryUpRefine {
+            text: text(),
+            session: session()?,
+        },
+        "history_down_refine" => ButtonAction::HistoryDownRefine {
+            text: text(),
+            session: session()?,
+        },
+        "mic" => ButtonAction::Mic {
+            session: session()?,
+        },
         _ => return None,
     };
     Some(ChildEvent::ButtonAction { id, action })
@@ -268,8 +323,6 @@ pub(super) fn interactive_regions() -> Vec<SceneRect> {
 }
 
 static AWAITING_DRAG_SETTLE: AtomicU64 = AtomicU64::new(0);
-
-pub(super) fn set_external_drag(_active: bool) {}
 
 pub(super) fn captures_desktop_input() -> bool {
     super::gesture::is_gesture_active()

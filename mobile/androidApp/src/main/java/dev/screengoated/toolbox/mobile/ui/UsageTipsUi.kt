@@ -106,6 +106,7 @@ private fun UsageTipsDialog(
     val accent = MaterialTheme.sgtColors.appSlotAmber
     ExpressiveDialogSurface(
         title = locale.usageTipsTitle,
+        closeLabel = locale.closeLabel,
         icon = R.drawable.ms_lightbulb,
         accent = accent,
         morphPair = ExpressiveMorphPair(MaterialShapes.Circle, MaterialShapes.Cookie6Sided),

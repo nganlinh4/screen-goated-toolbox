@@ -129,7 +129,12 @@ fn hidden_or_offscreen_target_fails_before_any_pointer_dispatch() {
 
 #[test]
 fn target_resolution_waits_for_scroll_and_layout_to_settle() {
-    let expression = selector_center_expression("#opaque");
+    let expression = selector_center_expression(TargetExpectation {
+        selector: "#opaque",
+        tab_id: 73,
+        document_id: "document-a",
+        element_id: "element-a",
+    });
     assert!(expression.contains("behavior:'instant'"));
     assert_eq!(expression.matches("requestAnimationFrame").count(), 2);
     assert!(expression.contains("const initial = document.querySelector"));

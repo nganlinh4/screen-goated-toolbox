@@ -264,7 +264,9 @@ fn join_text(left: &str, right: &str) -> String {
     if right_trimmed.is_empty() {
         return left_trimmed.to_string();
     }
-    if starts_with_inline_punctuation(right_trimmed) {
+    let joins_unspaced_script = left_trimmed.chars().last().is_some_and(is_unspaced_script)
+        || right_trimmed.chars().next().is_some_and(is_unspaced_script);
+    if starts_with_inline_punctuation(right_trimmed) || joins_unspaced_script {
         format!("{left_trimmed}{right_trimmed}")
     } else {
         format!("{left_trimmed} {right_trimmed}")
@@ -285,10 +287,23 @@ fn starts_with_inline_punctuation(text: &str) -> bool {
         .is_some_and(|ch| matches!(ch, ',' | '.' | ';' | ':' | '\'' | '"' | ')' | ']' | '}'))
 }
 
+/// Chinese and Japanese text, and their full-width punctuation, are written
+/// without spaces between words. Hangul uses spaces and is not included.
+fn is_unspaced_script(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3000}'..='\u{30FF}' // CJK punctuation, hiragana, katakana
+            | '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{FF00}'..='\u{FF60}' // full-width forms and punctuation
+    )
+}
+
 fn ends_sentence(text: &str) -> bool {
     matches!(
         text.trim_end().chars().last(),
-        Some('.') | Some('!') | Some('?')
+        Some('.' | '!' | '?' | '…' | '。' | '！' | '？')
     )
 }
 
@@ -337,6 +352,33 @@ mod tests {
         assert_eq!(sanitized.len(), 2);
         assert_eq!(sanitized[0].text, "Alpha headline.");
         assert_eq!(sanitized[0].end_time, 31.063);
+    }
+
+    fn segment(start_time: f64, end_time: f64, text: &str) -> SubtitleSegmentResult {
+        SubtitleSegmentResult {
+            start_time,
+            end_time,
+            text: text.to_string(),
+        }
+    }
+
+    #[test]
+    fn cjk_fragments_merge_without_spaces_and_keep_finished_sentences() {
+        let sanitized = sanitize_segments(vec![
+            segment(24.9, 31.0, "你好"),
+            segment(31.0, 31.1, "。"),
+            segment(31.063, 37.5, "我们今天讨论"),
+            segment(37.5, 38.5, "这个问题"),
+        ]);
+        let texts: Vec<&str> = sanitized.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, ["你好。", "我们今天讨论这个问题"]);
+
+        // A short finished sentence stays on its own, as "Okay." does.
+        let sanitized = sanitize_segments(vec![
+            segment(0.0, 2.0, "今天天气很好。"),
+            segment(2.0, 2.8, "好的。"),
+        ]);
+        assert_eq!(sanitized.len(), 2);
     }
 
     #[test]
@@ -446,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn merges_qwen_tail_fragment_chain() {
+    fn merges_overlapping_tail_fragment_chain() {
         let sanitized = sanitize_segments(vec![
             SubtitleSegmentResult {
                 start_time: 118.874,

@@ -1,4 +1,5 @@
 pub struct RealtimeLocaleText {
+    pub realtime_audio_gap: &'static str,
     pub listening: &'static str,
     pub device: &'static str,
     pub waiting: &'static str,

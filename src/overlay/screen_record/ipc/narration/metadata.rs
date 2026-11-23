@@ -134,126 +134,7 @@ pub fn handle_get_narration_tts_metadata(
             })
         })
         .collect();
-    let kokoro_voice_languages: Vec<serde_json::Value> = SUPPORTED_GEMINI_INSTRUCTION_LANGUAGES
-        .iter()
-        .filter(|(code, _)| normalize_kokoro_lang(code).is_some())
-        .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
-        .collect();
-    let kokoro_voices: Vec<serde_json::Value> = KOKORO_VOICES
-        .iter()
-        .map(|voice| {
-            serde_json::json!({
-                "id": voice.id,
-                "label": voice.label,
-                "languageCode": voice.language_code,
-            })
-        })
-        .collect();
-    let magpie_voices: Vec<serde_json::Value> = MAGPIE_VOICES
-        .iter()
-        .map(|voice| {
-            serde_json::json!({
-                "id": voice.id,
-                "label": voice.label,
-            })
-        })
-        .collect();
-    let magpie_voice_languages: Vec<serde_json::Value> = MAGPIE_VOICE_LANGUAGES
-        .iter()
-        .map(|(code, name)| serde_json::json!({ "languageCode": code, "languageName": name }))
-        .collect();
-    let supertonic_languages: Vec<serde_json::Value> = SUPERTONIC_LANGUAGES
-        .iter()
-        .map(|lang| serde_json::json!({ "languageCode": lang.code, "languageName": lang.label }))
-        .collect();
-    let supertonic_voices: Vec<serde_json::Value> = SUPERTONIC_VOICES
-        .iter()
-        .map(|voice| {
-            serde_json::json!({
-                "id": voice.id,
-                "label": voice.label,
-            })
-        })
-        .collect();
-    let step_audio_reference_voices: Vec<serde_json::Value> = crate::APP
-        .lock()
-        .map(|app| {
-            app.config
-                .step_audio_reference_voices
-                .iter()
-                .map(|reference| {
-                    serde_json::json!({
-                        "id": reference.id,
-                        "label": reference.label,
-                        "audioPath": reference.audio_path,
-                        "transcript": reference.transcript,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let step_audio_voices: Vec<serde_json::Value> = step_audio_reference_voices
-        .iter()
-        .filter_map(|voice| {
-            let id = voice.get("id")?.as_str()?;
-            let label = voice
-                .get("label")
-                .and_then(|value| value.as_str())
-                .unwrap_or(id);
-            Some(serde_json::json!({
-                "id": id,
-                "label": if label.trim().is_empty() { "Untitled reference" } else { label },
-            }))
-        })
-        .collect();
-    let step_audio_voice_languages: Vec<serde_json::Value> = defaults
-        .step_audio_settings
-        .voice_configs
-        .iter()
-        .map(|config| {
-            serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-            })
-        })
-        .collect();
     let default_method = tts_method_id(&defaults.method);
-    let default_magpie_voice_configs: Vec<serde_json::Value> = defaults
-        .magpie_settings
-        .voice_configs
-        .iter()
-        .map(|config| {
-            serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-                "voiceId": config.voice_id,
-            })
-        })
-        .collect();
-    let default_kokoro_voice_configs: Vec<serde_json::Value> = defaults
-        .kokoro_settings
-        .voice_configs
-        .iter()
-        .map(|config| {
-            serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-                "voiceId": config.voice_id,
-            })
-        })
-        .collect();
-    let default_supertonic_voice_configs: Vec<serde_json::Value> = defaults
-        .supertonic_settings
-        .voice_configs
-        .iter()
-        .map(|config| {
-            serde_json::json!({
-                "languageCode": config.language_code,
-                "languageName": config.language_name,
-                "voiceId": config.voice_id,
-            })
-        })
-        .collect();
     let defaults_json = serde_json::json!({
         "method": default_method,
         "geminiModel": defaults.gemini_model,
@@ -268,26 +149,6 @@ pub fn handle_get_narration_tts_metadata(
         "edgePitch": defaults.edge_settings.pitch,
         "edgeRate": defaults.edge_settings.rate,
         "edgeVoiceConfigs": default_edge_voice_configs,
-        "stepAudioVoice": defaults.step_audio_settings.voice,
-        "stepAudioReferenceVoiceId": defaults.step_audio_settings.reference_voice_id,
-        "stepAudioPromptText": defaults.step_audio_settings.style_prompt,
-        "stepAudioUseCustomReference": defaults.step_audio_settings.use_custom_reference,
-        "stepAudioReferenceAudioPath": defaults.step_audio_settings.reference_audio_path,
-        "stepAudioReferenceText": defaults.step_audio_settings.reference_text,
-        "stepAudioReferenceLabel": defaults.step_audio_settings.reference_label,
-        "magpieVoice": defaults.magpie_settings.voice,
-        "magpieVoiceConfigs": default_magpie_voice_configs,
-        "kokoroVoice": defaults.kokoro_settings.voice,
-        "kokoroSpeed": defaults.kokoro_settings.speed,
-        "kokoroNumThreads": defaults.kokoro_settings.num_threads,
-        "kokoroVoiceConfigs": default_kokoro_voice_configs,
-        "supertonicSpeed": defaults.supertonic_settings.speed,
-        "supertonicNumSteps": defaults.supertonic_settings.num_steps,
-        "supertonicNumThreads": defaults.supertonic_settings.num_threads,
-        "supertonicVoiceConfigs": default_supertonic_voice_configs,
-        "vieneuVariant": defaults.vieneu_settings.variant,
-        "vieneuEmotion": defaults.vieneu_settings.emotion,
-        "vieneuReferenceVoiceId": defaults.vieneu_settings.reference_voice_id,
     });
 
     Ok(serde_json::json!({
@@ -297,15 +158,6 @@ pub fn handle_get_narration_tts_metadata(
         "geminiInstructionLanguages": gemini_instruction_languages,
         "geminiSpeedOptions": ["Slow", "Normal", "Fast"],
         "googleSpeedOptions": ["Slow", "Normal"],
-        "kokoroVoices": kokoro_voices,
-        "kokoroVoiceLanguages": kokoro_voice_languages,
-        "magpieVoices": magpie_voices,
-        "magpieVoiceLanguages": magpie_voice_languages,
-        "supertonicLanguages": supertonic_languages,
-        "supertonicVoices": supertonic_voices,
-        "stepAudioVoices": step_audio_voices,
-        "stepAudioVoiceLanguages": step_audio_voice_languages,
-        "stepAudioReferenceVoices": step_audio_reference_voices,
         "edgeVoiceState": edge_voice_state,
         "edgeVoiceError": edge_voice_error,
         "edgeVoiceLanguages": edge_voice_languages,

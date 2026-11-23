@@ -1,9 +1,10 @@
 use super::types::CookieBrowser;
 use std::collections::HashSet;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use winreg::{
+    RegKey,
+    enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
+};
 
 pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
     let mut found = vec![CookieBrowser::None];
@@ -47,16 +48,10 @@ pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
     }
 
     // 2. Scan StartMenuInternet (Existing Logic - Good for defaults)
-    let mut cmd = Command::new("reg");
-    cmd.args(["query", "HKLM\\SOFTWARE\\Clients\\StartMenuInternet"]);
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
-
-    let output = cmd.output();
-
-    if let Ok(out) = output {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        for line in stdout.lines() {
+    if let Ok(key) =
+        RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\Clients\\StartMenuInternet")
+    {
+        for line in key.enum_keys().flatten() {
             let lower = line.to_lowercase();
             if lower.contains("chrome") {
                 add_if_new(CookieBrowser::Chrome, &mut found, &mut found_set);
@@ -128,16 +123,16 @@ fn check_registry_key(root: &str, exe_name: &str) -> bool {
         "{}\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{}",
         root, exe_name
     );
-    // We just check if the key exists by querying the default value
-    let mut cmd = Command::new("reg");
-    cmd.args(["query", &key, "/ve"]); // /ve queries "Default" matches
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
-
-    let output = cmd.output();
-
-    match output {
-        Ok(o) => o.status.success(),
-        Err(_) => false,
-    }
+    let hive = match root {
+        "HKLM" => HKEY_LOCAL_MACHINE,
+        "HKCU" => HKEY_CURRENT_USER,
+        _ => return false,
+    };
+    let Some(subkey) = key.split_once('\\').map(|(_, subkey)| subkey) else {
+        return false;
+    };
+    RegKey::predef(hive)
+        .open_subkey(subkey)
+        .and_then(|key| key.get_raw_value(""))
+        .is_ok()
 }

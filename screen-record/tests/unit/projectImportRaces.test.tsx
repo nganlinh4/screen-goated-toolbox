@@ -20,6 +20,8 @@ vi.mock("@/lib/ipc", () => ({
 import { useAppDropActions } from "@/hooks/useAppDropActions";
 import { useImportedAudioImport } from "@/hooks/useImportedAudioImport";
 import { useSubtitleSrtImport } from "@/hooks/useSubtitleSrtImport";
+import { captureImportStartOwner } from '@/hooks/importProjectOwnership';
+import { activateNarrationProject, setNarrationProjectId } from '@/hooks/narrationProjectOwnership';
 import { importAudioPathToManagedMediaFile } from "@/lib/mediaServer";
 import { invoke } from "@/lib/ipc";
 import type { VideoSegment } from "@/types/video";
@@ -41,6 +43,38 @@ describe("project import race guards", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+
+  it('carries the original activation across delayed dropped-path drains', async () => {
+    const owner = { current: null as string | null };
+    setNarrationProjectId(owner, 'project-a');
+    const audio = deferred<Array<{ path: string }>>();
+    const subtitles = deferred<Array<{ path: string }>>();
+    const video = deferred<Array<{ path: string; action: string }>>();
+    vi.mocked(invoke).mockImplementation((command) => {
+      if (command === 'take_pending_audio_drop_actions') return audio.promise;
+      if (command === 'take_pending_subtitle_drop_actions') return subtitles.promise;
+      if (command === 'take_pending_video_drop_actions') return video.promise;
+      if (command === 'read_subtitle_file_path') return Promise.resolve({ fileName: 'a.srt', content: 'text' });
+      return Promise.resolve([]);
+    });
+    const audioImport = vi.fn(async (..._args: unknown[]) => undefined);
+    const subtitleImport = vi.fn(async (..._args: unknown[]) => undefined);
+    const videoImport = vi.fn(async () => null);
+    const hook = renderHook(() => useAppDropActions({ getCurrentProjectId: () => owner.current,
+      captureStartOwner: () => captureImportStartOwner(owner), importAudioPaths: audioImport,
+      importSubtitlePayload: subtitleImport, importVideoPath: videoImport, setPendingAutoSubtitleProjectId: vi.fn() }));
+    activateNarrationProject(owner, 'project-a');
+    await act(async () => {
+      audio.resolve([{ path: 'a.wav' }]); subtitles.resolve([{ path: 'a.srt' }]);
+      video.resolve([{ path: 'a.mp4', action: 'generate-subtitles' }]);
+    });
+    await waitFor(() => expect(audioImport).toHaveBeenCalledOnce());
+    await waitFor(() => expect(subtitleImport).toHaveBeenCalledOnce());
+    expect((audioImport.mock.calls[0][2] as () => boolean)()).toBe(false);
+    expect((subtitleImport.mock.calls[0][2] as () => boolean)()).toBe(false);
+    expect(videoImport).not.toHaveBeenCalled();
+    hook.unmount(); setNarrationProjectId(owner, null);
   });
 
   it("deletes imported audio instead of attaching it to a newly opened project", async () => {
@@ -92,8 +126,8 @@ describe("project import race guards", () => {
     const file = {
       name: "captions.srt",
       type: "application/x-subrip",
-      text: () => fileRead.promise,
-    } as File;
+      arrayBuffer: () => fileRead.promise.then((text) => new TextEncoder().encode(text).buffer),
+    } as unknown as File;
 
     let operation!: Promise<void>;
     act(() => { operation = result.current.importSubtitleFile(file); });
@@ -132,6 +166,7 @@ describe("project import race guards", () => {
       expect(importAudioPaths).toHaveBeenCalledWith(
         ["C:\\media\\track.wav"],
         "project-a",
+        undefined,
       );
     });
   });

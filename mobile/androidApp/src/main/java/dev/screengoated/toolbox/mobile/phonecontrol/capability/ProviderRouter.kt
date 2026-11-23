@@ -1,36 +1,5 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.capability
 
-internal enum class RouteRejection {
-    PROVIDER_NOT_PROBED,
-    PROVIDER_NOT_READY,
-    CAPABILITY_NOT_ADVERTISED,
-    SEMANTICS_INCOMPLETE,
-}
-
-internal data class RouteAttempt(
-    val provider: ProviderDefinition,
-    val state: CapabilityState?,
-    val rejection: RouteRejection,
-    val requiredUserStep: String? = null,
-)
-
-internal sealed interface ProviderRouteDecision {
-    val request: CapabilityRequest
-
-    data class Selected(
-        override val request: CapabilityRequest,
-        val provider: ProviderDefinition,
-        val snapshot: ProviderSnapshot,
-        val priorityIndex: Int,
-    ) : ProviderRouteDecision
-
-    data class Unavailable(
-        override val request: CapabilityRequest,
-        val attempts: List<RouteAttempt>,
-        val code: String = PhoneControlCapabilityContract.UNAVAILABLE_RESULT_CODE,
-    ) : ProviderRouteDecision
-}
-
 internal enum class ProviderPlanRejection {
     CAPABILITY_NOT_ROUTED,
     PROVIDER_NOT_DECLARED,
@@ -70,9 +39,9 @@ internal sealed interface ProviderReceiptDecision {
 }
 
 /**
- * Selects the first READY provider on the exact capability route that supplies
- * every requested semantic facet. It never searches a different capability or
- * rewrites the requested tool.
+ * Plans the exact provider allowlist for one requested tool on its capability
+ * route and attests which provider produced the receipt. It never searches a
+ * different capability or rewrites the requested tool.
  */
 internal class ProviderRouter(
     providers: List<ProviderDefinition>,
@@ -93,63 +62,6 @@ internal class ProviderRouter(
         require(unknownProviders.isEmpty()) {
             "routes reference unknown providers: ${unknownProviders.joinToString()}"
         }
-    }
-
-    fun route(
-        request: CapabilityRequest,
-        snapshots: Collection<ProviderSnapshot>,
-    ): ProviderRouteDecision {
-        val route = routesByCapability[request.capability]
-            ?: return ProviderRouteDecision.Unavailable(request, emptyList())
-        val snapshotsById = snapshots.associateBy { it.providerId }
-        require(snapshotsById.size == snapshots.size) { "provider snapshots must be unique" }
-
-        val attempts = mutableListOf<RouteAttempt>()
-        route.providerIds.forEachIndexed { index, providerId ->
-            val provider = providersById.getValue(providerId)
-            val snapshot = snapshotsById[providerId]
-            if (snapshot == null) {
-                attempts += RouteAttempt(
-                    provider = provider,
-                    state = null,
-                    rejection = RouteRejection.PROVIDER_NOT_PROBED,
-                )
-                return@forEachIndexed
-            }
-            if (!snapshot.state.isReadyForRouting) {
-                attempts += RouteAttempt(
-                    provider = provider,
-                    state = snapshot.state,
-                    rejection = RouteRejection.PROVIDER_NOT_READY,
-                    requiredUserStep = snapshot.requiredUserStep,
-                )
-                return@forEachIndexed
-            }
-            val suppliedSemantics = snapshot.supportedCapabilities[request.capability]
-            if (suppliedSemantics == null) {
-                attempts += RouteAttempt(
-                    provider = provider,
-                    state = snapshot.state,
-                    rejection = RouteRejection.CAPABILITY_NOT_ADVERTISED,
-                )
-                return@forEachIndexed
-            }
-            if (!suppliedSemantics.containsAll(request.requiredSemantics)) {
-                attempts += RouteAttempt(
-                    provider = provider,
-                    state = snapshot.state,
-                    rejection = RouteRejection.SEMANTICS_INCOMPLETE,
-                )
-                return@forEachIndexed
-            }
-            return ProviderRouteDecision.Selected(
-                request = request,
-                provider = provider,
-                snapshot = snapshot,
-                priorityIndex = index,
-            )
-        }
-        return ProviderRouteDecision.Unavailable(request, attempts)
     }
 
     /**

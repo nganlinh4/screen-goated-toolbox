@@ -45,6 +45,8 @@ internal class CreationHistoryRenameStore(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val lock = Any()
 
+    fun pendingReceipts(): List<CreationHistoryRenameReceipt> = synchronized(lock) { read() }
+
     fun rename(
         entry: CreationHistoryEntry,
         requestedName: String,
@@ -126,7 +128,14 @@ internal class CreationHistoryRenameStore(
             write(records)
         }
         val updated = creationEntryWithCompletedRename(entry, receipt)
-        commit(updated)
+        try {
+            commit(updated)
+        } catch (failure: Throwable) {
+            // Parity: a failed index commit rolls the file move back. If the rollback
+            // cannot finish, the receipt stays and startup recovery rolls forward.
+            runCatching { rollBack(records, receipt) }.onFailure(failure::addSuppressed)
+            throw failure
+        }
         receipt = receipt.copy(committed = true)
         replace(records, receipt)
         write(records)
@@ -204,6 +213,50 @@ internal class CreationHistoryRenameStore(
             }
         }
         updated
+    }
+
+    /**
+     * Moves an uncommitted rename back, companion first. Each restored step is
+     * recorded before the next, so a receipt left behind still describes the files
+     * exactly and recovery can roll it forward.
+     */
+    private fun rollBack(
+        records: MutableList<CreationHistoryRenameReceipt>,
+        renamed: CreationHistoryRenameReceipt,
+    ) {
+        var receipt = renamed
+        receipt.companion?.let { companion ->
+            restoreRenamed(companion.newPath, companion.newIdentity, companion.oldPath,
+                companion.oldName, companion.expectedSize, companion.expectedSha256)
+            receipt = receipt.copy(companion = companion.copy(newPath = null, newIdentity = null))
+            replace(records, receipt)
+            write(records)
+        }
+        restoreRenamed(receipt.newPath, receipt.newIdentity, receipt.oldPath,
+            receipt.oldName, receipt.expectedSize, receipt.expectedSha256)
+        records.removeAll { it.transactionId == receipt.transactionId }
+        write(records)
+    }
+
+    private fun restoreRenamed(
+        newPath: String?,
+        newIdentity: String?,
+        oldPath: String,
+        oldName: String,
+        expectedSize: Long,
+        expectedSha256: String,
+    ) {
+        if (newPath == null || newPath == oldPath) return
+        val restored = files.outputs.renameForHistory(
+            newPath,
+            creationRenameRollbackName(oldPath, oldName),
+            requireNotNull(newIdentity),
+            expectedSize,
+            expectedSha256,
+        )
+        check(creationRenameRestoredTo(restored.first, oldPath)) {
+            "Renamed result could not be restored"
+        }
     }
 
     private fun finish(
@@ -295,6 +348,17 @@ internal fun creationRenameRecoveryMustCommitHistory(
                 (entry.metadata["download"] as? JsonObject)?.get("name") != JsonPrimitive(it.targetName)
         } == true
     )
+
+/** A local file is restored to its own file name; a document to its display name. */
+internal fun creationRenameRollbackName(oldPath: String, oldName: String): String =
+    if (oldPath.startsWith("content://")) oldName else File(oldPath).name
+
+internal fun creationRenameRestoredTo(restoredPath: String, oldPath: String): Boolean =
+    if (oldPath.startsWith("content://")) {
+        restoredPath == oldPath
+    } else {
+        File(restoredPath).absoluteFile.normalize() == File(oldPath).absoluteFile.normalize()
+    }
 
 internal fun creationRenameArtifactIsVerified(
     receipt: CreationHistoryRenameReceipt,

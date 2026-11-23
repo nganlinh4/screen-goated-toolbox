@@ -1,6 +1,7 @@
 use super::get_localized_preset_name;
 use super::node_graph::{
-    ChainNode, blocks_to_snarl, render_node_graph, request_node_graph_view_reset,
+    ChainNode, blocks_to_snarl, graph_connections_valid, render_node_graph,
+    request_node_graph_view_reset,
 };
 use crate::config::{Config, HotkeyConflict};
 use crate::gui::locale::LocaleText;
@@ -29,13 +30,15 @@ pub fn render_preset_editor(
     snarl: &mut Snarl<ChainNode>,
     content_bottom: f32,
     content_right: f32,
-) -> bool {
+) -> (bool, bool) {
     if preset_idx >= config.presets.len() {
-        return false;
+        return (false, false);
     }
 
     let mut preset = config.presets[preset_idx].clone();
     let mut changed = false;
+    let mut graph_changed = false;
+    let graph_editable = graph_connections_valid(&preset.blocks, &preset.block_connections);
 
     // Forms read best at a fixed width, but the node-graph canvas below should
     // use the full detail-view width (responsive) instead of leaving dead space
@@ -90,15 +93,17 @@ pub fn render_preset_editor(
                     )
                     .clicked()
                 {
-                    if !preset.show_controller_ui && preset.blocks.is_empty() {
+                    if graph_editable && !preset.show_controller_ui && preset.blocks.is_empty() {
                         preset
                             .blocks
                             .push(create_default_block_for_type(&preset.preset_type));
                         *snarl = blocks_to_snarl(
                             &preset.blocks,
                             &preset.block_connections,
+                            preset.graph_explicit,
                             &preset.preset_type,
                         );
+                        graph_changed = true;
                     }
                     changed = true;
                 }
@@ -126,6 +131,7 @@ pub fn render_preset_editor(
                                 *snarl = blocks_to_snarl(
                                     &preset.blocks,
                                     &preset.block_connections,
+                                    preset.graph_explicit,
                                     &preset.preset_type,
                                 );
                                 request_node_graph_view_reset(ui.ctx());
@@ -148,50 +154,55 @@ pub fn render_preset_editor(
                     _ => text.preset_basics.preset_type_image,
                 };
 
-                crate::gui::widgets::combo("preset_type_combo")
-                    .selected_text(selected_text)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_value(
-                                &mut preset.preset_type,
-                                "image".to_string(),
-                                text.preset_basics.preset_type_image,
-                            )
-                            .clicked()
-                        {
-                            sync_graph_type(snarl, &preset.preset_type);
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut preset.preset_type,
-                                "text".to_string(),
-                                text.preset_basics.preset_type_text,
-                            )
-                            .clicked()
-                        {
-                            sync_graph_type(snarl, &preset.preset_type);
-                            changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut preset.preset_type,
-                                "audio".to_string(),
-                                text.preset_basics.preset_type_audio,
-                            )
-                            .clicked()
-                        {
-                            sync_graph_type(snarl, &preset.preset_type);
-                            changed = true;
-                        }
-                        ui.add_enabled_ui(false, |ui| {
-                            let _ = ui.selectable_value(
-                                &mut preset.preset_type,
-                                "video".to_string(),
-                                text.preset_basics.preset_type_video,
-                            );
+                ui.add_enabled_ui(graph_editable, |ui| {
+                    crate::gui::widgets::combo("preset_type_combo")
+                        .selected_text(selected_text)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_value(
+                                    &mut preset.preset_type,
+                                    "image".to_string(),
+                                    text.preset_basics.preset_type_image,
+                                )
+                                .clicked()
+                            {
+                                sync_graph_type(snarl, &mut preset);
+                                changed = true;
+                                graph_changed = true;
+                            }
+                            if ui
+                                .selectable_value(
+                                    &mut preset.preset_type,
+                                    "text".to_string(),
+                                    text.preset_basics.preset_type_text,
+                                )
+                                .clicked()
+                            {
+                                sync_graph_type(snarl, &mut preset);
+                                changed = true;
+                                graph_changed = true;
+                            }
+                            if ui
+                                .selectable_value(
+                                    &mut preset.preset_type,
+                                    "audio".to_string(),
+                                    text.preset_basics.preset_type_audio,
+                                )
+                                .clicked()
+                            {
+                                sync_graph_type(snarl, &mut preset);
+                                changed = true;
+                                graph_changed = true;
+                            }
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.selectable_value(
+                                    &mut preset.preset_type,
+                                    "video".to_string(),
+                                    text.preset_basics.preset_type_video,
+                                );
+                            });
                         });
-                    });
+                });
             });
 
             // Row 3: Mode selectors based on type
@@ -429,6 +440,9 @@ pub fn render_preset_editor(
     ui.add_space(SECTION_GAP);
 
     // --- PROCESSING CHAIN UI ---
+    if !graph_editable {
+        ui.label(text.preset_editor.graph_invalid_readonly);
+    }
     // Hide the node graph when controller UI is enabled.
     if !preset.show_controller_ui {
         // Frame the node graph like the cards above it (same fill, border and
@@ -454,9 +468,12 @@ pub fn render_preset_editor(
                 .inner_margin(6.0)
                 .corner_radius(10.0)
                 .show(ui, |ui| {
-                    if render_node_graph(ui, snarl, config, &preset.preset_type, text, graph_min_h)
-                    {
+                    let result = ui.add_enabled_ui(graph_editable, |ui| {
+                        render_node_graph(ui, snarl, config, &preset.preset_type, text, graph_min_h)
+                    });
+                    if result.inner {
                         changed = true;
+                        graph_changed = true;
                     }
                 });
         });
@@ -469,5 +486,5 @@ pub fn render_preset_editor(
         config.presets[preset_idx] = preset;
     }
 
-    changed
+    (changed, graph_changed)
 }

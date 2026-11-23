@@ -14,6 +14,7 @@
 //! caller; it pushes the agent's state through `post_orb_script` (→ `ExecuteScript`).
 
 mod dcomp;
+mod glyphs;
 mod html;
 mod ipc;
 mod window;
@@ -75,6 +76,9 @@ static ORB_CUR: Mutex<(f64, f64)> = Mutex::new(ORB_HOME_DEFAULT);
 const WM_APP_SHOW_ORB: u32 = WM_APP + 60;
 const WM_APP_HIDE_ORB: u32 = WM_APP + 61;
 const WM_APP_RUN_ORB_SCRIPT: u32 = WM_APP + 62;
+/// The WebView process died: destroy the host so the window thread exits and
+/// its cleanup restarts the orb. Distinct from WM_CLOSE, which only hides.
+const WM_APP_ORB_PROCESS_FAILED: u32 = WM_APP + 63;
 const HIDE_TIMER_ID: usize = 1;
 /// Polls the cursor while the command box is open → auto-dismiss when it leaves the orb's
 /// footprint (no manual close, per the "sensitive dismiss" design).
@@ -134,7 +138,7 @@ pub(super) fn ensure_started() {
         ORB_SHOW_POSTED.store(false, Ordering::SeqCst);
         std::thread::spawn(|| {
             if std::panic::catch_unwind(create_orb_window).is_err() {
-                crate::log_info!("[CCOrb] host thread panicked during initialization");
+                cc_log!("[CCOrb] host thread panicked during initialization");
                 ORB_HWND.store(0, Ordering::SeqCst);
                 ORB_WARMED_UP.store(false, Ordering::SeqCst);
                 ORB_PAGE_READY.store(false, Ordering::SeqCst);

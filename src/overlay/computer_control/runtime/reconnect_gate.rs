@@ -8,6 +8,9 @@ use super::super::{mcp, overlay, telemetry};
 use super::mic;
 use super::reader::Reader;
 
+mod budget;
+pub(super) use budget::{ConnectionHealth, wait as wait_before_attempt};
+
 pub(super) fn generation_progress(event: &ServerEvent) -> bool {
     match event {
         ServerEvent::Audio(samples) => !samples.is_empty(),

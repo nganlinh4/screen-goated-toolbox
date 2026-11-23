@@ -1,9 +1,7 @@
 use super::*;
 
 pub(crate) fn live_source_paths() -> Result<std::collections::HashSet<String>, String> {
-    let _guard = HISTORY_LOCK
-        .lock()
-        .map_err(|_| "Result history is unavailable.".to_string())?;
+    let _guard = locking::acquire()?;
     let store = load_store(&history_path())?;
     let mut paths = std::collections::HashSet::new();
     for entry in store.entries {

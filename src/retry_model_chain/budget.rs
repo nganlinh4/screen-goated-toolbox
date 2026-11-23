@@ -69,7 +69,10 @@ fn shortfall_at(endpoint: &str, minimum_cost: u32, now: Instant) -> Option<Durat
     }
     let missing = f64::from(minimum_cost) - available;
     let seconds = missing / (f64::from(budget.limit) / budget.reset.as_secs_f64());
-    Some(Duration::from_secs_f64(seconds.max(0.0)).min(budget.reset))
+    if seconds >= budget.reset.as_secs_f64() {
+        return Some(budget.reset);
+    }
+    Duration::try_from_secs_f64(seconds.max(0.0)).ok()
 }
 
 /// Drops the stored balance for an endpoint. Test-only: in production a stale
@@ -126,6 +129,25 @@ mod tests {
         // because the cheap case is the one we are allowed to assume.
         record_at(&endpoint, 8_000, 1_400, Duration::from_secs(20), start);
         assert_eq!(shortfall_at(&endpoint, 1_282, start), None);
+        forget(&endpoint);
+    }
+
+    #[test]
+    fn wait_for_cost_above_limit_never_exceeds_the_window() {
+        let endpoint = key("cost-above-limit");
+        let start = Instant::now();
+        let reset = Duration::from_secs(20);
+        record_at(&endpoint, 1, 0, reset, start);
+        assert_eq!(shortfall_at(&endpoint, u32::MAX, start), Some(reset));
+        forget(&endpoint);
+    }
+
+    #[test]
+    fn extreme_representable_window_does_not_overflow_wait_conversion() {
+        let endpoint = key("extreme-window");
+        let start = Instant::now();
+        record_at(&endpoint, 1, 0, Duration::MAX, start);
+        assert_eq!(shortfall_at(&endpoint, 1, start), Some(Duration::MAX));
         forget(&endpoint);
     }
 

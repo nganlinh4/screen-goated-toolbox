@@ -2,6 +2,8 @@ import clsx from "clsx";
 import { useTtsState } from "./state";
 import { ttsApi } from "./ipc";
 import { Button } from "./components";
+import { useDragHold } from "./useDragHold";
+import { MaterialSymbol } from "./MaterialSymbol";
 
 export function Studio() {
   const s = useTtsState();
@@ -22,7 +24,7 @@ export function Studio() {
 
 function SpeechToSpeechInput() {
   const s = useTtsState();
-  const canGenerate = !s.player.isGenerating && Boolean(s.audioEdit.sourcePath);
+  const canGenerate = !s.player.isGenerating && Boolean(s.sourceAudio.sourcePath);
   return (
     <div className="tts-s2s-input flex flex-col gap-2.5 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
       <label className="tts-input-label text-xs font-medium uppercase tracking-wide text-muted">
@@ -30,9 +32,9 @@ function SpeechToSpeechInput() {
       </label>
       <p
         className="tts-s2s-source truncate text-xs text-muted"
-        title={s.audioEdit.sourcePath}
+        title={s.sourceAudio.sourcePath}
       >
-        {s.audioEdit.sourcePath || s.strings.noSource}
+        {s.sourceAudio.sourcePath || s.strings.noSource}
       </p>
       <div className="tts-input-actions flex items-center justify-end gap-2">
         {s.player.isGenerating && (
@@ -56,34 +58,15 @@ function SpeechToSpeechInput() {
 
 function TextInput() {
   const s = useTtsState();
-  const editMode =
-    s.mode === "AudioEdit" && s.audioEdit.editType !== "paralinguistic";
-  const canGenerate =
-    !s.player.isGenerating &&
-    (s.mode === "AudioEdit"
-      ? Boolean(
-          s.audioEdit.sourcePath.trim() &&
-            s.audioEdit.sourceText.trim() &&
-            (s.audioEdit.editType !== "paralinguistic" ||
-              s.audioEdit.targetText.trim()),
-        )
-      : Boolean(s.draftText.trim()));
-  // For audio-edit non-paralinguistic flows the source transcript IS the input;
-  // for everything else the draft text is the synth input.
+  const canGenerate = !s.player.isGenerating && Boolean(s.draftText.trim());
   return (
     <div className="tts-text-input flex flex-col gap-2.5 rounded-lg bg-surface-soft p-3.5 shadow-elevation-2">
       <label className="tts-input-label text-xs font-medium uppercase tracking-wide text-muted">
-        {editMode ? s.strings.sourceTranscript : s.strings.textLabel}
+        {s.strings.textLabel}
       </label>
       <textarea
-        value={editMode ? s.audioEdit.sourceText : s.draftText}
-        onChange={(e) => {
-          if (editMode) {
-            void ttsApi.patchAudioEdit({ sourceText: e.target.value });
-          } else {
-            void ttsApi.setDraftText(e.target.value);
-          }
-        }}
+        value={s.draftText}
+        onChange={(e) => void ttsApi.setDraftText(e.target.value)}
         placeholder={s.strings.textHint}
         className="tts-text-area min-h-[120px] resize-none rounded-md bg-surface px-2.5 py-2 font-mono text-sm leading-relaxed text-fg outline-none transition focus:ring-2 focus:ring-accent/25"
       />
@@ -91,7 +74,7 @@ function TextInput() {
         <span className="tts-char-count text-xs text-muted tabular-nums">
           {(s.strings.charCountTemplate || "{n} chars").replace(
             "{n}",
-            String((editMode ? s.audioEdit.sourceText : s.draftText).length),
+            String(s.draftText.length),
           )}
         </span>
         <div className="tts-text-actions flex items-center gap-2">
@@ -125,6 +108,8 @@ function TextInput() {
 
 function Player() {
   const s = useTtsState();
+  // Playback ticks push the position continuously; they must not fight a drag.
+  const seekDrag = useDragHold(s.player.positionSec);
   const current = s.player.current;
   if (!current) {
     return (
@@ -134,7 +119,7 @@ function Player() {
     );
   }
   const duration = Math.max(0.001, current.durationSec);
-  const pct = Math.min(100, (s.player.positionSec / duration) * 100);
+  const pct = Math.min(100, (seekDrag.value / duration) * 100);
   const playLabel = s.player.isPlaying
     ? s.strings.pause
     : s.player.paused
@@ -150,7 +135,7 @@ function Player() {
           {current.voiceLabel}
         </span>
         <span className="tts-player-time shrink-0 font-mono text-xs tabular-nums text-muted">
-          {fmt(s.player.positionSec)} / {fmt(duration)}
+          {fmt(seekDrag.value)} / {fmt(duration)}
         </span>
       </div>
       <input
@@ -158,8 +143,13 @@ function Player() {
         min={0}
         max={duration}
         step={0.05}
-        value={s.player.positionSec}
-        onChange={(e) => void ttsApi.seek(Number(e.target.value))}
+        value={seekDrag.value}
+        onChange={(e) => {
+          const sec = Number(e.target.value);
+          seekDrag.hold(sec);
+          void ttsApi.seek(sec);
+        }}
+        {...seekDrag.releaseHandlers}
         className="tts-player-seek seek-bar"
         style={{
           background: `linear-gradient(to right, rgb(var(--accent)) ${pct}%, rgb(var(--surface-strong)) ${pct}%)`,
@@ -247,9 +237,7 @@ function RecentClips() {
               aria-label={s.strings.deleteRecent}
               title={s.strings.deleteRecent}
             >
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
-                <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />
-              </svg>
+              <MaterialSymbol name="close" className="h-3.5 w-3.5" />
             </button>
           </li>
         ))}

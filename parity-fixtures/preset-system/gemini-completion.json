@@ -1,6 +1,11 @@
 {
   "stream": [
     {
+      "name": "structured-audio-transcription",
+      "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"audioTranscription\":{\"text\":\"Alpha \"}},{\"audioTranscription\":{\"text\":\"Beta\"}}]},\"finishReason\":\"STOP\"}]}\n\n",
+      "output": "Alpha Beta"
+    },
+    {
       "name": "complete-with-usage",
       "body": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Alpha \"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Beta\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"usageMetadata\":{\"candidatesTokenCount\":2}}\n\n",
       "output": "Alpha Beta"
@@ -87,6 +92,21 @@
     }
   ],
   "unary": [
+    {
+      "name": "structured-audio-transcription",
+      "body": {"candidates": [{"content": {"parts": [{"audioTranscription": {"text": "Alpha "}}, {"audioTranscription": {"text": "Beta"}}]}, "finishReason": "STOP"}]},
+      "output": "Alpha Beta"
+    },
+    {
+      "name": "structured-audio-truncation-is-not-success",
+      "body": {"candidates": [{"content": {"parts": [{"audioTranscription": {"text": "Partial"}}]}, "finishReason": "MAX_TOKENS"}]},
+      "error": "token limit reached"
+    },
+    {
+      "name": "structured-audio-text-must-be-a-string",
+      "body": {"candidates": [{"content": {"parts": [{"audioTranscription": {"text": 7}}]}, "finishReason": "STOP"}]},
+      "error": "not text"
+    },
     {
       "name": "complete",
       "body": {

@@ -36,12 +36,15 @@ fn cdp_in_tab_with_policy(
     require_active: bool,
 ) -> anyhow::Result<Value> {
     super::capabilities::require(super::capabilities::CDP)?;
+    super::capabilities::require(super::capabilities::CDP_DISPATCH_ADMISSION)?;
+    super::capabilities::require(super::capabilities::EFFECT_ADMISSION)?;
     super::capabilities::require(super::capabilities::CDP_EXPLICIT_TAB)?;
     if require_active {
         super::capabilities::require(super::capabilities::CDP_REQUIRE_ACTIVE)?;
     }
     if session_id.is_some() {
         super::capabilities::require(super::capabilities::CDP_SESSION)?;
+        super::capabilities::require(super::capabilities::FRAME_INVENTORY)?;
     }
     let mut env = json!({
         "id": super::bridge::next_request_id(), "type": "cdp", "method": method,
@@ -59,8 +62,11 @@ pub(super) fn cdp_in(
     session_id: Option<&str>,
 ) -> anyhow::Result<Value> {
     super::capabilities::require(super::capabilities::CDP)?;
+    super::capabilities::require(super::capabilities::CDP_DISPATCH_ADMISSION)?;
+    super::capabilities::require(super::capabilities::EFFECT_ADMISSION)?;
     if session_id.is_some() {
         super::capabilities::require(super::capabilities::CDP_SESSION)?;
+        super::capabilities::require(super::capabilities::FRAME_INVENTORY)?;
     }
     let mut env = json!({
         "id": super::bridge::next_request_id(), "type": "cdp",

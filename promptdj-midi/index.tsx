@@ -10,7 +10,10 @@ import { PromptDjMidi } from './components/PromptDjMidi';
 import { ToastMessage } from './components/ToastMessage';
 import { LiveMusicHelper } from './utils/LiveMusicHelper';
 import { AudioAnalyser } from './utils/AudioAnalyser';
+import { needsNewHelper, retireHelper } from './utils/HelperLifecycle';
 import { processAudioBlob } from './utils/AudioProcessing';
+import { startRecordingSession } from './utils/RecordingSession';
+import { requestRecording } from './utils/RecordingIndicator';
 import { LOCALES, Lang } from './utils/Locales';
 
 let ai: GoogleGenAI | null = null;
@@ -20,13 +23,13 @@ const model = 'lyria-realtime-exp';
 
 // Recorder plumbing shared across message handlers
 let teeNode: GainNode | null = null;
-let mediaDest: MediaStreamAudioDestinationNode | null = null;
 let mediaRecorder: MediaRecorder | null = null;
-let recordedChunks: BlobPart[] = [];
+let recordingOwner: LiveMusicHelper | null = null;
 
 // Lazy-initialized helper and analyser (created after API key is provided by parent)
 let liveMusicHelper: LiveMusicHelper | null = null;
 let audioAnalyser: AudioAnalyser | null = null;
+let currentApiKey: string | null = null;
 
 // Track current playback state
 let currentPlaybackState: PlaybackState = 'stopped';
@@ -61,8 +64,11 @@ function main() {
   }));
 
   // Wire up UI buttons from PromptDjMidi
-  pdjMidi.addEventListener('start-recording', () => startRecording());
+  pdjMidi.addEventListener('start-recording', () => requestRecording(startRecording, pdjMidi));
   pdjMidi.addEventListener('stop-recording', () => stopRecording());
+  pdjMidi.addEventListener('volume-changed', ((event: Event) => {
+    liveMusicHelper?.setVolume((event as CustomEvent<number>).detail);
+  }));
 
   // New explicit play/pause events to avoid accidental re-toggles
   pdjMidi.addEventListener('play', () => {
@@ -85,8 +91,10 @@ function main() {
 
   const attachHelperListeners = () => {
     if (!liveMusicHelper) return;
+    const owner = liveMusicHelper;
 
-    liveMusicHelper.addEventListener('playback-state-changed', ((e: Event) => {
+    owner.addEventListener('playback-state-changed', ((e: Event) => {
+      if (liveMusicHelper !== owner) return;
       const customEvent = e as CustomEvent<PlaybackState>;
       const playbackState = customEvent.detail;
       currentPlaybackState = playbackState;
@@ -101,14 +109,16 @@ function main() {
       }
     }));
 
-    liveMusicHelper.addEventListener('filtered-prompt', ((e: Event) => {
+    owner.addEventListener('filtered-prompt', ((e: Event) => {
+      if (liveMusicHelper !== owner) return;
       const customEvent = e as CustomEvent<LiveMusicFilteredPrompt>;
       const filteredPrompt = customEvent.detail;
       toastMessage.show(filteredPrompt.filteredReason!)
       pdjMidi.addFilteredPrompt(filteredPrompt.text!);
     }));
 
-    liveMusicHelper.addEventListener('error', ((e: Event) => {
+    owner.addEventListener('error', ((e: Event) => {
+      if (liveMusicHelper !== owner) return;
       const customEvent = e as CustomEvent<string>;
       const error = customEvent.detail;
       toastMessage.show(error);
@@ -118,7 +128,9 @@ function main() {
   // Listen for analyser events if/when created
   const attachAnalyserListener = () => {
     if (!audioAnalyser) return;
-    audioAnalyser.addEventListener('audio-level-changed', ((e: Event) => {
+    const owner = audioAnalyser;
+    owner.addEventListener('audio-level-changed', ((e: Event) => {
+      if (audioAnalyser !== owner) return;
       const customEvent = e as CustomEvent<number>;
       const level = customEvent.detail;
       pdjMidi.audioLevel = level;
@@ -126,15 +138,22 @@ function main() {
   };
 
   function initWithApiKey(apiKey: string) {
+    if (!needsNewHelper(currentApiKey, apiKey, liveMusicHelper !== null)) return;
     try {
-      ai = new GoogleGenAI({ apiKey, apiVersion: 'v1alpha' });
-      liveMusicHelper = new LiveMusicHelper(ai, model);
-      liveMusicHelper.setWeightedPrompts(initialPrompts);
-      audioAnalyser = new AudioAnalyser(liveMusicHelper.audioContext);
+      const nextAi = new GoogleGenAI({ apiKey, apiVersion: 'v1alpha' });
+      const next = new LiveMusicHelper(nextAi, model, pdjMidi.getVolume());
+      const nextAnalyser = new AudioAnalyser(next.audioContext);
       // Create a tee node so we can fan out to analyser and (optionally) recorder
-      teeNode = liveMusicHelper.audioContext.createGain();
-      teeNode.connect(audioAnalyser.node);
-      liveMusicHelper.extraDestination = teeNode;
+      const nextTee = next.audioContext.createGain();
+      nextTee.connect(nextAnalyser.node);
+      next.extraDestination = nextTee;
+      if (liveMusicHelper) retireHelper(liveMusicHelper, recordingOwner, stopRecording, audioAnalyser);
+      ai = nextAi;
+      liveMusicHelper = next;
+      audioAnalyser = nextAnalyser;
+      teeNode = nextTee;
+      currentApiKey = apiKey;
+      next.setWeightedPrompts(pdjMidi.getPrompts());
       pdjMidi.apiKeySet = true;
       attachHelperListeners();
       attachAnalyserListener();
@@ -144,23 +163,17 @@ function main() {
   }
 
   // Expose recording controls via postMessage from parent iframe
-  function startRecording() {
+  /** Returns whether a recorder is running once the call settles. */
+  function startRecording(): boolean {
     try {
-      if (!teeNode || !liveMusicHelper) return;
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') return;
-      mediaDest = liveMusicHelper.audioContext.createMediaStreamDestination();
-      teeNode.connect(mediaDest);
+      if (!teeNode || !liveMusicHelper) return false;
+      if (mediaRecorder) return true;
+      const owner = liveMusicHelper;
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      mediaRecorder = new MediaRecorder(mediaDest.stream, { mimeType: mime });
-      recordedChunks = [];
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-      };
-      mediaRecorder.onstop = async () => {
-        const rawBlob = new Blob(recordedChunks, { type: mediaRecorder?.mimeType || 'audio/webm' });
+      const onStopped = async (rawBlob: Blob, chunkCount: number) => {
         try {
           // Process audio: decode, trim silence, encode to WAV
-          const processedBlob = await processAudioBlob(rawBlob, liveMusicHelper!.audioContext);
+          const processedBlob = await processAudioBlob(rawBlob, owner.audioContext);
 
           // Show recording result modal with processed audio
           if (typeof (pdjMidi as any).showRecording === 'function') {
@@ -179,7 +192,7 @@ function main() {
           }
 
           // If it was just a decoding error on a tiny chunk, treat as silence too
-          if (recordedChunks.length === 0 || rawBlob.size < 1000) {
+          if (chunkCount === 0 || rawBlob.size < 1000) {
             toastMessage.show(LOCALES[pdjMidi.lang as Lang].too_short_toast);
             window.parent?.postMessage({ type: 'pm-dj-recording-stopped', error: 'silent/short' }, '*');
             return;
@@ -190,12 +203,30 @@ function main() {
             (pdjMidi as any).showRecording(rawBlob);
           }
           window.parent?.postMessage({ type: 'pm-dj-recording-stopped', blob: rawBlob }, '*');
+        } finally {
+          if (mediaRecorder === recorder) {
+            mediaRecorder = null;
+            recordingOwner = null;
+            pdjMidi.setRecording(false);
+          }
+          if (owner.isDisposed) void owner.audioContext.close();
         }
       };
-      mediaRecorder.start(250);
+      // The session disconnects its capture node from the tee once this settles.
+      const recorder = startRecordingSession({
+        tee: teeNode,
+        context: owner.audioContext,
+        createRecorder: (stream) => new MediaRecorder(stream, { mimeType: mime }),
+        onStopped,
+      });
+      mediaRecorder = recorder;
+      recordingOwner = owner;
       window.parent?.postMessage({ type: 'pm-dj-recording-started' }, '*');
+      return true;
     } catch (e) {
+      if (mediaRecorder?.state === 'inactive') { mediaRecorder = null; recordingOwner = null; }
       window.parent?.postMessage({ type: 'pm-dj-recording-error', error: (e as any)?.message || String(e) }, '*');
+      return mediaRecorder !== null;
     }
   }
 
@@ -227,7 +258,7 @@ function main() {
   window.addEventListener('message', (event: MessageEvent) => {
     const data = event.data as any;
     if (!data || typeof data !== 'object') return;
-    if (data.type === 'pm-dj-start-recording') startRecording();
+    if (data.type === 'pm-dj-start-recording') requestRecording(startRecording, pdjMidi);
     if (data.type === 'pm-dj-stop-recording') stopRecording();
     if (data.type === 'pm-dj-set-api-key' && typeof data.apiKey === 'string' && data.apiKey) {
       if (data.lang && pdjMidi) {

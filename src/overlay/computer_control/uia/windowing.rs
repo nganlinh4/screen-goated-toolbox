@@ -1,25 +1,26 @@
 //! Win32 top-level window management: find / raise / minimize / resize / move a
-//! window by an exact title, executable, or stable HWND/PID identity, including fullscreen games that
-//! expose no UIA provider. Split from the UIA tree code (`uia.rs`) for the
+//! window by an exact title, executable, or stable HWND/PID identity, including
+//! windows without a UIA provider. Split from the UIA tree code (`uia.rs`) for the
 //! file-size limit. Self-contained — only Win32 windowing + process APIs, no UIA.
 
 use std::fmt;
+use std::sync::atomic::AtomicBool;
 
 use unicode_normalization::UnicodeNormalization;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, SW_MINIMIZE, SW_RESTORE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetForegroundWindow, SetWindowPos, ShowWindow,
+    EnumWindows, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
 };
 use windows_core::BOOL;
 
 const STABLE_TARGET_PREFIX: &str = "@hwnd:";
+mod eligibility;
+mod foreground;
+mod placement;
+use placement::{Placement, VERIFY_BUDGET, Win32Window, WindowBounds};
 
 #[derive(Clone, Debug)]
 struct WindowCandidate {
@@ -61,6 +62,10 @@ pub(crate) enum WindowError {
         expected_pid: u32,
         actual_pid: u32,
     },
+    IneligibleTarget {
+        hwnd: usize,
+        reason: &'static str,
+    },
     Ambiguous {
         target: String,
         matches: Vec<String>,
@@ -68,6 +73,15 @@ pub(crate) enum WindowError {
     InvalidSize {
         width: i32,
         height: i32,
+    },
+    Cancelled {
+        effect_may_have_occurred: bool,
+    },
+    /// The request was posted but its state was not observed in time; it may
+    /// still apply once the window's thread processes it.
+    Unconfirmed {
+        operation: &'static str,
+        observed: Option<WindowBounds>,
     },
 }
 
@@ -78,7 +92,10 @@ impl WindowError {
             Self::InvalidSize { .. } => "invalid_window_size",
             Self::NotFound { .. } => "window_not_found",
             Self::StaleStableTarget { .. } => "stale_window_target",
+            Self::IneligibleTarget { .. } => "ineligible_window_target",
             Self::Ambiguous { .. } => "ambiguous_window_target",
+            Self::Cancelled { .. } => "cancelled",
+            Self::Unconfirmed { .. } => "window_effect_unconfirmed",
         }
     }
 }
@@ -99,6 +116,10 @@ impl fmt::Display for WindowError {
                 f,
                 "stable window target @hwnd:{hwnd}:{expected_pid} is stale (current pid {actual_pid})"
             ),
+            Self::IneligibleTarget { hwnd, reason } => write!(
+                f,
+                "window {hwnd} is not an eligible top-level target: {reason}"
+            ),
             Self::Ambiguous { target, matches } => write!(
                 f,
                 "window target {target:?} is ambiguous; choose one stable target: {}",
@@ -106,6 +127,26 @@ impl fmt::Display for WindowError {
             ),
             Self::InvalidSize { width, height } => {
                 write!(f, "window size must be positive, got {width}x{height}")
+            }
+            Self::Cancelled { .. } => write!(f, "window operation cancelled"),
+            Self::Unconfirmed {
+                operation,
+                observed,
+            } => {
+                write!(
+                    f,
+                    "window {operation} was requested but not observed within {} ms; it may still \
+                     apply when the window responds. Re-observe before retrying",
+                    VERIFY_BUDGET.as_millis()
+                )?;
+                match observed {
+                    Some(bounds) => write!(
+                        f,
+                        " (observed x={}, y={}, width={}, height={})",
+                        bounds.x, bounds.y, bounds.width, bounds.height
+                    ),
+                    None => write!(f, " (current bounds unavailable)"),
+                }
             }
         }
     }
@@ -125,7 +166,7 @@ type WindowResult<T> = Result<T, WindowError>;
 pub(crate) fn raise_window(target: &str) -> WindowResult<bool> {
     let before = unsafe { GetForegroundWindow() };
     let selected = find_top_window(target)?;
-    let raised = unsafe { force_foreground_hwnd(selected) };
+    let raised = foreground::raise(selected)?;
     let after = unsafe { GetForegroundWindow() };
     super::super::telemetry::event(
         "focus_window_result",
@@ -147,11 +188,6 @@ pub(crate) fn raise_window_with_target(target: &str) -> WindowResult<(bool, Stri
     let stable = stable_window_target(target)?;
     raise_window(&stable).map(|raised| (raised, stable))
 }
-
-// --- Win32 EnumWindows: finds EVERY top-level window, including fullscreen GAMES (Unity/Unreal/
-//     native) that expose NO UI Automation provider and so never appear in the UIA tree. That gap
-//     is exactly why `focus_window` couldn't reach a minimized game and matched a browser tab by
-//     title instead. Mirrors the proven enumeration in `realtime_webview::app_selection`. ---
 
 /// Executable basename owning `pid`; empty on failure.
 fn process_exe_name(pid: u32) -> String {
@@ -180,23 +216,15 @@ fn process_exe_name(pid: u32) -> String {
     }
 }
 
-/// (hwnd, title, exe basename) for each visible, titled top-level window of ANOTHER process (our
-/// own windows — the orb, the app — are skipped). Win32-level, so it sees games the UIA tree can't.
+/// Titled, eligible top-level windows, independent of UIA provider availability.
 fn enum_top_windows() -> Vec<WindowCandidate> {
     extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
-            if !IsWindowVisible(hwnd).as_bool() {
+            // Exclude same-process windows before title retrieval, which can
+            // synchronously send a message to a thread that is not pumping.
+            let Ok(pid) = eligibility::inspect(hwnd, None) else {
                 return BOOL(1);
-            }
-            // Resolve the owning process and skip our OWN windows (orb / app / splash) FIRST — this
-            // MUST precede GetWindowTextW: that call sends WM_GETTEXT and blocks INDEFINITELY on a
-            // same-process window whose thread isn't pumping (MS-documented), which hung the agent
-            // when it was asked to act on this very app. Other processes' titles read cached (safe).
-            let mut pid = 0u32;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
-            if pid == 0 || pid == std::process::id() {
-                return BOOL(1);
-            }
+            };
             let mut buf = [0u16; 512];
             let len = GetWindowTextW(hwnd, &mut buf);
             if len == 0 {
@@ -231,7 +259,9 @@ pub(crate) fn find_top_window(target: &str) -> WindowResult<HWND> {
         Some((raw, expected_pid)) => resolve_stable_target(raw, expected_pid),
         None => {
             let candidates = enum_top_windows();
-            resolve_named_candidate(target, &candidates).map(|candidate| candidate.hwnd)
+            resolve_named_candidate(target, &candidates).and_then(|candidate| {
+                resolve_stable_target(candidate.hwnd.0 as usize, candidate.pid)
+            })
         }
     };
     super::super::telemetry::event(
@@ -256,7 +286,9 @@ pub(crate) fn stable_window_target(target: &str) -> WindowResult<String> {
         return Ok(format!("{STABLE_TARGET_PREFIX}{raw}:{expected_pid}"));
     }
     let candidates = enum_top_windows();
-    resolve_named_candidate(target, &candidates).map(WindowCandidate::stable_target)
+    let candidate = resolve_named_candidate(target, &candidates)?;
+    resolve_stable_target(candidate.hwnd.0 as usize, candidate.pid)?;
+    Ok(candidate.stable_target())
 }
 
 pub(crate) fn window_identity(target: &str) -> WindowResult<(u64, u64)> {
@@ -305,17 +337,7 @@ fn parse_stable_target(target: &str) -> WindowResult<Option<(usize, u32)>> {
 
 fn resolve_stable_target(raw: usize, expected_pid: u32) -> WindowResult<HWND> {
     let hwnd = HWND(raw as *mut _);
-    let mut actual_pid = 0u32;
-    if unsafe { IsWindow(Some(hwnd)).as_bool() } {
-        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut actual_pid)) };
-    }
-    if actual_pid != expected_pid {
-        return Err(WindowError::StaleStableTarget {
-            hwnd: raw,
-            expected_pid,
-            actual_pid,
-        });
-    }
+    eligibility::inspect(hwnd, Some(expected_pid))?;
     Ok(hwnd)
 }
 
@@ -366,147 +388,54 @@ pub(crate) fn list_windows() -> Vec<WindowDescriptor> {
         .collect()
 }
 
-/// Minimize the exactly resolved top-level window via a DIRECT
-/// `ShowWindow` on its handle (no input injection — so it works even on a
-/// fullscreen game that's swallowing keystrokes, unlike a synthetic Win+D).
-/// Returns a resolution error when no unique window is known. Non-elevated.
-pub(crate) fn minimize_window(target: &str) -> WindowResult<bool> {
+/// Minimize the exactly resolved top-level window with a posted `ShowWindow`
+/// request (no input injection, so it works even on a fullscreen game that is
+/// swallowing keystrokes) and verify the minimized state. A window whose
+/// thread is not pumping cannot block the executor. Non-elevated.
+pub(crate) fn minimize_window(target: &str, cancel: &AtomicBool) -> WindowResult<bool> {
     let hwnd = find_top_window(target)?;
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_MINIMIZE);
-    }
-    Ok(true)
+    placement::minimize(&Win32Window(hwnd), cancel, VERIFY_BUDGET)
 }
 
-/// Resize the window matching `target` to `w`x`h` pixels (restoring it first, so
-/// a maximized window can shrink). Keeps its position. Non-elevated.
-pub(crate) fn resize_window(target: &str, w: i32, h: i32) -> WindowResult<bool> {
+/// Resize the window matching `target` to `w`x`h` pixels (restoring it first
+/// when minimized or maximized, so it can shrink). Keeps its position and
+/// verifies the resulting size. Non-elevated.
+pub(crate) fn resize_window(
+    target: &str,
+    w: i32,
+    h: i32,
+    cancel: &AtomicBool,
+) -> WindowResult<bool> {
     if w <= 0 || h <= 0 {
         return Err(WindowError::InvalidSize {
             width: w,
             height: h,
         });
     }
-    unsafe {
-        let hwnd = find_top_window(target)?;
-        let _ = ShowWindow(hwnd, SW_RESTORE); // can't resize while maximized
-        Ok(SetWindowPos(hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER).is_ok())
-    }
+    let hwnd = find_top_window(target)?;
+    placement::place(
+        &Win32Window(hwnd),
+        Placement::Resize {
+            width: w,
+            height: h,
+        },
+        cancel,
+        VERIFY_BUDGET,
+    )
 }
 
 /// Move the window matching `target` so its top-left corner is at screen pixel
-/// (x, y). Keeps its size. Non-elevated.
-pub(crate) fn move_window(target: &str, x: i32, y: i32) -> WindowResult<bool> {
-    unsafe {
-        let hwnd = find_top_window(target)?;
-        let _ = ShowWindow(hwnd, SW_RESTORE); // can't move while maximized
-        Ok(SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER).is_ok())
-    }
-}
-
-/// Force `hwnd` to the foreground using the `AttachThreadInput` trick (a
-/// background process otherwise can't legally call `SetForegroundWindow`),
-/// restoring it if minimized. Retries briefly and verifies — returns whether
-/// `hwnd` is actually the foreground window afterward. Non-elevated, best-effort.
-unsafe fn force_foreground_hwnd(hwnd: HWND) -> bool {
-    unsafe {
-        let this_tid = GetCurrentThreadId();
-        for attempt in 0..3 {
-            if GetForegroundWindow().0 == hwnd.0 {
-                return true;
-            }
-            // Only un-minimize. SW_RESTORE changes a maximized window's placement,
-            // while on a minimized window it restores the prior maximized/normal state.
-            if IsIconic(hwnd).as_bool() {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-            }
-            let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
-            let attach = fg_tid != 0 && fg_tid != this_tid;
-            if attach {
-                let _ = AttachThreadInput(this_tid, fg_tid, true);
-            }
-            let _ = BringWindowToTop(hwnd);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(hwnd));
-            if attach {
-                let _ = AttachThreadInput(this_tid, fg_tid, false);
-            }
-            if GetForegroundWindow().0 == hwnd.0 {
-                return true;
-            }
-            if attempt < 2 {
-                std::thread::sleep(std::time::Duration::from_millis(120));
-            }
-        }
-        GetForegroundWindow().0 == hwnd.0
-    }
+/// (x, y). Keeps its size and verifies the resulting position. Non-elevated.
+pub(crate) fn move_window(target: &str, x: i32, y: i32, cancel: &AtomicBool) -> WindowResult<bool> {
+    let hwnd = find_top_window(target)?;
+    placement::place(
+        &Win32Window(hwnd),
+        Placement::Move { x, y },
+        cancel,
+        VERIFY_BUDGET,
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{WindowCandidate, WindowError, parse_stable_target, resolve_named_candidate};
-    use windows::Win32::Foundation::HWND;
-
-    fn candidate(raw: usize, pid: u32, title: &str, exe: &str) -> WindowCandidate {
-        WindowCandidate {
-            hwnd: HWND(raw as *mut _),
-            pid,
-            title: title.to_string(),
-            exe: exe.to_string(),
-        }
-    }
-
-    #[test]
-    fn title_substrings_are_not_window_targets() {
-        let candidates = [candidate(1, 10, "Notes 10", "host.exe")];
-        assert!(matches!(
-            resolve_named_candidate("Notes 1", &candidates),
-            Err(WindowError::NotFound { .. })
-        ));
-    }
-
-    #[test]
-    fn ambiguous_exact_titles_fail_with_stable_choices() {
-        let candidates = [
-            candidate(1, 10, "Notes", "host-a.exe"),
-            candidate(2, 11, "Notes", "host-b.exe"),
-        ];
-        let error = resolve_named_candidate(" notes ", &candidates).unwrap_err();
-        assert_eq!(
-            error,
-            WindowError::Ambiguous {
-                target: " notes ".to_string(),
-                matches: vec!["@hwnd:1:10".to_string(), "@hwnd:2:11".to_string()],
-            }
-        );
-    }
-
-    #[test]
-    fn exact_executable_stem_resolves_uniquely() {
-        let candidates = [
-            candidate(1, 10, "Document", "editor.exe"),
-            candidate(2, 11, "Editor guide", "browser.exe"),
-        ];
-        assert_eq!(
-            resolve_named_candidate("ＥＤＩＴＯＲ", &candidates)
-                .unwrap()
-                .hwnd
-                .0 as usize,
-            1
-        );
-    }
-
-    #[test]
-    fn stable_target_requires_both_nonzero_identity_parts() {
-        assert_eq!(
-            parse_stable_target("@hwnd:123:77").unwrap(),
-            Some((123, 77))
-        );
-        for invalid in ["@hwnd:123", "@hwnd:0:77", "@hwnd:123:0", "@hwnd:x:77"] {
-            assert!(matches!(
-                parse_stable_target(invalid),
-                Err(WindowError::InvalidStableTarget { .. })
-            ));
-        }
-    }
-}
+#[path = "windowing_tests.rs"]
+mod tests;

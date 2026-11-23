@@ -8,13 +8,7 @@ import {
 } from './resumableJobRegistry';
 import {
   getEffectiveCompositionMode,
-  updateCompositionClip,
 } from '@/lib/projectComposition';
-import {
-  buildSequenceTimeline,
-  getSequenceClipById,
-  replaceSequenceClipSegmentInGlobal,
-} from '@/lib/sequenceTimeline';
 import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import {
   getActiveSubtitleView,
@@ -36,6 +30,7 @@ import type {
 } from '@/types/video';
 import {
   applyTranslationResultsToSegment,
+  applyCompositionTranslationResults,
   buildCompositionTranslationItems,
   buildTranslationChunkPreview,
   buildTranslationItems,
@@ -335,45 +330,7 @@ export function useSubtitleTranslation({
       return;
     }
 
-    setComposition((prev) => {
-      if (!prev) return prev;
-      const timeline = buildSequenceTimeline(prev);
-      let next = prev;
-      const resultsByClipId = new Map<string, SubtitleTranslationResultItem[]>();
-      for (const result of results) {
-        const clipId = result.clipId ?? 'root';
-        const bucket = resultsByClipId.get(clipId) ?? [];
-        bucket.push(result);
-        resultsByClipId.set(clipId, bucket);
-      }
-
-      for (const clip of next.clips) {
-        const clipResults = resultsByClipId.get(clip.id) ?? [];
-        if (clipResults.length === 0) continue;
-        const updatedSegment = applyTranslationResultsToSegment(
-          clip.segment,
-          clipResults,
-          context,
-        );
-        next = updateCompositionClip(next, clip.id, { segment: updatedSegment });
-        if (next.globalSegment && timeline) {
-          const timelineClip = getSequenceClipById(timeline, clip.id);
-          if (timelineClip) {
-            next = {
-              ...next,
-              globalSegment: replaceSequenceClipSegmentInGlobal(
-                next.globalSegment,
-                updatedSegment,
-                timelineClip,
-                timeline.totalDuration,
-              ),
-            };
-          }
-        }
-      }
-
-      return next;
-    });
+    setComposition((prev) => prev ? applyCompositionTranslationResults(prev, results, context) : prev);
   }, [composition, setComposition, setSegment]);
 
   useAsyncJobPoll<SubtitleTranslationJobStatus>({

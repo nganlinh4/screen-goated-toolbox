@@ -58,8 +58,6 @@ body,
 }
 
 body {
-  min-width: 840px;
-  min-height: 540px;
   background: var(--bg);
   color: var(--text);
   font-size: 13px;

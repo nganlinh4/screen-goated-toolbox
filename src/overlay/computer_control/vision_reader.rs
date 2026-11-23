@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use crate::api::{TranslateImageRequest, translate_image_streaming};
 use crate::config::Config;
-use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
+use crate::model_config::{ModelConfig, get_model_by_id_with_custom, model_is_non_llm};
 
 use super::vision_contract::{
     GROUNDING_STREAMING_ENABLED, VerificationDecision, context_prefix, drag_request,
@@ -34,22 +34,23 @@ pub(super) use candidates::{CandidateAttempt, CandidateReport};
 use schemas::box_schema;
 pub(super) use text_candidates::read_text_pref_where;
 
-/// Per-provider API key, preferring the repo `.env` overrides (so the headless
-/// harness works) and falling back to the saved app config.
-fn key_for(provider: &str, config: &Config) -> Option<String> {
-    let v = match provider {
-        "google" | "gemini-live" => {
-            crate::api::provider_credentials::resolve("GEMINI_API_KEY", &config.gemini_api_key)
-        }
-        "groq" => crate::api::provider_credentials::resolve("GROQ_API_KEY", &config.api_key),
-        "openrouter" => crate::api::provider_credentials::resolve(
-            "OPENROUTER_API_KEY",
-            &config.openrouter_api_key,
-        ),
-        _ => String::new(),
-    };
-    let v = v.trim().to_string();
-    (!v.is_empty()).then_some(v)
+/// The Gemini and Groq keys the shared clients take as request arguments;
+/// every other provider resolves its own credential inside the client.
+fn request_keys(config: &Config) -> (String, String) {
+    use crate::api::provider_credentials::resolve;
+    (
+        resolve("GEMINI_API_KEY", &config.gemini_api_key),
+        resolve("GROQ_API_KEY", &config.api_key),
+    )
+}
+
+/// A configured chain entry the shared clients can serve now, judged by the
+/// same credential and enablement rule as every other model chain.
+fn usable_model(id: &str, config: &Config) -> Option<ModelConfig> {
+    let model = get_model_by_id_with_custom(id, &config.custom_models)?;
+    (!model_is_non_llm(&model.id)
+        && crate::retry_model_chain::provider_is_available(&model.provider, config))
+    .then_some(model)
 }
 
 #[derive(Clone, Copy)]
@@ -115,29 +116,47 @@ fn chain_ids(config: &Config, prefer: &[&str], task: VisionTask) -> Vec<String> 
 }
 
 pub(super) fn configured_general_chain(prefer: &[&str]) -> Vec<String> {
-    chain_ids(&crate::load_config(), prefer, VisionTask::General)
+    super::app_config::read(|config| chain_ids(config, prefer, VisionTask::General))
 }
 
+/// Per-provider cap for one grounding request, so a hung provider falls
+/// through to the next model instead of holding the global 120s agent timeout.
+const GROUNDING_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Run a structured grounding prompt through the isolated locator chain.
+/// `cancel` is the caller's child flag; it aborts the in-flight transport.
 fn run_grounding_chain(
     jpeg: &[u8],
     prompt: &str,
     schema: Option<serde_json::Value>,
+    cancel: Arc<AtomicBool>,
+    accept: impl FnMut(&str) -> bool,
+) -> Result<String> {
+    let config = super::app_config::snapshot();
+    run_grounding_chain_with(&config, jpeg, prompt, schema, cancel, accept)
+}
+
+fn run_grounding_chain_with(
+    config: &Config,
+    jpeg: &[u8],
+    prompt: &str,
+    schema: Option<serde_json::Value>,
+    cancel: Arc<AtomicBool>,
     accept: impl FnMut(&str) -> bool,
 ) -> Result<String> {
     run_chain_where(
+        config,
         jpeg,
         prompt,
         &[],
         schema,
         ChainRun {
             task: VisionTask::Grounding,
-            cancel_token: None,
-            request_timeout: None,
+            cancel_token: Some(cancel),
+            request_timeout: Some(GROUNDING_REQUEST_TIMEOUT),
             attempts: None,
         },
-        |_| {},
-        accept,
+        CandidateCallbacks::new(|_: &CandidateAttempt| {}, accept),
     )
 }
 
@@ -145,29 +164,31 @@ fn run_grounding_chain(
 /// validates its task-specific contract. Invalid structured output falls
 /// through to the next configured provider instead of disabling grounding.
 fn run_chain_where(
+    config: &Config,
     jpeg: &[u8],
     prompt: &str,
     prefer: &[&str],
     schema: Option<serde_json::Value>,
     run: ChainRun<'_>,
-    mut on_attempt: impl FnMut(&CandidateAttempt),
-    mut accept: impl FnMut(&str) -> bool,
+    callbacks: CandidateCallbacks<impl FnMut(&CandidateAttempt), impl FnMut(&str) -> bool>,
 ) -> Result<String> {
+    let CandidateCallbacks {
+        mut on_attempt,
+        mut accept,
+    } = callbacks;
     let ChainRun {
         task,
         cancel_token,
         request_timeout,
         mut attempts,
     } = run;
-    let config = crate::load_config();
-    let gemini_key = key_for("google", &config).unwrap_or_default();
-    let groq_key = key_for("groq", &config).unwrap_or_default();
+    let (gemini_key, groq_key) = request_keys(config);
     let img = image::load_from_memory(jpeg)
         .map_err(|e| anyhow!("decode crop: {e}"))?
         .to_rgba8();
 
     let mut last_err = None;
-    for id in &chain_ids(&config, prefer, task) {
+    for id in &chain_ids(config, prefer, task) {
         if cancel_token
             .as_ref()
             .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
@@ -176,22 +197,16 @@ fn run_chain_where(
             break;
         }
         if let Some(remaining) = circuit::remaining(id) {
-            eprintln!(
+            cc_diagnostic!(
                 "[vision] {id} skipped: rate-limit cooldown {}s remaining",
                 remaining.as_secs().max(1)
             );
             last_err = Some(anyhow!("{id} is cooling down after a rate limit"));
             continue;
         }
-        let Some(mc) = get_model_by_id_with_custom(id, &config.custom_models) else {
+        let Some(mc) = usable_model(id, config) else {
             continue;
         };
-        if model_is_non_llm(&mc.id) {
-            continue;
-        }
-        if key_for(&mc.provider, &config).is_none() {
-            continue; // provider not usable headless / no key
-        }
         let req = TranslateImageRequest {
             groq_api_key: &groq_key,
             gemini_api_key: &gemini_key,
@@ -216,13 +231,13 @@ fn run_chain_where(
                     attempts.push(attempt);
                 }
                 if accepted {
-                    eprintln!("[vision] {} ({})", mc.id, mc.provider);
+                    cc_diagnostic!("[vision] {} ({})", mc.id, mc.provider);
                     return Ok(trimmed.to_string());
                 }
                 if trimmed.is_empty() {
                     last_err = Some(anyhow!("{} returned empty", mc.id));
                 } else {
-                    eprintln!("[vision] {} returned non-accepted output", mc.id);
+                    cc_diagnostic!("[vision] {} returned non-accepted output", mc.id);
                     last_err = Some(anyhow!("{} did not satisfy the caller contract", mc.id));
                 }
             }
@@ -232,10 +247,10 @@ fn run_chain_where(
                 if let Some(attempts) = attempts.as_deref_mut() {
                     attempts.push(attempt);
                 }
-                eprintln!("[vision] {} failed: {e}", mc.id);
+                cc_diagnostic!("[vision] {} failed: {e}", mc.id);
                 if circuit::is_rate_limit_error(&e.to_string()) {
                     circuit::cool_down(&mc.id);
-                    eprintln!("[vision] {} entered rate-limit cooldown", mc.id);
+                    cc_diagnostic!("[vision] {} entered rate-limit cooldown", mc.id);
                 }
                 last_err = Some(e);
             }
@@ -269,9 +284,10 @@ pub(super) fn read_image_pref_where(
     request_timeout: Duration,
     callbacks: CandidateCallbacks<impl FnMut(&CandidateAttempt), impl FnMut(&str) -> bool>,
 ) -> CandidateReport {
-    let CandidateCallbacks { on_attempt, accept } = callbacks;
     let mut attempts = Vec::new();
+    let config = super::app_config::snapshot();
     let answer = run_chain_where(
+        &config,
         jpeg,
         &format!("{}{question}", context_prefix(ctx)),
         prefer,
@@ -282,19 +298,29 @@ pub(super) fn read_image_pref_where(
             request_timeout: Some(request_timeout),
             attempts: Some(&mut attempts),
         },
-        on_attempt,
-        accept,
+        callbacks,
     );
     CandidateReport { answer, attempts }
 }
 
 /// Ask the vision stack for the click point of `description` (+ what's there).
-pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<Located> {
+pub(super) fn locate_point(
+    jpeg: &[u8],
+    description: &str,
+    ctx: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Located> {
     let request = point_request(description, ctx);
-    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
-        parse_named_grounding_records(response, &["target"]).is_some()
-            || grounding_reports_not_visible(response, &["target"])
-    })?;
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        request.response_schema,
+        cancel,
+        |response| {
+            parse_named_grounding_records(response, &["target"]).is_some()
+                || grounding_reports_not_visible(response, &["target"])
+        },
+    )?;
     let point = parse_named_grounding_records(&answer, &["target"])
         .and_then(|mut points| points.pop())
         .ok_or_else(|| anyhow!("target is not visible or grounding output was invalid"))?;
@@ -308,25 +334,39 @@ pub(super) fn locate_point(jpeg: &[u8], description: &str, ctx: &str) -> Result<
 /// Independently inspect a fresh crop whose red crosshair marks the proposed
 /// click point. A localization is authorization to click only when this check
 /// confirms that the crosshair itself lies inside the requested target.
-pub(super) fn verify_target(jpeg: &[u8], description: &str, ctx: &str) -> Result<Verification> {
+pub(super) fn verify_target(
+    jpeg: &[u8],
+    description: &str,
+    ctx: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Verification> {
     let request = verification_request(description, ctx);
-    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
-        parse_verification(response).is_some()
-    })?;
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        request.response_schema,
+        cancel,
+        |response| parse_verification(response).is_some(),
+    )?;
     parse_verification(&answer).ok_or_else(|| anyhow!("verification JSON invalid: {answer}"))
 }
 
 /// Ask the vision stack for the target's bounding BOX (Gemini `box_2d`) and
 /// return its CENTER. Box localization is a core Gemini spatial skill, but it
 /// mis-locates tiny adjacent cells — used only behind `CC_LOCATE_MODE=box`.
-pub(super) fn locate_box(jpeg: &[u8], description: &str, ctx: &str) -> Result<Located> {
+pub(super) fn locate_box(
+    jpeg: &[u8],
+    description: &str,
+    ctx: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Located> {
     let prompt = format!(
         "{}Find this target in the image: {description}. Output ONLY JSON {{\"box_2d\": [ymin, xmin, ymax, xmax]}} \
 - integer coordinates 0-1000 (y from top, x from left) for the target's TIGHT bounding box. If the target is not \
 visible, output {{\"error\": \"not visible\"}}.",
         context_prefix(ctx)
     );
-    let answer = run_grounding_chain(jpeg, &prompt, Some(box_schema()), |response| {
+    let answer = run_grounding_chain(jpeg, &prompt, Some(box_schema()), cancel, |response| {
         parse_box(response).is_some() || response_reports_not_visible(response)
     })?;
     parse_box(&answer)
@@ -341,11 +381,20 @@ visible, output {{\"error\": \"not visible\"}}.",
 
 /// Ask the vision stack to enumerate every relevant target in one strict,
 /// model-neutral record set.
-pub(super) fn locate_points(jpeg: &[u8], description: &str, ctx: &str) -> Result<Vec<Located>> {
+pub(super) fn locate_points(
+    jpeg: &[u8],
+    description: &str,
+    ctx: &str,
+    cancel: Arc<AtomicBool>,
+) -> Result<Vec<Located>> {
     let request = marks_request(description, ctx);
-    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
-        parse_open_grounding_records(response).is_some()
-    })?;
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        request.response_schema,
+        cancel,
+        |response| parse_open_grounding_records(response).is_some(),
+    )?;
     parse_open_grounding_records(&answer)
         .map(|points| {
             points
@@ -365,12 +414,19 @@ pub(super) fn locate_drag_points(
     from_description: &str,
     to_description: &str,
     ctx: &str,
+    cancel: Arc<AtomicBool>,
 ) -> Result<(Located, Located)> {
     let request = drag_request(from_description, to_description, ctx);
-    let answer = run_grounding_chain(jpeg, &request.prompt, request.response_schema, |response| {
-        parse_named_grounding_records(response, &["from", "to"]).is_some()
-            || grounding_reports_not_visible(response, &["from", "to"])
-    })?;
+    let answer = run_grounding_chain(
+        jpeg,
+        &request.prompt,
+        request.response_schema,
+        cancel,
+        |response| {
+            parse_named_grounding_records(response, &["from", "to"]).is_some()
+                || grounding_reports_not_visible(response, &["from", "to"])
+        },
+    )?;
     let points = parse_named_grounding_records(&answer, &["from", "to"])
         .ok_or_else(|| anyhow!("one or both drag endpoints are not visible"))?;
     let located = |id: &str| {

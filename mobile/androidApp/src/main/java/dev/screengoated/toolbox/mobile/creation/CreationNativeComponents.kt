@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.ui.UtilityStatusChip
 import dev.screengoated.toolbox.mobile.ui.i18n.CreationCommonLocale
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import kotlinx.coroutines.awaitCancellation
 
 @Composable
@@ -95,6 +96,7 @@ internal fun CreationHistoryStrip(
     accent: Color,
     onSelect: (String) -> Unit,
 ) {
+    val originalLabel = LocalContext.current.uiLocalized().getString(R.string.creation_retained_original)
     if (entries.isEmpty()) {
         Row(
             modifier = Modifier
@@ -149,12 +151,18 @@ internal fun CreationHistoryStrip(
                         maximumEdgePixels = 128,
                         modifier = Modifier.size(46.dp).clip(MaterialTheme.shapes.small),
                     )
-                    Text(
-                        entry.outputName,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column {
+                        Text(
+                            entry.outputName,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = if (isRetainedSvgOriginal(entry)) 1 else 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (isRetainedSvgOriginal(entry)) {
+                            Text(originalLabel, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
                 }
             }
         }

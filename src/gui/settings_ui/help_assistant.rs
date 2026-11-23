@@ -5,12 +5,12 @@
 
 mod index;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use index::{ChunkEntry, get_help_index};
 
-static HELP_INPUT_ACTIVE: AtomicBool = AtomicBool::new(false);
+use std::sync::{Arc, LazyLock, Mutex, Weak};
+
+static HELP_SHOW_LOCK: Mutex<()> = Mutex::new(());
+static HELP_INPUT_OWNER: LazyLock<Mutex<Weak<()>>> = LazyLock::new(|| Mutex::new(Weak::new()));
 
 const TOP_K: usize = 20;
 
@@ -19,7 +19,7 @@ const FALLBACK_MODEL: &str = crate::model_config::HELP_ASSISTANT_MODEL_CHAIN_IDS
 const MAX_OUTPUT_TOKENS: u32 = 4096;
 
 pub fn is_modal_open() -> bool {
-    HELP_INPUT_ACTIVE.load(Ordering::SeqCst)
+    crate::overlay::text_input::is_active() && HELP_INPUT_OWNER.lock().unwrap().upgrade().is_some()
 }
 
 /// Simple keyword/BM25-style search: score each chunk by how many query
@@ -87,10 +87,8 @@ fn ask_gemini(
         ));
     }
 
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model.full_name, gemini_api_key
-    );
+    // The key travels in a header so it never lands in proxy or URL logs.
+    let url = crate::api::gemini_generate::gemini_content_url(&model.full_name, false);
 
     let system_prompt = r#"You are the SGT (Screen Goated Toolbox) Windows app help assistant. The user is asking from the Windows version — assume questions are about the Windows app unless they explicitly mention Android. Answer in a helpful, concise and easy to understand way in the question's language, no made up information, only true information. Go straight to the point. Do not mention "Based on the source code". If the answer needs to mention UI elements, use correct i18n locale terms matching the question's language. Format your response in Markdown."#;
 
@@ -116,6 +114,7 @@ fn ask_gemini(
 
     let response = crate::api::client::UREQ_STREAM_AGENT
         .post(&url)
+        .header("x-goog-api-key", gemini_api_key)
         .header("Content-Type", "application/json")
         .send(&body.to_string())
         .map_err(|e| format!("API request failed: {}", e))?;
@@ -142,8 +141,11 @@ fn ask_gemini(
 }
 
 pub fn show_help_input() {
-    HELP_INPUT_ACTIVE.store(true, Ordering::SeqCst);
-
+    // `text_input::show` can pump messages during warmup, so a second help
+    // request on this thread must not wait for the first invocation.
+    let Ok(_show) = HELP_SHOW_LOCK.try_lock() else {
+        return;
+    };
     let (gemini_api_key, ui_language) = {
         let app = crate::APP.lock().unwrap();
         (
@@ -156,28 +158,25 @@ pub fn show_help_input() {
 }
 
 fn show_help_question_input(gemini_api_key: String, ui_language: String) {
-    let submitted = Arc::new(AtomicBool::new(false));
-    let submit_state = submitted.clone();
-
-    let placeholder = match ui_language.as_str() {
-        "vi" => "Hỏi gì về SGT? (VD: Làm sao để dịch vùng màn hình?)",
-        "ko" => "SGT에 대해 무엇을 물어볼까요?",
-        _ => "Ask anything about SGT (e.g., How do I translate a screen region?)",
-    };
+    let input_owner = Arc::new(());
+    *HELP_INPUT_OWNER.lock().unwrap() = Arc::downgrade(&input_owner);
+    let placeholder = crate::gui::locale::LocaleText::get(&ui_language)
+        .global_settings
+        .help_assistant_placeholder;
 
     crate::overlay::text_input::show(
         placeholder.to_string(),
         ui_language.clone(),
         String::new(),
         false,
-        move |question, _hwnd| {
+        move |question, _hwnd, _session| {
+            // The callback slot owns this marker. When another editor replaces
+            // the slot, it cannot inherit help's shell-paste exclusion.
+            let _input_owner = &input_owner;
             let question = question.trim().to_string();
             if question.is_empty() {
-                HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
                 return;
             }
-
-            submit_state.store(true, Ordering::SeqCst);
 
             let gemini_key = gemini_api_key.clone();
             let lang = ui_language.clone();
@@ -186,33 +185,27 @@ fn show_help_question_input(gemini_api_key: String, ui_language: String) {
             });
         },
     );
-
-    std::thread::spawn(move || {
-        while crate::overlay::text_input::is_active() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-
-        if !submitted.load(Ordering::SeqCst) {
-            HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
-        }
-    });
 }
 
 fn run_help_request(gemini_key: String, ui_language: String, question: String) {
-    let loading_msg = match ui_language.as_str() {
-        "vi" => "⏳ Đang tìm câu trả lời...",
-        "ko" => "⏳ 답변을 찾는 중...",
-        _ => "⏳ Finding the answer...",
-    };
+    let loading_msg = crate::gui::locale::LocaleText::get(&ui_language)
+        .global_settings
+        .help_assistant_finding_answer;
 
-    unsafe {
-        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+    if unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_err() {
+        return;
     }
+    struct ComGuard;
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            unsafe { CoUninitialize() };
+        }
+    }
+    let _com = ComGuard;
 
     use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetMessageW, MSG, SW_SHOW, SetForegroundWindow, ShowWindow,
-        TranslateMessage,
+        DestroyWindow, IsWindow, SW_SHOW, SetForegroundWindow, ShowWindow,
     };
 
     let center_rect = crate::overlay::display_placement::primary_work_area().centered(600, 400);
@@ -234,20 +227,42 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
             latency_trace_id: None,
         });
 
+    if result_hwnd.is_invalid() {
+        return;
+    }
+    let owner = crate::overlay::result::ChainCancelToken::new();
+    let registered = {
+        let mut states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get_mut(&(result_hwnd.0 as isize)) {
+            state.cancellation_token = Some(owner.clone());
+            true
+        } else {
+            false
+        }
+    };
+    if !registered {
+        unsafe {
+            let _ = DestroyWindow(result_hwnd);
+        }
+        return;
+    }
+
     unsafe {
         let _ = ShowWindow(result_hwnd, SW_SHOW);
         let _ = SetForegroundWindow(result_hwnd);
     }
 
-    let api_hwnd_val = result_hwnd.0 as isize;
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let request_owner = owner.clone();
     std::thread::spawn(move || {
-        let api_hwnd = windows::Win32::Foundation::HWND(api_hwnd_val as *mut std::ffi::c_void);
-
+        if request_owner.is_cancelled() {
+            return;
+        }
         // 1. Fetch + cache the help index
         let index = match get_help_index() {
             Ok(idx) => idx,
             Err(e) => {
-                crate::overlay::result::update_window_text(api_hwnd, &format!("## Error\n\n{}", e));
+                let _ = response_tx.send(format!("## Error\n\n{}", e));
                 return;
             }
         };
@@ -261,26 +276,78 @@ fn run_help_request(gemini_key: String, ui_language: String, question: String) {
             .join("\n\n");
 
         // 3. Ask Gemini — try primary model, fall back on error
-        let result = ask_gemini(&gemini_key, &question, &context, PRIMARY_MODEL)
-            .or_else(|_| ask_gemini(&gemini_key, &question, &context, FALLBACK_MODEL));
+        if request_owner.is_cancelled() {
+            return;
+        }
+        let result = ask_gemini(&gemini_key, &question, &context, PRIMARY_MODEL).or_else(|error| {
+            if request_owner.is_cancelled() {
+                Err(error)
+            } else {
+                ask_gemini(&gemini_key, &question, &context, FALLBACK_MODEL)
+            }
+        });
 
         let response = match result {
             Ok(answer) => format!("### {}\n\n{}", question, answer),
             Err(e) => format!("## Error\n\n{}", e),
         };
 
-        crate::overlay::result::update_window_text(api_hwnd, &response);
+        let _ = response_tx.send(response);
     });
 
+    pump_result_messages(result_hwnd, &owner, &response_rx, |response| {
+        if owns_result_window(result_hwnd, &owner) {
+            crate::overlay::result::update_window_text(result_hwnd, response);
+        }
+    });
     unsafe {
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        if IsWindow(Some(result_hwnd)).as_bool() && owns_result_window(result_hwnd, &owner) {
+            let _ = DestroyWindow(result_hwnd);
         }
     }
+}
 
-    HELP_INPUT_ACTIVE.store(false, Ordering::SeqCst);
+fn pump_result_messages(
+    hwnd: windows::Win32::Foundation::HWND,
+    owner: &crate::overlay::result::ChainCancelToken,
+    responses: &std::sync::mpsc::Receiver<String>,
+    mut deliver: impl FnMut(&str),
+) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, IsWindow, KillTimer, MSG, SetTimer, TranslateMessage,
+    };
+    // A thread timer still wakes GetMessage if a sent close destroys the
+    // window while GetMessage is waiting. A window timer would die with it.
+    let timer = unsafe { SetTimer(None, 0, 100, None) };
+    if timer == 0 {
+        return;
+    }
+    unsafe {
+        let mut msg = MSG::default();
+        while !owner.is_cancelled() && GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            if owner.is_cancelled() || !IsWindow(Some(hwnd)).as_bool() {
+                break;
+            }
+            if let Ok(response) = responses.try_recv() {
+                owner.run_if_active(|| deliver(&response));
+            }
+        }
+        let _ = KillTimer(None, timer);
+    }
+}
+
+fn owns_result_window(
+    hwnd: windows::Win32::Foundation::HWND,
+    owner: &std::sync::Arc<crate::overlay::result::ChainCancelToken>,
+) -> bool {
+    crate::overlay::result::state::WINDOW_STATES
+        .lock()
+        .unwrap()
+        .get(&(hwnd.0 as isize))
+        .and_then(|state| state.cancellation_token.as_ref())
+        .is_some_and(|current| std::sync::Arc::ptr_eq(current, owner))
 }
 
 #[cfg(test)]
@@ -288,9 +355,127 @@ mod tests {
     use super::*;
 
     #[test]
-    fn model_constants_are_set() {
-        assert_eq!(PRIMARY_MODEL, "google-gemini-3-5-flash-lite-vision");
-        assert_eq!(FALLBACK_MODEL, "google-gemini-3-5-flash-vision");
+    fn no_rest_url_carries_a_query_string_api_key() {
+        fn scan(dir: &std::path::Path, hits: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    scan(&path, hits);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    let source = std::fs::read_to_string(&path).unwrap_or_default();
+                    let marker = ["?key", "={}"].concat();
+                    if source.contains(&marker) {
+                        hits.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+        let mut hits = Vec::new();
+        scan(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut hits,
+        );
+        assert!(hits.is_empty(), "API keys belong in headers: {hits:?}");
+    }
+
+    #[test]
+    fn cancelled_result_thread_wakes_and_rejects_late_response() {
+        use std::time::Duration;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+        };
+        use windows::core::w;
+
+        let owner = crate::overlay::result::ChainCancelToken::new();
+        let thread_owner = owner.clone();
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        let (delivered_tx, delivered_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!(""),
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .expect("create message-only test window");
+            pump_result_messages(hwnd, &thread_owner, &response_rx, |response| {
+                delivered_tx.send(response.to_string()).unwrap();
+            });
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
+            finished_tx.send(()).unwrap();
+        });
+        response_tx.send("first".to_string()).unwrap();
+        assert_eq!(
+            delivered_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            "first"
+        );
+        owner.cancel();
+        let _ = response_tx.send("late".to_string());
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("message loop exits after cancellation");
+        thread.join().unwrap();
+        assert!(delivered_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn closing_result_window_ends_message_loop_without_response() {
+        use std::time::Duration;
+        use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, HWND_MESSAGE, PostMessageW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
+        };
+        use windows::core::w;
+
+        let (handle_tx, handle_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let (_response_tx, response_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!(""),
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .expect("create message-only test window");
+            handle_tx.send(hwnd.0 as isize).unwrap();
+            let owner = crate::overlay::result::ChainCancelToken::new();
+            pump_result_messages(hwnd, &owner, &response_rx, |_| {
+                panic!("no response expected")
+            });
+            finished_tx.send(()).unwrap();
+        });
+        let hwnd = HWND(handle_rx.recv_timeout(Duration::from_secs(5)).unwrap() as *mut _);
+        unsafe {
+            PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+        }
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("message loop exits after close");
+        thread.join().unwrap();
     }
 
     #[test]

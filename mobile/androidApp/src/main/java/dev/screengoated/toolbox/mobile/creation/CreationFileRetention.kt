@@ -35,6 +35,11 @@ internal fun creationDurableProtectedPaths(filesDir: File): Set<String> =
             File(filesDir, "creation/state/history-renames.json"),
             CREATION_RENAME_INDEX_MAX_BYTES,
             setOf("oldPath", "newPath"),
+        ) +
+        creationIndexProtectedPaths(
+            File(filesDir, "creation/state/svg-edits.json"),
+            4L * 1024 * 1024,
+            setOf("outputPath", "stagedPath", "targetPath", "pendingPath", "publishedPath"),
         )
 
 internal fun creationDurableStateIsReadable(filesDir: File): Boolean = listOf(
@@ -47,6 +52,8 @@ internal fun creationDurableStateIsReadable(filesDir: File): Boolean = listOf(
     File(filesDir, "creation/state/job-input-cleanup.json") to
         CREATION_JOB_INPUT_CLEANUP_INDEX_MAX_BYTES,
     File(filesDir, "creation/state/history-renames.json") to CREATION_RENAME_INDEX_MAX_BYTES,
+    File(filesDir, "creation/state/svg-edits.json") to 4L * 1024 * 1024,
+    creationSvgOriginalsIndex(filesDir) to CREATION_SVG_ORIGINALS_MAX_BYTES,
     File(filesDir, "creation/state/uri-grants.json") to CREATION_URI_GRANT_INDEX_MAX_BYTES,
 ).all { (file, maximumBytes) ->
     if (!file.exists()) {
@@ -57,7 +64,10 @@ internal fun creationDurableStateIsReadable(filesDir: File): Boolean = listOf(
                 runCatching { JSONTokener(text).nextValue() is JSONArray }.getOrDefault(false)
             } == true
     }
-}
+} && runCatching {
+    readCreationSvgEditReceipts(File(filesDir, "creation/state/svg-edits.json"))
+}.isSuccess
+    && runCatching { readRetainedSvgOriginals(creationSvgOriginalsIndex(filesDir)) }.isSuccess
 
 internal fun creationHistoryProtectedPaths(filesDir: File): Set<String> =
     creationIndexProtectedPaths(
@@ -70,6 +80,14 @@ internal fun creationJournalProtectedPaths(filesDir: File): Set<String> =
     creationIndexProtectedPaths(
         File(filesDir, "creation/state/accepted-jobs.json"),
         CREATION_JOURNAL_INDEX_MAX_BYTES,
+        null,
+    ) + creationIndexProtectedPaths(
+        File(filesDir, "creation/state/svg-edits.json"),
+        4L * 1024 * 1024,
+        null,
+    ) + creationIndexProtectedPaths(
+        creationSvgOriginalsIndex(filesDir),
+        CREATION_SVG_ORIGINALS_MAX_BYTES,
         null,
     )
 
@@ -111,6 +129,7 @@ internal fun writeCreationIndexTextAtomically(
     file: File,
     text: String,
     maximumBytes: Long,
+    requireAtomic: Boolean = false,
 ) {
     val bytes = text.encodeToByteArray()
     require(bytes.size.toLong() <= maximumBytes) { "Creation state is too large" }
@@ -139,12 +158,14 @@ internal fun writeCreationIndexTextAtomically(
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }.getOrElse {
+                if (requireAtomic) throw it
                 Files.move(
                     temporary.toPath(),
                     targetPath,
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }
+            if (requireAtomic) forceCreationDirectory(directory)
         } finally {
             temporary.delete()
         }

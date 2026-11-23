@@ -1,5 +1,6 @@
 import { buildTextSplitPreview } from '@/lib/textSplitPreview';
 import {
+  findDuplicateSlot,
   mergeTextSegmentsInRange,
   overlapsRange,
   type TrackSelectionRange,
@@ -79,14 +80,6 @@ export function getEditableSubtitleTrack(segment: VideoSegment | null | undefine
   const activeView = getActiveSubtitleView(segment);
   if (activeView.kind !== 'track') return null;
   return getActiveSubtitleTrack(segment);
-}
-
-export function getEditableSubtitleSegments(segment: VideoSegment | null | undefined): SubtitleSegment[] {
-  return getEditableSubtitleTrack(segment)?.segments ?? [];
-}
-
-export function isOriginalSubtitleTrackActive(segment: VideoSegment | null | undefined): boolean {
-  return getEditableSubtitleTrack(segment)?.id === ORIGINAL_SUBTITLE_TRACK_ID;
 }
 
 export function updateSubtitleTextsOnActiveTrack(
@@ -239,21 +232,13 @@ export function duplicateSubtitleAcrossTracks(
   const nextSegment = mapConcreteTracks(segment, (track) => {
     const source = track.segments.find((subtitle) => subtitle.id === subtitleId);
     if (!source) return track;
-    const length = source.endTime - source.startTime;
-    if (length <= 0) return track;
-    const next = track.segments
-      .filter((subtitle) => subtitle.startTime > source.endTime)
-      .sort((a, b) => a.startTime - b.startTime)[0];
-    const desiredStart = source.endTime;
-    const maxEnd = next ? next.startTime - 0.01 : safeDuration > 0 ? safeDuration : desiredStart + length;
-    const clampedEnd = Math.min(desiredStart + length, maxEnd);
-    if (clampedEnd - desiredStart < 0.05) return track;
+    const slot = findDuplicateSlot(track.segments, source, safeDuration > 0 ? safeDuration : Infinity);
+    if (!slot) return track;
     didDuplicate = true;
     const duplicate: SubtitleSegment = {
       ...cloneSubtitleSegment(source),
       id: newSubtitleId,
-      startTime: desiredStart,
-      endTime: clampedEnd,
+      ...slot,
     };
     return {
       ...track,

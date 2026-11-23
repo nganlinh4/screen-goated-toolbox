@@ -1,3 +1,6 @@
+//! Media Foundation helpers shared by the host build (as `mf_decode`) and the
+//! worker's full `mf_decode` module, so both builds keep one implementation.
+
 #[cfg(feature = "recorder-worker")]
 use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
@@ -21,7 +24,7 @@ pub fn mf_startup() -> Result<(), String> {
 }
 
 #[cfg(feature = "recorder-worker")]
-pub(super) fn make_i64_propvariant(value: i64) -> PROPVARIANT {
+pub(crate) fn make_i64_propvariant(value: i64) -> PROPVARIANT {
     PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: ManuallyDrop::new(PROPVARIANT_0_0 {

@@ -11,15 +11,14 @@ import dev.screengoated.toolbox.mobile.capture.ProjectionConsentInvalidException
 import dev.screengoated.toolbox.mobile.preset.AudioApiClient
 import dev.screengoated.toolbox.mobile.preset.AudioStreamingSession
 import dev.screengoated.toolbox.mobile.preset.AudioStreamingTranscriptResult
-import dev.screengoated.toolbox.mobile.preset.PresetAudioCodec
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
+import dev.screengoated.toolbox.mobile.preset.initialAudioBlocks
 import dev.screengoated.toolbox.mobile.preset.resolvePrompt
 import dev.screengoated.toolbox.mobile.service.SgtAccessibilityService
 import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
-import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
 import kotlinx.coroutines.CancellationException
@@ -30,6 +29,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -42,7 +43,6 @@ internal data class PresetAudioCaptureCompletion(
 private enum class PresetAudioRuntimeKind {
     STANDARD,
     GEMINI_LIVE_STREAMING,
-    PARAKEET_STREAMING,
 }
 
 internal class PresetAudioCaptureSession(
@@ -69,17 +69,19 @@ internal class PresetAudioCaptureSession(
     private var paused = false
     private var overlayReady = false
     private var onCancelledCallback: (() -> Unit)? = null
-    private val capturedSamples = StreamingAudioAttachment()
+    private var onFailureCallback: ((PresetAudioCaptureFailure) -> Unit)? = null
+    private var capturedSamples: StreamingAudioAttachment? = null
     private var hasSpoken = false
     private var firstSpeechAtMs: Long? = null
     private var lastActiveAtMs: Long = 0L
     private var processingRequested = false
-    private var runtimeKind = PresetAudioRuntimeKind.STANDARD
-    private var activeStreamingSession: AudioStreamingSession? = null
-    private val pendingStreamingChunks = ArrayDeque<ShortArray>()
+    @Volatile private var runtimeKind = PresetAudioRuntimeKind.STANDARD
+    @Volatile private var activeStreamingSession: AudioStreamingSession? = null
+    @Volatile private var pendingStreamingChunks = PendingStreamingAudio()
+    private val streamingMutex = Mutex()
     private val streamingPaste = StreamingPasteState()
     private var provisionalDelivery: ProvisionalPasteDelivery? = null
-    private var captureGeneration = 0L
+    @Volatile private var captureGeneration = 0L
 
     val isActive: Boolean
         get() = activePreset != null
@@ -92,9 +94,7 @@ internal class PresetAudioCaptureSession(
             return false
         }
         if (state == "processing") {
-            val onCancelled = onCancelledCallback
-            cancel()
-            onCancelled?.invoke()
+            cancelAudioCaptureAndNotify(onCancelledCallback, ::cancel)
         } else {
             stopAndSubmit()
         }
@@ -108,6 +108,7 @@ internal class PresetAudioCaptureSession(
         onFailure: (PresetAudioCaptureFailure) -> Unit,
     ) {
         destroy()
+        pendingStreamingChunks = PendingStreamingAudio()
         val sessionGeneration = captureGeneration
 
         val permissions = permissionSnapshotProvider()
@@ -115,13 +116,14 @@ internal class PresetAudioCaptureSession(
             onFailure(PresetAudioCaptureFailure(PresetAudioCaptureFailureReason.RECORD_PERMISSION_REQUIRED))
             return
         }
-        if (resolvedPreset.preset.audioSource == "device" && !permissions.mediaProjectionGranted) {
+        if (resolvedPreset.preset.audioSource == "device" && !projectionConsentStore.hasConsent()) {
             onFailure(PresetAudioCaptureFailure(PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED))
             return
         }
 
         activePreset = resolvedPreset
         onCancelledCallback = onCancelled
+        onFailureCallback = onFailure
         runtimeKind = resolveRuntimeKind(resolvedPreset)
         if (resolvedPreset.preset.autoPaste && runtimeKind != PresetAudioRuntimeKind.STANDARD) {
             val paste = ProvisionalPasteSession(
@@ -143,7 +145,14 @@ internal class PresetAudioCaptureSession(
         paused = false
         overlayReady = false
         processingRequested = false
-        capturedSamples.clear()
+        val capturedSamples = try {
+            StreamingAudioAttachment(context.cacheDir).also { this.capturedSamples = it }
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to create audio capture storage", error)
+            onFailure(PresetAudioCaptureFailure(PresetAudioCaptureFailureReason.CAPTURE_FAILED, error.message.orEmpty()))
+            destroy()
+            return
+        }
         pendingStreamingChunks.clear()
         hasSpoken = false
         firstSpeechAtMs = null
@@ -173,26 +182,33 @@ internal class PresetAudioCaptureSession(
                         if (captureGeneration != sessionGeneration || paused || processingRequested) {
                             return@collect
                         }
-                        if (capturedSamples.append(chunk, runtimeKind != PresetAudioRuntimeKind.STANDARD)) {
-                            Log.i(TAG, "audio attachment omitted after 600 seconds; transcription continues")
-                        }
-                        runCatching { appendStreamingChunk(chunk) }
-                            .onFailure { error ->
-                                Log.w(TAG, "Streaming session degraded to standard mode", error)
+                        when (capturedSamples.append(chunk, runtimeKind != PresetAudioRuntimeKind.STANDARD)) {
+                            AudioAttachmentAppend.OMITTED -> Log.i(TAG, "audio attachment omitted after 600 seconds; transcription continues")
+                            AudioAttachmentAppend.LIMIT_REACHED -> {
                                 withContext(Dispatchers.Main.immediate) {
-                                    if (captureGeneration != sessionGeneration) return@withContext
-                                    provisionalDelivery?.cancel()
-                                    streamingPaste.invalidate()
-                                    activeStreamingSession?.cancel()
-                                    activeStreamingSession = null
-                                    pendingStreamingChunks.clear()
-                                    runtimeKind = PresetAudioRuntimeKind.STANDARD
-                                    if (state == "initializing") {
-                                        state = "warmup"
-                                        updateOverlay(rms = 0f)
+                                    if (captureGeneration == sessionGeneration) {
+                                        toastBus.show(when (uiLanguage()) {
+                                            "vi" -> "Đã dừng ghi âm tại giới hạn 10 phút."
+                                            "ko" -> "10분 제한에 도달하여 녹음을 중지했습니다."
+                                            else -> "Recording stopped at the 10-minute limit."
+                                        })
+                                        stopAndSubmit()
                                     }
                                 }
+                                return@collect
                             }
+                            AudioAttachmentAppend.IGNORED -> return@collect
+                            else -> Unit
+                        }
+                        try {
+                            appendStreamingChunk(chunk, sessionGeneration)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            withContext(Dispatchers.Main.immediate) {
+                                if (captureGeneration == sessionGeneration) degradeStreaming(error)
+                            }
+                        }
                     }
                 }
             } catch (_: CancellationException) {
@@ -200,32 +216,26 @@ internal class PresetAudioCaptureSession(
             } catch (error: SecurityException) {
                 if (captureGeneration != sessionGeneration) return@launch
                 Log.e(TAG, "audio capture security failure: preset=${resolvedPreset.preset.id}", error)
-                onFailure(
-                    PresetAudioCaptureFailure(
-                        reason = PresetAudioCaptureFailureReason.CAPTURE_FAILED,
-                        detail = "${error::class.java.simpleName}:${error.message}",
-                    ),
-                )
+                onFailure(PresetAudioCaptureFailure(
+                    reason = PresetAudioCaptureFailureReason.CAPTURE_FAILED,
+                    detail = "${error::class.java.simpleName}:${error.message}",
+                ))
                 destroy()
             } catch (error: ProjectionConsentInvalidException) {
                 if (captureGeneration != sessionGeneration) return@launch
                 projectionConsentStore.clear()
-                onFailure(
-                    PresetAudioCaptureFailure(
-                        reason = PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED,
-                        detail = "${error::class.java.simpleName}:${error.message}",
-                    ),
-                )
+                onFailure(PresetAudioCaptureFailure(
+                    reason = PresetAudioCaptureFailureReason.PROJECTION_CONSENT_REQUIRED,
+                    detail = "${error::class.java.simpleName}:${error.message}",
+                ))
                 destroy()
             } catch (error: Throwable) {
                 if (captureGeneration != sessionGeneration) return@launch
                 Log.e(TAG, "audio capture fatal failure: preset=${resolvedPreset.preset.id}", error)
-                onFailure(
-                    PresetAudioCaptureFailure(
-                        reason = PresetAudioCaptureFailureReason.CAPTURE_FAILED,
-                        detail = "${error::class.java.simpleName}:${error.message}",
-                    ),
-                )
+                onFailure(PresetAudioCaptureFailure(
+                    reason = PresetAudioCaptureFailureReason.CAPTURE_FAILED,
+                    detail = "${error::class.java.simpleName}:${error.message}",
+                ))
                 destroy()
             }
         }
@@ -237,7 +247,7 @@ internal class PresetAudioCaptureSession(
             }
             try {
                 val wavBytes = withContext(Dispatchers.Default) {
-                    if (capturedSamples.omitted) byteArrayOf() else PresetAudioCodec.encodePcm16MonoWav(capturedSamples.toShortArray())
+                    capturedSamples.toWavBytes()
                 }
                 val streamingTranscript = finalizeStreamingOrFallback(
                     finalize = { finalizeStreamingTranscript() },
@@ -258,6 +268,13 @@ internal class PresetAudioCaptureSession(
                             isStreamingResult = streamingPaste.suppressFinalPaste || streamingTranscript?.producedRealtimePaste == true,
                         ),
                     )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (captureGeneration == sessionGeneration) {
+                    Log.e(TAG, "Unable to finish audio capture", error)
+                    onFailure(PresetAudioCaptureFailure(PresetAudioCaptureFailureReason.CAPTURE_FAILED, error.message.orEmpty()))
                 }
             } finally {
                 if (captureGeneration == sessionGeneration) destroy()
@@ -298,8 +315,7 @@ internal class PresetAudioCaptureSession(
     fun handleMessage(message: String) {
         when {
             message == "cancel" -> {
-                cancel()
-                onCancelledCallback?.invoke()
+                cancelAudioCaptureAndNotify(onCancelledCallback, ::cancel)
             }
 
             message == "pause_toggle" -> togglePause()
@@ -346,12 +362,14 @@ internal class PresetAudioCaptureSession(
         overlayWindow = null
         activePreset = null
         onCancelledCallback = null
+        onFailureCallback = null
         state = "idle"
         paused = false
         overlayReady = false
         processingRequested = false
         runtimeKind = PresetAudioRuntimeKind.STANDARD
-        capturedSamples.clear()
+        capturedSamples?.clear()
+        capturedSamples = null
     }
 
     private fun showOverlay() {
@@ -409,7 +427,7 @@ internal class PresetAudioCaptureSession(
         if (runtimeKind == PresetAudioRuntimeKind.STANDARD) {
             return
         }
-        val audioBlock = resolvedPreset.preset.blocks.firstOrNull { it.blockType == BlockType.AUDIO } ?: return
+        val audioBlock = resolvedPreset.preset.initialAudioBlocks().firstOrNull() ?: return
         val sessionGeneration = captureGeneration
         val delivery = provisionalDelivery
         streamingSetupJob = scope.launch {
@@ -425,16 +443,17 @@ internal class PresetAudioCaptureSession(
                             onInterim = { chunk -> delivery?.interim(chunk) },
                         )
                     },
-                    install = { session ->
-                        activeStreamingSession = session
+                    install = { session -> streamingMutex.withLock {
+                        check(captureGeneration == sessionGeneration && runtimeKind != PresetAudioRuntimeKind.STANDARD)
+                        activeStreamingSession = requireNotNull(session) { "Streaming session unavailable" }
                         flushPendingStreamingChunks(session)
-                    },
+                    } },
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 apiKeyErrorToastText(error.message ?: error.toString(), uiLanguage())?.let(toastBus::show)
-                activeStreamingSession = null
+                if (captureGeneration == sessionGeneration) degradeStreaming(error)
             } finally {
                 if (captureGeneration == sessionGeneration && state == "initializing" && !processingRequested) {
                     state = if (paused) "paused" else "warmup"
@@ -444,23 +463,42 @@ internal class PresetAudioCaptureSession(
         }
     }
 
-    private suspend fun appendStreamingChunk(chunk: ShortArray) {
+    private fun degradeStreaming(error: Throwable) {
+        Log.w(TAG, "Streaming transcription failed", error)
+        if (capturedSamples?.fallBackToFinite() != true) {
+            onFailureCallback?.invoke(PresetAudioCaptureFailure(PresetAudioCaptureFailureReason.CAPTURE_FAILED, error.message))
+            destroy()
+            return
+        }
+        provisionalDelivery?.cancel()
+        streamingPaste.invalidate()
+        runtimeKind = PresetAudioRuntimeKind.STANDARD
+        streamingSetupJob?.cancel()
+        streamingSetupJob = null
+        activeStreamingSession?.cancel()
+        activeStreamingSession = null
+        pendingStreamingChunks.clear()
+        if (state == "initializing" && !processingRequested) {
+            state = if (paused) "paused" else "warmup"
+            updateOverlay(rms = 0f)
+        }
+    }
+
+    private suspend fun appendStreamingChunk(chunk: ShortArray, generation: Long) = streamingMutex.withLock {
+        val pending = pendingStreamingChunks
         val session = activeStreamingSession
+        if (captureGeneration != generation) return@withLock
         if (session != null) {
             session.appendPcm16Chunk(chunk)
             if (state == "initializing") {
                 state = "warmup"
             }
-            return
+            return@withLock
         }
         if (runtimeKind == PresetAudioRuntimeKind.STANDARD || streamingSetupJob == null) {
-            return
+            return@withLock
         }
-        pendingStreamingChunks += chunk.copyOf()
-        while (pendingStreamingChunks.sumOf { it.size } > 16_000 * 60) {
-            val dropped = pendingStreamingChunks.removeFirst().size
-            Log.w(TAG, "pending capture overflow droppedSamples=$dropped")
-        }
+        pending.append(chunk)
     }
 
     private suspend fun finalizeStreamingTranscript(): AudioStreamingTranscriptResult? {
@@ -480,9 +518,7 @@ internal class PresetAudioCaptureSession(
 
     private suspend fun flushPendingStreamingChunks(session: AudioStreamingSession?) {
         val streamingSession = session ?: return
-        while (pendingStreamingChunks.isNotEmpty()) {
-            streamingSession.appendPcm16Chunk(pendingStreamingChunks.removeFirst())
-        }
+        while (true) streamingSession.appendPcm16Chunk(pendingStreamingChunks.removeFirstOrNull() ?: break)
     }
 
     private fun handleRms(rms: Float, resolvedPreset: ResolvedPreset) {
@@ -524,7 +560,7 @@ internal class PresetAudioCaptureSession(
     }
 
     private fun resolveRuntimeKind(resolvedPreset: ResolvedPreset): PresetAudioRuntimeKind {
-        val modelId = resolvedPreset.preset.blocks.firstOrNull { it.blockType == BlockType.AUDIO }?.model.orEmpty()
+        val modelId = resolvedPreset.preset.initialAudioBlocks().firstOrNull()?.model.orEmpty()
         return when (PresetModelCatalog.getById(modelId)?.provider) {
             PresetModelProvider.GEMINI_LIVE -> PresetAudioRuntimeKind.GEMINI_LIVE_STREAMING
             else -> PresetAudioRuntimeKind.STANDARD

@@ -3,8 +3,14 @@ use std::sync::atomic::Ordering;
 use crate::APP;
 use crate::overlay::window_selector::{self, SelectorOwner};
 
-use super::app_selection::show_audio_app_selector_overlay;
+use super::app_selection::show_audio_app_selector_for_session;
 use super::state::*;
+use super::target_change::{retry_untranslated_tail, update_target_revisions};
+
+mod renderer_publication;
+mod tts_toggle;
+use renderer_publication::publish_if_renderer_engine_current;
+pub(super) use tts_toggle::set_tts_enabled;
 
 #[derive(Clone, Debug)]
 pub struct RealtimeSessionConfig {
@@ -51,27 +57,27 @@ pub fn normalize_transcription_language(language: &str) -> String {
 }
 
 pub fn reset_runtime_for_new_session() {
+    REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
+    stop_read_playback();
+    let _publication = REALTIME_SESSION_PUBLICATION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    crate::api::tts::TTS_MANAGER.invalidate_realtime_epoch();
     REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
     begin_stop_signal_session();
-    unsafe {
-        IS_ACTIVE = true;
-    }
+    IS_ACTIVE.store(true, Ordering::SeqCst);
     REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
     MIC_VISIBLE.store(true, Ordering::SeqCst);
     TRANS_VISIBLE.store(true, Ordering::SeqCst);
     AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
+    CLOSE_TTS_MODAL_REQUEST.store(false, Ordering::SeqCst);
     LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
     TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
     TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
-    LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
-    REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
-    REALTIME_S2S_AUDIO_BACKLOG.store(0, Ordering::SeqCst);
+    reset_read_cursor();
     SELECTED_APP_PID.store(0, Ordering::SeqCst);
     if let Ok(mut name) = SELECTED_APP_NAME.lock() {
         name.clear();
-    }
-    if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-        queue.clear();
     }
     if let Ok(mut state) = REALTIME_STATE.lock() {
         *state = crate::api::realtime_audio::RealtimeState::new();
@@ -102,71 +108,222 @@ pub fn set_custom_vocabulary(lines: &str) {
     persist_overlay_control(move |config| config.realtime_custom_vocabulary = vocabulary);
 }
 
-pub fn set_audio_source(source: &str) {
+pub fn set_audio_source(source: &str, session_id: u64, generation: u64) {
+    let _transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let source = normalize_audio_source(source);
-    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-        *new_source = source.clone();
-    }
+    let (engine, stop, tts_epoch) = {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let stop = current_stop_signal();
+        if REALTIME_SESSION_ID.load(Ordering::SeqCst) != session_id
+            || stop.load(Ordering::SeqCst)
+            || !super::supervisor::is_current_generation(generation)
+        {
+            return;
+        }
+        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+            *new_source = source.clone();
+        }
+        persist_overlay_config({
+            let source = source.clone();
+            move |config| config.realtime_audio_source = source
+        });
+        TRANSLATION_OPTIONS_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_ENGINE_REVISION.fetch_add(1, Ordering::SeqCst);
+        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+        (
+            TRANSCRIPTION_ENGINE_REVISION.load(Ordering::SeqCst),
+            stop,
+            crate::api::tts::TTS_MANAGER.realtime_epoch(),
+        )
+    };
+    super::download::notify();
+    let retired = retire_read_playback_if_epoch(tts_epoch).unwrap_or_default();
+    drop(_transition);
+    notify_read_retired(retired);
+    request_overlay_repaint();
 
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(
         &load_session_config().transcription_model,
     );
     if source == "mic" {
-        clear_selected_app();
+        publish_if_renderer_engine_current(
+            session_id,
+            &stop,
+            engine,
+            generation,
+            clear_selected_app,
+        );
     } else if is_s2s || REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
-        show_audio_app_selector_overlay();
+        show_audio_app_selector_for_session(session_id, engine, stop, Some(generation));
     } else {
-        clear_selected_app();
+        publish_if_renderer_engine_current(
+            session_id,
+            &stop,
+            engine,
+            generation,
+            clear_selected_app,
+        );
     }
-
-    persist_overlay_control(move |config| config.realtime_audio_source = source);
-    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
 }
 
 pub fn set_target_language(language: &str) {
-    if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
-        *new_lang = language.to_string();
+    let _transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
+            *new_lang = language.to_string();
+        }
+        let language = language.to_string();
+        let mut direct_speech = false;
+        persist_overlay_config(|config| {
+            config.realtime_target_language = language;
+            direct_speech = crate::model_config::is_gemini_live_s2s_model_id(
+                &config.realtime_transcription_model,
+            );
+        });
+        if let Ok(mut state) = REALTIME_STATE.lock() {
+            state.translation_history.clear();
+            retry_untranslated_tail(&mut state);
+        }
+        update_target_revisions(
+            direct_speech,
+            &TRANSLATION_OPTIONS_REVISION,
+            &TRANSCRIPTION_ENGINE_REVISION,
+            &LANGUAGE_CHANGE,
+        );
     }
-    let language = language.to_string();
-    persist_overlay_control(move |config| config.realtime_target_language = language);
-    LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
+    super::download::notify();
+    let retired = retire_read_playback();
+    drop(_transition);
+    notify_read_retired(retired);
+    request_overlay_repaint();
+}
+
+/// Commit selector state only while its original session and engine still own it.
+pub(crate) fn publish_audio_selection(
+    session: u64,
+    engine: u64,
+    valid: impl FnOnce() -> bool,
+    effect: impl FnOnce(),
+) -> bool {
+    let transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let tts_epoch = {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if REALTIME_SESSION_ID.load(Ordering::SeqCst) != session
+            || TRANSCRIPTION_ENGINE_REVISION.load(Ordering::SeqCst) != engine
+            || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst)
+            || current_stop_signal().load(Ordering::SeqCst)
+            || !valid()
+        {
+            return false;
+        }
+        effect();
+        TRANSLATION_OPTIONS_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_ENGINE_REVISION.fetch_add(1, Ordering::SeqCst);
+        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+        crate::api::tts::TTS_MANAGER.realtime_epoch()
+    };
+    super::download::notify();
+    let retired = retire_read_playback_if_epoch(tts_epoch).unwrap_or_default();
+    drop(transition);
+    notify_read_retired(retired);
+    true
 }
 
 pub fn set_translation_model(model: &str) {
-    if crate::model_config::is_gemini_live_s2s_model_id(&load_session_config().transcription_model)
     {
-        return;
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if crate::model_config::is_gemini_live_s2s_model_id(
+            &load_session_config().transcription_model,
+        ) {
+            return;
+        }
+        if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
+            *new_model = model.to_string();
+        }
+        let model = model.to_string();
+        persist_overlay_config(move |config| config.realtime_translation_model = model);
+        if let Ok(mut state) = REALTIME_STATE.lock() {
+            retry_untranslated_tail(&mut state);
+        }
+        TRANSLATION_OPTIONS_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
     }
-    if let Ok(mut new_model) = NEW_TRANSLATION_MODEL.lock() {
-        *new_model = model.to_string();
-    }
-    let model = model.to_string();
-    persist_overlay_control(move |config| config.realtime_translation_model = model);
-    TRANSLATION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+    request_overlay_repaint();
 }
 
-pub fn set_transcription_model(model: &str) {
+pub fn set_transcription_model(model: &str, session_id: u64, generation: u64) {
+    let _transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let model = crate::model_config::normalize_realtime_transcription_model_id(model);
     let is_s2s = crate::model_config::is_gemini_live_s2s_model_id(&model);
-    let read_enabled = reconcile_read_model(&model);
-    if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
-        *new_model = model.clone();
-    }
-    persist_overlay_control({
-        let model = model.clone();
-        move |config| config.realtime_transcription_model = model
+    let (read_enabled, engine, stop, tts_epoch) = {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let stop = current_stop_signal();
+        if REALTIME_SESSION_ID.load(Ordering::SeqCst) != session_id
+            || stop.load(Ordering::SeqCst)
+            || !super::supervisor::is_current_generation(generation)
+        {
+            return;
+        }
+        let enabled = reconcile_read_model(&model);
+        if let Ok(mut new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
+            *new_model = model.clone();
+        }
+        persist_overlay_config({
+            let model = model.clone();
+            move |config| config.realtime_transcription_model = model
+        });
+        TRANSLATION_OPTIONS_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_ENGINE_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+        (
+            enabled,
+            TRANSCRIPTION_ENGINE_REVISION.load(Ordering::SeqCst),
+            stop,
+            crate::api::tts::TTS_MANAGER.realtime_epoch(),
+        )
+    };
+    super::download::notify();
+    let retired = retire_read_playback_if_epoch(tts_epoch).unwrap_or_default();
+    drop(_transition);
+    notify_read_retired(retired);
+    request_overlay_repaint();
+    publish_if_renderer_engine_current(session_id, &stop, engine, generation, || {
+        super::parent::update_tts(read_enabled, CURRENT_TTS_SPEED.load(Ordering::Relaxed));
     });
-    TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
-    super::parent::update_tts(read_enabled, CURRENT_TTS_SPEED.load(Ordering::Relaxed));
     if load_session_config().audio_source != "device" {
         return;
     }
 
     if is_s2s {
-        show_audio_app_selector_overlay();
+        show_audio_app_selector_for_session(session_id, engine, stop, Some(generation));
     } else if REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
-        clear_selected_app();
-        show_audio_app_selector_overlay();
+        publish_if_renderer_engine_current(
+            session_id,
+            &stop,
+            engine,
+            generation,
+            clear_selected_app,
+        );
+        show_audio_app_selector_for_session(session_id, engine, stop, Some(generation));
     }
 }
 
@@ -186,57 +343,28 @@ fn reconcile_read_enabled(enabled: &std::sync::atomic::AtomicBool, forced: bool)
 }
 
 pub fn set_transcription_language(language: &str) {
-    let language = normalize_transcription_language(language);
-    persist_overlay_control(move |config| config.realtime_transcription_language = language);
-    TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+    let _transition = TRANSCRIPTION_TRANSITION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let language = normalize_transcription_language(language);
+        persist_overlay_config(move |config| config.realtime_transcription_language = language);
+        TRANSLATION_OPTIONS_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_ENGINE_REVISION.fetch_add(1, Ordering::SeqCst);
+        TRANSCRIPTION_MODEL_CHANGE.store(true, Ordering::SeqCst);
+    }
+    super::download::notify();
+    let retired = retire_read_playback();
+    drop(_transition);
+    notify_read_retired(retired);
+    request_overlay_repaint();
 }
 
 pub fn set_font_size(font_size: u32) {
     persist_overlay_control(move |config| config.realtime_font_size = font_size);
-}
-
-pub fn set_tts_enabled(requested_enabled: bool) {
-    crate::log_info!(
-        "[RealtimeRead] user_requested enabled={}",
-        requested_enabled
-    );
-    if crate::model_config::is_gemini_live_s2s_model_id(&load_session_config().transcription_model)
-    {
-        REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
-        return;
-    }
-
-    if !requested_enabled {
-        disable_tts(true);
-        return;
-    }
-
-    let source = load_session_config().audio_source;
-    if source == "device" {
-        REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
-        show_audio_app_selector_overlay();
-    } else {
-        REALTIME_TTS_ENABLED.store(true, Ordering::SeqCst);
-    }
-}
-
-pub fn disable_tts(close_selector: bool) {
-    REALTIME_TTS_ENABLED.store(false, Ordering::SeqCst);
-    crate::api::tts::TTS_MANAGER.stop();
-    if close_selector {
-        window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
-    }
-    LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
-    if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-        queue.clear();
-    }
-    clear_selected_app();
-    if load_session_config().audio_source == "device" {
-        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-            *new_source = "device".to_string();
-        }
-        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-    }
 }
 
 pub fn set_tts_speed(speed: u32) {
@@ -252,8 +380,90 @@ pub fn set_tts_volume(volume: u32) {
     CURRENT_TTS_VOLUME.store(volume.min(100), Ordering::Relaxed);
 }
 
-pub fn process_committed_translation_for_tts(committed: &str, hwnd_val: isize) {
-    if committed.is_empty() || !REALTIME_TTS_ENABLED.load(Ordering::SeqCst) {
+#[derive(Default)]
+struct ReadCursor {
+    text: String,
+    revision: Option<u64>,
+}
+
+impl ReadCursor {
+    fn update(&mut self, committed: &str, revision: u64) -> (bool, Option<String>) {
+        let replaced =
+            self.revision.is_some_and(|old| old != revision) || !committed.starts_with(&self.text);
+        if replaced {
+            self.text.clear();
+        }
+        let mut start = self.text.len();
+        if start == 0
+            && committed.chars().count() > 50
+            && let Some(end) = previous_sentence_end(committed)
+        {
+            start = end;
+        }
+        let segment = &committed[start..];
+        self.text = committed.to_owned();
+        self.revision = Some(revision);
+        (
+            replaced,
+            (!segment.trim().is_empty()).then(|| segment.to_owned()),
+        )
+    }
+}
+
+static READ_CURSOR: std::sync::Mutex<ReadCursor> = std::sync::Mutex::new(ReadCursor {
+    text: String::new(),
+    revision: None,
+});
+
+pub(crate) fn reset_read_cursor() {
+    if let Ok(mut cursor) = READ_CURSOR.lock() {
+        *cursor = ReadCursor::default();
+    }
+}
+
+pub(crate) fn stop_read_playback() {
+    let retired = retire_read_playback();
+    notify_read_retired(retired);
+}
+
+pub(crate) fn retire_read_playback() -> Vec<(isize, u64)> {
+    let _cursor = READ_CURSOR
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    crate::api::tts::TTS_MANAGER.retire_realtime()
+}
+
+pub(crate) fn retire_read_playback_if_epoch(epoch: u64) -> Option<Vec<(isize, u64)>> {
+    let _cursor = READ_CURSOR
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    crate::api::tts::TTS_MANAGER.retire_realtime_if_epoch(epoch)
+}
+
+pub(crate) fn notify_read_retired(retired: Vec<(isize, u64)>) {
+    crate::api::tts::TTS_MANAGER.notify_retired_playback(retired);
+}
+
+pub(crate) fn set_translation_visibility(visible: bool) {
+    let _cursor = READ_CURSOR
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    TRANS_VISIBLE.store(visible, Ordering::SeqCst);
+    let retired = if !visible {
+        crate::api::tts::TTS_MANAGER.retire_realtime()
+    } else {
+        Vec::new()
+    };
+    drop(_cursor);
+    notify_read_retired(retired);
+}
+
+pub fn process_committed_translation_for_tts(committed: &str, revision: u64, hwnd_val: isize) {
+    if !REALTIME_TTS_ENABLED.load(Ordering::SeqCst)
+        || !TRANS_VISIBLE.load(Ordering::SeqCst)
+        || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst)
+        || current_stop_signal().load(Ordering::SeqCst)
+    {
         return;
     }
 
@@ -267,46 +477,66 @@ pub fn process_committed_translation_for_tts(committed: &str, hwnd_val: isize) {
         return;
     }
 
-    let old_len = committed.len();
-    if LAST_SPOKEN_LENGTH.load(Ordering::SeqCst) == 0 && old_len > 50 {
-        let text = committed.trim_end();
-        let search_limit = text.len().saturating_sub(1);
-        if search_limit > 0
-            && let Some(idx) = text[..search_limit].rfind(['.', '?', '!', '\n'])
-        {
-            LAST_SPOKEN_LENGTH.store(idx + 1, Ordering::SeqCst);
-        }
-    }
-
-    let last_spoken = LAST_SPOKEN_LENGTH.load(Ordering::SeqCst);
-    if old_len <= last_spoken {
+    let Ok(mut cursor) = READ_CURSOR.lock() else {
+        return;
+    };
+    if !REALTIME_TTS_ENABLED.load(Ordering::SeqCst)
+        || !TRANS_VISIBLE.load(Ordering::SeqCst)
+        || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst)
+        || current_stop_signal().load(Ordering::SeqCst)
+    {
         return;
     }
-
-    let safe_last_spoken = clamp_to_char_boundary(committed, last_spoken);
-    let new_committed = committed[safe_last_spoken..].to_string();
-    if !new_committed.trim().is_empty() {
-        if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
-            queue.push_back(new_committed.clone());
-        }
-        std::thread::spawn(move || {
-            crate::api::tts::TTS_MANAGER.speak_realtime(&new_committed, hwnd_val);
-        });
+    let (replaced, new_committed) = cursor.update(committed, revision);
+    let retired = if replaced {
+        crate::api::tts::TTS_MANAGER.retire_realtime()
+    } else {
+        Vec::new()
+    };
+    if let Some(new_committed) = new_committed {
+        let epoch = crate::api::tts::TTS_MANAGER.realtime_epoch();
+        crate::api::tts::TTS_MANAGER.speak_realtime(&new_committed, hwnd_val, epoch);
     }
-    LAST_SPOKEN_LENGTH.store(old_len, Ordering::SeqCst);
+    drop(cursor);
+    notify_read_retired(retired);
 }
 
-pub fn cancel_download() {
-    crate::api::realtime_audio::cancel_download_and_revert_to_gemini();
+pub(super) fn cancel_download_from_renderer(session: u64, generation: u64) {
+    let accepted = crate::api::realtime_audio::cancel_download_and_revert_to_gemini(|| {
+        crate::api::realtime_audio::renderer_cancel_is_current(
+            session,
+            generation,
+            REALTIME_SESSION_ID.load(Ordering::SeqCst),
+            super::supervisor::current_generation(),
+            REALTIME_SESSION_STOPPING.load(Ordering::SeqCst),
+        )
+    });
+    if accepted {
+        super::wndproc::post_model_and_download_refresh();
+    }
+}
+
+pub(super) fn cancel_download_for_stop() {
+    crate::api::realtime_audio::cancel_download_and_revert_to_gemini(|| true);
 }
 
 pub fn stop_runtime_flags() {
-    if !REALTIME_SESSION_STOPPING.swap(true, Ordering::SeqCst) {
-        REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    let selector = {
+        let _publication = REALTIME_SESSION_PUBLICATION
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let selector =
+            super::app_selection::owner_id_for_session(REALTIME_SESSION_ID.load(Ordering::SeqCst));
+        if !REALTIME_SESSION_STOPPING.swap(true, Ordering::SeqCst) {
+            REALTIME_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+        }
+        set_current_stop_signal_locked(true);
+        selector
+    };
+    stop_read_playback();
+    if let Some(token) = selector {
+        window_selector::close_selector_for_token(SelectorOwner::RealtimeAppSelection, token);
     }
-    set_current_stop_signal(true);
-    crate::api::tts::TTS_MANAGER.stop();
-    window_selector::close_selector_for_owner(SelectorOwner::RealtimeAppSelection);
 }
 
 fn clear_selected_app() {
@@ -317,10 +547,18 @@ fn clear_selected_app() {
 }
 
 fn persist_overlay_control(update: impl FnOnce(&mut crate::config::Config)) {
+    persist_overlay_config(update);
+    request_overlay_repaint();
+}
+
+fn persist_overlay_config(update: impl FnOnce(&mut crate::config::Config)) {
     if let Ok(mut app) = APP.lock() {
         update(&mut app.config);
         crate::config::save_config(&app.config);
     }
+}
+
+fn request_overlay_repaint() {
     if let Ok(context) = crate::gui::GUI_CONTEXT.lock()
         && let Some(context) = context.as_ref()
     {
@@ -328,39 +566,15 @@ fn persist_overlay_control(update: impl FnOnce(&mut crate::config::Config)) {
     }
 }
 
-fn clamp_to_char_boundary(text: &str, index: usize) -> usize {
-    let mut clamped = index.min(text.len());
-    while clamped > 0 && !text.is_char_boundary(clamped) {
-        clamped -= 1;
-    }
-    clamped
+fn previous_sentence_end(text: &str) -> Option<usize> {
+    text.trim_end()
+        .char_indices()
+        .rev()
+        .skip(1)
+        .find(|(_, ch)| matches!(ch, '.' | '?' | '!' | '\n'))
+        .map(|(index, ch)| index + ch.len_utf8())
 }
 
 #[cfg(test)]
-mod read_state_tests {
-    use super::*;
-
-    #[test]
-    fn direct_speech_read_state_survives_transcription_and_render_refreshes() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/parity-fixtures/live-translate/read-state.json"
-        )))
-        .unwrap();
-        for case in fixture["cases"].as_array().unwrap() {
-            let state =
-                std::sync::atomic::AtomicBool::new(case["initialEnabled"].as_bool().unwrap());
-            for event in case["events"].as_array().unwrap() {
-                if let Some(direct) = event["directSpeech"].as_bool() {
-                    reconcile_read_enabled(&state, direct);
-                }
-                assert_eq!(
-                    state.load(Ordering::SeqCst),
-                    event["expectedEnabled"].as_bool().unwrap(),
-                    "{}",
-                    case["name"]
-                );
-            }
-        }
-    }
-}
+#[path = "controller_tests.rs"]
+mod read_state_tests;

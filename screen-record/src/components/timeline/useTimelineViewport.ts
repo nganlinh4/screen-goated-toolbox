@@ -27,6 +27,7 @@ import {
   MIN_TIMELINE_ZOOM,
   type TimelineWheelAnchor,
 } from "./timelineViewportMath";
+import { isTimelinePointerDragActive } from "./timelinePointerDrag";
 
 interface UseTimelineViewportOptions {
   duration: number;
@@ -86,9 +87,11 @@ export function useTimelineViewport({
   const isInteractingRef = useRef(isInteracting);
   const disableVideoSyncRef = useRef(disableVideoSync);
   const zoomRef = useRef(zoom);
+  const committedZoomRef = useRef(zoom);
+  const wheelRevisionRef = useRef(0);
   const showScrollbarRef = useRef(showScrollbarState);
   const followSuppressedUntilRef = useRef(0);
-  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTargetRef = useRef<number | null>(null);
   const followActiveRef = useRef(false);
   const followSpringRef = useRef(
     new SpringSolver(0, {
@@ -105,7 +108,6 @@ export function useTimelineViewport({
   isPlayingRef.current = isPlaying;
   isInteractingRef.current = isInteracting;
   disableVideoSyncRef.current = disableVideoSync;
-  zoomRef.current = zoom;
 
   const setShowScrollbar = useCallback((nextValue: boolean) => {
     if (showScrollbarRef.current === nextValue) return;
@@ -237,8 +239,8 @@ export function useTimelineViewport({
         return;
       }
 
-      programmaticScrollRef.current = true;
       viewport.scrollLeft = clampedScrollLeft;
+      programmaticScrollTargetRef.current = viewport.scrollLeft;
       syncScrollbarThumb();
 
       if (releaseProgrammaticScrollRef.current !== null) {
@@ -246,7 +248,7 @@ export function useTimelineViewport({
       }
 
       releaseProgrammaticScrollRef.current = requestAnimationFrame(() => {
-        programmaticScrollRef.current = false;
+        programmaticScrollTargetRef.current = null;
         releaseProgrammaticScrollRef.current = null;
       });
     },
@@ -262,6 +264,26 @@ export function useTimelineViewport({
       followSpringRef.current.set(viewport.scrollLeft);
     }
   }, []);
+
+  const rebasePendingWheelAnchor = useTimelineWheelZoom({
+    viewportRef,
+    timelineRef,
+    durationRef,
+    segmentRef,
+    isInteractingRef,
+    zoomRef,
+    committedZoomRef,
+    wheelRevisionRef,
+    pendingWheelAnchorRef,
+    programmaticScrollTargetRef,
+    releaseProgrammaticScrollRef,
+    followSpringRef,
+    setVisibleTimeRange,
+    setZoom,
+    scheduleScrollbarThumbSync,
+    scheduleVisibleRangeSync,
+    suppressFollow,
+  });
 
   const scrollFromTrackClientX = useCallback(
     (clientX: number) => {
@@ -292,27 +314,11 @@ export function useTimelineViewport({
         maxThumbTravel > 0 ? (thumbLeft / maxThumbTravel) * maxScroll : 0;
 
       setProgrammaticScrollLeft(nextScrollLeft);
+      rebasePendingWheelAnchor();
       followSpringRef.current.set(nextScrollLeft);
     },
-    [setProgrammaticScrollLeft, timelineRef],
+    [rebasePendingWheelAnchor, setProgrammaticScrollLeft, timelineRef],
   );
-
-  useTimelineWheelZoom({
-    viewportRef,
-    timelineRef,
-    durationRef,
-    segmentRef,
-    isInteractingRef,
-    zoomRef,
-    pendingWheelAnchorRef,
-    programmaticScrollRef,
-    releaseProgrammaticScrollRef,
-    followSpringRef,
-    setVisibleTimeRange,
-    setZoom,
-    scheduleScrollbarThumbSync,
-    suppressFollow,
-  });
 
   const {
     handleScrollbarTrackPointerDown,
@@ -327,6 +333,7 @@ export function useTimelineViewport({
     setProgrammaticScrollLeft,
     scrollFromTrackClientX,
     suppressFollow,
+    onUserScroll: rebasePendingWheelAnchor,
   });
 
   frameHandlerRef.current = (now: number) => {
@@ -369,7 +376,7 @@ export function useTimelineViewport({
 
     const followSuppressed =
       performance.now() < followSuppressedUntilRef.current;
-    const shouldAllowFollow = !followSuppressed && !isInteractingRef.current;
+    const shouldAllowFollow = !followSuppressed && !isInteractingRef.current && !isTimelinePointerDragActive();
     const shouldWatchPlayback =
       isPlayingRef.current && activeZoom > MIN_TIMELINE_ZOOM;
 
@@ -458,22 +465,38 @@ export function useTimelineViewport({
     if (!viewport) return;
 
     const handleScroll = () => {
-      if (!programmaticScrollRef.current) {
+      const target = programmaticScrollTargetRef.current;
+      const isProgrammatic = target !== null && Math.abs(viewport.scrollLeft - target) < 0.5;
+      if (!isProgrammatic) {
         suppressFollow();
+        rebasePendingWheelAnchor();
       }
       scheduleScrollbarThumbSync();
-      if (pendingWheelAnchorRef.current === null) {
+      if (!isProgrammatic || pendingWheelAnchorRef.current === null) {
         scheduleVisibleRangeSync();
       }
     };
 
     viewport.addEventListener("scroll", handleScroll, { passive: true });
     return () => viewport.removeEventListener("scroll", handleScroll);
-  }, [scheduleScrollbarThumbSync, scheduleVisibleRangeSync, suppressFollow]);
+  }, [rebasePendingWheelAnchor, scheduleScrollbarThumbSync, scheduleVisibleRangeSync, suppressFollow]);
 
   useLayoutEffect(() => {
+    committedZoomRef.current = zoom;
     const viewport = viewportRef.current;
     if (!viewport) return;
+
+    const pendingAnchor = pendingWheelAnchorRef.current;
+    // A prior transition may commit while a newer wheel gesture is in flight.
+    // Keep the newer imperative width and anchor until its own commit.
+    if (pendingAnchor && pendingAnchor.zoom !== zoom) {
+      const canvas = timelineRef.current?.parentElement;
+      if (canvas instanceof HTMLElement) {
+        canvas.style.width = `${Math.max(pendingAnchor.zoom, MIN_TIMELINE_ZOOM) * 100}%`;
+      }
+      syncScrollbarThumb();
+      return;
+    }
 
     if (zoom <= MIN_TIMELINE_ZOOM) {
       pendingWheelAnchorRef.current = null;
@@ -485,7 +508,6 @@ export function useTimelineViewport({
       return;
     }
 
-    const pendingAnchor = pendingWheelAnchorRef.current;
     if (!pendingAnchor || duration <= 0) {
       syncScrollbarThumb();
       scheduleVisibleRangeSync();
@@ -511,11 +533,14 @@ export function useTimelineViewport({
 
   useEffect(() => {
     if (!segment || duration <= 0) {
+      wheelRevisionRef.current += 1;
       pendingWheelAnchorRef.current = null;
       followActiveRef.current = false;
       followSpringRef.current.set(0);
+      zoomRef.current = MIN_TIMELINE_ZOOM;
+      const canvas = timelineRef.current?.parentElement;
+      if (canvas instanceof HTMLElement) canvas.style.width = "100%";
       if (zoom !== MIN_TIMELINE_ZOOM) {
-        zoomRef.current = MIN_TIMELINE_ZOOM;
         setZoom(MIN_TIMELINE_ZOOM);
       } else {
         setProgrammaticScrollLeft(0);
@@ -523,7 +548,7 @@ export function useTimelineViewport({
       syncScrollbarThumb();
       scheduleVisibleRangeSync();
     }
-  }, [duration, scheduleVisibleRangeSync, segment, setProgrammaticScrollLeft, syncScrollbarThumb, zoom]);
+  }, [duration, scheduleVisibleRangeSync, segment, setProgrammaticScrollLeft, syncScrollbarThumb, timelineRef, zoom]);
 
   // Schedule follow-frame on playback state changes.
   // NOTE: syncScrollbarThumb() is NOT called here — it forces layout

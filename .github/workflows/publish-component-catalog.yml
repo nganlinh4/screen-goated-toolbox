@@ -56,29 +56,9 @@ jobs:
             gh release upload sgt-runtime-bundles "$asset" --repo "$GITHUB_REPOSITORY"
           done < missing-assets.txt
 
-      - name: Verify published byte identities
+      - name: Read back the published catalog and signature bytes
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          package="component-catalog-output/sgt-component-catalog.packages.json"
-          catalog_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["catalog"]["asset"])' "$package")"
-          signature_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["signature"]["asset"])' "$package")"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/sgt-runtime-bundles" > release.json
-          python - "$package" release.json "$catalog_name" "$signature_name" <<'PY'
-          import json, sys
-          package = json.load(open(sys.argv[1]))
-          release = json.load(open(sys.argv[2]))
-          assets = {asset["name"]: asset for asset in release["assets"]}
-          for key, name in (("catalog", sys.argv[3]), ("signature", sys.argv[4])):
-              expected = package[key]
-              actual = assets.get(name)
-              if not actual:
-                  raise SystemExit(f"published asset is missing: {name}")
-              if actual["size"] != expected["sizeBytes"]:
-                  raise SystemExit(f"published size mismatch: {name}")
-              if actual.get("digest") != "sha256:" + expected["sha256"]:
-                  raise SystemExit(f"published digest mismatch: {name}")
-          print("Published catalog and signature identities verified.")
-          PY
+        run: >-
+          python scripts/verify_update_catalog_sources.py
+          --published-package component-catalog-output/sgt-component-catalog.packages.json

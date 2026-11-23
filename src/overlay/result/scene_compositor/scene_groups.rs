@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, IsWindow, SM_CXVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-};
+use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+
+#[path = "scene_group_lifecycle.rs"]
+mod lifecycle;
+pub(crate) use lifecycle::register_retirement_wake;
+use lifecycle::remove_group;
 
 static NEXT_SCENE_ID: AtomicIsize = AtomicIsize::new(-1);
 static GROUPS: LazyLock<Mutex<HashMap<isize, SourceGroupState>>> =
@@ -75,6 +78,7 @@ struct SourceGroupState {
     opacity: u8,
     controls_visible: bool,
     source_image: Option<std::sync::Arc<image::RgbaImage>>,
+    retirement_wake: Option<std::sync::Arc<crate::overlay::wake_event::WakeEvent>>,
 }
 
 pub fn prewarm_source_group(
@@ -125,6 +129,7 @@ pub fn prewarm_source_group(
             opacity,
             controls_visible: false,
             source_image,
+            retirement_wake: None,
         },
     );
     let mut scene_cards = source_group_cards(root_id);
@@ -401,17 +406,12 @@ pub fn raise_group(id: isize) -> bool {
 
 pub fn resize_card(id: isize, rect: SceneRect) -> Option<SceneGeometry> {
     let root_id = CARD_GROUPS.lock().unwrap().get(&id).copied()?;
-    let (scene_x, virtual_y) = scene_origin();
     {
         let mut groups = GROUPS.lock().unwrap();
         let group = groups.get_mut(&root_id)?;
         let card = group.cards.get_mut(&id)?;
-        let left = scene_x
-            .saturating_add(rect.x)
-            .saturating_sub(group.offset.0);
-        let top = virtual_y
-            .saturating_add(rect.y)
-            .saturating_sub(group.offset.1);
+        let left = rect.x.saturating_sub(group.offset.0);
+        let top = rect.y.saturating_sub(group.offset.1);
         card.spec.target_rect = RECT {
             left,
             top,
@@ -429,32 +429,6 @@ pub fn resize_card(id: isize, rect: SceneRect) -> Option<SceneGeometry> {
         control_rect: rect,
         visible: card.visible,
     })
-}
-
-fn remove_group(root_id: isize) {
-    super::source_image::cancel(root_id);
-    let Some(group) = GROUPS.lock().unwrap().remove(&root_id) else {
-        return;
-    };
-    let mut ids = group.card_order;
-    ids.push(root_id);
-    crate::overlay::result::latency::unbind_logical_scene_ids(ids.iter().copied());
-    {
-        let mut roots = CARD_GROUPS.lock().unwrap();
-        for id in &ids {
-            roots.remove(id);
-        }
-    }
-    let removed = {
-        let mut scenes = SCENES.lock().unwrap();
-        ids.into_iter()
-            .filter(|id| scenes.remove(id).is_some())
-            .collect::<Vec<_>>()
-    };
-    for id in removed {
-        crate::log_trace!("[ResultCard] id={id} host=remove");
-        send_command(HostCommand::Remove { id });
-    }
 }
 
 fn source_group_cards(root_id: isize) -> Vec<SceneCard> {
@@ -476,7 +450,7 @@ fn source_group_cards(root_id: isize) -> Vec<SceneCard> {
 
 fn source_card(id: isize, state: &SourceCardState, offset: (i32, i32), opacity: u8) -> SceneCard {
     let text = state.segments.join("\n");
-    let rendered = render_for_compositor(&text, false, "", "");
+    let rendered = render_for_compositor(&text);
     let mut rect = scene_rect(state.spec.target_rect);
     rect.x = rect.x.saturating_add(offset.0);
     rect.y = rect.y.saturating_add(offset.1);
@@ -534,12 +508,7 @@ fn controller_card(root_id: isize, visible: bool) -> Option<SceneCard> {
         .get(&root_id)
         .and_then(|state| state.control_options.as_ref())
         .and_then(|options| options.anchor_rect)
-        .map(|anchor| SceneRect {
-            x: anchor[0],
-            y: anchor[1],
-            width: anchor[2].max(1),
-            height: anchor[3].max(1),
-        })
+        .map(|anchor| controller_anchor(anchor, offset))
         .unwrap_or_else(|| rect.clone());
     Some(SceneCard {
         id: root_id,
@@ -568,25 +537,22 @@ fn controller_card(root_id: isize, visible: bool) -> Option<SceneCard> {
     })
 }
 
-fn scene_rect(rect: RECT) -> SceneRect {
-    let (scene_x, virtual_y) = scene_origin();
+fn controller_anchor(anchor: [i32; 4], offset: (i32, i32)) -> SceneRect {
     SceneRect {
-        x: rect.left.saturating_sub(scene_x),
-        y: rect.top.saturating_sub(virtual_y),
-        width: rect.right.saturating_sub(rect.left).max(1),
-        height: rect.bottom.saturating_sub(rect.top).max(1),
+        x: anchor[0].saturating_add(offset.0),
+        y: anchor[1].saturating_add(offset.1),
+        width: anchor[2].max(1),
+        height: anchor[3].max(1),
     }
 }
 
-fn scene_origin() -> (i32, i32) {
-    let virtual_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    (
-        super::compositor_host_x(
-            virtual_x,
-            unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(1),
-        ),
-        unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) },
-    )
+fn scene_rect(rect: RECT) -> SceneRect {
+    SceneRect {
+        x: rect.left,
+        y: rect.top,
+        width: rect.right.saturating_sub(rect.left).max(1),
+        height: rect.bottom.saturating_sub(rect.top).max(1),
+    }
 }
 
 #[cfg(test)]

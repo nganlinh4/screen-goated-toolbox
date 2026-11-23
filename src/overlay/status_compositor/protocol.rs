@@ -34,6 +34,7 @@ impl StatusSnapshot {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RecordingScene {
+    pub session_id: String,
     pub rect: PhysicalRect,
     pub visible: bool,
     pub state: String,
@@ -130,9 +131,15 @@ pub enum HostCommand {
 pub enum ChildEvent {
     Ready,
     Heartbeat,
-    RecordingReady,
-    RecordingPauseToggle,
-    RecordingCancel,
+    RecordingReady {
+        session_id: String,
+    },
+    RecordingPauseToggle {
+        session_id: String,
+    },
+    RecordingCancel {
+        session_id: String,
+    },
     RecordingMoved {
         rect: PhysicalRect,
     },
@@ -157,27 +164,7 @@ pub enum ChildEvent {
     },
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RendererFailureKind {
-    BrowserProcessExited,
-    RenderProcessExited,
-    RenderProcessUnresponsive,
-    FrameRenderProcessExited,
-    GpuProcessExited,
-}
-
-impl RendererFailureKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::BrowserProcessExited => "browser process exited",
-            Self::RenderProcessExited => "render process exited",
-            Self::RenderProcessUnresponsive => "render process unresponsive",
-            Self::FrameRenderProcessExited => "frame render process exited",
-            Self::GpuProcessExited => "GPU process exited",
-        }
-    }
-}
+pub use crate::overlay::compositor_renderer::RendererFailureKind;
 
 #[cfg(test)]
 mod tests {

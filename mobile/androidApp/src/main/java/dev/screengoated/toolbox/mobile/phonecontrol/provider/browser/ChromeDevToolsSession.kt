@@ -37,7 +37,7 @@ internal class ChromeDevToolsSession private constructor(
     private val socket: WebSocket,
     private val opened: CompletableDeferred<Unit>,
     private val pending: ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>,
-    private val events: EventBuffer,
+    private val events: CdpEventBuffer,
     private val closed: AtomicBoolean,
 ) : Closeable {
     private val nextId = AtomicInteger(1)
@@ -153,7 +153,7 @@ internal class ChromeDevToolsSession private constructor(
         ): BrowserTransportResult<ChromeDevToolsSession> {
             val opened = CompletableDeferred<Unit>()
             val pending = ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>()
-            val events = EventBuffer()
+            val events = CdpEventBuffer()
             val closed = AtomicBoolean(false)
             val listener = object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -226,7 +226,7 @@ internal class ChromeDevToolsSession private constructor(
         private fun receive(
             raw: String,
             pending: ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>,
-            events: EventBuffer,
+            events: CdpEventBuffer,
         ) {
             val message = runCatching { JSON.parseToJsonElement(raw).jsonObject }.getOrNull()
                 ?: return
@@ -267,7 +267,7 @@ internal class ChromeDevToolsSession private constructor(
 
 private class CdpDisconnectedException : RuntimeException("DevTools target disconnected")
 
-private class EventBuffer {
+internal class CdpEventBuffer {
     private val lock = Any()
     private val network = ArrayDeque<JsonObject>()
     private val console = ArrayDeque<JsonObject>()
@@ -276,8 +276,8 @@ private class EventBuffer {
         synchronized(lock) {
             when {
                 method.startsWith("Network.") -> network.addBounded(message)
-                method.startsWith("Runtime.") || method.startsWith("Log.") ->
-                    console.addBounded(message)
+                // Only page console output: Runtime lifecycle chatter must not evict it.
+                method in CONSOLE_EVENT_METHODS -> console.addBounded(message)
             }
         }
     }
@@ -299,6 +299,7 @@ private class EventBuffer {
     }
 
     private companion object {
+        val CONSOLE_EVENT_METHODS = setOf(CDP_CONSOLE_API_CALLED, CDP_LOG_ENTRY_ADDED)
         const val MAX_BUFFERED_EVENTS = 200
         const val MAX_RETURNED_EVENTS = 100
     }

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"committed","write_success":true,"retired":false,"expected_save_writes":1,"expected_count":1,"expected_media":1,"expected_error":false},
+    {"name":"rejected","write_success":false,"retired":false,"expected_save_writes":1,"expected_count":0,"expected_media":0,"expected_error":true},
+    {"name":"retired_before_admission","write_success":true,"retired":true,"expected_save_writes":0,"expected_count":0,"expected_media":0,"expected_error":false}
+  ]
+}

@@ -15,8 +15,15 @@ internal data class CreationCancellationFence(
     val createdAtMs: Long,
 )
 
-internal class CreationCancellationStore(context: Context) {
-    private val target = File(context.filesDir, "creation/state/cancellations.json")
+internal class CreationCancellationStore(
+    directory: File,
+    private val writeRequired: (File, String, Long) -> Unit = { file, text, maximum ->
+        writeCreationIndexTextAtomically(file, text, maximum)
+    },
+) {
+    constructor(context: Context) : this(File(context.filesDir, "creation/state"))
+
+    private val target = File(directory, "cancellations.json")
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     fun record(requests: Collection<CreationWorkerRequest>) {
@@ -112,7 +119,7 @@ internal class CreationCancellationStore(context: Context) {
     }
 
     private fun write(records: List<CreationCancellationFence>) {
-        writeCreationIndexTextAtomically(
+        writeRequired(
             target,
             json.encodeToString(records),
             CREATION_CANCELLATION_INDEX_MAX_BYTES,
@@ -154,7 +161,7 @@ internal fun CreationFileStore.retireCancelledCreationRequest(
     } else {
         true
     }
-    return releaseJobInputs(request.imagePaths) && outputRetired
+    return releaseJobInputs(listOf(request.imagePath)) && outputRetired
 }
 
 internal const val CREATION_CANCELLATION_INDEX_MAX_BYTES = 4L * 1024 * 1024

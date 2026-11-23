@@ -1,21 +1,14 @@
 package dev.screengoated.toolbox.mobile.service
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.PhoneControlAccessibilityProvider
 
 internal fun distributionAccessibilityServiceConnected(service: SgtAccessibilityService) {
-    service.serviceInfo = service.serviceInfo.apply {
-        eventTypes = AccessibilityEvent.TYPES_ALL_MASK
-        notificationTimeout = 50
-        flags = flags or
-            AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            flags = flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
-        }
+    phoneControlAccessibilityDemand.attach(service) { phoneControlActive ->
+        service.applyAccessibilityEventProfile(accessibilityEventProfile(phoneControlActive, Build.VERSION.SDK_INT))
+        // Events were filtered while narrow, so no earlier capture can be trusted.
+        if (phoneControlActive) PhoneControlAccessibilityProvider.invalidate("event_profile_widened")
     }
     PhoneControlAccessibilityProvider.attach(service)
 }
@@ -28,5 +21,14 @@ internal fun distributionAccessibilityEvent(
 }
 
 internal fun distributionAccessibilityServiceDestroyed(service: SgtAccessibilityService) {
+    phoneControlAccessibilityDemand.detach(service)
     PhoneControlAccessibilityProvider.detach(service)
+}
+
+private fun SgtAccessibilityService.applyAccessibilityEventProfile(profile: AccessibilityEventProfile) {
+    val info = serviceInfo ?: return
+    info.eventTypes = profile.eventTypes
+    info.notificationTimeout = profile.notificationTimeoutMs
+    info.flags = profile.flags
+    serviceInfo = info
 }

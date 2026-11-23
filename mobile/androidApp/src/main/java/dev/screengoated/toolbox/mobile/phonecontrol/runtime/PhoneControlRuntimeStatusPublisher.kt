@@ -34,19 +34,9 @@ internal class PhoneControlRuntimeStatusPublisher(
     fun updateOrbPresentation(
         stateLabel: String,
         iconOverride: String?,
-        preserveCurrentIconOnNull: Boolean = false,
     ) {
         updateSnapshot { current ->
-            val nextIcon = if (
-                preserveCurrentIconOnNull &&
-                iconOverride == null &&
-                current.orbStateLabel == stateLabel
-            ) {
-                current.orbIconOverride
-            } else {
-                iconOverride
-            }
-            current.copy(orbStateLabel = stateLabel, orbIconOverride = nextIcon)
+            current.copy(orbStateLabel = stateLabel, orbIconOverride = iconOverride)
         }
     }
 

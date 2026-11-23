@@ -19,51 +19,40 @@ ureq = { version = "3.2", default-features = false, features = ["json", "native-
 tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 sha2 = "0.10"
-sha1 = "0.10"
 url = "2.5"
-psl2 = "0.1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_path_to_error = "0.1"
 anyhow = "1.0"
 base64 = "0.22"
 semver = "1.0.28"
-zip = { version = "8.2", default-features = false, features = ["deflate-flate2"] }
-flate2 = "1.1"
+zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 byteorder = "1.5"
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 dirs = "6.0"
 getrandom = "0.4"
-open = "5.3"
 sys-locale = "0.3"
 winreg = "0.56"
-auto-launch = "0.6"
 urlencoding = "2.1"
 isolang = { package = "sgt-language-catalog", path = "../language_catalog" }
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
-eframe = { version = "0.36", default-features = false, features = ["wgpu_no_default_features"] }
-egui-snarl = { path = "../../libs/egui-snarl", features = ["serde"] }
-tray-icon = "0.24.1"
 cpal = "0.18"
 hound = "3.5"
 wasapi = "0.23"
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm", "isomp4", "aiff", "vorbis", "adpcm", "mkv"] }
 symphonia-adapter-libopus = "0.3"
-pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 wry = "0.56"
 raw-window-handle = "0.6"
 windows-core = "0.62"
 webview2-com = "0.39"
-sgt-local-asr-protocol = { path = "../local_asr_protocol" }
 sgt-recorder-protocol = { path = "../recorder_protocol" }
-ringbuf = "0.5"
+ringbuf = "0.5.2"
 windows-capture = "1.5.0"
 tiny_http = "0.12"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
-libloading = "0.8"
 resvg = { version = "0.48", default-features = false }
 tiny-skia = "0.12"
 wgpu = { version = "30", default-features = false, features = ["std", "dx12", "wgsl"] }
@@ -74,6 +63,7 @@ bytemuck = { version = "1.25", features = ["derive"] }
 version = "0.62"
 features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Controls",
     "Win32_Graphics_Gdi",
@@ -82,6 +72,8 @@ features = [
     "Win32_Graphics_Dwm",
     "Win32_UI_HiDpi",
     "Win32_System_Threading",
+    "Win32_System_Pipes",
+    "Win32_System_Environment",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
@@ -95,6 +87,7 @@ features = [
     "Win32_System_Kernel",
     "Win32_System_JobObjects",
     "Win32_System_Memory",
+    "Win32_System_Performance",
     "Win32_System_Ole",
     "Win32_Storage_FileSystem",
     "Win32_Media",
@@ -136,8 +129,6 @@ panic = "abort"
 debug = "line-tables-only"
 
 [patch.crates-io]
-egui-wgpu = { path = "../../third_party/egui-wgpu" }
-egui-scale = { path = "../../libs/egui-scale" }
 windows-capture = { path = "../../third_party/windows-capture" }
 wgpu-hal = { path = "../../third_party/wgpu-hal" }
 wry = { path = "../../third_party/wry" }

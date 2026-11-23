@@ -30,7 +30,11 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     override fun onCreate() {
         super.onCreate()
 
-        val container = (application as SgtMobileApplication).appContainer
+        val container = (application as SgtMobileApplication).appContainerOrNull
+        if (container == null) {
+            stopForUnavailableSecureStore()
+            return
+        }
         repository = container.repository
         projectionConsentStore = container.projectionConsentStore
         notifications = ServiceNotificationFactory(this)
@@ -68,6 +72,10 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (!::runtime.isInitialized) {
+            stopForUnavailableSecureStore(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> stopSession()
             else -> startSession()
@@ -76,7 +84,10 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
     }
 
     override fun onDestroy() {
-        runtime.stop()
+        if (::runtime.isInitialized) {
+            runtime.stop()
+            runtime.dispose()
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -87,22 +98,37 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
         }
         repository.ensureSafePlayDefaults()
         repository.refreshPermissions()
+        val notification = notifications.build(notifications.snapshot(repository.state.value))
         if (!repository.canStartSession()) {
+            // Missing permissions: settle the accepted start without a microphone type,
+            // which API 34+ rejects without RECORD_AUDIO.
             repository.markAwaitingPermissions()
-            startMicrophoneForeground(notifications.build(notifications.snapshot(repository.state.value)))
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            settleWithoutSession(notification)
             return
         }
 
-        val notification = notifications.build(notifications.snapshot(repository.state.value))
         try {
             startSessionForeground(notification, repository.state.value.config.sourceMode)
         } catch (_: SecurityException) {
             projectionConsentStore.clear()
-            startMicrophoneForeground(notification)
+            try {
+                startMicrophoneForeground(notification)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Microphone foreground fallback was refused", error)
+                settleWithoutSession(notification)
+                return
+            }
         }
         runtime.start(serviceScope)
+    }
+
+    private fun settleWithoutSession(notification: android.app.Notification) {
+        settleUnavailableForeground(
+            promote = { startPermissionFreeForeground(ServiceNotificationFactory.NOTIFICATION_ID, notification) },
+            remove = { stopForeground(STOP_FOREGROUND_REMOVE) },
+            stop = { stopSelf() },
+            failure = { error -> Log.w(TAG, "Unable to settle the foreground start", error) },
+        )
     }
 
     private fun stopSession() {
@@ -122,7 +148,12 @@ class LiveTranslateService : androidx.lifecycle.LifecycleService() {
             startSessionForeground(notification, sourceMode)
         } catch (_: SecurityException) {
             projectionConsentStore.clear()
-            startMicrophoneForeground(notification)
+            try {
+                startMicrophoneForeground(notification)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Microphone foreground fallback was refused", error)
+                stopSession()
+            }
         }
     }
 

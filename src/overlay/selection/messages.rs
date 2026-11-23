@@ -1,11 +1,10 @@
 // --- SELECTION MESSAGES ---
 // Window procedure and keyboard hook for selection overlay.
 
-use super::magnification::load_magnification_api;
 use super::render::{extract_crop_from_hbitmap, sync_layered_window_contents};
 use super::state::*;
 use crate::APP;
-use crate::win_types::SendHbitmap;
+use crate::overlay::magnifier;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -30,7 +29,9 @@ pub unsafe extern "system" fn selection_hook_proc(
                     }
                     return LRESULT(1);
                 }
-                if kbd.vkCode == TRIGGER_VK_CODE && !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                if kbd.vkCode == TRIGGER_VK_CODE.load(Ordering::SeqCst)
+                    && !IS_HOTKEY_HELD.load(Ordering::SeqCst)
+                {
                     crate::overlay::continuous_mode::deactivate();
                     SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                     let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
@@ -40,7 +41,7 @@ pub unsafe extern "system" fn selection_hook_proc(
                     return LRESULT(1);
                 }
             } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
-                && kbd.vkCode == TRIGGER_VK_CODE
+                && kbd.vkCode == TRIGGER_VK_CODE.load(Ordering::SeqCst)
             {
                 IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }
@@ -135,13 +136,11 @@ pub unsafe extern "system" fn selection_wnd_proc(
                         RENDER_CENTER_Y = ZOOM_CENTER_Y;
                     }
 
-                    if !MAG_INITIALIZED
-                        && ZOOM_LEVEL > 1.0
-                        && load_magnification_api()
-                        && let Some(init_fn) = MAG_INITIALIZE
-                        && init_fn().as_bool()
+                    if ZOOM_LEVEL > 1.0
+                        && !MAG_LEASE_HELD.load(Ordering::SeqCst)
+                        && magnifier::acquire()
                     {
-                        MAG_INITIALIZED = true;
+                        MAG_LEASE_HELD.store(true, Ordering::SeqCst);
                     }
 
                     let _ = SetTimer(Some(hwnd), ZOOM_TIMER_ID, 16, None);
@@ -168,10 +167,7 @@ pub unsafe extern "system" fn selection_wnd_proc(
                             handle_color_picker(hwnd);
                         }
                         IS_FADING_OUT = true;
-                        if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM
-                        {
-                            let _ = transform_fn(1.0, 0, 0);
-                        }
+                        reset_zoom();
                         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
                         return LRESULT(0);
                     }
@@ -205,9 +201,7 @@ pub unsafe extern "system" fn selection_wnd_proc(
             WM_CLOSE => {
                 if !IS_FADING_OUT {
                     IS_FADING_OUT = true;
-                    if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                        let _ = transform_fn(1.0, 0, 0);
-                    }
+                    reset_zoom();
                     let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);
                     let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
                     SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
@@ -216,24 +210,13 @@ pub unsafe extern "system" fn selection_wnd_proc(
             }
             WM_DESTROY => {
                 // Reset magnification before closing
-                if MAG_INITIALIZED {
-                    if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                        let _ = transform_fn(1.0, 0, 0);
-                    }
-                    if let Some(uninit_fn) = MAG_UNINITIALIZE {
-                        let _ = uninit_fn();
-                    }
-                    MAG_INITIALIZED = false;
+                if MAG_LEASE_HELD.swap(false, Ordering::SeqCst) {
+                    magnifier::set_fullscreen_transform(1.0, 0, 0);
+                    magnifier::release();
                 }
 
                 // Cleanup cached back buffer resources
-                if !std::ptr::addr_of!(CACHED_BITMAP).read().is_invalid() {
-                    let _ = DeleteObject(CACHED_BITMAP.0.into());
-                    CACHED_BITMAP = SendHbitmap::default();
-                    CACHED_BITS = std::ptr::null_mut();
-                }
-                CACHED_W = 0;
-                CACHED_H = 0;
+                crate::overlay::cached_dib::with(&CACHED_DIB, |dib| dib.release());
 
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
@@ -296,13 +279,11 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
     unsafe {
         if super::draw_region::commit(rect) {
             IS_FADING_OUT = true;
-            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                let _ = transform_fn(1.0, 0, 0);
-            }
+            reset_zoom();
             let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
             return Some(LRESULT(0));
         }
-        let target = capture_target();
+        let (target, destination) = capture_request();
 
         // For MASTER presets, show the preset wheel first
         let final_target = if target.is_master() {
@@ -328,8 +309,9 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
 
         // CHECK FOR CONTINUOUS MODE ACTIVATION
         let is_held = {
-            if TRIGGER_VK_CODE != 0 {
-                (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0
+            let trigger = TRIGGER_VK_CODE.load(Ordering::SeqCst);
+            if trigger != 0 {
+                (GetAsyncKeyState(trigger as i32) as u16 & 0x8000) != 0
             } else {
                 false
             }
@@ -361,7 +343,7 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
                 .expect("Screenshot handle missing");
             extract_crop_from_hbitmap(capture, rect)
         };
-        final_target.process(cropped_img, rect);
+        final_target.process(cropped_img, rect, destination);
 
         if crate::overlay::image_continuous_mode::is_active() {
             IS_FADING_OUT = true;
@@ -379,9 +361,7 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
         }
 
         IS_FADING_OUT = true;
-        if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-            let _ = transform_fn(1.0, 0, 0);
-        }
+        reset_zoom();
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
 
         Some(LRESULT(0))
@@ -431,7 +411,7 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
 
         // Apply Transform if Changed or Dragging
         if changed || IS_RIGHT_DRAGGING {
-            if MAG_INITIALIZED && let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+            if MAG_LEASE_HELD.load(Ordering::SeqCst) {
                 if RENDER_ZOOM > 1.01 {
                     let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
                     let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -451,9 +431,9 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
                         .max(screen_y as f32)
                         .min((screen_y + screen_h) as f32 - view_h);
 
-                    let _ = transform_fn(RENDER_ZOOM, off_x as i32, off_y as i32);
+                    magnifier::set_fullscreen_transform(RENDER_ZOOM, off_x as i32, off_y as i32);
                 } else {
-                    let _ = transform_fn(1.0, 0, 0);
+                    magnifier::set_fullscreen_transform(1.0, 0, 0);
                 }
             }
             sync_layered_window_contents(hwnd);
@@ -467,9 +447,9 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
 unsafe fn handle_continuous_check_timer(hwnd: HWND) {
     unsafe {
         // SYNC PHYSICAL KEY STATE
-        if TRIGGER_VK_CODE != 0 {
-            let is_physically_down =
-                (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+        let trigger = TRIGGER_VK_CODE.load(Ordering::SeqCst);
+        if trigger != 0 {
+            let is_physically_down = (GetAsyncKeyState(trigger as i32) as u16 & 0x8000) != 0;
             if !is_physically_down && IS_HOTKEY_HELD.load(Ordering::SeqCst) {
                 IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }
@@ -532,5 +512,12 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
         if changed {
             sync_layered_window_contents(hwnd);
         }
+    }
+}
+
+/// Restores the unzoomed view when this selection session holds a lease.
+fn reset_zoom() {
+    if MAG_LEASE_HELD.load(Ordering::SeqCst) {
+        magnifier::set_fullscreen_transform(1.0, 0, 0);
     }
 }

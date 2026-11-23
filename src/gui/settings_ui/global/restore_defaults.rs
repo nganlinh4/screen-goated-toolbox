@@ -2,8 +2,8 @@ use crate::config::{Config, RestoreDefaultsSelection};
 use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::node_graph::request_node_graph_view_reset;
+use crate::gui::startup::Startup;
 use crate::gui::theme::{AppTheme, blend};
-use auto_launch::AutoLaunch;
 use eframe::egui;
 
 pub(super) fn render_restore_defaults_modal(
@@ -12,7 +12,7 @@ pub(super) fn render_restore_defaults_modal(
     text: &LocaleText,
     show_modal: &mut bool,
     run_at_startup: &mut bool,
-    auto_launcher: &Option<AutoLaunch>,
+    startup: &mut Startup,
 ) -> bool {
     if !*show_modal {
         return false;
@@ -180,15 +180,20 @@ pub(super) fn render_restore_defaults_modal(
                         theme.accent_fill()
                     };
                     let confirm = ui
-                        .add_enabled_ui(selection.any(), |ui| {
-                            crate::gui::widgets::filled_button(
-                                ui,
-                                text.global_settings.restore_defaults_confirm,
-                                confirm_fill,
-                                theme.on_accent(),
-                                16,
-                            )
-                        })
+                        .add_enabled_ui(
+                            selection.any()
+                                && !startup.busy()
+                                && !crate::gui::app::has_pending_exit_request(),
+                            |ui| {
+                                crate::gui::widgets::filled_button(
+                                    ui,
+                                    text.global_settings.restore_defaults_confirm,
+                                    confirm_fill,
+                                    theme.on_accent(),
+                                    16,
+                                )
+                            },
+                        )
                         .inner;
                     if confirm.clicked() {
                         restore_requested = true;
@@ -226,7 +231,15 @@ pub(super) fn render_restore_defaults_modal(
 
     if restore_requested {
         let selection = config.restore_defaults_selection;
-        restore_selected(ui, config, selection, run_at_startup, auto_launcher);
+        if selection.app_settings && !startup.system_disabled() {
+            if !startup.request_restore(config, *run_at_startup, selection, ui.ctx()) {
+                crate::overlay::auto_copy_badge::show_notification(
+                    text.desktop_settings.admin_startup_operation_failed,
+                );
+            }
+        } else {
+            complete_restore(ui.ctx(), config, selection, run_at_startup);
+        }
         *show_modal = false;
         return true;
     }
@@ -299,46 +312,41 @@ fn category_row(
     changed
 }
 
-fn restore_selected(
-    ui: &egui::Ui,
+pub(crate) fn complete_restore(
+    ctx: &egui::Context,
     config: &mut Config,
     selection: RestoreDefaultsSelection,
     run_at_startup: &mut bool,
-    auto_launcher: &Option<AutoLaunch>,
-) {
-    if selection.app_settings {
-        disable_startup(auto_launcher);
-        *run_at_startup = false;
-    }
-
+) -> bool {
     let defaults = Config::default();
-    apply_selected_config_defaults_from(config, selection, &defaults);
+    let mut app = crate::APP.lock().unwrap();
+    let mut restored = app.config.clone();
+    restored.restore_defaults_selection = selection;
+    apply_selected_config_defaults_from(&mut restored, selection, &defaults);
+    if let Err(error) = crate::config::try_save_config(&restored) {
+        crate::log_info!("[restore-defaults] failed to save settings: {error}");
+        let text = crate::gui::locale::LocaleText::get(&app.config.ui_language);
+        drop(app);
+        crate::overlay::auto_copy_badge::show_notification(text.shell.settings_save_failed_title);
+        return false;
+    }
+    app.config = restored;
+    *config = app.config.clone();
 
     if selection.presets {
-        request_node_graph_view_reset(ui.ctx());
+        request_node_graph_view_reset(ctx);
     }
 
-    // Persist the new config before deleting history/media, keeping the window
-    // between destructive cleanup and process exit as short as possible.
-    crate::config::save_config(config);
+    drop(app);
+    if selection.app_settings {
+        *run_at_startup = false;
+    }
     if selection.local_data {
         crate::overlay::clear_all_app_data();
     }
 
     crate::gui::app::restart_app();
-}
-
-fn disable_startup(auto_launcher: &Option<AutoLaunch>) {
-    if crate::gui::utils::is_admin_startup_enabled() && !crate::gui::utils::set_admin_startup(false)
-    {
-        crate::log_info!("[restore-defaults] failed to disable admin startup task");
-    }
-    if let Some(launcher) = auto_launcher
-        && launcher.is_enabled().unwrap_or(false)
-        && let Err(error) = launcher.disable()
-    {
-        crate::log_info!("[restore-defaults] failed to disable startup entry: {error}");
-    }
+    true
 }
 
 fn apply_selected_config_defaults_from(
@@ -392,13 +400,6 @@ fn apply_selected_config_defaults_from(
         config.tts_output_device = defaults.tts_output_device.clone();
         config.tts_language_conditions = defaults.tts_language_conditions.clone();
         config.edge_tts_settings = defaults.edge_tts_settings.clone();
-        config.step_audio_settings = defaults.step_audio_settings.clone();
-        config.step_audio_reference_voices = defaults.step_audio_reference_voices.clone();
-        config.magpie_settings = defaults.magpie_settings.clone();
-        config.kokoro_settings = defaults.kokoro_settings.clone();
-        config.supertonic_settings = defaults.supertonic_settings.clone();
-        config.vieneu_settings = defaults.vieneu_settings.clone();
-        config.voxtral_settings = defaults.voxtral_settings.clone();
         config.tts_playground = defaults.tts_playground.clone();
     }
 

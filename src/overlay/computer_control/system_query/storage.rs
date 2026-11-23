@@ -53,15 +53,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn volumes_reports_real_capacity_for_the_system_drive() {
+    fn volumes_reports_real_capacity_for_the_temp_directory_volume() {
+        // Any machine has the volume holding its temp directory; C: is not given.
+        let temp = std::env::temp_dir();
+        let root = temp
+            .ancestors()
+            .last()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
         let result = volumes(7);
         assert_eq!(result["ok"], true);
         assert_eq!(result["source"], "win32_volume_api");
         let items = result["items"].as_array().unwrap();
         let system = items
             .iter()
-            .find(|item| item["root"] == "C:\\")
-            .expect("system drive present");
+            .find(|item| {
+                item["root"]
+                    .as_str()
+                    .is_some_and(|item_root| item_root.eq_ignore_ascii_case(&root))
+            })
+            .unwrap_or_else(|| panic!("volume {root} present in {items:?}"));
         assert!(system["total_bytes"].as_u64().unwrap() > 0);
         assert!(system["free_bytes"].as_u64().unwrap() <= system["total_bytes"].as_u64().unwrap());
     }

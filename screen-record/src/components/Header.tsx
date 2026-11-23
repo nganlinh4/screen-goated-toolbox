@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
   Keyboard, X, Download, FolderOpen,
@@ -22,7 +21,9 @@ import {
 } from '@/components/ui/DropdownMenu';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { getCombinedFpsOptions, getPerfectFpsOptions } from '@/components/header/captureFpsOptions';
+import { HeaderBreadcrumbSlot } from '@/components/header/HeaderBreadcrumbSlot';
 import { HeaderWindowControls } from '@/components/header/HeaderWindowControls';
+import { useWindowMaximized } from '@/components/header/useWindowMaximized';
 import { RecordingAudioSourceDropdown } from '@/components/header/RecordingAudioSourceDropdown';
 
 type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
@@ -97,7 +98,7 @@ export function Header({
 }: HeaderProps) {
   const { t } = useSettings();
   const headerStatus = useHeaderStatus();
-  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const { isWindowMaximized, scheduleRefresh: refreshWindowMaximized } = useWindowMaximized();
   const [activeDropdown, setActiveDropdown] = useState<HeaderDropdown>(null);
   const [menuStep, setMenuStep] = useState<CaptureMenuStep>('root');
   const [pickedMonitorId, setPickedMonitorId] = useState<string | null>(null);
@@ -174,16 +175,14 @@ export function Header({
     }
   };
 
-  useEffect(() => {
-    invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(() => {});
-  }, []);
-
   useEffect(() => () => clearPendingHandoff(), []);
 
   return (
     <header
       className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[20]"
       onMouseDown={(e) => {
+        // Only the primary button moves or resizes the native window.
+        if (e.button !== 0) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const y = e.clientY - rect.top;
         const x = e.clientX - rect.left;
@@ -238,9 +237,9 @@ export function Header({
         )}
 
         {sequenceBreadcrumb && (
-          <div className={`header-breadcrumb-slot flex items-center transition-opacity duration-200 ${showProjectsDialog ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ width: 'min(var(--breadcrumb-content-w, 360px), 70%)' }} onMouseDown={(e) => e.stopPropagation()}>
+          <HeaderBreadcrumbSlot hidden={!!showProjectsDialog}>
             {sequenceBreadcrumb}
-          </div>
+          </HeaderBreadcrumbSlot>
         )}
       </div>
 
@@ -555,7 +554,7 @@ export function Header({
 
         <HeaderWindowControls
           isWindowMaximized={isWindowMaximized}
-          setIsWindowMaximized={setIsWindowMaximized}
+          onMaximizeToggled={refreshWindowMaximized}
           t={t}
         />
       </div>

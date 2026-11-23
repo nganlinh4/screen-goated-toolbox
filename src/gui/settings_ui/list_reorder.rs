@@ -29,6 +29,9 @@ struct LiftedRow {
     /// Footprint of the row as it was picked up. The gap reserves exactly this,
     /// so a list whose width is set by its longest row cannot narrow mid-drag.
     size: egui::Vec2,
+    /// Identity of the list contents when the row was lifted. A list rebuilt
+    /// underneath the drag invalidates its indices, so the lift is dropped.
+    contents: u64,
 }
 
 /// The list's geometry. Removing a row and inserting a same-sized gap leaves the
@@ -83,6 +86,15 @@ pub(crate) struct ListReorder {
     state: State,
     first_slot: Option<egui::Rect>,
     pitch: Option<f32>,
+    contents: u64,
+}
+
+/// Stable identity of a list's entries, for [`ListReorder::observe_contents`].
+pub(crate) fn contents_identity<T: std::hash::Hash>(items: &[T]) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    items.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl ListReorder {
@@ -105,6 +117,21 @@ impl ListReorder {
             state,
             first_slot: None,
             pitch: None,
+            contents: 0,
+        }
+    }
+
+    /// Declares what the list holds this frame. A lift taken over different
+    /// contents (a row added, dropped or replaced mid-drag) is cancelled, so a
+    /// release can never move the wrong row or index past the end.
+    pub(crate) fn observe_contents(&mut self, contents: u64) {
+        self.contents = contents;
+        if self
+            .state
+            .lifted
+            .is_some_and(|lifted| lifted.contents != contents)
+        {
+            self.state.lifted = None;
         }
     }
 
@@ -122,6 +149,10 @@ impl ListReorder {
         self.state.lifted.is_some()
     }
 
+    pub(crate) fn cancel(&mut self) {
+        self.state.lifted = None;
+    }
+
     /// Projects the current pointer into a landing slot before this frame is
     /// laid out. Updating after layout makes the visible gap trail by a frame.
     pub(crate) fn track(&mut self, ui: &egui::Ui, len: usize) {
@@ -130,10 +161,14 @@ impl ListReorder {
             self.state.lifted = None;
             return;
         }
-        let Some(pointer) = ui.ctx().pointer_interact_pos() else {
+        let Some(lifted) = self.state.lifted else {
             return;
         };
-        let Some(lifted) = self.state.lifted else {
+        if lifted.from >= len {
+            self.state.lifted = None;
+            return;
+        }
+        let Some(pointer) = ui.ctx().pointer_interact_pos() else {
             return;
         };
         if let Some(insert) = projected_insert(pointer.y, lifted, metrics, len)
@@ -171,6 +206,11 @@ impl ListReorder {
 
     /// Record where a drawn slot landed. The first two feed the projection: the
     /// list's origin and its row pitch.
+    #[cfg(test)]
+    pub(crate) fn noted_first_slot(&self) -> Option<egui::Rect> {
+        self.first_slot
+    }
+
     pub(crate) fn note_slot(&mut self, rect: egui::Rect) {
         if self.first_slot.is_none() {
             self.first_slot = Some(rect);
@@ -190,6 +230,7 @@ impl ListReorder {
             insert: from,
             grab_dy,
             size: row.size(),
+            contents: self.contents,
         });
     }
 
@@ -246,13 +287,42 @@ mod tests {
                     insert,
                     grab_dy: 0.0,
                     size: egui::vec2(180.0, 22.0),
+                    contents: 0,
                 }),
                 metrics: ListMetrics::default(),
                 last_pass: 0,
             },
             first_slot: None,
             pitch: None,
+            contents: 0,
         }
+    }
+
+    #[test]
+    fn a_list_rebuilt_mid_drag_drops_the_lift_instead_of_moving_stale_rows() {
+        let before = contents_identity(&["a", "b", "c"]);
+        let mut reorder = lifted(2, 0);
+        reorder.state.lifted.as_mut().unwrap().contents = before;
+        reorder.observe_contents(before);
+        assert!(reorder.is_lifting());
+
+        reorder.observe_contents(contents_identity(&["a", "b"]));
+        assert!(!reorder.is_lifting(), "a shrunk list kept a stale index");
+
+        let mut replaced = lifted(1, 0);
+        replaced.state.lifted.as_mut().unwrap().contents = before;
+        replaced.observe_contents(contents_identity(&["a", "x", "c"]));
+        assert!(!replaced.is_lifting(), "a replaced row could be moved");
+    }
+
+    #[test]
+    fn tracking_a_shorter_list_cancels_an_out_of_range_lift() {
+        let ctx = egui::Context::default();
+        pass(&ctx, |ui| {
+            let mut reorder = lifted(3, 3);
+            reorder.track(ui, 3);
+            assert!(!reorder.is_lifting());
+        });
     }
 
     #[test]
@@ -262,6 +332,7 @@ mod tests {
             state: State::default(),
             first_slot: None,
             pitch: None,
+            contents: 0,
         };
         assert_eq!(
             idle.plan(3),
@@ -290,6 +361,17 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_a_lift_restores_all_rows_without_a_pending_move() {
+        let mut reorder = lifted(1, 0);
+        reorder.cancel();
+        assert!(!reorder.is_lifting());
+        assert_eq!(
+            reorder.plan(3),
+            vec![Slot::Step(0), Slot::Step(1), Slot::Step(2)]
+        );
+    }
+
+    #[test]
     fn the_gap_stays_inside_the_list_however_far_the_cursor_travels() {
         let plan = lifted(1, 99).plan(3);
         assert_eq!(plan.len(), 3, "one slot per step, gap included");
@@ -307,6 +389,7 @@ mod tests {
             insert: 0,
             grab_dy: 12.0,
             size: egui::vec2(180.0, 24.0),
+            contents: 0,
         };
         assert_eq!(projected_insert(172.0, lifted, metrics, 4), Some(2));
         assert_eq!(projected_insert(-500.0, lifted, metrics, 4), Some(0));
@@ -338,6 +421,7 @@ mod tests {
             state: State::default(),
             first_slot: None,
             pitch: None,
+            contents: 0,
         };
         assert_eq!(
             idle.slot_size(egui::vec2(10.0, 10.0)),

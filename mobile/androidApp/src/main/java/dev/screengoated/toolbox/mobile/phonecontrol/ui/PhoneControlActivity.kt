@@ -5,17 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
-import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
-import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlLog
+import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlProjectionDispatches
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlSetupNotification
+import dev.screengoated.toolbox.mobile.phonecontrol.reservePhoneControlProjectionConsent
 import dev.screengoated.toolbox.mobile.phonecontrol.phoneControlString
 import dev.screengoated.toolbox.mobile.phonecontrol.showPhoneControlToast
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedCheckpointRegistry
@@ -26,25 +27,37 @@ import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.RootComm
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.privileged.SgtAdbCommandBridge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+
+private typealias Mode = PhoneControlCoordinatorMode
 
 /**
  * Transparent coordinator for Android-owned Phone Control setup steps.
  * Product UI stays on the Apps card and orb; this activity never renders a setup page.
  */
 class PhoneControlActivity : ComponentActivity() {
-    private val userSteps by viewModels<PhoneControlUserStepState>()
+    private var startupBlocked = false
+    internal val userSteps by viewModels<PhoneControlUserStepState>()
     private var mode = Mode.ACTIVATE
-    private var awaitingStep: PhoneControlActivationStep? = null
+    internal var awaitingStep: PhoneControlActivationStep? = null
     private var requestedNotification = false
-    private var projectionGrant: PhoneControlProjectionGrant? = null
+    internal var projectionGrant: PhoneControlProjectionGrant?
+        get() = userSteps.projectionGrant
+        set(value) {
+            userSteps.projectionGrant = value
+            if (value == null) userSteps.projectionGrantGeneration = null
+        }
     private var sgtAdbSetup: PhoneControlSgtAdbSetupCoordinator? = null
     private var shizukuSetup: PhoneControlShizukuSetupCoordinator? = null
-    private var activationResumeJob: Job? = null
-    private var settingsNavigationJob: Job? = null
+    internal var activationResumeJob: Job? = null
+    internal var projectionResultJob: Job? = null
+    internal var settingsNavigationJob: Job? = null
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
+        if (startupBlocked || (application as SgtMobileApplication).appContainerOrNull == null) {
+            finish()
+            return@registerForActivityResult
+        }
         PhoneControlLog.i(
             TAG,
             "activation_user_step_returned step=runtime_permissions surface=runtime_dialog",
@@ -56,9 +69,13 @@ class PhoneControlActivity : ComponentActivity() {
         }
         completeActivationStep()
     }
-    private val settingsLauncher = registerForActivityResult(
+    internal val settingsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
+        if (startupBlocked || (application as SgtMobileApplication).appContainerOrNull == null) {
+            finish()
+            return@registerForActivityResult
+        }
         val returnedStep = awaitingStep
         settingsNavigationJob?.cancel()
         settingsNavigationJob = null
@@ -102,56 +119,72 @@ class PhoneControlActivity : ComponentActivity() {
             Mode.CANCEL_SETUP -> cancelAuthoritySetup()
         }
     }
-    private val projectionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val step = awaitingStep
-        userSteps.projection.finish()
-        val grant = PhoneControlProjectionGrant.fromActivityResult(
-            result.resultCode,
-            result.data,
-        )
-        PhoneControlLog.i(
-            TAG,
-            "activation_user_step_returned step=media_projection " +
-                "surface=system_capture_dialog accepted=${grant != null}",
-        )
-        if (mode == Mode.RESUME_CAPTURE) {
-            awaitingStep = null
-            val accepted = grant != null && PhoneControlService.attachProjection(this, grant)
-            PhoneControlLog.i(
-                TAG,
-                "capture_resume_result accepted=$accepted runtime_reused=true",
-            )
-            if (!accepted) {
-                val message = phoneControlString(
-                    R.string.phone_control_activation_projection_needed,
-                )
-                showPhoneControlToast(R.string.phone_control_activation_projection_toast)
-                PhoneControlSetupNotification.show(
-                    this,
-                    message,
-                    resumeCaptureIntent(this),
-                )
-            }
-            finish()
-            return@registerForActivityResult
-        }
-        if (step != PhoneControlActivationStep.MEDIA_PROJECTION || grant == null) {
-            awaitingStep = null
-            projectionGrant = null
-            abortActivation(PhoneControlActivationStep.MEDIA_PROJECTION)
-        } else {
-            projectionGrant = grant
-            completeActivationStep()
-        }
-    }
+    private lateinit var projectionLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            startupBlocked = true
+            finish()
+            return
+        }
+        // Keep the key across configuration changes, but create a new one
+        // after process death so an old result cannot reach a new request.
+        projectionLauncher = activityResultRegistry.register(
+            userSteps.projectionLauncherKey,
+            this,
+            ActivityResultContracts.StartActivityForResult(),
+            { result -> handleProjectionResult(result) },
+        )
         mode = intent.mode()
         PhoneControlCoordinatorReentryLauncher.acknowledge(intent, mode.wireName)
+        if (!acceptOrSupersedeOrphanReentry(intent, freshIntent = savedInstanceState == null)) {
+            finish()
+            return
+        }
+        val outstanding = PhoneControlProjectionDispatches.current()
+        if (outstanding != null && userSteps.adoptProjectionDispatch(outstanding)) {
+            userSteps.deferredReentry = Intent(intent)
+            if (PhoneControlProjectionDispatches.stageReentry(
+                    outstanding, intent,
+                    replaceExisting = !PhoneControlCoordinatorReentryLauncher.isCoordinatorIntent(intent),
+                )
+            ) {
+                userSteps.deferredReentry = null
+                if (mode == Mode.CANCEL_SETUP) {
+                    PhoneControlProjectionDispatches.retireIfPending(outstanding)
+                }
+                finishAndReplayProjectionReentry()
+                return
+            }
+            userSteps.deferredReentry = null
+            userSteps.projectionDispatch = null
+            userSteps.projectionSettling = false
+        }
+        // Android can restore an outstanding ActivityResult after process death.
+        // Its opaque request owner was intentionally not persisted; do not
+        // launch another request whose owner could receive that old result.
+        if (retireUnownedRestoredProjection(
+                savedInstanceState?.getBoolean(STATE_PROJECTION_IN_FLIGHT) == true,
+                userSteps.hasProjectionOwnership,
+            )
+        ) {
+            PhoneControlLog.w(TAG, "projection_request_retired reason=owner_not_restored")
+            finish()
+            return
+        }
+        if (userSteps.projectionRequest is PhoneControlProjectionRequest.Activation) {
+            awaitingStep = PhoneControlActivationStep.MEDIA_PROJECTION
+        }
         PhoneControlLog.i(TAG, intent.phoneControlCoordinatorEvent("coordinator_open", mode.wireName))
+        if (userSteps.pendingProjectionResult != null) {
+            resumeProjectionResultAfterTeardown()
+            return
+        }
+        if (userSteps.projectionSettling && userSteps.projectionDispatch != null) {
+            finishAndReplayProjectionReentry(userSteps.settlingProjectionOwner)
+            return
+        }
         when (mode) {
             Mode.ACTIVATE -> advanceActivation()
             Mode.SGT_ADB -> startSgtAdbSetup()
@@ -165,6 +198,81 @@ class PhoneControlActivity : ComponentActivity() {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (startupBlocked || (application as SgtMobileApplication).appContainerOrNull == null) {
+            finish()
+            return
+        }
+        PhoneControlCoordinatorReentryLauncher.acknowledge(intent, intent.mode().wireName)
+        if (!acceptOrSupersedeOrphanReentry(intent)) {
+            return
+        }
+        val incoming = when (intent.mode()) {
+            Mode.ACTIVATE -> ProjectionReentryKind.ACTIVATE
+            Mode.RESUME_CAPTURE -> ProjectionReentryKind.RESUME
+            Mode.CANCEL_SETUP -> ProjectionReentryKind.CANCEL
+            else -> ProjectionReentryKind.OTHER
+        }
+        val current = userSteps.projectionRequest
+        when (projectionReentryDisposition(
+            request = current,
+            settling = userSteps.projectionSettling,
+            incoming = incoming,
+            ownerStillCurrent = when (current) {
+                is PhoneControlProjectionRequest.Activation ->
+                    PhoneControlProjectionDispatches.ownsConsent(current.generation)
+                is PhoneControlProjectionRequest.Protected ->
+                    PhoneControlProtectedCheckpointRegistry.ownsFreshProjection(current.owner) &&
+                        PhoneControlProjectionDispatches.ownsConsent(current.generation)
+                null -> false
+            },
+        )) {
+            ProjectionReentryDisposition.CANCEL -> {
+                val dispatch = userSteps.projectionDispatch
+                if (dispatch != null) {
+                    userSteps.deferredReentry = Intent(intent)
+                    if (PhoneControlProjectionDispatches.stageReentry(
+                            dispatch, intent,
+                            replaceExisting = !PhoneControlCoordinatorReentryLauncher.isCoordinatorIntent(intent),
+                        )
+                    ) {
+                        userSteps.deferredReentry = null
+                        PhoneControlProjectionDispatches.retireIfPending(dispatch)
+                        finishAndReplayProjectionReentry(userSteps.settlingProjectionOwner)
+                        return
+                    }
+                }
+                userSteps.releaseProjectionConsent()
+                userSteps.projectionRequest = null
+                userSteps.pendingProjectionResult = null
+                userSteps.projectionSettling = false
+                userSteps.settlingProjectionOwner = null
+                userSteps.projectionDispatch = null
+                userSteps.deferredReentry = null
+                userSteps.projection.finish()
+            }
+            ProjectionReentryDisposition.COALESCE -> {
+                return
+            }
+            ProjectionReentryDisposition.DEFER -> {
+                if (userSteps.deferredReentry == null ||
+                    !PhoneControlCoordinatorReentryLauncher.isCoordinatorIntent(intent)
+                ) userSteps.deferredReentry = Intent(intent)
+                val deferred = requireNotNull(userSteps.deferredReentry)
+                val dispatch = userSteps.projectionDispatch
+                if (dispatch == null || PhoneControlProjectionDispatches.stageReentry(
+                        dispatch, deferred,
+                        replaceExisting = !PhoneControlCoordinatorReentryLauncher.isCoordinatorIntent(deferred),
+                    )
+                ) {
+                    if (dispatch != null) userSteps.deferredReentry = null
+                    return
+                }
+                userSteps.deferredReentry = null
+                userSteps.projectionDispatch = null
+                userSteps.projectionSettling = false
+            }
+            ProjectionReentryDisposition.PROCEED -> Unit
+        }
         activationResumeJob?.cancel()
         settingsNavigationJob?.cancel()
         sgtAdbSetup?.close()
@@ -174,7 +282,6 @@ class PhoneControlActivity : ComponentActivity() {
         userSteps.settings.finish()
         setIntent(intent)
         mode = intent.mode()
-        PhoneControlCoordinatorReentryLauncher.acknowledge(intent, mode.wireName)
         PhoneControlLog.i(TAG, intent.phoneControlCoordinatorEvent("coordinator_reentry", mode.wireName))
         awaitingStep = null
         projectionGrant = null
@@ -200,10 +307,11 @@ class PhoneControlActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_PROJECTION_IN_FLIGHT, userSteps.hasProjectionOwnership)
         shizukuSetup?.save(outState)
     }
 
-    private fun advanceActivation() {
+    internal fun advanceActivation() {
         if (isFinishing || awaitingStep != null) return
         val snapshot = probePhoneControlActivation(
             this,
@@ -254,220 +362,49 @@ class PhoneControlActivity : ComponentActivity() {
                         "surface=system_capture_dialog",
                 )
                 launchPlatformStep(userSteps.projection, consentIntent) {
-                    projectionLauncher.launch(consentIntent)
+                    val generation = reservePhoneControlProjectionConsent(this)
+                    if (generation == null) {
+                        userSteps.projection.finish()
+                        awaitingStep = null
+                        showProjectionBusy(activationIntent(this))
+                        abortActivation(step)
+                        return@launchPlatformStep
+                    }
+                    userSteps.projectionRequest = PhoneControlProjectionRequest.Activation(generation)
+                    try {
+                        projectionLauncher.launch(consentIntent)
+                    } catch (error: RuntimeException) {
+                        PhoneControlProjectionDispatches.releaseConsent(generation)
+                        userSteps.projectionRequest = null
+                        throw error
+                    }
                 }
             }
             PhoneControlActivationStep.START -> {
                 val grant = projectionGrant
-                if (grant == null) {
+                val generation = userSteps.projectionGrantGeneration
+                if (grant == null || generation == null) {
                     abortActivation(PhoneControlActivationStep.MEDIA_PROJECTION)
                     return
                 }
-                val accepted = PhoneControlService.start(this, grant)
+                val dispatch = PhoneControlService.start(this, grant, generation)
+                userSteps.projectionDispatch = dispatch
+                val accepted = dispatch != null
+                if (!accepted) PhoneControlProjectionDispatches.releaseConsent(generation)
+                userSteps.projectionGrantGeneration = null
                 projectionGrant = null
                 PhoneControlLog.i(TAG, "activation_service_start accepted=$accepted")
                 if (!accepted) {
                     showPhoneControlToast(R.string.phone_control_activation_start_failed_toast)
-                }
-                finish()
-            }
-        }
-    }
-
-    private fun launchActivationSettings(
-        step: PhoneControlActivationStep,
-        intent: Intent,
-    ) {
-        awaitingStep = step
-        PhoneControlLog.i(
-            TAG,
-            "activation_user_step_opened step=${step.wireName} surface=android_settings",
-        )
-        launchPlatformStep(userSteps.settings, intent) {
-            settingsLauncher.launch(intent)
-            when (step) {
-                // Only the accessibility intent lands on a list that needs driving.
-                PhoneControlActivationStep.ACCESSIBILITY ->
-                    startAccessibilitySettingsNavigation(intent)
-                // The overlay intent deep-links straight to this app's page, so only watch for
-                // the grant and return. Driving rows here would click the app row on whichever
-                // Settings screen is still in front, stacking that page over the overlay one.
-                PhoneControlActivationStep.OVERLAY -> startOverlayGrantWatch(intent)
-                else -> Unit
-            }
-        }
-    }
-
-    private fun startAccessibilitySettingsNavigation(intent: Intent) {
-        val appLabel = applicationInfo.loadLabel(packageManager).toString()
-        if (appLabel.isBlank()) {
-            PhoneControlLog.w(TAG, "settings_navigation unavailable=true")
-            return
-        }
-        startSettingsWatch(intent) { settingsPackage ->
-            PhoneControlPlatformSettingsNavigator.openAppRow(
-                settingsPackage = settingsPackage,
-                appLabel = appLabel,
-                permissionReady = { isAccessibilityReady(this@PhoneControlActivity) },
-            )
-        }
-    }
-
-    private fun startOverlayGrantWatch(intent: Intent) {
-        startSettingsWatch(intent) { settingsPackage ->
-            PhoneControlPlatformSettingsNavigator.awaitGrantAndReturn(
-                settingsPackage = settingsPackage,
-                permissionReady = { Settings.canDrawOverlays(this@PhoneControlActivity) },
-            )
-        }
-    }
-
-    private fun startSettingsWatch(
-        intent: Intent,
-        watch: suspend (settingsPackage: String) -> PlatformSettingsNavigationResult,
-    ) {
-        val settingsPackage = intent.resolveActivity(packageManager)?.packageName
-        if (settingsPackage.isNullOrBlank()) {
-            PhoneControlLog.w(TAG, "settings_navigation unavailable=true")
-            return
-        }
-        settingsNavigationJob?.cancel()
-        settingsNavigationJob = lifecycleScope.launch {
-            val result = watch(settingsPackage)
-            PhoneControlLog.i(TAG, "settings_navigation result=${result.wireName}")
-        }
-    }
-
-    private fun openApiKeySettings() {
-        PhoneControlLog.i(
-            TAG,
-            "activation_user_step_opened step=gemini_api surface=app_settings",
-        )
-        showPhoneControlToast(R.string.phone_control_activation_api_key_toast)
-        PhoneControlLog.w(TAG, "activation_stopped unresolved=gemini_api")
-        startActivity(MainActivity.settingsIntent(this))
-        finish()
-    }
-
-    private fun prepareAccessibilityStep(step: PhoneControlActivationStep) {
-        when (phoneControlAccessibilityResolution(
-            probePhoneControlAccessibilityState(this),
-            reconnectWaitExhausted = false,
-        )) {
-            PhoneControlAccessibilityResolution.CONTINUE -> advanceActivation()
-            PhoneControlAccessibilityResolution.OPEN_SETTINGS ->
-                launchActivationSettings(step, accessibilitySettingsIntent(this))
-            PhoneControlAccessibilityResolution.STOP -> stopAccessibilityReconnect()
-            PhoneControlAccessibilityResolution.WAIT -> waitForAccessibilityReconnect(step)
-        }
-    }
-
-    private fun waitForAccessibilityReconnect(step: PhoneControlActivationStep) {
-        awaitingStep = step
-        PhoneControlLog.i(TAG, "activation_accessibility_reconnect_wait started=true")
-        activationResumeJob?.cancel()
-        activationResumeJob = lifecycleScope.launch {
-            awaitActivationProgress(step)
-            awaitingStep = null
-            when (phoneControlAccessibilityResolution(
-                probePhoneControlAccessibilityState(this@PhoneControlActivity),
-                reconnectWaitExhausted = true,
-            )) {
-                PhoneControlAccessibilityResolution.CONTINUE -> {
-                    PhoneControlLog.i(
-                        TAG,
-                        "activation_accessibility_reconnect_wait outcome=recovered",
-                    )
-                    advanceActivation()
-                }
-                PhoneControlAccessibilityResolution.OPEN_SETTINGS -> {
-                    PhoneControlLog.i(
-                        TAG,
-                        "activation_accessibility_reconnect_wait outcome=disabled",
-                    )
-                    launchActivationSettings(
-                        step,
-                        accessibilitySettingsIntent(this@PhoneControlActivity),
+                    PhoneControlSetupNotification.show(
+                        this,
+                        phoneControlString(R.string.phone_control_activation_projection_needed),
+                        activationIntent(this),
                     )
                 }
-                PhoneControlAccessibilityResolution.STOP -> stopAccessibilityReconnect()
-                PhoneControlAccessibilityResolution.WAIT -> error(
-                    "exhausted accessibility reconnect must resolve to a terminal action",
-                )
+                finishAndReplayProjectionReentry()
             }
         }
-    }
-
-    private fun stopAccessibilityReconnect() {
-        PhoneControlLog.w(
-            TAG,
-            "activation_accessibility_reconnect_wait outcome=still_reconnecting",
-        )
-        showPhoneControlToast(R.string.phone_control_accessibility_reconnecting_toast)
-        finish()
-    }
-
-    private fun completeActivationStep() {
-        val completed = awaitingStep ?: return
-        awaitingStep = null
-        // The step's Settings navigator has served its purpose once we are resumed; leaving it
-        // running lets its clicks and back presses land on the next step's Settings screen.
-        settingsNavigationJob?.cancel()
-        activationResumeJob?.cancel()
-        activationResumeJob = lifecycleScope.launch {
-            val startedAtMs = SystemClock.elapsedRealtime()
-            val next = awaitActivationProgress(completed)
-            val propagationMs = SystemClock.elapsedRealtime() - startedAtMs
-            if (next == completed) {
-                abortActivation(completed)
-            } else {
-                PhoneControlLog.i(
-                    TAG,
-                    "activation_step_complete step=${completed.wireName} " +
-                        "next=${next.wireName} propagation_ms=$propagationMs",
-                )
-                advanceActivation()
-            }
-        }
-    }
-
-    private suspend fun awaitActivationProgress(
-        completed: PhoneControlActivationStep,
-    ): PhoneControlActivationStep {
-        repeat(ACTIVATION_PROPAGATION_ATTEMPTS) { attempt ->
-            val next = nextPhoneControlActivationStep(
-                probePhoneControlActivation(
-                    this,
-                    mediaProjectionReady = projectionGrant != null,
-                ),
-            )
-            if (next != completed) return next
-            if (attempt + 1 < ACTIVATION_PROPAGATION_ATTEMPTS) {
-                delay(ACTIVATION_PROPAGATION_POLL_MS)
-            }
-        }
-        return completed
-    }
-
-    private fun abortActivation(step: PhoneControlActivationStep) {
-        PhoneControlLog.w(TAG, "activation_stopped unresolved=${step.wireName}")
-        showPhoneControlToast(
-            when (step) {
-                PhoneControlActivationStep.GEMINI_API ->
-                    R.string.phone_control_activation_api_key_toast
-                PhoneControlActivationStep.RUNTIME_PERMISSIONS ->
-                    R.string.phone_control_activation_microphone_toast
-                PhoneControlActivationStep.ACCESSIBILITY ->
-                    R.string.phone_control_activation_accessibility_toast
-                PhoneControlActivationStep.OVERLAY ->
-                    R.string.phone_control_activation_overlay_toast
-                PhoneControlActivationStep.MEDIA_PROJECTION ->
-                    R.string.phone_control_activation_projection_toast
-                PhoneControlActivationStep.START ->
-                    R.string.phone_control_activation_start_failed_toast
-            },
-        )
-        finish()
     }
 
     private fun startShizukuSetup(savedState: Bundle?) {
@@ -541,8 +478,17 @@ class PhoneControlActivity : ComponentActivity() {
     }
 
     private fun requestCaptureResume() {
+        if (userSteps.projection.active &&
+            userSteps.projectionRequest is PhoneControlProjectionRequest.Protected
+        ) return
         if (!PhoneControlService.captureSuspended) {
             PhoneControlLog.w(TAG, "capture_resume_skipped reason=no_suspended_runtime")
+            finish()
+            return
+        }
+        val owner = PhoneControlProtectedCheckpointRegistry.freshProjectionOwner()
+        if (owner == null) {
+            PhoneControlLog.w(TAG, "capture_resume_skipped reason=no_fresh_checkpoint")
             finish()
             return
         }
@@ -554,13 +500,38 @@ class PhoneControlActivity : ComponentActivity() {
             finish()
             return
         }
+        val generation = reservePhoneControlProjectionConsent(this)
+        if (generation == null) {
+            userSteps.projection.finish()
+            showProjectionBusy(resumeCaptureIntent(this))
+            finishAndReplayProjectionReentry()
+            return
+        }
+        userSteps.projectionRequest = PhoneControlProjectionRequest.Protected(owner, generation)
         awaitingStep = PhoneControlActivationStep.MEDIA_PROJECTION
         PhoneControlLog.i(
             TAG,
             "capture_resume_launcher_dispatched surface=system_capture_dialog",
         )
-        projectionLauncher.launch(consentIntent)
+        try {
+            projectionLauncher.launch(consentIntent)
+        } catch (error: RuntimeException) {
+            PhoneControlProjectionDispatches.releaseConsent(generation)
+            userSteps.projectionRequest = null
+            userSteps.projection.finish()
+            awaitingStep = null
+            PhoneControlLog.w(TAG, "capture_resume_launcher_dispatched accepted=false")
+            PhoneControlSetupNotification.show(
+                this,
+                phoneControlString(R.string.phone_control_activation_projection_needed),
+                resumeCaptureIntent(this),
+            )
+            finishAndReplayProjectionReentry()
+        }
     }
+
+    internal fun shouldSkipProjectionReentry(intent: Intent): Boolean =
+        intent.mode() == Mode.ACTIVATE && PhoneControlService.state.value.running
 
     private fun cancelAuthoritySetup() {
         PhoneControlPowerPreferences.save(this, PhoneControlPowerChoice.STANDARD)
@@ -569,7 +540,7 @@ class PhoneControlActivity : ComponentActivity() {
         finish()
     }
 
-    private inline fun launchPlatformStep(
+    internal inline fun launchPlatformStep(
         slot: PlatformUserStepSlot,
         intent: Intent? = null,
         launch: () -> Unit,
@@ -583,32 +554,12 @@ class PhoneControlActivity : ComponentActivity() {
         }
     }
 
-    private fun Intent.mode(): Mode = when (getStringExtra(EXTRA_MODE)) {
-        Mode.SGT_ADB.wireName -> Mode.SGT_ADB
-        Mode.SHIZUKU.wireName -> Mode.SHIZUKU
-        Mode.ROOT.wireName -> Mode.ROOT
-        Mode.SGT_ADB_FORGET.wireName -> Mode.SGT_ADB_FORGET
-        Mode.RESUME_CAPTURE.wireName -> Mode.RESUME_CAPTURE
-        Mode.CANCEL_SETUP.wireName -> Mode.CANCEL_SETUP
-        else -> Mode.ACTIVATE
-    }
-
-    private enum class Mode(val wireName: String) {
-        ACTIVATE("activate"),
-        SGT_ADB("sgt_adb"),
-        SHIZUKU("shizuku"),
-        ROOT("root"),
-        SGT_ADB_FORGET("sgt_adb_forget"),
-        RESUME_CAPTURE("resume_capture"),
-        RETURN_TO_APP("return_to_app"),
-        CANCEL_SETUP("cancel_setup"),
-    }
+    private fun Intent.mode(): Mode = phoneControlCoordinatorMode(getStringExtra(EXTRA_MODE))
 
     companion object {
         private const val TAG = "SGTPhoneControlActivation"
         private const val EXTRA_MODE = "dev.screengoated.toolbox.mobile.phonecontrol.MODE"
-        private const val ACTIVATION_PROPAGATION_ATTEMPTS = 30
-        private const val ACTIVATION_PROPAGATION_POLL_MS = 100L
+        private const val STATE_PROJECTION_IN_FLIGHT = "projection_in_flight"
         internal fun activationIntent(context: Context): Intent = Intent(
             context,
             PhoneControlActivity::class.java,

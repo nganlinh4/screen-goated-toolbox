@@ -3,11 +3,8 @@ package dev.screengoated.toolbox.mobile.service.preset
 import android.content.Context
 import android.graphics.Rect
 import android.view.WindowManager
-import android.widget.Toast
-import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.ResolvedPreset
 import kotlin.math.roundToInt
-import org.json.JSONObject
 
 internal class PresetOverlayInputModule(
     private val context: Context,
@@ -18,46 +15,58 @@ internal class PresetOverlayInputModule(
     private val isDarkTheme: () -> Boolean,
     private val screenBoundsProvider: () -> Rect,
     private val dp: (Int) -> Int,
-    private val onSubmit: (String) -> Unit,
+    private val onSubmit: (TextInputSubmission) -> Unit,
     private val onDismissAll: () -> Unit,
     private val onInputClosedWithoutResults: () -> Unit,
     private val hasResults: () -> Boolean,
     private val onMicRequested: () -> Unit,
+    private val onWindowClosed: (String) -> Unit,
 ) {
     private var inputWindow: PresetOverlayWindow? = null
+    private val documents = TextInputDocumentScope()
     private var activePreset: ResolvedPreset? = null
-    private var inputClosing = false
     private val inputHistory = mutableListOf<String>()
     private var historyNavigationIndex: Int? = null
     private var historyDraftText: String = ""
 
     fun hasWindow(): Boolean = inputWindow != null
 
+    fun currentWindowId(): String? = documents.activeOwner
+
     fun currentWindow(): PresetOverlayWindow? = inputWindow
 
     fun open(resolvedPreset: ResolvedPreset) {
         close()
+        val owner = java.util.UUID.randomUUID().toString()
+        documents.open(owner)
         activePreset = resolvedPreset
-        inputClosing = false
         historyNavigationIndex = null
         historyDraftText = ""
-        val spec = inputWindowSpecSupport(
-            htmlContent = buildInputHtml(resolvedPreset),
-            screenBounds = screenBoundsProvider(),
-            dp = dp,
-        )
-        inputWindow = PresetOverlayWindow(
-            context = context,
-            windowManager = windowManager,
-            spec = spec,
-            onMessage = ::handleMessage,
-            onOutsideTouch = {
-                inputWindow?.setFocusable(false)
-            },
-        ).also { window ->
+        try {
+            val spec = inputWindowSpecSupport(
+                htmlContent = buildInputHtml(resolvedPreset, owner),
+                screenBounds = screenBoundsProvider(),
+                dp = dp,
+            )
+            val window = PresetOverlayWindow(
+                context = context,
+                windowManager = windowManager,
+                spec = spec,
+                onMessage = message@{ raw ->
+                    val envelope = parseTextInputEnvelope(raw) ?: return@message
+                    if (documents.accepts(owner, envelope)) handleMessage(envelope.body, owner)
+                },
+                onOutsideTouch = {
+                    if (documents.activeOwner == owner) inputWindow?.setFocusable(false)
+                },
+            )
+            inputWindow = window
             window.show()
             window.bringToFront(refocusIme = true)
-            window.runScript("window.playEntry(); window.focusEditor();")
+            window.runScript("window.playEntry(); window.focusEditor(${scriptString(owner)});")
+        } catch (error: Throwable) {
+            runCatching { close() }.exceptionOrNull()?.let(error::addSuppressed)
+            throw error
         }
     }
 
@@ -70,14 +79,15 @@ internal class PresetOverlayInputModule(
     }
 
     fun close() {
+        documents.retire()?.let(onWindowClosed)
         dismissTarget.hide()
-        inputClosing = false
         inputWindow?.destroy()
         inputWindow = null
     }
 
     fun injectText(text: String) {
-        inputWindow?.runScript("window.insertTextAtCursor(${JSONObject.quote(text)});")
+        val owner = documents.activeOwner ?: return
+        inputWindow?.runScript("window.insertTextAtCursor(${scriptString(owner)}, ${scriptString(text)});")
     }
 
     fun bringToFront() {
@@ -91,30 +101,23 @@ internal class PresetOverlayInputModule(
     fun refreshForPreferences() {
         val window = inputWindow ?: return
         val preset = activePreset ?: return
-        window.runScriptForResult("window.exportDraftState && window.exportDraftState();") { raw ->
-            val draftState = parseDraftState(raw)
-            window.loadHtmlContent(buildInputHtml(preset), INPUT_WINDOW_BASE_URL)
-            if (draftState.isNotEmpty()) {
-                window.runScript(
-                    "window.restoreDraftState(${JSONObject.quote(JSONObject().put("text", draftState).toString())});",
-                )
-            }
-            window.runScript("window.focusEditor && window.focusEditor();")
-        }
+        val owner = documents.activeOwner ?: return
+        window.runScript(textInputHtmlBuilder.chromeScript(inputSettings(preset, owner)))
     }
 
-    fun recordSubmittedText(text: String) {
-        inputHistory.add(text)
+    fun recordSubmittedText(submission: TextInputSubmission) {
+        if (documents.activeOwner != submission.owner) return
+        inputHistory.add(submission.text)
         historyNavigationIndex = null
         historyDraftText = ""
         if (activePreset?.preset?.continuousInput == true) {
-            inputWindow?.runScript("window.clearInput(); window.focusEditor();")
+            inputWindow?.runScript("window.clearInput(${scriptString(submission.owner)}, ${scriptString(submission.revision)});")
         } else {
             requestClose(animate = true)
         }
     }
 
-    fun handleMessage(message: String) {
+    private fun handleMessage(message: String, owner: String) {
         when {
             message == "close_window" || message == "cancel" -> {
                 requestClose(animate = true)
@@ -166,10 +169,7 @@ internal class PresetOverlayInputModule(
                 inputWindow?.bringToFront(refocusIme = true)
             }
             message.startsWith("submit:") -> {
-                val text = message.substringAfter("submit:", "").trim()
-                if (text.isNotEmpty()) {
-                    onSubmit(text)
-                }
+                parseTextInputSubmission(owner, message)?.let(onSubmit)
             }
             message.startsWith("history_up:") -> {
                 val current = message.substringAfter("history_up:", "")
@@ -199,18 +199,13 @@ internal class PresetOverlayInputModule(
             finalizeClose()
             return
         }
-        if (inputClosing) {
-            return
-        }
-        inputClosing = true
-        window.runScript("window.closeWithAnimation();")
+        val owner = documents.startClosing() ?: return
+        onWindowClosed(owner)
+        window.runScript("window.closeWithAnimation(${scriptString(owner)});")
     }
 
     private fun finalizeClose() {
-        dismissTarget.hide()
-        inputClosing = false
-        inputWindow?.destroy()
-        inputWindow = null
+        close()
     }
 
     private fun navigateHistory(current: String, upwards: Boolean) {
@@ -222,7 +217,8 @@ internal class PresetOverlayInputModule(
         } else {
             navigateHistoryDown(current)
         } ?: return
-        inputWindow?.runScript("window.setEditorText(${JSONObject.quote(nextText)});")
+        val owner = documents.activeOwner ?: return
+        inputWindow?.runScript("window.setEditorText(${scriptString(owner)}, ${scriptString(nextText)});")
     }
 
     private fun navigateHistoryUp(current: String): String? {
@@ -249,21 +245,11 @@ internal class PresetOverlayInputModule(
         return nextText
     }
 
-    private fun buildInputHtml(resolvedPreset: ResolvedPreset): String {
-        return buildInputHtmlSupport(
-            builder = textInputHtmlBuilder,
-            resolvedPreset = resolvedPreset,
-            uiLanguage = uiLanguage(),
-            isDark = isDarkTheme(),
-            placeholder = overlayLocalized(uiLanguage(), "Type here...", "Nhập tại đây...", "여기에 입력하세요..."),
-        )
-    }
+    private fun inputSettings(preset: ResolvedPreset, owner: String) = PresetTextInputHtmlSettings(
+        lang = uiLanguage(), title = preset.preset.name(uiLanguage()),
+        placeholder = overlayLocalized(uiLanguage(), "Type here...", "Nhập tại đây...", "여기에 입력하세요..."),
+        isDark = isDarkTheme(), owner = owner,
+    )
 
-    private fun parseDraftState(raw: String?): String {
-        if (raw.isNullOrBlank() || raw == "null") {
-            return ""
-        }
-        val json = raw.removeSurrounding("\"").replace("\\\\", "\\").replace("\\\"", "\"")
-        return json.jsonOrNull()?.optString("text").orEmpty()
-    }
+    private fun buildInputHtml(preset: ResolvedPreset, owner: String): String = textInputHtmlBuilder.build(inputSettings(preset, owner))
 }

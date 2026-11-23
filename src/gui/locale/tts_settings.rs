@@ -22,6 +22,7 @@ pub struct TtsSettingsLocaleText {
     pub tts_speed_slow: &'static str,
     pub tts_speed_fast: &'static str,
     pub tts_preview_label: &'static str,
+    pub tts_preview_english_sample: &'static str,
     pub tts_preview_texts: Vec<&'static str>,
     pub tts_male: &'static str,
     pub tts_female: &'static str,

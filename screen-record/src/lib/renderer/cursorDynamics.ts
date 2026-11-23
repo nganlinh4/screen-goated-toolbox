@@ -1,4 +1,5 @@
 import { BackgroundConfig, MousePosition } from '@/types/video';
+import { splitCursorRenderType, type CursorRenderKind } from './cursorModel';
 import {
   getCursorSmoothness,
   getCursorTiltAngleRad,
@@ -536,59 +537,28 @@ export function shouldCursorRotate(cursorType: string): boolean {
   return t.startsWith('default-') || t.startsWith('pointer-') || t.startsWith('text-');
 }
 
+/**
+ * Rotation pivot per cursor kind, in cursor source pixels. Keyed by kind (not
+ * pack) exactly like the export shader's `get_rotation_pivot`, which reads the
+ * kind as `slot % 12` in CURSOR_RENDER_KINDS order, so every pack, including
+ * future ones, pivots the same way in preview and export.
+ */
+export const CURSOR_ROTATION_PIVOT_BY_KIND: Readonly<Record<CursorRenderKind, { x: number; y: number }>> = {
+  default: { x: 3.6, y: 5.6 },
+  text: { x: 0, y: 0 },
+  pointer: { x: 3.0, y: 8.5 },
+  openhand: { x: 3.0, y: 8.5 },
+  closehand: { x: 3.0, y: 8.5 },
+  wait: { x: 3.6, y: 5.6 },
+  appstarting: { x: 3.6, y: 5.6 },
+  crosshair: { x: 3.6, y: 5.6 },
+  'resize-ns': { x: 3.6, y: 5.6 },
+  'resize-we': { x: 3.6, y: 5.6 },
+  'resize-nwse': { x: 3.6, y: 5.6 },
+  'resize-nesw': { x: 3.6, y: 5.6 },
+};
+
 export function getCursorRotationPivot(cursorType: string): { x: number; y: number } {
-  switch (cursorType.toLowerCase()) {
-    case 'pointer-screenstudio':
-    case 'openhand-screenstudio':
-    case 'closehand-screenstudio':
-    case 'pointer-macos26':
-    case 'openhand-macos26':
-    case 'closehand-macos26':
-    case 'pointer-sgtcute':
-    case 'openhand-sgtcute':
-    case 'closehand-sgtcute':
-    case 'pointer-sgtcool':
-    case 'openhand-sgtcool':
-    case 'closehand-sgtcool':
-    case 'pointer-sgtai':
-    case 'openhand-sgtai':
-    case 'closehand-sgtai':
-    case 'pointer-sgtpixel':
-    case 'openhand-sgtpixel':
-    case 'closehand-sgtpixel':
-    case 'pointer-jepriwin11':
-    case 'openhand-jepriwin11':
-    case 'closehand-jepriwin11':
-    case 'pointer-sgtwatermelon':
-    case 'openhand-sgtwatermelon':
-    case 'closehand-sgtwatermelon':
-    case 'pointer-sgtfastfood':
-    case 'openhand-sgtfastfood':
-    case 'closehand-sgtfastfood':
-    case 'pointer-sgtveggie':
-    case 'openhand-sgtveggie':
-    case 'closehand-sgtveggie':
-    case 'pointer-sgtvietnam':
-    case 'openhand-sgtvietnam':
-    case 'closehand-sgtvietnam':
-    case 'pointer-sgtkorea':
-    case 'openhand-sgtkorea':
-    case 'closehand-sgtkorea':
-      return { x: 3.0, y: 8.5 };
-    case 'text-screenstudio':
-    case 'text-macos26':
-    case 'text-sgtcute':
-    case 'text-sgtcool':
-    case 'text-sgtai':
-    case 'text-sgtpixel':
-    case 'text-jepriwin11':
-    case 'text-sgtwatermelon':
-    case 'text-sgtfastfood':
-    case 'text-sgtveggie':
-    case 'text-sgtvietnam':
-    case 'text-sgtkorea':
-      return { x: 0, y: 0 };
-    default:
-      return { x: 3.6, y: 5.6 };
-  }
+  const kind = splitCursorRenderType(cursorType.toLowerCase())?.kind ?? 'default';
+  return CURSOR_ROTATION_PIVOT_BY_KIND[kind];
 }

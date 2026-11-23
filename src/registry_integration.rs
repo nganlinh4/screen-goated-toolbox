@@ -85,64 +85,94 @@ fn build_shell_verb_path(root: &str, subject: &str, verb: &str) -> String {
     path
 }
 
-fn cleanup_legacy_context_menu_entries(hkcu: &RegKey) {
-    let legacy_perceived_types = ["text", "image", "audio"];
+const LEGACY_PERCEIVED_TYPES: &[&str] = &["text", "image", "audio"];
 
+/// Every location an earlier release registered and the current one does not:
+/// the old display-name verb anywhere, and either verb on the catch-all,
+/// perceived-type and per-class keys. The current per-extension
+/// SystemFileAssociations verb is deliberately absent.
+fn legacy_verb_paths() -> Vec<String> {
+    let mut paths = Vec::new();
     for verb in [PROCESS_WITH_SGT_VERB, LEGACY_PROCESS_WITH_SGT_VERB] {
-        let _ = hkcu.delete_subkey_all(build_shell_verb_path(CLASSES_ROOT, "*", verb));
-
-        for perceived_type in legacy_perceived_types {
-            let _ = hkcu.delete_subkey_all(build_shell_verb_path(
+        paths.push(build_shell_verb_path(CLASSES_ROOT, "*", verb));
+        for perceived_type in LEGACY_PERCEIVED_TYPES {
+            paths.push(build_shell_verb_path(
                 SYSTEM_FILE_ASSOCIATIONS_ROOT,
                 perceived_type,
                 verb,
             ));
         }
-
         for extension in supported_extensions() {
-            let association_path =
-                build_shell_verb_path(SYSTEM_FILE_ASSOCIATIONS_ROOT, extension, verb);
-            let extension_path = build_shell_verb_path(CLASSES_ROOT, extension, verb);
-            let _ = hkcu.delete_subkey_all(association_path);
-            let _ = hkcu.delete_subkey_all(extension_path);
+            paths.push(build_shell_verb_path(CLASSES_ROOT, extension, verb));
+        }
+    }
+    for extension in supported_extensions() {
+        paths.push(build_shell_verb_path(
+            SYSTEM_FILE_ASSOCIATIONS_ROOT,
+            extension,
+            LEGACY_PROCESS_WITH_SGT_VERB,
+        ));
+    }
+    paths
+}
+
+/// Delete only legacy keys that still exist, so a clean profile costs reads.
+fn cleanup_legacy_context_menu_entries(root: &RegKey) {
+    for path in legacy_verb_paths() {
+        if root.open_subkey(&path).is_ok() {
+            let _ = root.delete_subkey_all(&path);
         }
     }
 }
 
-pub fn ensure_context_menu_entry() {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+fn open_or_create(parent: &RegKey, path: &str) -> Option<RegKey> {
+    parent
+        .open_subkey_with_flags(path, KEY_READ | KEY_WRITE)
+        .or_else(|_| parent.create_subkey(path).map(|(key, _)| key))
+        .ok()
+}
 
-    // Current EXE path
-    let exe_path = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(_) => return,
-    };
-    let exe_path_str = exe_path.to_str().unwrap_or("");
-    if exe_path_str.is_empty() {
-        return;
+/// Write a value only when it differs, leaving an up-to-date verb untouched.
+fn ensure_string_value(key: &RegKey, name: &str, value: &str) {
+    if key.get_value::<String, _>(name).ok().as_deref() != Some(value) {
+        let _ = key.set_value(name, &value);
     }
+}
 
-    cleanup_legacy_context_menu_entries(&hkcu);
+fn ensure_context_menu_entries(root: &RegKey, exe_path: &str) {
+    cleanup_legacy_context_menu_entries(root);
 
     // Register only explicit supported extensions.
     // Using perceived types like "text"/"image"/"audio" is too broad and can
     // make SGT appear as the effective handler for unrelated/unassociated files.
+    let command = format!("\"{exe_path}\" --process-with-sgt \"%1\"");
     for extension in supported_extensions() {
         let path = build_shell_verb_path(
             SYSTEM_FILE_ASSOCIATIONS_ROOT,
             extension,
             PROCESS_WITH_SGT_VERB,
         );
-
-        if let Ok((key, _)) = hkcu.create_subkey(&path) {
-            let _ = key.set_value("", &PROCESS_WITH_SGT_LABEL);
-            let _ = key.set_value("Icon", &exe_path_str);
-            let _ = key.set_value("NeverDefault", &"");
-
-            if let Ok((cmd_key, _)) = key.create_subkey("command") {
-                let cmd_str = format!("\"{}\" --process-with-sgt \"%1\"", exe_path_str);
-                let _ = cmd_key.set_value("", &cmd_str);
-            }
+        let Some(key) = open_or_create(root, &path) else {
+            continue;
+        };
+        ensure_string_value(&key, "", PROCESS_WITH_SGT_LABEL);
+        ensure_string_value(&key, "Icon", exe_path);
+        ensure_string_value(&key, "NeverDefault", "");
+        if let Some(command_key) = open_or_create(&key, "command") {
+            ensure_string_value(&command_key, "", &command);
         }
     }
 }
+
+pub fn ensure_context_menu_entry() {
+    let Ok(exe_path) = std::env::current_exe() else {
+        return;
+    };
+    let Some(exe_path) = exe_path.to_str().filter(|path| !path.is_empty()) else {
+        return;
+    };
+    ensure_context_menu_entries(&RegKey::predef(HKEY_CURRENT_USER), exe_path);
+}
+
+#[cfg(test)]
+mod tests;

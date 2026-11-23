@@ -4,6 +4,20 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 pub(in crate::overlay::result::scene_compositor) fn handle(id: isize, action: ButtonAction) {
     let hwnd = HWND(id as *mut std::ffi::c_void);
+    let session = match &action {
+        ButtonAction::UpdateRefineDraft { session, .. }
+        | ButtonAction::SubmitRefine { session, .. }
+        | ButtonAction::CancelRefine { session }
+        | ButtonAction::HistoryUpRefine { session, .. }
+        | ButtonAction::HistoryDownRefine { session, .. }
+        | ButtonAction::Mic { session } => Some(*session),
+        _ => None,
+    };
+    if session
+        .is_some_and(|session| !crate::overlay::result::is_current_refine_session(hwnd, session))
+    {
+        return;
+    }
     if !matches!(
         action,
         ButtonAction::SetOpacity { .. } | ButtonAction::UpdateRefineDraft { .. }
@@ -47,16 +61,26 @@ pub(in crate::overlay::result::scene_compositor) fn handle(id: isize, action: Bu
         ButtonAction::SetOpacity { value } => {
             crate::overlay::result::scene_compositor::set_control_scope_opacity(hwnd, value)
         }
-        ButtonAction::UpdateRefineDraft { text } => {
-            crate::overlay::result::refine::update_refine_draft(hwnd, &text)
+        ButtonAction::UpdateRefineDraft { text, session } => {
+            crate::overlay::result::refine::update_refine_draft(hwnd, session, &text)
         }
-        ButtonAction::SubmitRefine { text } => {
-            crate::overlay::result::trigger_refine_submit(hwnd, &text)
+        ButtonAction::SubmitRefine { text, session } => {
+            crate::overlay::result::trigger_refine_submit(hwnd, session, &text)
         }
-        ButtonAction::CancelRefine => crate::overlay::result::trigger_refine_cancel(hwnd),
-        ButtonAction::HistoryUpRefine { text } => update_history(hwnd, &text, true),
-        ButtonAction::HistoryDownRefine { text } => update_history(hwnd, &text, false),
-        ButtonAction::Mic => start_microphone(),
+        ButtonAction::CancelRefine { session } => {
+            crate::overlay::result::refine::trigger_refine_cancel_for_session(hwnd, session)
+        }
+        ButtonAction::HistoryUpRefine { text, session } => {
+            update_history(hwnd, session, &text, true)
+        }
+        ButtonAction::HistoryDownRefine { text, session } => {
+            update_history(hwnd, session, &text, false)
+        }
+        ButtonAction::Mic { session } => {
+            if crate::overlay::result::is_current_refine_session(hwnd, session) {
+                start_microphone();
+            }
+        }
     }
 }
 
@@ -91,14 +115,17 @@ fn post(hwnd: HWND, message: u32) {
     }
 }
 
-fn update_history(hwnd: HWND, current: &str, upward: bool) {
+fn update_history(hwnd: HWND, session: u64, current: &str, upward: bool) {
+    if !crate::overlay::result::is_current_refine_session(hwnd, session) {
+        return;
+    }
     let text = if upward {
         crate::overlay::input_history::navigate_history_up(current)
     } else {
         crate::overlay::input_history::navigate_history_down(current)
     };
     if let Some(text) = text {
-        crate::overlay::result::set_refine_text(hwnd, &text, false);
+        crate::overlay::result::replace_refine_text_for_session(hwnd, session, &text);
     }
 }
 

@@ -120,8 +120,7 @@ impl SettingsApp {
                                 font.clone(),
                                 utheme.on_surface_variant(),
                             );
-                            let is_admin = cfg!(target_os = "windows")
-                                && crate::gui::utils::is_running_as_admin();
+                            let is_admin = self.current_admin_state;
                             let (admin_txt, admin_col) = if is_admin {
                                 (text.desktop_settings.footer_admin_running, utheme.success())
                             } else {
@@ -161,11 +160,16 @@ impl SettingsApp {
         // the other end of the window sat at 6px.
         // Theme switcher
         let (theme_icon, theme_tip) = match self.config.theme_mode {
-            crate::config::ThemeMode::Dark => (crate::gui::icons::Icon::Moon, "Theme: Dark"),
-            crate::config::ThemeMode::Light => (crate::gui::icons::Icon::Sun, "Theme: Light"),
-            crate::config::ThemeMode::System => {
-                (crate::gui::icons::Icon::Device, "Theme: System (Auto)")
+            crate::config::ThemeMode::Dark => {
+                (crate::gui::icons::Icon::Moon, text.shell.theme_tooltip_dark)
             }
+            crate::config::ThemeMode::Light => {
+                (crate::gui::icons::Icon::Sun, text.shell.theme_tooltip_light)
+            }
+            crate::config::ThemeMode::System => (
+                crate::gui::icons::Icon::Device,
+                text.shell.theme_tooltip_system,
+            ),
         };
         if crate::gui::icons::icon_button_sized(ui, theme_icon, crate::gui::icons::ICON_XL)
             .on_hover_text(theme_tip)

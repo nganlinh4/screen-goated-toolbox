@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "lifecycle": {
+    "backoff": "gemini_live_default",
+    "maxConsecutiveReconnects": 6,
+    "resetAfter": "meaningful_server_activity"
+  },
+  "failureCases": [
+    { "name": "normal_close_with_reason", "kind": "close", "code": 1000, "action": "reconnect" },
+    { "name": "going_away", "kind": "close", "code": 1001, "action": "reconnect" },
+    { "name": "policy_close", "kind": "close", "code": 1008, "action": "terminal_error" },
+    { "name": "retryable_server_error", "kind": "server", "retryable": true, "action": "reconnect" },
+    { "name": "nonretryable_server_error", "kind": "server", "retryable": false, "action": "terminal_error" },
+    { "name": "retryable_transport", "kind": "transport", "retryable": true, "action": "reconnect" },
+    { "name": "nonretryable_transport", "kind": "transport", "retryable": false, "action": "terminal_error" },
+    { "name": "retry_exhausted", "kind": "transport", "retryable": true, "previousReconnects": 6, "action": "terminal_error" }
+  ],
+  "ownershipCases": [
+    { "name": "stop_during_setup", "transition": "stop", "lateEvent": "setup_complete", "effect": "ignored" },
+    { "name": "replacement_during_connection", "transition": "replace", "lateEvent": "connection_ready", "effect": "ignored" },
+    { "name": "replacement_during_backoff", "transition": "replace", "lateEvent": "retry_due", "effect": "ignored" },
+    { "name": "replacement_before_transcript", "transition": "replace", "lateEvent": "transcript", "effect": "ignored" }
+  ]
+}

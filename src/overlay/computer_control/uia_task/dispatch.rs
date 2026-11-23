@@ -6,6 +6,16 @@ use super::*;
 
 mod context_tools;
 mod native_tools;
+#[cfg(test)]
+mod tests;
+
+/// A model-supplied element, cell or mark number. A value outside `u32` is
+/// absent rather than truncated onto a different, valid target.
+pub(super) fn index_arg(args: &Value, key: &str) -> Option<u32> {
+    args.get(key)
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
 
 impl Brain {
     /// Execute one tool call (NOT `done`). Returns the action result JSON; polls
@@ -20,7 +30,6 @@ impl Brain {
         authorize_repair_process: bool,
     ) -> Value {
         self.step += 1;
-        let step = self.step;
         let action = trace.unwrap_or_else(|| super::super::telemetry::claim_action(name));
         self.active_action = Some(action);
         let t0 = Instant::now();
@@ -44,18 +53,35 @@ impl Brain {
         if let Some(blocked) = self.exact_edit_guard.before_action(name, args) {
             return self.finish_dispatch(action, name, args, blocked, t0);
         }
+        let permission = self.authorize_resource_boundary(name, args, ctx, cancel, action);
+        let result = super::request_authorization::dispatch_after_check(permission, cancel, || {
+            self.dispatch_prepared(name, args, ctx, cancel, action, authorize_repair_process)
+        });
+        self.finish_dispatch(action, name, args, result, t0)
+    }
+
+    fn dispatch_prepared(
+        &mut self,
+        name: &str,
+        args: &Value,
+        ctx: &str,
+        cancel: &Arc<AtomicBool>,
+        action: super::super::telemetry::ActionTrace,
+        authorize_repair_process: bool,
+    ) -> Value {
+        let step = self.step;
         if let Some(result) = self.dispatch_browser_tool(name, args, cancel) {
-            return self.finish_dispatch(action, name, args, result, t0);
+            return result;
         }
-        if let Some(result) = self.dispatch_context_tool(name, args) {
-            return self.finish_dispatch(action, name, args, result, t0);
+        if let Some(result) = self.dispatch_context_tool(name, args, cancel) {
+            return result;
         }
         if let Some(result) =
             self.dispatch_native_tool(name, args, cancel, action, authorize_repair_process)
         {
-            return self.finish_dispatch(action, name, args, result, t0);
+            return result;
         }
-        let result = match name {
+        match name {
             // Deterministic controller (Stage 1): the model reads the indexed world
             // and acts by @id; the controller resolves/executes/verifies/gates.
             "observe" => self.controller.observe(),
@@ -66,7 +92,7 @@ impl Brain {
                     dry: self.dry,
                 };
                 self.controller.act(
-                    args.get("id").and_then(Value::as_u64).unwrap_or(0) as u32,
+                    index_arg(args, "id").unwrap_or(0),
                     args.get("verb").and_then(Value::as_str).unwrap_or(""),
                     args.get("value").and_then(Value::as_str),
                     args.get("confirm")
@@ -89,14 +115,14 @@ impl Brain {
                 self.controller.do_steps(&steps, &act_ctx)
             }
             "click_at" => {
-                let cell = args.get("cell").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let cell = index_arg(args, "cell").unwrap_or(0);
                 if let Some(blocked) = super::dispatch_guard::block_grid_click(
                     self.view,
                     &self.grid,
                     cell,
                     self.target.as_deref(),
                 ) {
-                    return self.finish_dispatch(action, name, args, blocked, t0);
+                    return blocked;
                 }
                 match self.grid.center_norm(cell) {
                     Some((mx, my)) => {
@@ -136,7 +162,7 @@ impl Brain {
                 }
             }
             "zoom" => {
-                let cell = args.get("cell").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let cell = index_arg(args, "cell").unwrap_or(0);
                 match zoom_to_cell(self.view, &self.grid, cell) {
                     Some(v) => {
                         self.view = v;
@@ -171,7 +197,7 @@ impl Brain {
                     .unwrap_or("Describe exactly what is on screen.");
                 match read_view(self.view, q, ctx, cancel) {
                     Ok(answer) => {
-                        eprintln!("[cc] step {step:02} LOOK: {answer}");
+                        cc_diagnostic!("[cc] step {step:02} LOOK: {answer}");
                         json!({"ok": true, "reading": answer})
                     }
                     Err(e) => json!({"ok": false, "error": format!("vision read failed: {e}")}),
@@ -195,13 +221,7 @@ impl Brain {
                 ) {
                     Ok(target) => target,
                     Err(error) => {
-                        return self.finish_dispatch(
-                            action,
-                            name,
-                            args,
-                            json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
-                            t0,
-                        );
+                        return json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()});
                     }
                 };
                 if !self.dry
@@ -211,21 +231,16 @@ impl Brain {
                 } else {
                     match locate_in_view(self.view, desc, ctx, cancel) {
                         Ok(loc) => {
-                            if let Err(error) = revalidate_visual_locations(self.view, &[&loc]) {
-                                return self.finish_dispatch(
-                                    action,
-                                    name,
-                                    args,
-                                    json!({
-                                        "ok": false,
-                                        "code": "ERR_STALE_VISUAL_TARGET",
-                                        "effect_may_have_occurred": false,
-                                        "error": error.to_string(),
-                                    }),
-                                    t0,
-                                );
+                            if let Err(error) = revalidate_visual_locations(&[&loc]) {
+                                return json!({
+                                    "ok": false,
+                                    "code": "ERR_STALE_VISUAL_TARGET",
+                                    "effect_may_have_occurred": false,
+                                    "error": error.to_string(),
+                                });
                             }
-                            let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
+                            self.view = loc.view;
+                            let (sx, sy) = loc.screen_point();
                             self.last_click = Some((sx, sy));
                             self.click_before = session::capture_region_fp(sx, sy, VC_HALF);
                             append_click(
@@ -236,7 +251,7 @@ impl Brain {
                                 "screen_px": [sx, sy], "saw": loc.note,
                                 "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                             );
-                            eprintln!(
+                            cc_diagnostic!(
                                 "[cc] step {step:02} CLICK_TARGET[{button}] '{desc}' -> screen({sx},{sy}) saw={:?}",
                                 loc.note
                             );
@@ -279,13 +294,7 @@ impl Brain {
                 ) {
                     Ok(target) => target,
                     Err(error) => {
-                        return self.finish_dispatch(
-                            action,
-                            name,
-                            args,
-                            json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()}),
-                            t0,
-                        );
+                        return json!({"ok": false, "code": "ERR_STALE_FRAME_SURFACE", "error": error.to_string()});
                     }
                 };
                 if !self.dry
@@ -295,22 +304,17 @@ impl Brain {
                 } else {
                     match drag_in_view(self.view, from, to, ctx, cancel) {
                         Ok((f, t)) => {
-                            if let Err(error) = revalidate_visual_locations(self.view, &[&f, &t]) {
-                                return self.finish_dispatch(
-                                    action,
-                                    name,
-                                    args,
-                                    json!({
-                                        "ok": false,
-                                        "code": "ERR_STALE_VISUAL_TARGET",
-                                        "effect_may_have_occurred": false,
-                                        "error": error.to_string(),
-                                    }),
-                                    t0,
-                                );
+                            if let Err(error) = revalidate_visual_locations(&[&f, &t]) {
+                                return json!({
+                                    "ok": false,
+                                    "code": "ERR_STALE_VISUAL_TARGET",
+                                    "effect_may_have_occurred": false,
+                                    "error": error.to_string(),
+                                });
                             }
-                            let (fsx, fsy) = self.view.to_screen_px(f.x, f.y);
-                            let (tsx, tsy) = self.view.to_screen_px(t.x, t.y);
+                            self.view = f.view;
+                            let (fsx, fsy) = f.screen_point();
+                            let (tsx, tsy) = t.screen_point();
                             self.last_click = Some((tsx, tsy));
                             self.click_before = session::capture_region_fp(tsx, tsy, VC_HALF);
                             append_click(
@@ -319,7 +323,7 @@ impl Brain {
                                 json!({"step": step, "kind": "drag_target", "from": from, "to": to,
                                 "from_px": [fsx, fsy], "to_px": [tsx, tsy], "saw_from": f.note, "saw_to": t.note}),
                             );
-                            eprintln!(
+                            cc_diagnostic!(
                                 "[cc] step {step:02} DRAG_TARGET '{from}' -> '{to}' : ({fsx},{fsy})->({tsx},{tsy})"
                             );
                             let r = drag_screen(
@@ -356,21 +360,16 @@ impl Brain {
                     .clamp(0.0, 10.0);
                 match locate_in_view(self.view, desc, ctx, cancel) {
                     Ok(loc) => {
-                        if let Err(error) = revalidate_visual_locations(self.view, &[&loc]) {
-                            return self.finish_dispatch(
-                                action,
-                                name,
-                                args,
-                                json!({
-                                    "ok": false,
-                                    "code": "ERR_STALE_VISUAL_TARGET",
-                                    "effect_may_have_occurred": false,
-                                    "error": error.to_string(),
-                                }),
-                                t0,
-                            );
+                        if let Err(error) = revalidate_visual_locations(&[&loc]) {
+                            return json!({
+                                "ok": false,
+                                "code": "ERR_STALE_VISUAL_TARGET",
+                                "effect_may_have_occurred": false,
+                                "error": error.to_string(),
+                            });
                         }
-                        let (sx, sy) = self.view.to_screen_px(loc.x, loc.y);
+                        self.view = loc.view;
+                        let (sx, sy) = loc.screen_point();
                         self.last_click = Some((sx, sy)); // mark where we pointed on the next frame
                         append_click(
                             &self.dir,
@@ -379,7 +378,7 @@ impl Brain {
                             "view_norm": [loc.x.round(), loc.y.round()], "screen_px": [sx, sy],
                             "saw": loc.note, "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h]}),
                         );
-                        eprintln!(
+                        cc_diagnostic!(
                             "[cc] step {step:02} POINT_AT '{desc}' -> screen({sx},{sy}) saw={:?}",
                             loc.note
                         );
@@ -423,10 +422,9 @@ impl Brain {
             // Local artifact tools and installed MCP tools are dynamic-ish surfaces.
             _ => {
                 super::super::artifacts::dispatch_tool(name, args, &self.profile, cancel, self.dry)
-                    .or_else(|| super::super::mcp::try_dispatch(name, args))
+                    .or_else(|| super::super::mcp::try_dispatch(name, args, cancel))
                     .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}))
             }
-        };
-        self.finish_dispatch(action, name, args, result, t0)
+        }
     }
 }

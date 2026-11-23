@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaDataSource
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import dev.screengoated.toolbox.mobile.service.ShortSampleBuffer
 import java.nio.ByteBuffer
 
 internal class Mp3Decoder {
@@ -14,7 +15,7 @@ internal class Mp3Decoder {
 
         val extractor = MediaExtractor()
         val dataSource = ByteArrayMediaDataSource(mp3Bytes)
-        val decoder: MediaCodec
+        var createdDecoder: MediaCodec? = null
         var sourceRate = 24_000
         var channelCount = 1
 
@@ -25,24 +26,30 @@ internal class Mp3Decoder {
                     extractor.getTrackFormat(index)
                         .getString(MediaFormat.KEY_MIME)
                         ?.startsWith("audio/") == true
-                } ?: return ByteArray(0)
+                } ?: error("No audio track")
 
             extractor.selectTrack(audioTrackIndex)
             val format = extractor.getTrackFormat(audioTrackIndex)
-            val mime = format.getString(MediaFormat.KEY_MIME) ?: return ByteArray(0)
-            decoder = MediaCodec.createDecoderByType(mime)
-            decoder.configure(format, null, null, 0)
-            decoder.start()
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: error("Audio track has no MIME type")
+            val codec = MediaCodec.createDecoderByType(mime)
+            createdDecoder = codec
+            codec.configure(format, null, null, 0)
+            codec.start()
             sourceRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        } catch (error: Throwable) {
+        } catch (_: Throwable) {
+            // Every setup failure, including a missing track, releases what was
+            // created. A codec that failed to configure or start is a
+            // hardware resource too; it must not leak.
+            createdDecoder?.let { codec -> runCatching { codec.release() } }
             extractor.release()
             dataSource.close()
             return ByteArray(0)
         }
 
+        val decoder = requireNotNull(createdDecoder)
         val bufferInfo = MediaCodec.BufferInfo()
-        val samples = ArrayList<Short>(16_384)
+        val samples = ShortSampleBuffer()
         var inputEnded = false
         var outputEnded = false
 
@@ -108,11 +115,11 @@ internal class Mp3Decoder {
             dataSource.close()
         }
 
-        if (samples.isEmpty()) {
+        if (samples.size == 0) {
             return ByteArray(0)
         }
 
-        val monoSamples = ShortArray(samples.size) { index -> samples[index] }
+        val monoSamples = samples.toShortArray()
         val outputSamples = if (sourceRate == 24_000) {
             monoSamples
         } else {
@@ -124,10 +131,10 @@ internal class Mp3Decoder {
     private fun mixToMono(
         chunk: ShortArray,
         channelCount: Int,
-        sink: MutableList<Short>,
+        sink: ShortSampleBuffer,
     ) {
         if (channelCount <= 1) {
-            chunk.forEach(sink::add)
+            sink.addAll(chunk)
             return
         }
         var index = 0

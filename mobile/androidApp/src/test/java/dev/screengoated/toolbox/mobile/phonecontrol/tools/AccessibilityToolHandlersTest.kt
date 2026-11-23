@@ -402,7 +402,7 @@ class AccessibilityToolHandlersTest {
         assertTrue(execution.refreshScreenFrame)
     }
 
-    private class FakeAccessibilityBackend(
+    internal class FakeAccessibilityBackend(
         var frame: AccessibilityObservationFrame,
     ) : AccessibilityToolBackend {
         data class ActionCall(
@@ -490,7 +490,7 @@ class AccessibilityToolHandlersTest {
         }
     }
 
-    private companion object {
+    internal companion object {
         val WINDOW_BOUNDS = TargetBounds(0, 0, 300, 600)
         val JOB = PhoneControlToolJobContext(
             turnId = 4,

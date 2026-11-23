@@ -196,18 +196,21 @@ export function normalizeSpeedPoints(
 
 export function normalizeSegmentTrimData(segment: VideoSegment, duration: number): VideoSegment {
   const segs = getTrimSegments(segment, duration);
+  const trimEnd = segs[segs.length - 1].endTime;
+  // The speed track spans the whole source: bounding it by the trim end would
+  // collapse points past it, change speeds inside the kept range and lose the
+  // edits a later trim widening should bring back.
+  const speedDuration = Number.isFinite(duration) && duration > trimEnd ? duration : trimEnd;
   // Migrate legacy point-keyframes → bounded zoom blocks (idempotent: once
   // zoomBlocks exist this is a no-op).
   const zoomBlocks =
-    segment.zoomBlocks && segment.zoomBlocks.length > 0
-      ? segment.zoomBlocks
-      : zoomKeyframesToBlocks(segment.zoomKeyframes ?? [], duration);
+    segment.zoomBlocks ?? zoomKeyframesToBlocks(segment.zoomKeyframes ?? [], duration);
   return {
     ...segment,
     trimSegments: segs,
     trimStart: segs[0].startTime,
-    trimEnd: segs[segs.length - 1].endTime,
-    speedPoints: normalizeSpeedPoints(segment.speedPoints, segs[segs.length - 1].endTime),
+    trimEnd,
+    speedPoints: normalizeSpeedPoints(segment.speedPoints, speedDuration),
     zoomBlocks,
   };
 }

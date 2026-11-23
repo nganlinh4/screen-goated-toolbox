@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"bootstrap_failure", "storage":"closed", "pending_changes":"discarded"},
+    {"event":"bootstrap_success", "storage":"retained", "pending_changes":"ordered"}
+  ]
+}

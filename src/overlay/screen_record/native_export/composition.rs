@@ -1,21 +1,23 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
+use super::clip_audio_slice::{
+    ClipSequenceWindow, slice_audio_for_clip, slice_track_volume_points,
+};
 use super::config::{
     CompositionExportClipJob, CompositionExportConfig, ExportConfig, ImportedAudioSegmentConfig,
 };
-use super::native_stitch::{StitchClip, StitchConfig, stitch_clips_to_mp4};
+use super::native_stitch::{StitchClip, StitchConfig, StitchObserver, stitch_clips_to_mp4};
 use super::progress::{ExportProgressUpdate, push_export_progress_update};
 use super::staging;
 
 fn temp_export_root(session_id: &str) -> Result<(PathBuf, PathBuf), String> {
     super::validation::validate_identifier(session_id, "session id")?;
-    let owner_root = crate::paths::app_local_data_dir().join("composition-export");
+    let owner_root = crate::paths::app_runtime_local_data_dir().join("composition-export");
     let target = owner_root.join(session_id);
     if target.parent() != Some(owner_root.as_path()) {
         return Err("Composition temp directory escaped its owned root".to_string());
@@ -44,12 +46,48 @@ fn output_base_dir(config: &CompositionExportConfig) -> PathBuf {
     }
 }
 
+fn rendered_duration(result: &serde_json::Value, framerate: u32) -> Result<f64, String> {
+    let frames = result["frames"]
+        .as_u64()
+        .filter(|&frames| frames > 0)
+        .ok_or("Composition clip render did not return a valid frame count")?;
+    if framerate == 0 {
+        return Err("Composition framerate must be positive".to_string());
+    }
+    Ok(frames as f64 / framerate as f64)
+}
+
 fn build_single_clip_config(
     export: &CompositionExportConfig,
     clip: &CompositionExportClipJob,
     temp_output_dir: &Path,
     project_clip_start_sec: f64,
 ) -> ExportConfig {
+    // One clip keeps the project's source-time audio; a sequence slices its
+    // compact-time tracks into this clip's source time.
+    let window = ClipSequenceWindow::new(
+        project_clip_start_sec,
+        clip.trim_start,
+        clip.duration,
+        &clip.segment.trim_segments,
+    );
+    let sequence_audio = |segments: &[ImportedAudioSegmentConfig],
+                          points: &[super::config::DeviceAudioPoint]| {
+        if export.clips.len() == 1 {
+            (segments.to_vec(), points.to_vec())
+        } else {
+            (
+                slice_audio_for_clip(segments, &window),
+                slice_track_volume_points(points, &window),
+            )
+        }
+    };
+    let (audio_segments, audio_track_volume_points) =
+        sequence_audio(&export.audio_segments, &export.audio_track_volume_points);
+    let (narration_segments, narration_track_volume_points) = sequence_audio(
+        &export.narration_segments,
+        &export.narration_track_volume_points,
+    );
     ExportConfig {
         width: export.width,
         height: export.height,
@@ -72,134 +110,11 @@ fn build_single_clip_config(
         baked_path: None,
         baked_cursor_path: None,
         mouse_positions: clip.mouse_positions.clone(),
-        audio_segments: slice_audio_for_clip(
-            &export.audio_segments,
-            project_clip_start_sec,
-            clip.duration,
-        ),
-        audio_track_volume_points: slice_track_volume_points(
-            &export.audio_track_volume_points,
-            project_clip_start_sec,
-            clip.duration,
-        ),
-        narration_segments: slice_audio_for_clip(
-            &export.narration_segments,
-            project_clip_start_sec,
-            clip.duration,
-        ),
-        narration_track_volume_points: slice_track_volume_points(
-            &export.narration_track_volume_points,
-            project_clip_start_sec,
-            clip.duration,
-        ),
+        audio_segments,
+        audio_track_volume_points,
+        narration_segments,
+        narration_track_volume_points,
     }
-}
-
-/// Translate project-relative track volume points into clip-relative ones for
-/// the clip occupying `[clip_start, clip_start + clip_duration]`.
-pub(crate) fn slice_track_volume_points(
-    points: &[super::config::DeviceAudioPoint],
-    clip_start: f64,
-    clip_duration: f64,
-) -> Vec<super::config::DeviceAudioPoint> {
-    if clip_duration <= 0.0 || points.is_empty() {
-        return Vec::new();
-    }
-    fn volume_at(points: &[super::config::DeviceAudioPoint], time: f64) -> f64 {
-        if points.is_empty() {
-            return 1.0;
-        }
-        let idx = points.partition_point(|point| point.time < time);
-        if idx == 0 {
-            return points[0].volume;
-        }
-        if idx >= points.len() {
-            return points.last().map(|point| point.volume).unwrap_or(1.0);
-        }
-        let left = &points[idx - 1];
-        let right = &points[idx];
-        let ratio = ((time - left.time) / (right.time - left.time).max(0.0001)).clamp(0.0, 1.0);
-        let cos_t = (1.0 - (ratio * std::f64::consts::PI).cos()) / 2.0;
-        left.volume + (right.volume - left.volume) * cos_t
-    }
-
-    let mut sorted = points.to_vec();
-    sorted.sort_by(|a, b| {
-        a.time
-            .partial_cmp(&b.time)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut sliced = Vec::new();
-    sliced.push(super::config::DeviceAudioPoint {
-        time: 0.0,
-        volume: volume_at(&sorted, clip_start),
-    });
-    sliced.extend(sorted.iter().filter_map(|point| {
-        let local = point.time - clip_start;
-        if local <= 0.0001 || local >= clip_duration - 0.0001 {
-            None
-        } else {
-            Some(super::config::DeviceAudioPoint {
-                time: local,
-                volume: point.volume,
-            })
-        }
-    }));
-    sliced.push(super::config::DeviceAudioPoint {
-        time: clip_duration,
-        volume: volume_at(&sorted, clip_start + clip_duration),
-    });
-    sliced
-}
-
-/// Convert project-relative audio segments to clip-relative ones for the
-/// clip occupying `[clip_start, clip_start + clip_duration]` on the project
-/// timeline. Audio segments fully outside the clip are dropped; partial
-/// overlaps are trimmed to the clip range with adjusted in/out points.
-pub(crate) fn slice_audio_for_clip(
-    project_segments: &[ImportedAudioSegmentConfig],
-    clip_start: f64,
-    clip_duration: f64,
-) -> Vec<ImportedAudioSegmentConfig> {
-    if clip_duration <= 0.0 || project_segments.is_empty() {
-        return Vec::new();
-    }
-    let clip_end = clip_start + clip_duration;
-    let mut out = Vec::new();
-    for seg in project_segments {
-        let trimmed_len = (seg.out_point - seg.in_point).max(0.0);
-        if trimmed_len <= 0.0 || seg.raw_audio_path.trim().is_empty() {
-            continue;
-        }
-        let rate = if seg.playback_rate > 0.0001 {
-            seg.playback_rate
-        } else {
-            1.0
-        };
-        let timeline_len = trimmed_len / rate;
-        let seg_proj_start = seg.start_time;
-        let seg_proj_end = seg_proj_start + timeline_len;
-        let overlap_start = seg_proj_start.max(clip_start);
-        let overlap_end = seg_proj_end.min(clip_end);
-        if overlap_end - overlap_start <= 0.0001 {
-            continue;
-        }
-        let local_start = overlap_start - clip_start;
-        let in_offset = (overlap_start - seg_proj_start) * rate;
-        let local_in = seg.in_point + in_offset.max(0.0);
-        let local_out = local_in + (overlap_end - overlap_start) * rate;
-        out.push(ImportedAudioSegmentConfig {
-            raw_audio_path: seg.raw_audio_path.clone(),
-            duration: seg.duration,
-            start_time: local_start,
-            in_point: local_in,
-            out_point: local_out.min(seg.out_point),
-            volume_points: seg.volume_points.clone(),
-            playback_rate: seg.playback_rate,
-        });
-    }
-    out
 }
 
 fn cleanup_file(path: &Path) {
@@ -208,7 +123,6 @@ fn cleanup_file(path: &Path) {
 
 pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     let _active_export_guard = super::ExportActiveGuard::activate()?;
-    super::EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
     let export: CompositionExportConfig = parse_json_with_path(args)?;
     export.validate()?;
@@ -291,7 +205,7 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
             if render_result["status"].as_str() == Some("cancelled") {
                 return Ok(json!({ "status": "cancelled" }));
             }
-            if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+            if super::export_user_cancelled() {
                 return Ok(json!({ "status": "cancelled" }));
             }
 
@@ -299,10 +213,10 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
                 .as_str()
                 .ok_or("Composition clip render did not return an output path")?;
             rendered_clip_paths.push(PathBuf::from(rendered_path));
-            rendered_clip_durations.push(clip.duration.max(0.0));
+            rendered_clip_durations.push(rendered_duration(&render_result, export.framerate)?);
         }
 
-        if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+        if super::export_user_cancelled() {
             return Ok(json!({ "status": "cancelled" }));
         }
 
@@ -329,7 +243,17 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
                 duration_sec: *duration_sec,
             })
             .collect();
-        stitch_clips_to_mp4(
+        let report_stitch_progress = |fraction: f64| {
+            push_export_progress_update(ExportProgressUpdate {
+                percent: render_phase_end + (concat_phase_end - render_phase_end) * fraction,
+                eta: 0.0,
+                phase: Some("concat"),
+                clip_index: None,
+                clip_count: Some(clip_count),
+                clip_name: None,
+            });
+        };
+        let stitched = stitch_clips_to_mp4(
             &stitch_clips,
             concat_target,
             &StitchConfig {
@@ -338,12 +262,17 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
                 framerate: export.framerate,
                 bitrate_kbps: export.target_video_bitrate_kbps,
             },
-        )?;
+            &StitchObserver {
+                cancelled: &super::export_user_cancelled,
+                progress: &report_stitch_progress,
+            },
+        );
+        stitched?;
         for path in &rendered_clip_paths {
             cleanup_file(path);
         }
 
-        if super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+        if super::export_user_cancelled() {
             return Ok(json!({ "status": "cancelled" }));
         }
 
@@ -398,7 +327,7 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
         }))
     })();
 
-    if result.is_err() || super::EXPORT_CANCELLED.load(Ordering::SeqCst) {
+    if result.is_err() || super::export_user_cancelled() {
         cleanup_file(&final_mp4_path);
         cleanup_file(&final_gif_path);
         cleanup_file(&merged_temp_mp4);
@@ -408,7 +337,18 @@ pub fn start_composition_export(args: serde_json::Value) -> Result<serde_json::V
     }
     staging::clear_session(&export.session_id);
 
-    result
+    settle_composition_result(result, super::export_user_cancelled())
+}
+
+/// A composition that unwound with an error (a clip render, the stitch, GIF
+/// conversion) is classified like a single-clip export: it is a cancellation
+/// only when the user asked for one, never because an internal failure raised
+/// the shared abort flag.
+fn settle_composition_result(
+    result: Result<serde_json::Value, String>,
+    user_cancelled: bool,
+) -> Result<serde_json::Value, String> {
+    result.or_else(|error| super::pipeline_build::classify_unwound_export(error, user_cancelled))
 }
 
 fn parse_json_with_path<T: DeserializeOwned>(args: serde_json::Value) -> Result<T, String> {
@@ -417,4 +357,116 @@ fn parse_json_with_path<T: DeserializeOwned>(args: serde_json::Value) -> Result<
     let mut deserializer = serde_json::Deserializer::from_str(&json);
     serde_path_to_error::deserialize(&mut deserializer)
         .map_err(|error| format!("{} at {}", error.inner(), error.path()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stitch_failures_are_errors_unless_the_user_cancelled() {
+        let cancelled_stitch = Err(super::super::native_stitch::STITCH_CANCELLED.to_string());
+        assert_eq!(
+            settle_composition_result(cancelled_stitch, true).unwrap()["status"],
+            "cancelled"
+        );
+        let encode_failure = Err("Stitch encoder rejected frame 12".to_string());
+        assert_eq!(
+            settle_composition_result(encode_failure, false),
+            Err("Stitch encoder rejected frame 12".to_string())
+        );
+        let finished = Ok(json!({ "status": "success", "path": "out.mp4" }));
+        assert_eq!(
+            settle_composition_result(finished, true).unwrap()["status"],
+            "success"
+        );
+    }
+
+    #[test]
+    fn both_format_single_clip_keeps_source_time_audio() {
+        let export: CompositionExportConfig = serde_json::from_value(json!({
+            "sessionId": "single", "width": 100, "height": 100,
+            "framerate": 30, "format": "both", "clips": [{
+                "jobId": "one", "clipId": "one", "clipName": "One",
+                "sourceVideoPath": "video.mp4", "trimStart": 8, "duration": 2,
+                "segment": {"crop": null, "cursorVisibilitySegments": null,
+                    "trimSegments": [{"startTime": 8, "endTime": 10}]},
+                "backgroundConfig": {"scale": 100, "borderRadius": 0,
+                    "backgroundType": "solid", "shadow": 0, "cursorScale": 1}
+            }],
+            "audioSegments": [{"rawAudioPath": "music.wav", "duration": 1,
+                "startTime": 8, "inPoint": 0, "outPoint": 1}],
+            "audioTrackVolumePoints": [{"time": 8, "volume": 0.4}],
+            "narrationSegments": [{"rawAudioPath": "speech.wav", "duration": 1,
+                "startTime": 9, "inPoint": 0, "outPoint": 1}],
+            "narrationTrackVolumePoints": [{"time": 9, "volume": 0.6}]
+        }))
+        .unwrap();
+        let clip = build_single_clip_config(&export, &export.clips[0], Path::new("."), 0.0);
+        assert_eq!(clip.audio_segments.len(), 1);
+        assert_eq!(clip.audio_segments[0].start_time, 8.0);
+        assert_eq!(clip.audio_track_volume_points[0].time, 8.0);
+        assert_eq!(clip.narration_segments.len(), 1);
+        assert_eq!(clip.narration_segments[0].start_time, 9.0);
+        assert_eq!(clip.narration_track_volume_points[0].time, 9.0);
+    }
+
+    #[test]
+    fn sequence_audio_lands_at_the_clip_source_time_it_plays_over() {
+        // Clip two keeps source 3..5 and 7..9: sequence 2..4 and 4..6. Music
+        // at sequence 2.5..5.5 plays over source 3.5..5 and then 7..8.5.
+        let clip = |id: &str, trims: serde_json::Value, trim_start: f64, duration: f64| {
+            json!({"jobId": id, "clipId": id, "clipName": id,
+                "sourceVideoPath": "video.mp4", "trimStart": trim_start, "duration": duration,
+                "segment": {"crop": null, "cursorVisibilitySegments": null, "trimSegments": trims},
+                "backgroundConfig": {"scale": 100, "borderRadius": 0,
+                    "backgroundType": "solid", "shadow": 0, "cursorScale": 1}})
+        };
+        let export: CompositionExportConfig = serde_json::from_value(json!({
+            "sessionId": "sequence", "width": 100, "height": 100, "framerate": 30, "format": "mp4",
+            "clips": [
+                clip("one", json!([{"startTime": 0, "endTime": 2}]), 0.0, 2.0),
+                clip("two", json!([{"startTime": 3, "endTime": 5},
+                    {"startTime": 7, "endTime": 9}]), 3.0, 4.0),
+            ],
+            "audioSegments": [{"rawAudioPath": "music.wav", "duration": 3,
+                "startTime": 2.5, "inPoint": 0, "outPoint": 3}],
+            "audioTrackVolumePoints": [{"time": 2, "volume": 0.2},
+                {"time": 4.5, "volume": 0.8}, {"time": 6, "volume": 0.8}]
+        }))
+        .unwrap();
+        let config = build_single_clip_config(&export, &export.clips[1], Path::new("."), 2.0);
+        let pieces: Vec<(f64, f64, f64)> = config
+            .audio_segments
+            .iter()
+            .map(|piece| (piece.start_time, piece.in_point, piece.out_point))
+            .collect();
+        assert_eq!(pieces, [(3.5, 0.0, 1.5), (7.0, 1.5, 3.0)]);
+        let volume = &config.audio_track_volume_points;
+        assert_eq!(volume.first().map(|point| point.time), Some(3.0));
+        assert!(
+            volume
+                .iter()
+                .any(|point| point.time == 7.5 && point.volume == 0.8),
+            "the sequence 4.5 s point plays at source 7.5 s"
+        );
+    }
+
+    #[test]
+    fn stitch_durations_follow_rendered_frames() {
+        // Both clips cover ten seconds of source, but their rendered lengths
+        // differ when playback speed changes.
+        let slow = rendered_duration(&json!({ "frames": 600 }), 30).unwrap();
+        let fast = rendered_duration(&json!({ "frames": 150 }), 30).unwrap();
+        assert_eq!(slow, 20.0);
+        assert_eq!(fast, 5.0);
+        assert_eq!(((slow + fast) * 30.0).round() as u64, 750);
+    }
+
+    #[test]
+    fn stitch_duration_rejects_missing_or_invalid_render_metadata() {
+        assert!(rendered_duration(&json!({}), 30).is_err());
+        assert!(rendered_duration(&json!({ "frames": 0 }), 30).is_err());
+        assert!(rendered_duration(&json!({ "frames": 1 }), 0).is_err());
+    }
 }

@@ -60,7 +60,7 @@ internal class PresetUiAcceptanceSupport : AutoCloseable {
     }
 
     fun preset(type: PresetType = PresetType.TEXT_INPUT): String = main {
-        repository.createCustomPreset(type, "en").also { id ->
+        requireNotNull(repository.createCustomPreset(type, "en")).also { id ->
             created += id
             repository.updateBuiltInOverride(id) { it.copy(
                 nameEn = "Parity input", isFavorite = true, continuousInput = false,

@@ -45,6 +45,18 @@ impl NativeSurface {
 }
 
 impl Surface for NativeSurface {
+    fn prepare_input(
+        &mut self,
+        verb: Verb,
+        act: &ActCtx,
+        expected: &SurfaceIdentity,
+    ) -> Result<()> {
+        if activation_may_focus(verb, act.dry) {
+            self.focus_for_input(expected)?;
+        }
+        Ok(())
+    }
+
     fn identity(&mut self) -> Result<SurfaceIdentity> {
         let (hwnd, pid, generation) = uia::current_native_identity(self.target.as_deref())?;
         Ok(SurfaceIdentity::Native {
@@ -106,9 +118,9 @@ impl Surface for NativeSurface {
             runtime_id,
         };
         // A dry activation is a capability probe only. In particular it must not
-        // foreground a pinned window. Every effectful path still verifies and,
-        // when explicitly pinned, raises the observed target before its own
-        // final dispatch-edge identity guard.
+        // foreground a pinned window. prepare_input raised the pinned target
+        // before the pre-action snapshot; re-checking here keeps the
+        // dispatch-edge guard, and only raises again if focus was taken since.
         if activation_may_focus(verb, act.dry) {
             self.focus_for_input(expected)?;
         }
@@ -131,7 +143,8 @@ impl Surface for NativeSurface {
                         ),
                         act.profile,
                         act.cancel,
-                    ))?;
+                    ))
+                    .map_err(after_prior_native_input)?;
                     ensure_identity(self, expected)?;
                     let typed = checked_execution(executor::execute_ex(
                         "type_text",
@@ -142,7 +155,8 @@ impl Surface for NativeSurface {
                         ),
                         act.profile,
                         act.cancel,
-                    ))?;
+                    ))
+                    .map_err(after_prior_native_input)?;
                     return Ok(
                         json!({"ok": true, "focus": focus, "select_all": select_all, "typed": typed}),
                     );
@@ -157,12 +171,51 @@ impl Surface for NativeSurface {
         }
     }
 
-    fn read_back(&mut self, el: &IndexedElement) -> ReadBack {
-        let ElHandle::Native { cx, cy, .. } = el.handle else {
+    fn read_back(&mut self, el: &IndexedElement, expected: &SurfaceIdentity) -> ReadBack {
+        let ElHandle::Native {
+            cx,
+            cy,
+            ref provider_name,
+            ref automation_id,
+            ref runtime_id,
+        } = el.handle
+        else {
             return ReadBack::default();
         };
+        if uia::validate_native_provider_ownership().is_err()
+            || !self.identity().is_ok_and(|id| id == *expected)
+            || !identity_from_snapshot(&uia::input_target_snapshot())
+                .is_ok_and(|id| id == *expected)
+        {
+            return ReadBack::default();
+        }
+        let result = uia::read_value_at(
+            cx,
+            cy,
+            uia::ExpectedNativeElement {
+                role: &el.role,
+                provider_name,
+                automation_id,
+                runtime_id,
+            },
+            el.protected,
+        );
+        if uia::validate_native_provider_ownership().is_err()
+            || !self.identity().is_ok_and(|id| id == *expected)
+            || !identity_from_snapshot(&uia::input_target_snapshot())
+                .is_ok_and(|id| id == *expected)
+        {
+            return ReadBack::default();
+        }
+        let (value, protected) = match result {
+            Some(uia::ReadValue::Value(value)) => (Some(value), false),
+            Some(uia::ReadValue::Protected) => (None, true),
+            None => (None, false),
+        };
         ReadBack {
-            value: uia::read_value_at(cx, cy),
+            value,
+            protected,
+            selected_text: None,
             validity: None,
         }
     }
@@ -338,34 +391,27 @@ fn checked_execution(value: Value) -> Result<Value> {
     if value.get("ok").and_then(Value::as_bool) == Some(false)
         || value.get("cancelled").and_then(Value::as_bool) == Some(true)
     {
-        anyhow::bail!(
-            "{}",
-            value
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("native input was not fully executed")
-        );
+        let mut value = value;
+        value["dispatch_ok"] = json!(false);
+        if value.get("effect_may_have_occurred").is_none() {
+            value["effect_may_have_occurred"] = json!(true);
+        }
+        return Err(NativeActionFailure(value).into());
     }
     Ok(value)
 }
 
-/// Map a UIA control type to the model-facing role, or `None` for non-actionable
-/// containers (Text/Image/Pane/Group/Window — Text is used only for label pairing).
-fn interactive_role(ct: &str) -> Option<&'static str> {
-    Some(match ct {
-        "Edit" | "Document" => "textbox",
-        "Button" | "SplitButton" => "button",
-        "Hyperlink" => "link",
-        "CheckBox" => "checkbox",
-        "RadioButton" => "radio",
-        "ComboBox" => "combobox",
-        "Slider" => "slider",
-        "TabItem" => "tab",
-        "MenuItem" => "menuitem",
-        "ListItem" => "listitem",
-        "TreeItem" => "treeitem",
-        _ => return None,
-    })
+fn after_prior_native_input(error: anyhow::Error) -> anyhow::Error {
+    if let Some(mut receipt) = typed_value(&error) {
+        // Focusing and selecting text already sent input even if the next step
+        // failed before dispatch. Do not report the entire fill as no-effect.
+        receipt["prior_input_dispatched"] = json!(true);
+        receipt["effect_may_have_occurred"] = json!(true);
+        receipt["retryable"] = json!(false);
+        NativeActionFailure(receipt).into()
+    } else {
+        error
+    }
 }
 
 /// The label text nearest to (and outside) `e` — preferring a Text just to its
@@ -405,7 +451,7 @@ pub(super) fn build_world(els: &[UiElement], identity: SurfaceIdentity) -> World
     let mut out = Vec::new();
     let mut id = 0u32;
     for e in els {
-        let Some(role) = interactive_role(e.control_type) else {
+        let Some(role) = uia::control_types::role_for_name(e.control_type) else {
             continue;
         };
         let mut name = e.name.trim().to_string();
@@ -413,7 +459,12 @@ pub(super) fn build_world(els: &[UiElement], identity: SurfaceIdentity) -> World
             name = nearest_label(e, &labels).unwrap_or_default();
         }
         // Drop anonymous noise: no name, no value, no state, and not a text field.
-        if name.is_empty() && e.value.is_none() && e.state.is_none() && role != "textbox" {
+        if name.is_empty()
+            && e.value.text.is_none()
+            && !e.value.supported
+            && e.state.is_none()
+            && role != "textbox"
+        {
             continue;
         }
         id += 1;
@@ -422,9 +473,21 @@ pub(super) fn build_world(els: &[UiElement], identity: SurfaceIdentity) -> World
             id,
             role: role.to_string(),
             name,
-            value: e.value.clone(),
-            editable: role == "textbox" || (role == "combobox" && e.value.is_some()),
-            state: e.state.clone(),
+            value: None,
+            value_preview: e.value.text.clone(),
+            editable: (role == "textbox" && !e.value.supported)
+                || (matches!(role, "textbox" | "combobox") && e.value.writable),
+            protected: e.protected,
+            state: Some(format!(
+                "{}{}",
+                e.state.as_deref().unwrap_or_default(),
+                if e.value.incomplete {
+                    " value·unobserved-or-truncated"
+                } else {
+                    ""
+                }
+            ))
+            .filter(|state| !state.is_empty()),
             enabled: e.enabled,
             required: e.required,
             submit: false, // no language-neutral submit signal on the desktop
@@ -451,118 +514,4 @@ pub(super) fn build_world(els: &[UiElement], identity: SurfaceIdentity) -> World
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unsupported_activation_keeps_zero_effect_evidence() {
-        let failure = native_activation_failure(uia::ActivationError::test_failure(
-            uia::FailureKind::Unsupported,
-            false,
-        ));
-        assert_eq!(failure.0["code"], "ERR_NATIVE_ACTIVATION_UNSUPPORTED");
-        assert_eq!(failure.0["effect_may_have_occurred"], false);
-
-        let transported: anyhow::Error = failure.into();
-        let typed = typed_value(&transported).expect("typed native failure");
-        assert_eq!(typed["dispatch_ok"], false);
-        assert_eq!(typed["effect_may_have_occurred"], false);
-    }
-
-    #[test]
-    fn activation_failure_typing_preserves_stage_and_effect_boundary() {
-        for (kind, code) in [
-            (uia::FailureKind::Setup, "ERR_NATIVE_ACTIVATION_SETUP"),
-            (
-                uia::FailureKind::TargetQuery,
-                "ERR_NATIVE_ACTIVATION_TARGET_QUERY",
-            ),
-            (
-                uia::FailureKind::CapabilityQuery,
-                "ERR_NATIVE_ACTIVATION_CAPABILITY_QUERY",
-            ),
-            (
-                uia::FailureKind::Cancelled,
-                "ERR_NATIVE_ACTIVATION_CANCELLED",
-            ),
-            (uia::FailureKind::StaleTarget, "ERR_NATIVE_STALE_TARGET"),
-        ] {
-            let failure =
-                native_activation_failure(uia::ActivationError::test_failure(kind, false));
-            assert_eq!(failure.0["code"], code);
-            assert_eq!(failure.0["effect_may_have_occurred"], false);
-        }
-
-        let dispatched = native_activation_failure(uia::ActivationError::test_failure(
-            uia::FailureKind::Dispatch,
-            true,
-        ));
-        assert_eq!(dispatched.0["code"], "ERR_NATIVE_ACTIVATION_FAILED");
-        assert_eq!(dispatched.0["effect_may_have_occurred"], true);
-    }
-
-    #[test]
-    fn dry_activation_never_foregrounds_a_window() {
-        assert!(!activation_may_focus(Verb::Activate, true));
-        assert!(activation_may_focus(Verb::Activate, false));
-    }
-
-    #[test]
-    fn native_select_is_rejected_before_execution() {
-        let element = IndexedElement {
-            id: 1,
-            role: "combobox".to_string(),
-            name: "choice".to_string(),
-            value: None,
-            editable: false,
-            state: None,
-            enabled: true,
-            required: false,
-            submit: false,
-            form: None,
-            risk: None,
-            handle: ElHandle::Native {
-                cx: 10,
-                cy: 10,
-                provider_name: "choice".to_string(),
-                automation_id: "choice-id".to_string(),
-                runtime_id: vec![1, 10],
-            },
-        };
-
-        assert!(
-            NativeSurface::new(None)
-                .validate(&element, Verb::Select, Some("option"))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn fill_keyboard_guard_retains_exact_clicked_element_identity() {
-        let identity = SurfaceIdentity::Native {
-            hwnd: 41,
-            pid: 73,
-            generation: 5,
-        };
-        let args = guarded_args(
-            json!({"text": "replacement"}),
-            &identity,
-            Some((
-                12,
-                34,
-                uia::ExpectedNativeElement {
-                    role: "textbox",
-                    provider_name: "Query",
-                    automation_id: "query-input",
-                    runtime_id: &[42, 7],
-                },
-            )),
-        );
-        let element = &args["expected_input_target"]["element"];
-        assert_eq!(element["screen_px"], json!([12, 34]));
-        assert_eq!(element["role"], "textbox");
-        assert_eq!(element["provider_name"], "Query");
-        assert_eq!(element["automation_id"], "query-input");
-        assert_eq!(element["runtime_id"], json!([42, 7]));
-    }
-}
+mod tests;

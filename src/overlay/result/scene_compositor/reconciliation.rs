@@ -3,6 +3,10 @@ use std::sync::{LazyLock, Mutex};
 
 pub(super) const CONVERGENCE_TIMEOUT_MS: u64 = 1_500;
 const MAX_PENDING_BATCHES: usize = 4096;
+/// The renderer withholds acknowledgements while it rebases onto a new
+/// desktop origin and exits on its own after five seconds; the parent allows
+/// that budget plus a margin before it treats the hold itself as a failure.
+const TOPOLOGY_HOLD_LIMIT_MS: u64 = 6_000;
 
 #[derive(Default)]
 struct Reconciliation {
@@ -10,6 +14,7 @@ struct Reconciliation {
     applied: u64,
     pending: VecDeque<(u64, u64)>,
     overflowed: bool,
+    held_since: Option<u64>,
 }
 
 impl Reconciliation {
@@ -36,7 +41,22 @@ impl Reconciliation {
         }
     }
 
+    fn hold_for_topology(&mut self, active: bool, now: u64) {
+        if active {
+            self.held_since.get_or_insert(now);
+        } else if self.held_since.take().is_some() {
+            // Held acknowledgements are released together with this event;
+            // batches queued during the hold get a full deadline from here.
+            for (_, queued) in &mut self.pending {
+                *queued = (*queued).max(now);
+            }
+        }
+    }
+
     fn converging(&self, now: u64) -> bool {
+        if let Some(since) = self.held_since {
+            return now.saturating_sub(since) <= TOPOLOGY_HOLD_LIMIT_MS;
+        }
         !self.overflowed
             && self
                 .pending
@@ -49,6 +69,7 @@ impl Reconciliation {
         self.applied = self.issued;
         self.pending.clear();
         self.overflowed = false;
+        self.held_since = None;
     }
 }
 
@@ -61,6 +82,13 @@ pub(super) fn advance_revision() -> u64 {
 
 pub(super) fn acknowledge_revision(revision: u64) {
     TRACKER.lock().unwrap().acknowledge(revision);
+}
+
+pub(super) fn hold_for_topology(active: bool) {
+    TRACKER
+        .lock()
+        .unwrap()
+        .hold_for_topology(active, super::supervisor::now_ms());
 }
 
 pub(super) fn check_convergence(now_ms: u64) -> bool {
@@ -128,6 +156,31 @@ mod tests {
         assert!(state.queue(10) > old);
         state.acknowledge(old);
         assert!(!state.converging(1511));
+    }
+
+    #[test]
+    fn a_topology_rebase_suspends_the_deadline_until_it_releases() {
+        let mut state = Reconciliation::default();
+        state.queue(0);
+        state.hold_for_topology(true, 500);
+        state.queue(1000);
+        assert!(state.converging(4000));
+        state.hold_for_topology(true, 4000);
+        assert!(state.converging(6500));
+        state.hold_for_topology(false, 4500);
+        assert!(state.converging(6000));
+        assert!(!state.converging(6001));
+    }
+
+    #[test]
+    fn a_topology_hold_that_never_releases_still_fails() {
+        let mut state = Reconciliation::default();
+        state.queue(0);
+        state.hold_for_topology(true, 100);
+        assert!(state.converging(100 + TOPOLOGY_HOLD_LIMIT_MS));
+        assert!(!state.converging(101 + TOPOLOGY_HOLD_LIMIT_MS));
+        state.reset();
+        assert!(state.converging(100_000));
     }
 
     #[test]

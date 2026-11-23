@@ -294,7 +294,7 @@ internal class VisualGroundingToolHandlers(context: Context) {
         lease: AccessibilitySurfaceLease,
     ): VisualGroundingResult.Failure? {
         val observation = when (
-            val result = PhoneControlAccessibilityProvider.observe(maxElements = 1)
+            val result = PhoneControlAccessibilityProvider.observeForVisual(maxElements = 1)
         ) {
             is AccessibilityProviderResult.Failure -> return VisualGroundingResult.Failure(
                 result.code,

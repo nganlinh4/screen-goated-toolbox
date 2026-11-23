@@ -6,12 +6,12 @@ import org.json.JSONObject
 
 internal fun isExternalNavigationUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
-    return url.startsWith("http://") || url.startsWith("https://")
+    return !isTrustedResultUrl(url) && (url.startsWith("http://") || url.startsWith("https://"))
 }
 
 internal fun isInternalResultUrl(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
-    return url.startsWith("file:///android_asset/preset_overlay/") || url.startsWith("about:")
+    return isTrustedResultUrl(url) || url.startsWith("file:///android_asset/preset_overlay/") || url.startsWith("about:")
 }
 
 internal fun String.jsonOrNull(): JSONObject? = runCatching { JSONObject(this) }.getOrNull()
@@ -39,12 +39,18 @@ internal fun escapeHtml(value: String): String {
         .replace("'", "&#39;")
 }
 
-internal fun loadingHtml(@Suppress("UNUSED_PARAMETER") statusText: String): String {
-    return """
-        <div class="sgt-loading-shell">
-            <canvas id="sgt-m3e-canvas" aria-hidden="true"></canvas>
-        </div>
-    """.trimIndent()
+/**
+ * The loading view. A status (a retry on another model, a refine) is shown
+ * under the animation, as Windows replaces the window text with it; the
+ * plain initial load shows only the animation.
+ */
+internal fun loadingHtml(statusText: String?): String {
+    val status = statusText?.trim()?.takeIf(String::isNotEmpty)
+        ?.let { "<div class=\"sgt-loading-status\" role=\"status\">${escapeHtml(it)}</div>" }
+        .orEmpty()
+    return "<div class=\"sgt-loading-shell\">" +
+        "<canvas id=\"sgt-m3e-canvas\" aria-hidden=\"true\"></canvas>$status" +
+        "</div>"
 }
 
 internal fun errorHtml(error: String): String {

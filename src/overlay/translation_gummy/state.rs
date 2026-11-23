@@ -1,11 +1,16 @@
 use std::sync::{LazyLock, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::TranslationGummySettings;
 use crate::gui::locale::LocaleText;
 
 use super::{TranslationGummyConnectionState, TranslationGummyTranscriptItem};
+pub(super) mod meter;
+pub(super) use meter::publish_audio_level;
+mod persistence;
+use persistence::load_persisted_transcripts;
+pub(super) use persistence::persist_transcripts;
 
 static UI_STATE: LazyLock<Mutex<UiState>> = LazyLock::new(|| Mutex::new(UiState::from_config()));
 
@@ -43,13 +48,34 @@ impl UiState {
         self.applied = self.applied.normalized();
         self.draft = self.draft.normalized();
         self.dirty = self.draft != self.applied;
-        self.audio_level = self.audio_level.clamp(0.0, 1.0);
+        self.audio_level = meter::normalized_level(self.is_running, self.audio_level);
         if !self.applied.is_valid() && !self.is_running {
             self.connection_state = TranslationGummyConnectionState::NotConfigured;
         }
-        if !self.is_running {
-            self.audio_level = 0.0;
+    }
+
+    pub(super) fn insert_session_separator(
+        &mut self,
+        next_id: impl FnOnce() -> u64,
+        text: impl FnOnce() -> String,
+    ) {
+        if self.transcripts.is_empty()
+            || self
+                .transcripts
+                .last()
+                .is_some_and(|item| item.role == "separator")
+        {
+            return;
         }
+        self.transcripts.push(TranslationGummyTranscriptItem {
+            id: next_id(),
+            role: "separator",
+            text: text(),
+            is_final: true,
+            lang: String::new(),
+        });
+        prune_transcripts(&mut self.transcripts, self.applied.max_transcript_items);
+        self.last_error = None;
     }
 }
 
@@ -71,6 +97,8 @@ struct WebPayload {
     transcripts: Vec<TranslationGummyTranscriptItem>,
     transcript_limit: usize,
     guide_seen: bool,
+    volume_percent: u32,
+    volume_restore_percent: u32,
     tts_model: String,
     tts_voice: String,
     strings: WebStrings,
@@ -126,30 +154,10 @@ pub(super) fn refresh_from_config() {
 
 pub(super) fn insert_session_separator() {
     with_state(|state| {
-        // Don't insert separator if transcripts are empty or last item is already a separator
-        if state.transcripts.is_empty()
-            || state
-                .transcripts
-                .last()
-                .map(|t| t.role == "separator")
-                .unwrap_or(false)
-        {
-            return;
-        }
-        let now = chrono::Local::now().format("%H:%M").to_string();
-        state
-            .transcripts
-            .push(super::TranslationGummyTranscriptItem {
-                id: super::runtime::next_transcript_id(),
-                role: "separator",
-                text: now,
-                is_final: true,
-                lang: String::new(),
-            });
-        prune_transcripts(&mut state.transcripts, state.applied.max_transcript_items);
-        state.last_error = None;
+        state.insert_session_separator(super::runtime::next_transcript_id, || {
+            chrono::Local::now().format("%H:%M").to_string()
+        });
     });
-    persist_transcripts();
 }
 
 pub(super) fn publish_connection(
@@ -183,21 +191,14 @@ pub(super) fn publish_error(
     });
 }
 
-pub(super) fn publish_audio_level(level: f32) {
-    with_state(|state| {
-        state.audio_level = level.clamp(0.0, 1.0);
-        state.normalize();
-    });
-}
-
-fn detect_lang(text: &str) -> String {
-    crate::lang_detect::detect_language(text).unwrap_or_default()
-}
-
-pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool) {
+pub(super) fn upsert_transcript(
+    role: &'static str,
+    text: String,
+    is_final: bool,
+) -> Vec<(u64, String)> {
     let text = text.trim();
     if text.is_empty() {
-        return;
+        return Vec::new();
     }
     with_state(|state| {
         let dominated_by_same = state
@@ -214,13 +215,9 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
         {
             existing.text = merge_transcript_text(&existing.text, text);
             existing.is_final = is_final;
-            // Only detect language on complete text — partial streaming fragments
-            // are too short for reliable language detection
             if is_final {
-                let detected = detect_lang(&existing.text);
-                if !detected.is_empty() {
-                    existing.lang = detected;
-                }
+                existing.lang.clear();
+                return vec![(existing.id, existing.text.clone())];
             }
         }
         // If no unfinal item, check if the last item of same role was JUST finalized
@@ -233,45 +230,43 @@ pub(super) fn upsert_transcript(role: &'static str, text: String, is_final: bool
             .filter(|_| dominated_by_same)
         {
             last_same.text = merge_transcript_text(&last_same.text, text);
-            let detected = detect_lang(&last_same.text);
-            if !detected.is_empty() {
-                last_same.lang = detected;
-            }
+            last_same.lang.clear();
+            return vec![(last_same.id, last_same.text.clone())];
         } else {
-            // New item — only detect if already final (single-shot transcript)
-            let lang = if is_final {
-                detect_lang(text)
-            } else {
-                String::new()
-            };
             state.transcripts.push(TranslationGummyTranscriptItem {
                 id: super::runtime::next_transcript_id(),
                 role,
                 text: text.to_string(),
                 is_final,
-                lang,
+                lang: String::new(),
             });
             prune_transcripts(&mut state.transcripts, state.applied.max_transcript_items);
         }
-    });
+        if is_final {
+            state
+                .transcripts
+                .last()
+                .map(|item| vec![(item.id, item.text.clone())])
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    })
 }
 
-pub(super) fn finalize_transcripts() {
+pub(super) fn finalize_transcripts() -> Vec<(u64, String)> {
     with_state(|state| {
+        let mut pending = Vec::new();
         for item in &mut state.transcripts {
             if !item.is_final {
                 item.is_final = true;
-                // Detect language on the now-complete text
                 if item.lang.is_empty() {
-                    let detected = detect_lang(&item.text);
-                    if !detected.is_empty() {
-                        item.lang = detected;
-                    }
+                    pending.push((item.id, item.text.clone()));
                 }
             }
         }
-    });
-    persist_transcripts();
+        pending
+    })
 }
 
 pub(super) fn set_transcript_limit(limit: usize) {
@@ -345,17 +340,7 @@ fn collapse_separators(items: &mut Vec<TranslationGummyTranscriptItem>) {
 }
 
 pub(super) fn request_sync() {
-    unsafe {
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                Some(hwnd.0),
-                super::WM_APP_SYNC,
-                windows::Win32::Foundation::WPARAM(0),
-                windows::Win32::Foundation::LPARAM(0),
-            );
-        }
-    }
+    meter::request_state_sync();
 }
 
 pub(super) fn payload_json() -> Option<String> {
@@ -363,6 +348,7 @@ pub(super) fn payload_json() -> Option<String> {
     let text = LocaleText::get(&ui_language);
     let dark_mode = crate::overlay::is_dark_mode();
     let state = snapshot();
+    let volume = super::volume::OUTPUT_VOLUME.snapshot();
     let payload = WebPayload {
         dark_mode,
         status_label: super::status_label(&text, state.connection_state).to_string(),
@@ -380,6 +366,10 @@ pub(super) fn payload_json() -> Option<String> {
                 .translation_gummy
                 .translation_gummy_api_key_required
                 .to_string(),
+            "connection_lost" => text
+                .translation_gummy
+                .translation_gummy_status_error
+                .to_string(),
             _ => err,
         }),
         transcripts: state.transcripts.clone(),
@@ -388,6 +378,8 @@ pub(super) fn payload_json() -> Option<String> {
             .lock()
             .map(|a| a.config.translation_gummy.guide_seen)
             .unwrap_or(true),
+        volume_percent: volume.percent,
+        volume_restore_percent: volume.restore_percent,
         tts_model: {
             let (m, _) = super::runtime::current_gemini_tts_settings();
             m
@@ -511,82 +503,6 @@ fn merge_transcript_text(existing: &str, incoming: &str) -> String {
         return format!("{current}{next}");
     }
     format!("{current} {next}")
-}
-
-// ── Transcript persistence ──────────────────────────────────────────────────
-
-#[derive(Serialize, Deserialize)]
-struct PersistedTranscript {
-    role: String,
-    text: String,
-    lang: String,
-}
-
-fn transcripts_path() -> std::path::PathBuf {
-    let dir = crate::paths::app_config_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("translation_gummy_transcripts.json")
-}
-
-fn legacy_transcripts_path() -> std::path::PathBuf {
-    let dir = crate::paths::app_config_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("bilingual_relay_transcripts.json")
-}
-
-pub(super) fn persist_transcripts() {
-    let items: Vec<PersistedTranscript> = {
-        let state = UI_STATE.lock().unwrap();
-        state
-            .transcripts
-            .iter()
-            .filter(|t| t.is_final)
-            .map(|t| PersistedTranscript {
-                role: t.role.to_string(),
-                text: t.text.clone(),
-                lang: t.lang.clone(),
-            })
-            .collect()
-    };
-    if let Ok(json) = serde_json::to_string(&items) {
-        let _ = std::fs::write(transcripts_path(), json);
-    }
-}
-
-fn load_persisted_transcripts(limit: usize) -> Vec<TranslationGummyTranscriptItem> {
-    let path = if transcripts_path().exists() {
-        transcripts_path()
-    } else {
-        legacy_transcripts_path()
-    };
-    let data = match std::fs::read_to_string(&path) {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
-    };
-    let items: Vec<PersistedTranscript> = match serde_json::from_str(&data) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-    let mut loaded = items
-        .into_iter()
-        .map(|p| {
-            let role: &'static str = match p.role.as_str() {
-                "input" => "input",
-                "output" => "output",
-                "separator" => "separator",
-                _ => "input",
-            };
-            TranslationGummyTranscriptItem {
-                id: super::runtime::next_transcript_id(),
-                role,
-                text: p.text,
-                is_final: true,
-                lang: p.lang,
-            }
-        })
-        .collect();
-    prune_transcripts(&mut loaded, limit);
-    loaded
 }
 
 #[cfg(test)]

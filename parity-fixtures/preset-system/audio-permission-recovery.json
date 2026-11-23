@@ -1,0 +1,15 @@
+{
+  "canonical_windows_files": ["src/overlay/process/pipeline.rs"],
+  "platform_boundary": "android-permission-recovery",
+  "cases": [
+    {"entry": "external_launcher_extra", "effect": "none"},
+    {"entry": "internal_permission_granted", "pending": "matching_capture", "effect": "resume_capture"},
+    {"entry": "internal_permission_granted", "pending": "replaced_or_missing", "effect": "none"},
+    {"entry": "internal_permission_denied", "pending": "matching_capture", "effect": "clear_capture"},
+    {"entry": "owner_stopped", "pending": "matching_capture", "effect": "none"},
+    {"entry": "input_window_replaced", "pending": "matching_capture", "effect": "none"},
+    {"entry": "input_window_unchanged", "pending": "matching_capture", "effect": "resume_dictation"},
+    {"entry": "stop_before_delivery", "pending": "matching_capture", "effect": "none"},
+    {"entry": "stop_requested_before_destroy", "pending": "matching_capture", "effect": "none"}
+  ]
+}

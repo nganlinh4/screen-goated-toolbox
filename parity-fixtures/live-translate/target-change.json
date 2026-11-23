@@ -1,0 +1,7 @@
+{
+  "cases": [
+    {"name":"processed-draft-retries", "committed":"First. ", "draft":"pending words", "requestSource":"pending words"},
+    {"name":"committed-history-is-not-replayed", "committed":"First.", "draft":"", "requestSource":null},
+    {"name":"all-draft-retries", "committed":"", "draft":"pending words", "requestSource":"pending words"}
+  ]
+}

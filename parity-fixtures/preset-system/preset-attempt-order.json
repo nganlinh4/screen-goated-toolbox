@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "rows": ["a", "chosen", "b"],
+      "selected": "chosen",
+      "attempts": ["chosen", "a", "b"]
+    },
+    {
+      "rows": ["a", "chosen", "b", "@chosen-model", "c", "chosen", "a"],
+      "selected": "chosen",
+      "attempts": ["a", "b", "chosen", "c"]
+    },
+    {
+      "rows": ["@chosen-model", "a", "b"],
+      "selected": "b",
+      "attempts": ["b", "a"]
+    },
+    {
+      "rows": ["a", "b", "@chosen-model"],
+      "selected": "b",
+      "attempts": ["a", "b"]
+    }
+  ],
+  "live": {
+    "rows": ["first", "live-pin", "@chosen-model", "second", "third"],
+    "offered": ["live-auto", "live-pin"],
+    "order": ["first", "live-pin", "@chosen-model", "live-auto", "second", "third"]
+  },
+  "runtime": {
+    "rows": ["openrouter-particle-1-text", "groq-qwen-3-8-27b-text", "@chosen-model", "google-gemini-3-5-flash-lite-text"],
+    "selected": "google-gemini-3-1-flash-lite-text",
+    "first": "groq-qwen-3-8-27b-text",
+    "last": "google-gemini-3-5-flash-lite-text"
+  }
+}

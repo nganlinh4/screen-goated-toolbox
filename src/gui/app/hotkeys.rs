@@ -11,13 +11,14 @@ impl SettingsApp {
             Some(usize::MAX - 1)
         } else if self.recording_live_translate_hotkey {
             Some(usize::MAX - 2)
-        } else if self.recording_sr_hotkey {
-            Some(usize::MAX - 3)
         } else {
             self.recording_hotkey_for_preset
         };
         let owner = owner.filter(|_| ctx.input(|input| input.focused));
-        crate::hotkey::set_binding_capture(owner.is_some());
+        crate::hotkey::set_binding_capture(
+            crate::hotkey::CaptureOwner::SettingsWindow,
+            owner.is_some(),
+        );
         super::hotkey_capture::sync(unsafe { super::utils::main_window_hwnd() }, owner, ctx);
     }
 
@@ -63,43 +64,6 @@ impl SettingsApp {
                     self.recording_hotkey_for_preset = None;
                     self.hotkey_conflict_msg = None;
                 }
-            }
-        }
-    }
-
-    pub(crate) fn update_sr_hotkey_recording(&mut self, ctx: &egui::Context) {
-        if self.recording_sr_hotkey {
-            let mut key_recorded: Option<(u32, u32)> = None;
-            let mut cancel = false;
-
-            ctx.input(|i| {
-                if i.key_pressed(egui::Key::Escape) {
-                    cancel = true;
-                } else {
-                    let modifiers_bitmap = current_modifiers_bitmap(i);
-                    collect_keyboard_hotkey(i, modifiers_bitmap, &mut key_recorded);
-                    if key_recorded.is_none() {
-                        collect_mouse_hotkey(i, modifiers_bitmap, &mut key_recorded);
-                    }
-                }
-            });
-
-            if cancel {
-                self.recording_sr_hotkey = false;
-            } else if let Some((vk, mods)) = key_recorded {
-                let new_hotkey = Hotkey {
-                    code: vk,
-                    modifiers: mods,
-                };
-
-                self.sync_global_hotkeys();
-                if let Some(conflict) = self.config.check_hotkey_conflict(vk, mods, None) {
-                    crate::log_info!("[Hotkey] configuration conflict: {:?}", conflict);
-                } else {
-                    self.config.screen_record_hotkeys.push(new_hotkey);
-                    self.save_and_sync();
-                }
-                self.recording_sr_hotkey = false;
             }
         }
     }

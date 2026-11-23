@@ -84,7 +84,22 @@ trait Surface {
         act: &ActCtx,
         expected: &SurfaceIdentity,
     ) -> anyhow::Result<Value>;
-    fn read_back(&mut self, el: &IndexedElement) -> ReadBack;
+    fn read_back(&mut self, el: &IndexedElement, expected: &SurfaceIdentity) -> ReadBack;
+    /// Bring the surface to the state `execute` needs before the controller
+    /// takes its pre-action snapshot, so the controller's own focus change is
+    /// never reported as an effect of the action.
+    fn prepare_input(
+        &mut self,
+        _verb: Verb,
+        _act: &ActCtx,
+        _expected: &SurfaceIdentity,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    /// The foreground input target the transition comparison reads.
+    fn input_snapshot(&mut self) -> Value {
+        super::uia::input_target_snapshot()
+    }
 }
 
 /// Per-task controller state: the last observed world (so `act(id, …)` resolves
@@ -114,6 +129,14 @@ impl Controller {
 
     pub fn observed_identity(&self) -> Option<&SurfaceIdentity> {
         self.last.as_ref().map(|world| &world.identity)
+    }
+
+    pub(super) fn resource_checkpoint_context(&self) -> Option<Value> {
+        self.last.as_ref().map(|world| {
+            let mut observed = world.clone();
+            observed.url = None;
+            json!({"surface": world.identity, "observed_controls": observed.to_model_text()})
+        })
     }
 
     /// Bind browser perception and indexed actions to one explicit tab for this
@@ -200,7 +223,9 @@ impl Controller {
                 result
             }
             Err(e) => {
-                json!({"ok": false, "error": format!("could not read the current view: {e}")})
+                self.last = None;
+                super::browser::frame_coverage_error(&e).unwrap_or_else(||
+                    json!({"ok": false, "error": format!("could not read the current view: {e}")}))
             }
         }
     }
@@ -215,8 +240,20 @@ impl Controller {
         confirm: bool,
         act: &ActCtx,
     ) -> Value {
-        let target_tab_id = self.browser_tab_id;
         let mut s = self.surface();
+        self.act_on(id, verb_str, value, confirm, act, &mut *s)
+    }
+
+    fn act_on(
+        &mut self,
+        id: u32,
+        verb_str: &str,
+        value: Option<&str>,
+        confirm: bool,
+        act: &ActCtx,
+        s: &mut dyn Surface,
+    ) -> Value {
+        let target_tab_id = self.browser_tab_id;
         let Some(verb) = Verb::parse(verb_str) else {
             return json!({"ok": false,
                 "error": format!("unknown verb '{verb_str}' — use click, activate, fill, select, submit, or toggle")});
@@ -226,8 +263,11 @@ impl Controller {
         // from a stale list — re-sync and make it pick from the CURRENT one rather
         // than acting on the wrong element.
         let Some(ws) = self.last.take() else {
-            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            let (current, published, coverage_error) = self.reobserve_for_delivery(&mut *s);
             self.last = current;
+            if let Some(error) = coverage_error {
+                return coverage_before_dispatch(error);
+            }
             let mut result = json!({"ok": false,
                 "code": "ERR_OBSERVATION_REQUIRED",
                 "dispatch_ok": false,
@@ -240,8 +280,11 @@ impl Controller {
             return result;
         };
         if !s.identity().is_ok_and(|current| current == ws.identity) {
-            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            let (current, published, coverage_error) = self.reobserve_for_delivery(&mut *s);
             self.last = current;
+            if let Some(error) = coverage_error {
+                return coverage_before_dispatch(error);
+            }
             let mut result = json!({
                 "ok": false,
                 "code": "ERR_STALE_SURFACE",
@@ -256,8 +299,11 @@ impl Controller {
             return result;
         }
         let Some(el) = ws.get(id).cloned() else {
-            let (current, published) = self.reobserve_for_delivery(&mut *s);
+            let (current, published, coverage_error) = self.reobserve_for_delivery(&mut *s);
             self.last = current;
+            if let Some(error) = coverage_error {
+                return coverage_before_dispatch(error);
+            }
             let mut result = json!({"ok": false,
                 "code": "ERR_STALE_ELEMENT_ID",
                 "dispatch_ok": false,
@@ -291,15 +337,20 @@ impl Controller {
                 "executed": false,
             });
         }
-        let before_surface = super::uia::input_target_snapshot();
+        let prepared = s.prepare_input(verb, act, &ws.identity);
+        let before_surface = s.input_snapshot();
         // EXECUTE through the existing primitives, preserving its real input
         // receipt instead of treating dispatch as proof of the intended effect.
-        let execution = match s.execute(&el, verb, value, act, &ws.identity) {
+        let execution = match prepared.and_then(|()| s.execute(&el, verb, value, act, &ws.identity))
+        {
             Ok(evidence) => evidence,
             Err(e) => {
-                let (after_world, published) = self.reobserve_for_delivery(&mut *s);
+                let (after_world, published, coverage_error) = self.reobserve_for_delivery(&mut *s);
                 self.last = after_world;
                 let mut result = browser::action_failure(&e, verb, &el);
+                if let Some(error) = coverage_error {
+                    result["observation_error"] = error;
+                }
                 if let Some(published) = published {
                     browser::mark_resynced(&mut result);
                     published.attach(&mut result);
@@ -308,9 +359,14 @@ impl Controller {
             }
         };
         // VERIFY (fill/select) by reading the value back.
-        let verify = verb
-            .verifies()
-            .then(|| verify::verify_fill(value.unwrap_or(""), &s.read_back(&el)));
+        let verify = verb.verifies().then(|| {
+            let read_back = s.read_back(&el, &ws.identity);
+            if verb == Verb::Select {
+                verify::verify_select(value.unwrap_or(""), &read_back)
+            } else {
+                verify::verify_fill(value.unwrap_or(""), &read_back)
+            }
+        });
         let transition = transition::observe_after_action(&mut *s, &ws, &el, verb, &before_surface);
         let selected = transition
             .world
@@ -361,14 +417,22 @@ impl Controller {
         if let Some(published) = published {
             published.attach(&mut r);
         }
+        if let Some(error) = transition.coverage_error {
+            r["ok"] = json!(false);
+            r["effect_may_have_occurred"] = json!(true);
+            r["observation_error"] = error;
+        }
         if !action_verified {
             r["error"] = json!(
                 "the action was dispatched, but its required context change was not observed; inspect fresh or external evidence and do not repeat it blindly"
             );
         }
         if let Some(v) = verify {
-            if !v.is_ok() {
+            if !v.permits_progress() {
                 r["ok"] = json!(false);
+            }
+            if matches!(v, verify::VerifyOutcome::Protected) {
+                r["verification_status"] = json!("protected_unverified");
             }
             r["verify"] = json!(v.describe());
         }
@@ -390,13 +454,14 @@ impl Controller {
     ) -> (
         Option<WorldState>,
         Option<observation::PublishedObservation>,
+        Option<Value>,
     ) {
         match surface.observe() {
             Ok(world) => {
                 let published = self.observations.publish(&world, false);
-                (Some(world), Some(published))
+                (Some(world), Some(published), None)
             }
-            Err(_) => (None, None),
+            Err(error) => (None, None, super::browser::frame_coverage_error(&error)),
         }
     }
 
@@ -414,5 +479,15 @@ impl Controller {
     }
 }
 
+fn coverage_before_dispatch(mut error: Value) -> Value {
+    error["dispatch_ok"] = json!(false);
+    error["effect_may_have_occurred"] = json!(false);
+    error
+}
+
+#[cfg(test)]
+mod focus_tests;
+#[cfg(test)]
+mod resource_checkpoint_tests;
 #[cfg(test)]
 mod tests;

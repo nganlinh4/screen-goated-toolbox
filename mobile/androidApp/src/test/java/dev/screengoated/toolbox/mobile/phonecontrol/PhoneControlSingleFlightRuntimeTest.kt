@@ -59,6 +59,26 @@ class PhoneControlSingleFlightRuntimeTest {
     }
 
     @Test
+    fun `ready transport resumes only the generation the reducer kept`() {
+        fixture().use { test ->
+            test.dispatch(beginTurn = true, call("owner", "observe"))
+            test.executor.awaitRequest("owner")
+
+            assertFalse(test.coordinator.retireTransportInterruptedTurn())
+            test.coordinator.transportReady()
+            assertEquals(PhoneControlTurnPhase.WORKING, test.coordinator.phase)
+
+            test.executor.complete("owner", result())
+            test.coordinator.drainToolCompletions()
+            assertEquals(1, test.sink.payloads.count { "\"id\":\"owner\"" in it })
+
+            assertTrue(test.coordinator.retireTransportInterruptedTurn())
+            test.coordinator.transportReady()
+            assertEquals(PhoneControlTurnPhase.LISTENING, test.coordinator.phase)
+        }
+    }
+
+    @Test
     fun `duplicate owner id is absorbed without a second function response`() {
         fixture().use { test ->
             test.dispatch(
@@ -180,7 +200,14 @@ class PhoneControlSingleFlightRuntimeTest {
             beginTurn: Boolean,
             vararg calls: GeminiLiveFunctionCall,
         ) {
-            if (beginTurn) coordinator.userSpeechStarted(assistantPlaybackActive = false)
+            if (beginTurn) {
+                if (coordinator.phase == PhoneControlTurnPhase.WORKING || coordinator.phase == PhoneControlTurnPhase.FINALIZING) {
+                    coordinator.handleFrame(GeminiLiveServerFrame(interrupted = true),
+                        listOf(GeminiLiveLifecycleEffect.FinalizeInterruptedGeneration))
+                } else {
+                    coordinator.userSpeechActivity(assistantPlaybackActive = false, burstStarted = true)
+                }
+            }
             coordinator.handleFrame(
                 frame = GeminiLiveServerFrame(
                     inputTranscript = "fixture request".takeIf { beginTurn },

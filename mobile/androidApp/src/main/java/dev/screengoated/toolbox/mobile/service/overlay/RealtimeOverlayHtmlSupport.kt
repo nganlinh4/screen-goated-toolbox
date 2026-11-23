@@ -118,7 +118,7 @@ internal fun overlayMobileShim(): String {
             // their background (interactive controls inside the modal stay untouched)
             const blockModalInteractive = target =>
                 !!target.closest('input, textarea, button, select, .toggle-switch, .auto-toggle, .ctrl-btn');
-            ['tts-modal', 'download-modal', 'custom-vocabulary-modal'].forEach(id => {
+            ['tts-modal', 'custom-vocabulary-modal'].forEach(id => {
                 const modal = document.getElementById(id);
                 if (modal) attachMoveResize(modal, blockModalInteractive);
             });

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::sync::{
     Once,
-    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU8},
+    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU8, Ordering},
 };
 use wry::WebView;
 
@@ -21,7 +21,6 @@ pub const PHYSICS_TIMER_ID: usize = 2;
 // Statics / Atomics
 pub static REGISTER_BUBBLE_CLASS: Once = Once::new();
 pub static REGISTER_PANEL_CLASS: Once = Once::new();
-pub static BUBBLE_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static BUBBLE_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static PANEL_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static IS_EXPANDED: AtomicBool = AtomicBool::new(false);
@@ -40,8 +39,28 @@ pub static FADE_OUT_STATE: AtomicBool = AtomicBool::new(false); // True = fading
 // This is critical for text-select presets, which need to send Ctrl+C to the original window
 pub static LAST_FOREGROUND_HWND: AtomicIsize = AtomicIsize::new(0);
 
-// Track recursive theme updates
+// Theme the bubble icon is drawn with; rewritten on every bubble repaint.
 pub static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true);
+
+/// Records the theme the bubble icon is drawn with.
+pub fn record_bubble_theme(is_dark: bool) {
+    LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+}
+
+// Theme the hidden-or-shown panel document is styled with. Kept apart from the
+// bubble's because the bubble repaints while the panel is hidden, which would
+// otherwise mark a pending panel restyle as already applied.
+static PANEL_THEME_IS_DARK: AtomicBool = AtomicBool::new(true);
+
+/// Records the theme the panel document was built with.
+pub fn record_panel_theme(is_dark: bool) {
+    PANEL_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+}
+
+/// Records `is_dark` for the panel; true when its stylesheet must be replaced.
+pub fn panel_theme_changed(is_dark: bool) -> bool {
+    PANEL_THEME_IS_DARK.swap(is_dark, Ordering::SeqCst) != is_dark
+}
 
 // Thread Locals
 thread_local! {
@@ -91,5 +110,23 @@ fn decode_icon(bytes: &[u8], size: i32) -> Vec<u8> {
         resized.to_rgba8().into_raw()
     } else {
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{panel_theme_changed, record_bubble_theme, record_panel_theme};
+
+    #[test]
+    fn bubble_repaints_never_hide_a_pending_panel_restyle() {
+        // The hidden panel document was built dark.
+        record_panel_theme(true);
+        // The theme switches while the panel is hidden; the bubble repaints first.
+        record_bubble_theme(false);
+        assert!(
+            panel_theme_changed(false),
+            "the reopened panel kept its dark stylesheet"
+        );
+        assert!(!panel_theme_changed(false));
     }
 }

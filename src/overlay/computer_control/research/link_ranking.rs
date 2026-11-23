@@ -1,5 +1,6 @@
 //! Query-relevance ranking for bounded research discovery links.
 
+use super::query_terms::tokens;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,16 +146,6 @@ fn factual_query_tokens(query: &str, ignored_identities: &[String]) -> HashSet<S
         .collect()
 }
 
-fn tokens(value: &str) -> HashSet<String> {
-    value
-        .split(|character: char| !character.is_alphanumeric())
-        .filter_map(|token| {
-            let token = token.trim().to_lowercase();
-            (token.chars().count() >= 2).then_some(token)
-        })
-        .collect()
-}
-
 fn bounded_label(label: String) -> String {
     label
         .split_whitespace()
@@ -184,6 +175,19 @@ mod tests {
         ];
         let ranked = rank("standard annual plan pricing", &[], links);
         assert_eq!(ranked[0].url, "https://example.test/plans");
+    }
+
+    #[test]
+    fn two_scalar_query_terms_rank_matching_links() {
+        let ranked = rank(
+            "서울 날씨",
+            &[],
+            vec![
+                DiscoveredLink::search("https://example.test/other".into(), "unrelated".into()),
+                DiscoveredLink::search("https://example.test/details".into(), "서울 날씨".into()),
+            ],
+        );
+        assert_eq!(ranked[0].url, "https://example.test/details");
     }
 
     #[test]

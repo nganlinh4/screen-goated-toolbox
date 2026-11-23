@@ -9,7 +9,6 @@ use crate::overlay::result::{
 use crate::win_types::SendHwnd;
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::execution::{ExecuteBlockRequest, execute_block};
@@ -23,74 +22,111 @@ pub struct ChainStepRequest {
     pub current_rect: RECT,
     pub blocks: Vec<ProcessingBlock>,
     pub connections: Vec<(usize, usize)>,
+    pub graph_explicit: bool,
     pub config: Config,
     pub parent_hwnd: Arc<Mutex<Option<SendHwnd>>>,
     pub context: RefineContext,
     pub skip_execution: bool,
-    pub processing_indicator_hwnd: Option<SendHwnd>,
+    pub preprocessed_audio: Option<(usize, String)>,
+    pub visited_blocks: Vec<usize>,
+    pub processing_indicator_hwnd: Option<super::ProcessingIndicator>,
     pub cancel_token: Arc<ChainCancelToken>,
     pub preset_id: String,
     pub disable_auto_paste: bool,
+    pub(crate) auto_paste_destination: super::AutoPasteDestination,
     pub chain_id: String,
-    pub input_hwnd_refocus: Option<SendHwnd>,
+    pub input_hwnd_refocus: Option<(SendHwnd, u64)>,
 }
 
 /// Recursive step to run a single block in the chain.
 pub fn run_chain_step(request: ChainStepRequest) {
     let ChainStepRequest {
         block_idx,
-        input_text,
+        mut input_text,
         current_rect,
         blocks,
         connections,
+        graph_explicit,
         config,
         parent_hwnd,
         context,
         skip_execution,
+        preprocessed_audio,
+        mut visited_blocks,
         mut processing_indicator_hwnd,
         cancel_token,
         preset_id,
         disable_auto_paste,
+        auto_paste_destination,
         chain_id,
         input_hwnd_refocus,
     } = request;
     // Check if cancelled before starting
     if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
-            unsafe {
-                let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            h.close();
         }
         return;
     }
 
-    if block_idx >= blocks.len() {
+    if block_idx >= blocks.len() || visited_blocks.contains(&block_idx) {
         if let Some(h) = processing_indicator_hwnd {
-            unsafe {
-                let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            h.close();
         }
         return;
     }
+    visited_blocks.push(block_idx);
+
+    #[cfg(test)]
+    traversal_tests::record_visit(&chain_id, block_idx, auto_paste_destination);
 
     // Clone the block to avoid borrowing issues when passing blocks to continue_chain
     let block = blocks[block_idx].clone();
+    let preprocessed_text = super::audio_route::preprocessed_text(block_idx, &preprocessed_audio);
+    let skip_execution = skip_execution || preprocessed_text.is_some();
+    if let Some(text) = preprocessed_text {
+        input_text = text.to_string();
+    }
     let trace_id = format!("{chain_id}:{block_idx}");
     crate::overlay::result::latency::begin(&trace_id);
 
     // 1. Resolve Model & Prompt
     //
-    // A pinned model can stop resolving: a catalog row retired by an update, a
-    // custom definition deleted, an Ollama model uninstalled, or a discovered one
-    // the feed no longer offers. Keep the preset unchanged and silently enter the
-    // same priority/fallback machinery used after a normal provider failure.
+    // Discovery may not have completed yet. Never send input to another model
+    // merely because the selected model is currently unavailable.
     let block_model_id = block.model.clone();
     let resolved = resolve_block_model(&block, &config, skip_execution);
-    if let Some(fallback) = resolved.as_ref().filter(|model| model.id != block_model_id) {
-        crate::log_info!(
-            "[Chain] Preset model {block_model_id:?} is unavailable; continuing with priority model {:?}",
-            fallback.id
-        );
+    let unsupported_image_search = block.block_type == "image" && block.search_enabled;
+    let implicit_search = !block.search_enabled
+        && resolved
+            .as_ref()
+            .is_some_and(|model| model.search_tool_enabled_by_default);
+    if !skip_execution
+        && (unsupported_image_search
+            || implicit_search
+            || (matches!(block.block_type.as_str(), "image" | "text" | "audio")
+                && resolved.is_none()))
+    {
+        if let Some(h) = processing_indicator_hwnd {
+            h.close();
+        }
+        let message = match (
+            config.ui_language.as_str(),
+            unsupported_image_search,
+            implicit_search,
+        ) {
+            ("vi", true, _) => "Tìm kiếm không được hỗ trợ cho hình ảnh.".to_string(),
+            ("ko", true, _) => "이미지 검색은 지원되지 않습니다.".to_string(),
+            (_, true, _) => "Search is not supported for image requests.".to_string(),
+            ("vi", _, true) => "Mô hình này cần bật tìm kiếm.".to_string(),
+            ("ko", _, true) => "이 모델을 사용하려면 검색을 활성화해야 합니다.".to_string(),
+            (_, _, true) => "This model requires search to be enabled.".to_string(),
+            ("vi", _, _) => format!("Mô hình không khả dụng: {block_model_id}"),
+            ("ko", _, _) => format!("모델을 사용할 수 없습니다: {block_model_id}"),
+            (_, _, _) => format!("Model unavailable: {block_model_id}"),
+        };
+        crate::overlay::auto_copy_badge::show_error_notification(&message);
+        return;
     }
     let model_id = resolved
         .as_ref()
@@ -146,6 +182,9 @@ pub fn run_chain_step(request: ChainStepRequest) {
 
     let mut my_hwnd: Option<HWND> = None;
 
+    let is_first_processing_block =
+        super::path_state::first_processing_in_path(&blocks, &visited_blocks);
+
     // 3. Create Window (if visible)
     let should_create_window = block.show_overlay;
 
@@ -155,6 +194,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
         let (created_hwnd, new_processing_hwnd) = create_block_window(CreateBlockWindowRequest {
             block: &block,
             block_idx,
+            is_first_processing_block,
             my_rect,
             context: &context,
             input_text: &input_text,
@@ -183,7 +223,7 @@ pub fn run_chain_step(request: ChainStepRequest) {
     let result_text = execute_block(ExecuteBlockRequest {
         block: &block,
         block_idx,
-        blocks: &blocks,
+        is_first_processing_block,
         my_hwnd,
         input_text: &input_text,
         context: &context,
@@ -199,12 +239,17 @@ pub fn run_chain_step(request: ChainStepRequest) {
     });
     crate::overlay::result::latency::mark(&trace_id, "provider_complete");
 
+    let Some(result_text) = result_text else {
+        if let Some(h) = processing_indicator_hwnd {
+            h.close();
+        }
+        return;
+    };
+
     // Check cancellation after execution — skip post-processing and chain continuation
     if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
-            unsafe {
-                let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            h.close();
         }
         return;
     }
@@ -215,11 +260,29 @@ pub fn run_chain_step(request: ChainStepRequest) {
         &result_text,
         &context,
         &preset_id,
-        &config,
         disable_auto_paste,
+        auto_paste_destination,
+        &cancel_token,
     );
-    handle_auto_speak(&block, &result_text, my_hwnd);
-    save_to_history(&block, &result_text, &input_text_for_history, &context);
+    handle_auto_speak(&block, &result_text, my_hwnd, &cancel_token);
+    if block.block_type == "audio"
+        && !skip_execution
+        && let RefineContext::Audio(wav_data) = &context
+        && let Ok(app) = crate::APP.lock()
+    {
+        app.history.save_audio_shared_cancellable(
+            wav_data.clone(),
+            result_text.clone(),
+            cancel_token.clone(),
+        );
+    }
+    save_to_history(
+        &block,
+        &result_text,
+        &input_text_for_history,
+        &context,
+        &cancel_token,
+    );
 
     // 6. Chain Next Steps
     continue_chain(super::post_process::ContinueChainRequest {
@@ -228,15 +291,19 @@ pub fn run_chain_step(request: ChainStepRequest) {
         result_text,
         blocks,
         connections,
+        graph_explicit,
         config,
         my_hwnd,
         parent_hwnd,
         context,
         skip_execution,
+        preprocessed_audio,
+        visited_blocks,
         processing_indicator_hwnd,
         cancel_token,
         preset_id,
         disable_auto_paste,
+        auto_paste_destination,
         chain_id,
         input_hwnd_refocus,
         my_rect,
@@ -244,29 +311,30 @@ pub fn run_chain_step(request: ChainStepRequest) {
     });
 }
 
+#[cfg(test)]
+#[path = "traversal_tests.rs"]
+mod traversal_tests;
+
 fn resolve_block_model(
     block: &ProcessingBlock,
     config: &Config,
     already_produced: bool,
 ) -> Option<crate::model_config::ModelConfig> {
+    let expected = match block.block_type.as_str() {
+        "image" => crate::model_config::ModelType::Vision,
+        "text" => crate::model_config::ModelType::Text,
+        "audio" => crate::model_config::ModelType::Audio,
+        _ => return None,
+    };
     crate::model_config::get_model_by_id_with_custom(&block.model, &config.custom_models)
-        .filter(|model| already_produced || model.enabled)
-        .or_else(|| {
-            if already_produced {
-                return None;
-            }
-            crate::retry_model_chain::resolve_unavailable_pinned_model(
-                &block.block_type,
-                &block.model,
-                config,
-            )
-        })
+        .filter(|model| model.model_type == expected && (already_produced || model.enabled))
 }
 
 /// Create window for a block and return (hwnd, updated processing_indicator_hwnd).
 struct CreateBlockWindowRequest<'a> {
     block: &'a ProcessingBlock,
     block_idx: usize,
+    is_first_processing_block: bool,
     my_rect: RECT,
     context: &'a RefineContext,
     input_text: &'a str,
@@ -281,15 +349,18 @@ struct CreateBlockWindowRequest<'a> {
     preset_id: &'a str,
     chain_id: &'a str,
     config: &'a Config,
-    processing_indicator_hwnd: Option<SendHwnd>,
-    input_hwnd_refocus: Option<SendHwnd>,
+    processing_indicator_hwnd: Option<super::ProcessingIndicator>,
+    input_hwnd_refocus: Option<(SendHwnd, u64)>,
     trace_id: &'a str,
 }
 
-fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, Option<SendHwnd>) {
+fn create_block_window(
+    request: CreateBlockWindowRequest<'_>,
+) -> (Option<HWND>, Option<super::ProcessingIndicator>) {
     let CreateBlockWindowRequest {
         block,
         block_idx,
+        is_first_processing_block,
         my_rect,
         context,
         input_text,
@@ -308,7 +379,12 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
         input_hwnd_refocus,
         trace_id,
     } = request;
-    let ctx_clone = if block.block_type == "input_adapter" || block_idx == 0 {
+    let ctx_clone = if super::path_state::retain_result_context(
+        &block.block_type,
+        block_idx,
+        is_first_processing_block,
+        context,
+    ) {
         context.clone()
     } else {
         RefineContext::None
@@ -389,9 +465,12 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
         if !is_image_block {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_SHOWNA);
-                if let Some(h_input) = input_hwnd_refocus_thread {
-                    let _ = SetForegroundWindow(h_input.0);
-                    let _ = SetFocus(Some(h_input.0));
+                if let Some((h_input, session)) = input_hwnd_refocus_thread {
+                    crate::overlay::text_input::request_focus_for_session(
+                        h_input,
+                        session,
+                        cancel_token_thread.clone(),
+                    );
                 }
             }
         }
@@ -458,9 +537,7 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
         && block.block_type != "input_adapter"
         && let Some(h) = processing_indicator_hwnd
     {
-        unsafe {
-            let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        h.close();
         processing_indicator_hwnd = None;
     }
 
@@ -468,20 +545,5 @@ fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, 
 }
 
 #[cfg(test)]
-mod attribution_tests {
-    #[test]
-    fn completed_output_does_not_resolve_a_replacement_model() {
-        let block = crate::config::ProcessingBlock {
-            model: "unavailable-model".to_string(),
-            block_type: "text".to_string(),
-            ..Default::default()
-        };
-        let config = crate::config::Config {
-            api_key: "test-key".to_string(),
-            gemini_api_key: "test-key".to_string(),
-            ..Default::default()
-        };
-        assert!(super::resolve_block_model(&block, &config, true).is_none());
-        assert!(super::resolve_block_model(&block, &config, false).is_some());
-    }
-}
+#[path = "attribution_tests.rs"]
+mod attribution_tests;

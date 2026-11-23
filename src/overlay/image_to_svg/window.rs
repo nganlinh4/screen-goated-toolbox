@@ -24,7 +24,7 @@ struct SavedWindowSize {
 }
 
 fn is_supported_image(path: &std::path::Path) -> bool {
-    crate::overlay::three_d_generator::file_dialogs::is_supported_image_path(path)
+    crate::overlay::creation_file_dialogs::is_supported_image_path(path)
 }
 
 fn set_file_drag_active(active: bool) {
@@ -68,31 +68,27 @@ fn handle_file_drop(event: DragDropEvent) -> bool {
 }
 
 pub(super) fn show() {
-    unsafe {
-        if !super::IS_READY {
-            if !super::IS_INITIALIZING {
-                crate::overlay::creation_close::reset_product(super::product_key());
-                super::IS_INITIALIZING = true;
-                std::thread::spawn(internal_create_loop_entry);
-            }
-            std::thread::spawn(|| {
-                for _ in 0..100 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-                    if super::IS_READY && !hwnd.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-                        return;
-                    }
-                }
-            });
-            return;
+    if let Some(hwnd) = super::WINDOW.ready_hwnd() {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
-        let hwnd = std::ptr::addr_of!(super::WINDOW_HWND).read();
-        if !hwnd.is_invalid() {
-            let _ = PostMessageW(Some(hwnd.0), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        }
+        return;
     }
+    if let Some(generation) = super::WINDOW.try_claim() {
+        crate::overlay::creation_close::reset_product(super::product_key());
+        std::thread::spawn(move || unsafe { internal_create_loop(generation) });
+    }
+    std::thread::spawn(|| {
+        for _ in 0..100 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if let Some(hwnd) = super::WINDOW.ready_hwnd() {
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), super::WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        }
+    });
 }
 
 unsafe extern "system" fn window_proc(
@@ -113,6 +109,10 @@ unsafe extern "system" fn window_proc(
             }
             super::WM_APP_SYNC => {
                 refresh_window_chrome(hwnd);
+                LRESULT(0)
+            }
+            super::WM_APP_IPC_REPLY => {
+                super::ipc::flush_replies(hwnd);
                 LRESULT(0)
             }
             super::WM_APP_PREVIEW_REPLY => {
@@ -149,6 +149,7 @@ unsafe extern "system" fn window_proc(
                 }
                 save_window_size(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
+                crate::overlay::creation_commands::unregister(hwnd);
                 if super::shutdown() {
                     crate::overlay::creation_close::clear(hwnd);
                     let _ = DestroyWindow(hwnd);
@@ -163,12 +164,14 @@ unsafe extern "system" fn window_proc(
             WM_DESTROY => {
                 crate::overlay::creation_close::clear(hwnd);
                 crate::overlay::creation_preview::unregister_async_target(hwnd);
-                let _ = super::shutdown();
+                crate::overlay::creation_commands::unregister(hwnd);
+                if super::WINDOW.is_ready_window(hwnd) {
+                    let _ = super::shutdown();
+                }
                 super::WEBVIEW.with(|webview| {
                     *webview.borrow_mut() = None;
                 });
-                super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-                super::IS_READY = false;
+                super::WINDOW.release_window(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -177,7 +180,7 @@ unsafe extern "system" fn window_proc(
     }
 }
 
-unsafe fn internal_create_loop() {
+unsafe fn internal_create_loop(generation: u64) {
     let instance = unsafe { GetModuleHandleW(None).unwrap() };
     let class_name = super::window_class_name();
 
@@ -229,16 +232,17 @@ unsafe fn internal_create_loop() {
     };
 
     if hwnd.is_invalid() {
+        super::WINDOW.release(generation);
+        return;
+    }
+    if !super::WINDOW.publish_hwnd(generation, hwnd) {
         unsafe {
-            super::IS_INITIALIZING = false;
+            let _ = DestroyWindow(hwnd);
         }
         return;
     }
-
-    unsafe {
-        super::WINDOW_HWND = crate::win_types::SendHwnd(hwnd);
-    }
     crate::overlay::creation_preview::register_async_target(hwnd);
+    super::ipc::register_commands(hwnd);
 
     let corner_pref = DWMWCP_ROUND;
     let _ = unsafe {
@@ -299,7 +303,7 @@ unsafe fn internal_create_loop() {
     let inlined_html = super::assets::build_inlined_html();
     let page_url = crate::overlay::html_components::font_manager::store_html_page(inlined_html);
 
-    super::WEB_CONTEXT.with(|context| {
+    let webview_result = super::WEB_CONTEXT.with(|context| {
         let mut context_ref = context.borrow_mut();
         if context_ref.is_none() {
             *context_ref = Some(crate::overlay::webview_runtime::create_context(
@@ -314,9 +318,12 @@ unsafe fn internal_create_loop() {
             let allowed_url = url.to_string();
             let mut builder = WebViewBuilder::new_with_web_context(context_ref.as_mut().unwrap())
                 .with_background_color(background)
-                .with_custom_protocol("sgtcreation".to_string(), |_id, request| {
-                    crate::overlay::creation_preview_protocol::handle(request)
-                })
+                .with_asynchronous_custom_protocol(
+                    "sgtcreation".to_string(),
+                    |_id, request, responder| {
+                        crate::overlay::creation_preview_protocol::request(request, responder)
+                    },
+                )
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |request: wry::http::Request<String>| {
                     super::ipc::handle_ipc(hwnd, request.body());
@@ -337,29 +344,36 @@ unsafe fn internal_create_loop() {
                     "[CreationWebView] product={product_key} test debugging enabled on port {port}"
                 );
             }
-            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             let result = builder.build_as_child(&wrapper);
             init.finish(result.is_ok());
             result
         };
 
-        if let Ok(webview) = webview_result {
-            crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
-                product_key,
-                hwnd,
-                &webview,
-            );
-            super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
-        }
+        let webview = webview_result?;
+        crate::overlay::webview_diagnostics::attach_webview2_diagnostics(
+            product_key,
+            hwnd,
+            &webview,
+        );
+        super::WEBVIEW.with(|slot| *slot.borrow_mut() = Some(webview));
+        Ok::<(), wry::Error>(())
     });
+    if let Err(error) = webview_result {
+        crate::log_info!("[Creation window] Could not create interface: {error}");
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+        }
+        super::WINDOW.release(generation);
+        super::WEB_CONTEXT.with(|context| *context.borrow_mut() = None);
+        return;
+    }
 
     resize_webview(hwnd);
 
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
-        super::IS_READY = true;
-        super::IS_INITIALIZING = false;
     }
+    super::WINDOW.mark_ready(generation);
 
     unsafe {
         let mut msg = MSG::default();
@@ -373,16 +387,8 @@ unsafe fn internal_create_loop() {
         super::WEB_CONTEXT.with(|context| {
             *context.borrow_mut() = None;
         });
-        super::WINDOW_HWND = crate::win_types::SendHwnd(HWND(std::ptr::null_mut()));
-        super::IS_READY = false;
-        super::IS_INITIALIZING = false;
     }
-}
-
-fn internal_create_loop_entry() {
-    unsafe {
-        internal_create_loop();
-    }
+    super::WINDOW.release(generation);
 }
 
 fn refresh_window_chrome(hwnd: HWND) {
@@ -404,7 +410,7 @@ fn refresh_window_chrome(hwnd: HWND) {
 }
 
 fn window_size_path() -> std::path::PathBuf {
-    crate::paths::app_local_data_dir().join(super::WINDOW_SIZE_FILE)
+    crate::paths::app_runtime_local_data_dir().join(super::WINDOW_SIZE_FILE)
 }
 
 fn load_window_size() -> Option<SavedWindowSize> {

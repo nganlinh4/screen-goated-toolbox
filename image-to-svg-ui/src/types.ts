@@ -8,6 +8,7 @@ export type Stage =
   | "preparing"
   | "generating"
   | "finalizing"
+  | "cancelling"
   | "done"
   | "failed"
   | "cancelled";

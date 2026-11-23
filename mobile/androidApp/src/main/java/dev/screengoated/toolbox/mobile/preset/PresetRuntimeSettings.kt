@@ -29,6 +29,8 @@ internal fun presetProviderEnabled(
 data class PresetModelPriorityChains(
     val imageToText: List<String> = GeneratedPresetModelCatalogData.modelPriorityChains.imageToText,
     val textToText: List<String> = GeneratedPresetModelCatalogData.modelPriorityChains.textToText,
+    val imageChosenAfter: Int = 0,
+    val textChosenAfter: Int = 0,
 )
 
 @Serializable
@@ -51,3 +53,14 @@ data class PresetRuntimeSettings(
     val modelPriorityChains: PresetModelPriorityChains = GeneratedPresetModelCatalogData.modelPriorityChains,
     val adaptiveModelPriority: PresetAdaptiveModelPriority = PresetAdaptiveModelPriority(),
 )
+
+internal fun PresetRuntimeSettings.normalizeModelPriorityChains(): PresetRuntimeSettings {
+    fun normalize(ids: List<String>, fallback: String): List<String> =
+        ids.filter(String::isNotBlank).distinct().ifEmpty { listOf(fallback) }
+    return copy(modelPriorityChains = PresetModelPriorityChains(
+        imageToText = normalize(modelPriorityChains.imageToText, dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_IMAGE_MODEL_ID),
+        textToText = normalize(modelPriorityChains.textToText, dev.screengoated.toolbox.mobile.shared.preset.DEFAULT_TEXT_MODEL_ID),
+        imageChosenAfter = normalizedChosenAfter(modelPriorityChains.imageToText, modelPriorityChains.imageChosenAfter),
+        textChosenAfter = normalizedChosenAfter(modelPriorityChains.textToText, modelPriorityChains.textChosenAfter),
+    ))
+}

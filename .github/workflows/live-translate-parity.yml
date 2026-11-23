@@ -1,0 +1,31 @@
+name: Live Translate parity
+
+on:
+  pull_request:
+    paths:
+      - "src/overlay/html_components/js_logic.rs"
+      - "mobile/androidApp/src/main/assets/realtime_overlay/logic.js"
+      - "parity-fixtures/live-translate/word-diff.json"
+      - "scripts/tests/live_translate_word_diff.test.mjs"
+      - ".github/workflows/live-translate-parity.yml"
+  push:
+    paths:
+      - "src/overlay/html_components/js_logic.rs"
+      - "mobile/androidApp/src/main/assets/realtime_overlay/logic.js"
+      - "parity-fixtures/live-translate/word-diff.json"
+      - "scripts/tests/live_translate_word_diff.test.mjs"
+      - ".github/workflows/live-translate-parity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  word-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/tests/live_translate_word_diff.test.mjs

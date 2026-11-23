@@ -75,20 +75,25 @@ impl Brain {
         if self.dry {
             return json!({"ok": true, "note": "dry"});
         }
-        let scope =
-            self.resource_authorization
-                .evaluate("save_artifact", args, cancel, Some(action));
+        let prepared = match super::super::artifacts::PreparedSave::prepare(
+            args.get("id").and_then(Value::as_str).unwrap_or(""),
+            args.get("path").and_then(Value::as_str).unwrap_or(""),
+            args.get("overwrite")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => return error,
+        };
+        let scope = self.resource_authorization.evaluate_artifact_save(
+            prepared.proposal(),
+            cancel,
+            Some(action),
+        );
         if !scope.authorized {
             return scope.result;
         }
-        let mut result = super::super::artifacts::dispatch_tool(
-            "save_artifact",
-            args,
-            &self.profile,
-            cancel,
-            false,
-        )
-        .unwrap_or_else(|| json!({"ok": false, "error": "unknown action"}));
+        let mut result = prepared.commit(cancel);
         result["resource_scope_authorization"] = scope.result;
         result
     }

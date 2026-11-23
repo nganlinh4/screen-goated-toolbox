@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { PanelSelect } from '@/components/ui/PanelSelect';
+import { LabelledField } from '@/components/ui/FieldLabelContext';
 import { useSettings } from '@/hooks/useSettings';
 import { invoke } from '@/lib/ipc';
+import { projectSubtitleForNarration } from '@/lib/compositionSubtitleNarration';
 import {
   useSubtitleNarration,
   type SubtitleNarrationGroupPreview,
 } from '@/hooks/useSubtitleNarration';
 import {
-  type PopulateS2sSubtitleTracksOptions,
-  populateEmptyS2sSubtitleTracks,
   useS2sNarration,
 } from '@/hooks/useS2sNarration';
 import {
@@ -18,7 +18,7 @@ import {
 } from '@/hooks/useNarrationSettings';
 import type { TrackSelectionRange } from '@/lib/timelineSegmentSelection';
 import type { SubtitleSource } from '@/lib/subtitleGenerationPlan';
-import { SUBTITLE_LANGUAGE_OPTIONS_GROQ } from '@/lib/subtitleLanguageOptions';
+import { SUBTITLE_LANGUAGE_OPTIONS } from '@/lib/subtitleLanguageOptions';
 import {
   ORIGINAL_SUBTITLE_TRACK_ID,
   getSubtitleTrackLabel,
@@ -47,6 +47,8 @@ import {
   persistNarrationTargetSegmentSec,
   persistNarrationMode,
   persistReadUnsplitSubtitles,
+  getInitialS2sTargetLanguage,
+  persistS2sTargetLanguage,
 } from './narrationPanelStorage';
 import { NarrationModeSections } from './NarrationModeSections';
 import { NarrationGeminiSettings } from './NarrationGeminiSettings';
@@ -54,10 +56,18 @@ import { NarrationVoiceProviderSettings } from './NarrationVoiceProviderSettings
 import { useNarrationProviderConfigState } from './useNarrationProviderConfigState';
 
 const CURRENT_SUBTITLE_VIEW_SOURCE_ID = 'current-subtitle-view';
+const S2S_LANGUAGE_OPTIONS = SUBTITLE_LANGUAGE_OPTIONS
+  .filter((option) => option.value !== 'auto')
+  .map((option) => ({ value: option.value, label: option.label }));
+const S2S_TARGET_LANGUAGES = S2S_LANGUAGE_OPTIONS.map((option) => option.value);
 type NarrationMode = 'subtitles' | 's2s';
 type DirectVoiceMethod = 's2s' | 'gemini-translate';
 
 interface NarrationPanelProps {
+  onPopulateS2sSubtitles?: import('@/hooks/useCompositionSubtitleEditor').S2sSubtitleWriter;
+  getNarrationSourceSnapshot: () => import('@/hooks/subtitleSourceOwnership').SubtitleSourceSnapshot;
+  projectId: string | null;
+  currentProjectIdRef: React.MutableRefObject<string | null>;
   segment: VideoSegment | null;
   composition: ProjectComposition | null;
   activeClipId?: string | null;
@@ -82,11 +92,13 @@ interface NarrationPanelProps {
   canUseMicSource: boolean;
   canUseAudioSource: boolean;
   audioSegments?: ImportedAudioSegment[];
-  onUpdateSegment: (segment: VideoSegment) => void;
-  onUpdateSegmentSilently?: (segment: VideoSegment) => void;
 }
 
 export function NarrationPanel({
+  onPopulateS2sSubtitles,
+  getNarrationSourceSnapshot,
+  projectId,
+  currentProjectIdRef,
   segment,
   composition,
   activeClipId,
@@ -107,10 +119,14 @@ export function NarrationPanel({
   canUseMicSource,
   canUseAudioSource,
   audioSegments = [],
-  onUpdateSegment,
-  onUpdateSegmentSilently,
 }: NarrationPanelProps) {
-  const { t } = useSettings();
+  const sourceSnapshotRef = useRef(getNarrationSourceSnapshot);
+  sourceSnapshotRef.current = getNarrationSourceSnapshot;
+  const projectSubtitle = useCallback((subtitle: SubtitleSegment) => {
+    const source = sourceSnapshotRef.current();
+    return projectSubtitleForNarration(source.composition, source.loadedClipId, subtitle);
+  }, [composition, segment, activeClipId]);
+  const { t, lang } = useSettings();
   const { settings, update, profile, metadata } = useNarrationSettings();
 
   const availableTracks = subtitleTracks ?? [];
@@ -130,20 +146,20 @@ export function NarrationPanel({
   const [directVoiceMethod, setDirectVoiceMethod] = useState<DirectVoiceMethod>(
     getInitialDirectVoiceMethod,
   );
-  const [s2sTargetLanguage, setS2sTargetLanguage] = useState('vi');
-  const segmentRef = useRef<VideoSegment | null>(segment);
+  const [s2sTargetLanguage, setS2sTargetLanguage] = useState(() =>
+    getInitialS2sTargetLanguage(S2S_TARGET_LANGUAGES, lang));
   const isDirectVoiceMode = narrationMode === 's2s';
   const effectiveTtsMethod: NarrationTtsMethod = isDirectVoiceMode
     ? 'GeminiLive'
     : settings.method;
 
   useEffect(() => {
-    segmentRef.current = segment;
-  }, [segment]);
-
-  useEffect(() => {
     persistReadUnsplitSubtitles(readUnsplitSubtitles);
   }, [readUnsplitSubtitles]);
+
+  useEffect(() => {
+    persistS2sTargetLanguage(s2sTargetLanguage);
+  }, [s2sTargetLanguage]);
 
   useEffect(() => {
     persistNarrationGroupTextBudget(groupTextBudget);
@@ -251,15 +267,9 @@ export function NarrationPanel({
 
   const {
     addEdgeVoiceConfig,
-    addKokoroVoiceConfig,
     addLanguageCondition,
-    addMagpieVoiceConfig,
-    addSupertonicVoiceConfig,
     availableConditionLanguages,
     availableEdgeVoiceLanguages,
-    availableKokoroVoiceLanguages,
-    availableMagpieVoiceLanguages,
-    availableSupertonicLanguages,
     detectedLanguageLabel,
     edgeVoiceConfigs,
     edgeVoicesByLanguage,
@@ -269,25 +279,11 @@ export function NarrationPanel({
     geminiVoices,
     googleSpeedOptions,
     isMethodSupportedForDetectedLanguage,
-    kokoroVoiceConfigs,
-    kokoroVoices,
-    magpieVoiceConfigs,
-    magpieVoices,
     providerOptions,
-    referenceVoices,
     removeEdgeVoiceConfig,
-    removeKokoroVoiceConfig,
     removeLanguageCondition,
-    removeMagpieVoiceConfig,
-    removeSupertonicVoiceConfig,
-    stepAudioVoices,
-    supertonicVoiceConfigs,
-    supertonicVoices,
     updateEdgeVoiceConfig,
-    updateKokoroVoiceConfig,
     updateLanguageCondition,
-    updateMagpieVoiceConfig,
-    updateSupertonicVoiceConfig,
   } = useNarrationProviderConfigState({
     detectedNarrationLanguageCode,
     metadata,
@@ -296,8 +292,10 @@ export function NarrationPanel({
   });
 
   const narration = useSubtitleNarration({
+    projectId,
+    currentProjectIdRef,
     t,
-    visibleSubtitles: subtitlesFromSelectedTrack,
+    visibleSubtitles: subtitlesFromSelectedTrack, projectSubtitle,
     selectedSubtitleIds,
     selectedSubtitleRange,
     sourceLanguageCode: selectedSourceLanguageCode,
@@ -318,35 +316,11 @@ export function NarrationPanel({
       disabled: !audio.rawAudioPath,
     })),
   ];
-  const s2sLanguageOptions = SUBTITLE_LANGUAGE_OPTIONS_GROQ
-    .filter((option) => option.value !== 'auto')
-    .map((option) => ({ value: option.value, label: option.label }));
-  const handlePopulateS2sSubtitles = useCallback((
-    sourceSegments: SubtitleSegment[],
-    targetSegments: SubtitleSegment[],
-    targetLanguage: string,
-    options?: PopulateS2sSubtitleTracksOptions,
-  ) => {
-    const currentSegment = segmentRef.current;
-    if (!currentSegment) return;
-    const nextSegment = populateEmptyS2sSubtitleTracks(
-      currentSegment,
-      sourceSegments,
-      targetSegments,
-      targetLanguage,
-      options,
-    );
-    const phase = options?.debugPhase ?? 'unknown';
-    const isLiveUpdate = options?.liveUpdate === true || phase === 'live';
-    segmentRef.current = nextSegment;
-    if (isLiveUpdate && onUpdateSegmentSilently) {
-      onUpdateSegmentSilently(nextSegment);
-    } else {
-      onUpdateSegment(nextSegment);
-    }
-    return nextSegment;
-  }, [onUpdateSegment, onUpdateSegmentSilently]);
+  const s2sLanguageOptions = S2S_LANGUAGE_OPTIONS;
   const s2s = useS2sNarration({
+    getNarrationSourceSnapshot,
+    projectId,
+    currentProjectIdRef,
     backendMode: directVoiceMethod,
     t,
     segment,
@@ -365,7 +339,10 @@ export function NarrationPanel({
     groupTextBudget,
     targetSegmentSec,
     onApplyNarrationSegments,
-    onPopulateEmptySubtitles: handlePopulateS2sSubtitles,
+    onPopulateEmptySubtitles: (...args) => {
+      if (!onPopulateS2sSubtitles) throw new Error('Subtitle destination is unavailable');
+      return onPopulateS2sSubtitles(...args);
+    },
     onFinalize: onFinalizeNarrationSegments,
   });
 
@@ -454,18 +431,20 @@ export function NarrationPanel({
 
           {!isDirectVoiceMode && (
           <div className="narration-panel-row mb-2 flex items-center gap-2">
-            <span className="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant">
-              {t.narrationTtsMethod}
-            </span>
-            <PanelSelect
-              value={effectiveTtsMethod}
-              options={providerOptions}
-              onChange={(value) => {
-                if (!isDirectVoiceMode) update('method', value as NarrationTtsMethod);
-              }}
-              triggerClassName="narration-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
-              contentClassName="narration-method-menu"
-            />
+            <LabelledField
+              label={t.narrationTtsMethod}
+              labelClassName="w-20 shrink-0 text-[11px] font-medium text-on-surface-variant"
+            >
+              <PanelSelect
+                value={effectiveTtsMethod}
+                options={providerOptions}
+                onChange={(value) => {
+                  if (!isDirectVoiceMode) update('method', value as NarrationTtsMethod);
+                }}
+                triggerClassName="narration-method-select h-8 flex-1 rounded-lg px-2.5 text-[11px]"
+                contentClassName="narration-method-menu"
+              />
+            </LabelledField>
           </div>
           )}
 
@@ -488,36 +467,16 @@ export function NarrationPanel({
           {!isDirectVoiceMode && (
             <NarrationVoiceProviderSettings
               addEdgeVoiceConfig={addEdgeVoiceConfig}
-              addKokoroVoiceConfig={addKokoroVoiceConfig}
-              addMagpieVoiceConfig={addMagpieVoiceConfig}
-              addSupertonicVoiceConfig={addSupertonicVoiceConfig}
               availableEdgeVoiceLanguages={availableEdgeVoiceLanguages}
-              availableKokoroVoiceLanguages={availableKokoroVoiceLanguages}
-              availableMagpieVoiceLanguages={availableMagpieVoiceLanguages}
-              availableSupertonicLanguages={availableSupertonicLanguages}
               edgeVoiceConfigs={edgeVoiceConfigs}
               edgeVoiceState={metadata?.edgeVoiceState}
               edgeVoicesByLanguage={edgeVoicesByLanguage}
               effectiveTtsMethod={effectiveTtsMethod}
               googleSpeedOptions={googleSpeedOptions}
-              kokoroVoiceConfigs={kokoroVoiceConfigs}
-              kokoroVoices={kokoroVoices}
-              magpieVoiceConfigs={magpieVoiceConfigs}
-              magpieVoices={magpieVoices}
-              referenceVoices={referenceVoices}
               removeEdgeVoiceConfig={removeEdgeVoiceConfig}
-              removeKokoroVoiceConfig={removeKokoroVoiceConfig}
-              removeMagpieVoiceConfig={removeMagpieVoiceConfig}
-              removeSupertonicVoiceConfig={removeSupertonicVoiceConfig}
               settings={settings}
-              stepAudioVoices={stepAudioVoices}
-              supertonicVoiceConfigs={supertonicVoiceConfigs}
-              supertonicVoices={supertonicVoices}
               update={update}
               updateEdgeVoiceConfig={updateEdgeVoiceConfig}
-              updateKokoroVoiceConfig={updateKokoroVoiceConfig}
-              updateMagpieVoiceConfig={updateMagpieVoiceConfig}
-              updateSupertonicVoiceConfig={updateSupertonicVoiceConfig}
             />
           )}
         </div>

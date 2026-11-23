@@ -229,6 +229,7 @@ internal class AndroidChromeDevToolsTransport(
         val request = Request.Builder()
             .url(url)
             .header(AUTH_HEADER, active.bearerToken)
+            .header(CONNECTION_HEADER, CONNECTION_CLOSE)
             .method(
                 method,
                 if (method == "POST" || method == "PUT") {
@@ -277,6 +278,7 @@ internal class AndroidChromeDevToolsTransport(
         val request = Request.Builder()
             .url(active.url(path, query))
             .header(AUTH_HEADER, active.bearerToken)
+            .header(CONNECTION_HEADER, CONNECTION_CLOSE)
             .method(
                 method,
                 if (method == "POST" || method == "PUT") {
@@ -368,6 +370,10 @@ internal class AndroidChromeDevToolsTransport(
     private companion object {
         const val LOOPBACK_ADDRESS = "127.0.0.1"
         const val AUTH_HEADER = "X-SGT-Bridge-Token"
+        // The tunnel forwards one authenticated request per connection, so a pooled
+        // keep-alive connection would be refused on reuse and look like a transport failure.
+        const val CONNECTION_HEADER = "Connection"
+        const val CONNECTION_CLOSE = "close"
         const val CONNECT_TIMEOUT_MS = 5_000L
         const val REQUEST_TIMEOUT_MS = 12_000L
         const val TUNNEL_CLOSE_TIMEOUT_MS = 5_000L

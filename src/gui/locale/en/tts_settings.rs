@@ -25,6 +25,7 @@ pub(super) fn get() -> TtsSettingsLocaleText {
         tts_speed_slow: "Slow",
         tts_speed_fast: "Fast",
         tts_preview_label: "Preview",
+        tts_preview_english_sample: "Preview (English sample)",
         tts_preview_texts: vec![
             "Hello, I am {}, ready to read this text for you.",
             "The quick brown fox jumps over the lazy dog.",

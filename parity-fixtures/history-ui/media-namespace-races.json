@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"changed_bytes_before_removal","action":"remove","replacement":"foreign","expected_replacement":"preserved"},
+    {"name":"identical_bytes_before_removal","action":"remove","replacement":"owned","expected_replacement":"preserved"},
+    {"name":"replacement_before_retirement_move","action":"retire","replacement":"foreign","expected_replacement":"restored"},
+    {"name":"identical_replacement_before_retirement_move","action":"retire","replacement":"owned","expected_replacement":"restored"},
+    {"name":"replacement_name_reoccupied_before_restore","action":"retire","replacement":"foreign","expected_replacement":"preserved_in_retirement_slot"},
+    {"name":"changed_bytes_before_open","action":"open","replacement":"foreign","expected_replacement":"not_opened"},
+    {"name":"stale_item_open","action":"open","item_state":"stale","expected":"rejected"},
+    {"name":"ambiguous_id_open","action":"open","item_state":"duplicate_id","expected":"rejected"},
+    {"name":"unavailable_storage_open","action":"open","item_state":"unavailable","expected":"rejected"},
+    {"name":"descriptor_replaced_before_verification","action":"open_descriptor","replacement":"owned","expected":"rejected_and_closed"},
+    {"name":"snapshot_changes_before_handoff","action":"admit_descriptor","item_state":"stale","expected":"rejected_and_closed"},
+    {"name":"snapshot_changes_during_handoff","action":"admit_descriptor","item_state":"current","expected":"publication_after_handoff"},
+    {"name":"item_metadata_changes_after_grant","action":"open","item_state":"changed_record","expected":"rejected"},
+    {"name":"legacy_open_proof","action":"prepare_open","item_state":"legacy","expected":"descriptor_identity_and_content"},
+    {"name":"changed_media_before_prepare","action":"prepare_open","item_state":"proved","expected":"rejected"}
+  ]
+}

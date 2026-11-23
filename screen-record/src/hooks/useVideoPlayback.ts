@@ -8,11 +8,12 @@ import {
 } from "react";
 import { videoRenderer } from "@/lib/videoRenderer";
 import { createVideoController } from "@/lib/videoController";
+import { PREVIEW_MEDIA_MOUNTED, type PreviewMediaElements } from "@/lib/previewMediaLifecycle";
 import { cloneBackgroundConfig } from "@/lib/backgroundConfig";
 import { normalizeSubtitleTrackState } from "@/lib/subtitleTracks";
 import { thumbnailGenerator } from "@/lib/thumbnailGenerator";
 import { getBaseTimelineThumbnailCount } from "@/lib/timelineThumbnailCount";
-import { getSpeedAtTime } from "@/lib/speedCurve";
+import { useTimelineOnlyPlayback } from "@/hooks/useTimelineOnlyPlayback";
 import { getLruCacheValue, setLruCacheValue } from "@/lib/boundedCache";
 import {
   getPreviewExportFrameRate,
@@ -89,10 +90,6 @@ export function useVideoPlayback({
   const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thumbnailCacheRef = useRef<Map<string, string[]>>(new Map());
   const currentTimeRef = useRef(0);
-  const timelineOnlyPlaybackRef = useRef<{ raf: number | null; lastTick: number }>({
-    raf: null,
-    lastTick: 0,
-  });
   const normalizedSegment = useMemo(
     () => (segment ? normalizeSubtitleTrackState(segment) : null),
     [segment],
@@ -107,33 +104,43 @@ export function useVideoPlayback({
 
   // Initialize controller
   useEffect(() => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    const controller = createVideoController({
-      videoRef: videoRef.current,
-      webcamVideoRef: webcamVideoRef.current || undefined,
-      deviceAudioRef: audioRef.current || undefined,
-      micAudioRef: micAudioRef.current || undefined,
-      canvasRef: canvasRef.current,
-      tempCanvasRef: tempCanvasRef.current,
-      onTimeUpdate: setCurrentTime,
-      onPlayingChange: setIsPlaying,
-      onBufferingChange: setIsBuffering,
-      onVideoReady: setIsVideoReady,
-      onDurationChange: setDuration,
-      onError: console.error,
-      onMetadataLoaded: () => {
-        // Segment updates flow through the editor history (useEditorHistory).
-      },
-    });
-    videoControllerRef.current = controller;
-
-    return () => {
-      controller.destroy();
-      if (videoControllerRef.current === controller) {
-        videoControllerRef.current = undefined;
-      }
+    let detach: (() => void) | undefined;
+    let attachedVideo: HTMLVideoElement | null = null;
+    let attachedCanvas: HTMLCanvasElement | null = null;
+    const attach = (event?: Event) => {
+      const elements = (event as CustomEvent<PreviewMediaElements> | undefined)?.detail;
+      if (elements && (elements.video !== videoRef.current || elements.canvas !== canvasRef.current)) return;
+      if (!videoRef.current || !canvasRef.current) return;
+      if (attachedVideo === videoRef.current && attachedCanvas === canvasRef.current) return;
+      detach?.();
+      attachedVideo = videoRef.current;
+      attachedCanvas = canvasRef.current;
+      const controller = createVideoController({
+        videoRef: videoRef.current,
+        webcamVideoRef: webcamVideoRef.current || undefined,
+        deviceAudioRef: audioRef.current || undefined,
+        micAudioRef: micAudioRef.current || undefined,
+        canvasRef: canvasRef.current,
+        tempCanvasRef: tempCanvasRef.current,
+        onTimeUpdate: setCurrentTime,
+        onPlayingChange: setIsPlaying,
+        onBufferingChange: setIsBuffering,
+        onVideoReady: setIsVideoReady,
+        onDurationChange: setDuration,
+        onError: console.error,
+        onMetadataLoaded: () => {
+          // Segment updates flow through the editor history (useEditorHistory).
+        },
+      });
+      videoControllerRef.current = controller;
+      detach = () => {
+        controller.destroy();
+        if (videoControllerRef.current === controller) videoControllerRef.current = undefined;
+      };
     };
+    window.addEventListener(PREVIEW_MEDIA_MOUNTED, attach);
+    attach();
+    return () => { window.removeEventListener(PREVIEW_MEDIA_MOUNTED, attach); detach?.(); };
   }, []);
 
   const renderTimelineOnlyFrame = useCallback((time: number) => {
@@ -386,10 +393,6 @@ export function useVideoPlayback({
       if (thumbnailTimerRef.current) {
         clearTimeout(thumbnailTimerRef.current);
       }
-      if (timelineOnlyPlaybackRef.current.raf !== null) {
-        cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
-        timelineOnlyPlaybackRef.current.raf = null;
-      }
       thumbnailCacheRef.current.clear();
     };
   }, []);
@@ -412,44 +415,16 @@ export function useVideoPlayback({
     renderTimelineOnlyFrame(currentTimeRef.current);
   }, [duration, isTimelineOnly, renderTimelineOnlyFrame, normalizedSegment]);
 
-  useEffect(() => {
-    if (!isTimelineOnly) return;
-    if (timelineOnlyPlaybackRef.current.raf !== null) {
-      cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
-      timelineOnlyPlaybackRef.current.raf = null;
-    }
-    if (!isPlaying || !normalizedSegment) return;
-
-    timelineOnlyPlaybackRef.current.lastTick = performance.now();
-    const tick = (now: number) => {
-      const playback = timelineOnlyPlaybackRef.current;
-      const dt = Math.max(0, (now - playback.lastTick) / 1000);
-      playback.lastTick = now;
-      const safeDuration = Math.max(normalizedSegment.trimEnd, duration, 1);
-      const speed = Math.max(
-        0.0625,
-        getSpeedAtTime(currentTimeRef.current, normalizedSegment.speedPoints ?? []),
-      );
-      const nextTime = Math.min(safeDuration, currentTimeRef.current + dt * speed);
-      currentTimeRef.current = nextTime;
-      setCurrentTime(nextTime);
-      renderTimelineOnlyFrame(nextTime);
-      if (nextTime >= safeDuration) {
-        setIsPlaying(false);
-        playback.raf = null;
-        return;
-      }
-      playback.raf = requestAnimationFrame(tick);
-    };
-    timelineOnlyPlaybackRef.current.raf = requestAnimationFrame(tick);
-
-    return () => {
-      if (timelineOnlyPlaybackRef.current.raf !== null) {
-        cancelAnimationFrame(timelineOnlyPlaybackRef.current.raf);
-        timelineOnlyPlaybackRef.current.raf = null;
-      }
-    };
-  }, [duration, isPlaying, isTimelineOnly, normalizedSegment, renderTimelineOnlyFrame]);
+  useTimelineOnlyPlayback({
+    isTimelineOnly,
+    isPlaying,
+    segment: normalizedSegment,
+    duration,
+    currentTimeRef,
+    setCurrentTime,
+    setIsPlaying,
+    renderFrame: renderTimelineOnlyFrame,
+  });
 
   // Render options sync — apply isCropping overrides so the controller always
   // renders the correct view (e.g. after seeked events, thumbnail generation).

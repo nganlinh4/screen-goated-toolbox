@@ -56,8 +56,10 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSLATE))
         assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_TRANSCRIBE))
         assertTrue(!transcription.contains(RealtimeModelIds.TRANSCRIPTION_GEMINI_S2S))
-        assertTrue(transcription.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
-        assertTrue(requiredModels.androidUnavailableTranscriptionProviders.contains(RealtimeModelIds.TRANSCRIPTION_PARAKEET))
+        assertEquals(
+            requiredModels.androidUnavailableTranscriptionProviders,
+            transcription.filter(RealtimeModelIds::isUnavailableOnAndroid),
+        )
         assertTrue(controls.translationPane.contains("translation-model-toggle"))
         assertTrue(controls.transcriptionPane.contains("transcription-model-toggle"))
         assertTrue(fixture.requiredVisuals.androidS2sAdaptiveVad)
@@ -76,7 +78,6 @@ class LiveTranslateOverlayBootstrapTest {
             fixture.requiredVisuals.vocabularyEditorFocusLifecycle,
         )
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.ttsModalLocaleRefresh)
-        assertEquals("live-on-ui-language-change", fixture.requiredVisuals.downloadModalLocaleRefresh)
         assertEquals("live-on-ui-language-change", fixture.requiredVisuals.s2sTooltipLocaleRefresh)
         assertEquals("hidden-not-greyed", fixture.requiredVisuals.irrelevantDisabledControls)
         assertEquals("active-ui-language-bundle", fixture.requiredVisuals.nativePickerLocaleSource)
@@ -192,8 +193,6 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(webViewSource.contains("if(window.setTranslationModel) window.setTranslationModel("))
         assertTrue(webViewSource.contains("if(window.setTranscriptionModel) window.setTranscriptionModel("))
         assertTrue(mainJsSource.contains("translationBtn.hidden = s2sMode"))
-        assertTrue(mainJsSource.contains("transLangBadge.hidden = true"))
-        assertTrue(mainJsSource.contains("transLangBadge.hidden = false"))
         assertEquals("windows-fulltext-previousFullText-commitAdvance", fixture.requiredVisuals.textRendererContract)
         assertTrue(builderSource.contains(".replace(\"{{ENABLE_INLINE_DIFF}}\", isTranslation.toString())"))
         assertTrue(logicSource.contains("const fullText = oldText + newText;"))
@@ -220,7 +219,6 @@ class LiveTranslateOverlayBootstrapTest {
         assertTrue(audioTrackSource.contains("setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)"))
         assertTrue(fixture.requiredVisuals.androidTtsSettingsApplyToUnreadText)
         assertTrue(realtimeTtsCoordinatorSource.contains("if (normalized.length < spokenLength || normalized.length < queuedLength)"))
-        assertTrue(realtimeTtsCoordinatorSource.contains("settingsSnapshot = globalSettings.toRuntimeSnapshot("))
         assertTrue(fixture.requiredVisuals.androidTtsRequestsTransientDuckFocus)
         assertEquals("restore-pre-drag", fixture.requiredVisuals.dismissDragPersistence)
         assertTrue(controllerSource.contains("boundsPersistenceSuspended.add(paneId)"))
@@ -270,7 +268,6 @@ class LiveTranslateOverlayBootstrapTest {
                 "overlayLocaleSource",
                 "overlayLocaleRefresh",
                 "ttsModalLocaleRefresh",
-                "downloadModalLocaleRefresh",
                 "s2sTooltipLocaleRefresh",
                 "irrelevantDisabledControls",
                 "roundedWindowMask",
@@ -314,7 +311,6 @@ class LiveTranslateOverlayBootstrapTest {
             RealtimeModelIds.TRANSCRIPTION_GEMINI_2_5,
             RealtimeModelIds.TRANSCRIPTION_GEMINI_3_1,
             -> "gemini"
-            RealtimeModelIds.TRANSCRIPTION_PARAKEET -> "parakeet"
             else -> this
         }
     }
@@ -455,7 +451,6 @@ private data class RequiredVisuals(
     val androidSkipsTranslationWhenPaneHidden: Boolean,
     val vocabularyEditorFocusLifecycle: String,
     val ttsModalLocaleRefresh: String,
-    val downloadModalLocaleRefresh: String,
     val s2sTooltipLocaleRefresh: String,
     val irrelevantDisabledControls: String,
     val roundedWindowMask: Boolean,

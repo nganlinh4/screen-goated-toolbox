@@ -1,7 +1,7 @@
 # Phone Control Parity Contract
 
-Status: core implementation complete; physical-device acceptance remains in
-progress. Evidence is recorded only after each contract layer is exercised;
+Status: core runtime implemented; resource-boundary parity and physical-device
+acceptance remain in progress. Evidence is recorded only after each contract layer is exercised;
 untested authority and device variants remain explicitly open.
 
 Research baseline: 2026-07-18. Re-check the linked Android, Play, Shizuku, and
@@ -139,16 +139,42 @@ review; it must not silently fork Phone Control into a weaker Play implementatio
 - Unknown future integrations remain available by default through the same
   catalog and capability registry.
 - One user turn produces at most one final response, then settles idle.
+- A `do_steps` receipt preserves the certainty of every attempted mutation.
+  An uncertain or missing per-step effect status dominates an earlier verified
+  step; no later mutation or completion may treat the batch as verified until
+  fresh evidence reconciles the uncertain effect. Verified and proven-no-effect
+  steps may be aggregated only when no attempted step remains uncertain.
+  Shared cases: `parity-fixtures/phone-control/batch-effect-certainty.json`.
+- Effect certainty comes from host-owned receipt fields or typed execution
+  evidence. Arbitrary tool, page, provider and nested payload data cannot verify
+  an effect or prove no effect merely by containing receipt-shaped keys. Host
+  wrappers explicitly carry their computed certainty on the outer receipt;
+  opaque payloads retain their original data. Shared cases:
+  `parity-fixtures/phone-control/effect-receipt-boundary.json`.
 
 `parity-fixtures/phone-control/authority-matrix.json` is the machine-readable
 authority and routing contract. Catalog availability is never inferred from
 the user's words.
 
+Provider-frame recovery follows
+`parity-fixtures/phone-control/provider-frame-recovery.json`. Undecodable input
+cannot publish effects or progress and does not prevent a following valid frame.
+Android already exposes this as `GeminiLiveReceiveResult.Unparsed`; transport
+failure remains a separate lifecycle event. Windows additionally owns a private
+decoder process: typed local/application/provider-data rejections may be dropped,
+while transport/framing/authentication/ABI and unclassified decoder failures
+remain fatal. At that private decoder boundary, validate a decoded batch completely
+before publishing its events; never publish a valid prefix from a rejected batch.
+Windows rejection diagnostics are bounded counters and contain no provider frame
+or error content.
+
 Pixel grounding uses the catalog-owned ordered model chain and fallback contract
 in `parity-fixtures/phone-control/model-chain.json`. Windows Computer Control and
 Android Phone Control consume the same generated IDs; neither platform owns a
-second locator-model constant. The current chain uses Robotics ER2 as the
-strict-accuracy primary and Gemini 3.5 Flash Lite as the faster fallback.
+second locator-model constant. The order is owned by the catalog's
+`feature_model_chains.computer_control_grounding` key and mirrored in the
+fixture's `grounding.models`; this spec deliberately names no model so it cannot
+drift from that order.
 General screenshot reading remains separate from target grounding and uses the
 effective shared Image-to-Text chain, including signed Live-feed interleaving.
 The dedicated grounding chain never inherits those general candidates.
@@ -251,14 +277,11 @@ and replies remain multilingual without language-specific routing.
 5. The first orb appearance asks for a power preference in a compact, orb-owned
    prompt: standard Android, SGT Bridge, Shizuku, or root. The choice is an
    authority selection, not a suggestion: standard disables elevated providers,
-   SGT Bridge selects only the first-party authenticated ADB route, Shizuku
+   SGT Bridge selects only the first-party ADB route, Shizuku
    selects only the Shizuku shell route, and root selects only the root route.
    The chooser is a compact four-choice card without explanatory prose. Purple
-   fill marks only the currently persisted authority choice. It marks SGT Bridge
-   with a star as the recommended non-root route even when another choice is
-   selected; recommendation alone never receives the selected fill or a distinct
-   border. The star is the only recommendation styling. This is presentation,
-   not an automatic selection or a weaker fallback contract. A
+   fill marks only the currently persisted authority choice. An unavailable
+   provider is not marked as recommended. A
    paired bridge exposes only a compact secondary forget action. Forgetting
    deletes the app-owned key and pairing state, persists standard authority, and
    rebuilds the chooser from that persisted choice.
@@ -385,6 +408,10 @@ and replies remain multilingual without language-specific routing.
    the exact protected surface appears, SGT immediately seals model-visible
    pixels, blocks new model tools, lets the one owned action settle, retires the
    hidden generation, and only then starts the local secret-handling adapter.
+   A checkpoint sealed by the monitor never outlives it: cancelling the monitor
+   before the local adapter owns the checkpoint, or the owned action missing its
+   120 s boundary, ends the checkpoint, unblocks tools and resumes visual
+   evidence. The deadline also ends the setup session as exhausted.
    Ordinary `done` semantics remain unchanged. Android Settings entry uses only
    documented public actions; private components, localized-label routes, and
    OEM-specific navigation are forbidden.
@@ -560,6 +587,18 @@ The Phone Control-specific cases are in
 `parity-fixtures/phone-control/turn-contract.json`; socket-level cases remain
 owned by `parity-fixtures/gemini-live-session/lifecycle.json`.
 
+Production reduces the turn contract through `PhoneControlTurnCoordinator`.
+A resumable reconnect while an accepted effect is settling reduces
+`TransportFailed` for the kept generation; the ready connection reduces
+`SocketOpened` and resumes only a generation the reducer accepts, otherwise it
+retires the local generation instead of reviving it. Every turn cleanup reduces
+`CleanupCompleted`, which may acknowledge but never produce output. Target
+leases are enforced by the provider that owns the live snapshot (the
+Accessibility target lease and its `stale_target` receipt), and an interrupted
+mutation's certainty reaches the reducer through the cancelled job's terminal
+receipt; the reducer's target-lease and `MutationInterrupted` cases model those
+owners' contract and are not a second production gate.
+
 The debug device probe is a transport into this same production executor and
 single-flight cancellation contract, not a second dispatcher. Its exported
 debug receiver requires Android's `DUMP` permission. A cancel arriving before
@@ -578,7 +617,7 @@ device timeout or release a still-running production operation.
 - Microphone capture remains open while assistant audio plays and while tools
   run. Local RMS is presentation/activity evidence only; it never phrase-gates
   input and never retires a playing generation. Gemini Live's typed
-  `interrupted` event is the sole speech barge-in receipt that retires that
+  `interrupted` event is the speech barge-in receipt that retires that
   generation, stops its playback, and cancels only its owned work.
 - Use the Windows PCM16 voice floor of 120 RMS for local activity. On each new
   locally voiced burst while assistant playback is quiet, request one fresh
@@ -586,8 +625,30 @@ device timeout or release a still-running production operation.
   structural hangover independent of Gemini Live's provider-owned automatic
   activity detection. Structural burst ownership is one-to-one: if a new
   above-threshold burst begins after the hangover before the prior burst's
-  below-threshold sample was observed, close the prior epoch before opening the
+  below-threshold sample was observed, close the prior acoustic burst before opening the
   next one.
+- Acoustic burst identity is separate from transcript-turn identity. A resumed
+  burst may refresh visual evidence, but cannot split an open input transcript,
+  even after response progress. After a completed response, voiced input can arm
+  the next transcript epoch while the old playback tail is still active. Observe
+  continuing voiced activity as well as burst starts, so speech crossing that
+  boundary is not lost. Completion alone, silence, and playback changes cannot
+  manufacture another user turn. Late ASR without new input evidence revises its
+  prior turn. Explicit provider interruption remains authoritative during active
+  work; cancellation can arm input only for the owned job. Only an actual input
+  transcript, or the accepted send of a UI/typed goal (which has no input
+  transcript), activates the next turn. A goal sent while a generation is
+  current joins that turn instead of opening another, and the goal settles only
+  after its turn completes. Microphone callbacks publish bounded
+  activity intent; the coordinator consumes it before assembling a provider
+  transcript. The shared replay contract is
+  `parity-fixtures/phone-control/speech-input-epochs.json`; Windows owners are
+  `runtime/input_activity.rs` and `runtime/speech_events/input_transcript.rs`.
+  Cancellation of the owned job can stop its playback and arm a new input, but
+  does not prove that job has settled. Unknown or retired cancellation IDs do
+  not clear the current playback or open a transcript epoch.
+  Rebinding an active protocol session preserves its collecting transcript;
+  rebinding a retired session arms the next input without reviving the old turn.
 - Stream current-generation PCM as it arrives. Only a bounded device-startup
   buffer or a temporarily missing output sink may delay playback.
 - Tool dispatch, tool completion, semantic completion, and postcondition checks
@@ -657,12 +718,9 @@ device timeout or release a still-running production operation.
   error glyph; its caption is empty unless there is one explicit user-owned
   Android step with localized guidance. Publishing the same visual state twice
   is a no-op.
-- While the current generation is in `responding`, classify at most the latest
-  600 caption characters about once per second through the same Taalas client
-  used by Windows and map its exact label to the canonical `sentiment_*` glyph.
-  This is conflated background presentation work: it never delays speech, tool
-  dispatch, or turn completion, and any network or malformed response keeps the
-  current icon silently.
+- The `responding` state uses the canonical neutral glyph without sending
+  caption or reply text to a separate classifier. Presentation never delays
+  speech, tool dispatch, or turn completion.
 
 ### Foreground execution
 
@@ -685,6 +743,11 @@ device timeout or release a still-running production operation.
   in-flight callback. A callback never reads an `Image` after close, cleanup
   exceptions never escape the callback thread, and display metadata comes from
   the structural default-display service rather than an Activity-only context.
+  The newest projection frame is always retained (decoded on demand), so a
+  capture on a now-static screen returns the latest content, never an earlier
+  cached frame. Below API 34, where Android reports no captured-content
+  resize, the virtual display follows default-display size changes so a
+  rotated screen keeps a 1:1 capture without letterboxing.
 - Android may redact private notification content while whole-display capture is
   active. Provider setup may therefore declare a protected user checkpoint.
   The full-catalog agent first completes its bounded reversible navigation goal.
@@ -711,6 +774,23 @@ device timeout or release a still-running production operation.
   grant attaches to the existing live runtime and reopens visual evidence only
   after a virtual display is ready. Denial keeps the runtime in its explicit
   capture-suspended state with public resume/cancel affordances.
+  Each system capture prompt retains its original activation or protected
+  checkpoint owner across activity recreation. Reentry while consent is open
+  coalesces the same request, defers a different request until the current one
+  settles, and lets explicit cancellation retire the pending prompt. A grant
+  from an older checkpoint never starts capture for a replacement checkpoint.
+  Consent reservation is process-wide: a separate coordinator cannot open a
+  second prompt until the owner retires or submits its request. A rejected
+  concurrent request receives a visible retry affordance.
+  A queued projection start can be retired before service admission; after
+  admission, conflicting reentry waits for that start's terminal receipt.
+  A service stop retires queued starts and their staged replay. An orphaned
+  reentry notification without a live process owner is cleared without
+  disturbing a newer owned notification.
+  The notification stop action records ordering when its private receiver
+  handles the action, preserving later user reentries while retiring earlier ones.
+  Service teardown holds projection admission closed through destruction;
+  a request rejected during teardown retains an explicit retry path.
   A capture-resume reentry retires any prior coordinator-owned external surface
   above the transparent coordinator before launching the system capture prompt;
   stale external activity results cannot finish or redirect the new step.
@@ -749,6 +829,16 @@ declarations append through the same versioned catalog boundary.
 | app integrations and MCP | Shared declaration, schema, lifecycle, and typed failure contracts; platform transport is thin glue |
 | `done` | The canonical terminal turn signal |
 
+Command output is a byte stream whose encoding can be mixed or unknown. A
+UTF-8-decodable preview is not proof of the producer's encoding; decoded text
+is therefore non-exact evidence. Windows includes a bounded base64 byte prefix
+per output stream and marks whether that prefix covers the complete captured
+stream. The invoked program, arguments and exit status retain their separate
+exactness; a working-directory text value is exact only if its native path was
+converted without loss. `parity-fixtures/phone-control/command-output-encoding.json`
+contains shared evidence cases. Android command providers have distinct output
+transports and their byte-level evidence parity remains to be verified.
+
 Structured tool arguments are protocol identities, not descriptive hints.
 Provider planning resolves a tool's capability from its validated structured
 arguments before dispatch. In particular, `act(fill)` plans and validates
@@ -770,6 +860,28 @@ other pair at the tool-contract boundary before selecting a provider. Providers
 must not add aliases that make the same stable catalog mean different things on
 each platform.
 
+### Session artifact lifetime
+
+Windows owns the artifact lifetime and admission rules in
+`src/overlay/computer_control/artifacts.rs` and its `session_storage`/`cache_file`
+modules. `parity-fixtures/phone-control/artifact-lifecycle.json` is the shared
+contract: one exact session owner, opaque nonreused IDs, a 32 MiB aggregate
+payload/input string-metadata budget, at most 128 entries, no implicit eviction, and
+atomic admission/retirement. Caller mutation cannot change a retained payload
+or its digest. Retirement clears indexed artifacts and rejects late publication;
+already-admitted immutable read/export inputs may finish. Explicit exports and
+imported user sources are never cache-cleanup targets.
+
+Android already exposes artifact IDs rather than cache paths and exports through
+its existing resource-authorized provider route. Its platform shim therefore keeps bounded
+immutable artifact bytes in RAM, without the unused automatic disk duplicate.
+Each runtime owns its store through the dispatch boundary and closes it during
+resource release. Quota and retired-store failures remain typed and preserve the
+effect certainty of the invoking operation. Historical unowned cache files are
+preserved. The same implementation serves Full and Play; process death drops
+the transient store. Native storage/export behavior still requires device
+acceptance.
+
 ### Durable conversation memory
 
 Phone Control memory uses an app-private store independent from the transient
@@ -778,6 +890,10 @@ index is derived and rebuildable. Writes use same-directory durable temporary
 files plus atomic replace. Startup promotes a complete newer temporary record,
 discards a partial temporary record, isolates a corrupt sidecar without hiding
 healthy sessions, rebuilds the index, and reapplies retention.
+A sidecar or index written by an unsupported schema version is never isolated
+as corrupt or rewritten; memory operations fail while it exists. On Android that
+failure stays inside memory operations: process-start recovery does not crash
+the app.
 
 The turn assembler supplies explicit session, turn, record, and `USER` or
 `ASSISTANT` role identity, with exactly one record for each role in a committed
@@ -796,6 +912,11 @@ formats the full structurally labeled transcript. A future embedding provider
 may improve ranking, but lexical retrieval remains the offline fallback and is
 not part of durable storage. Play and full use this same implementation. The machine-readable contract is
 `parity-fixtures/phone-control/memory-contract.json`.
+
+Android completes process-start memory recovery before publishing custom models
+or starting preset observers. If recovery fails, those later owners are not
+started by the failed container. Shared ordering cases are in
+`parity-fixtures/phone-control/app-startup-order.json`.
 
 Android `list_windows` means **current interactive surfaces**, not installed
 apps, background tasks, or a history. API 30+ observations include Accessibility
@@ -973,6 +1094,10 @@ display. Phone Control additionally requires:
   limit and must never call the API-30-only accessibility-window display-ID
   accessor, and a window snapshot survives absent/inaccessible root content
   with `content_accessible=false`;
+- one bounded walk per capture, shared by every window: at most 5000 visited
+  nodes, depth 64, and 1000 ms of wall-clock time on the service main looper
+  (which serializes provider state); reaching any bound marks the observation
+  `truncated` instead of stalling the looper;
 - session-scoped window/content/scroll event subscriptions sufficient to
   invalidate snapshots, narrowed again while idle; events are hints, never a
   substitute for a fresh observation;
@@ -1075,8 +1200,8 @@ window change, or uncertain interruption invalidates it.
   fresh crosshair crop, and dispatches one leased swipe only after both local
   signatures and the exact surface still match.
 - Visual grounding requires no local ML asset, automatic blind-frame inference,
-  model download, or Play/Full delivery difference. ORT remains only where
-  another subsystem independently needs it.
+  model download, or Play/Full delivery difference. Android packages no ONNX
+  Runtime.
 
 ## Optional Authority Providers
 
@@ -1107,7 +1232,10 @@ an already-foreground app; missing or ambiguous foreground evidence continues
 through the normal launcher path and is never reported as preserved. Absolute
 paths, standard-folder paths, `content:` URIs, and `file:` URIs use Android
 resource viewing with a MIME type, temporary read grant where applicable, and
-the platform chooser or owning handler. When `args` is present, it may identify
+the platform chooser or owning handler. SGT's own private storage (internal
+data, caches and app-specific external directories) and `content:` URIs of SGT's
+own providers are never granted to another app; they return
+`resource_permission_denied` before any grant. When `args` is present, it may identify
 one of those resources to open with the exact app in `name`; arbitrary Android
 command-line text returns a typed structural boundary instead of guessed intent
 extras. The ordinary app/SAF route is tried
@@ -1123,14 +1251,22 @@ Filesystem mutations sharing one canonical path are serialized within SGT.
 `save_artifact` with `overwrite:false` uses an atomic create-only operation, and
 an exact text replacement revalidates its expected hash immediately beside the
 atomic replacement. All replacement groups are planned against one immutable
-baseline and overlapping ranges are rejected. Ordinary CSV/TSV edits preserve
-the parsed record shape and formula cells before staging. The same bounded,
-unambiguous repairs as Windows remove only redundant trailing empty fields,
-serialize a split changed trailing value, and restore exact opaque formula
-bytes; ambiguous structure still fails closed. A proposal that intentionally
-drifts shape or formulas must use `edit_text_file_structure`. Its first call is
-a no-effect preflight that returns a token bound to the exact format, baseline,
-and proposed bytes. That token identifies the proposal but never authorizes it.
+baseline and overlapping ranges are rejected. Every requested old/new group is
+applied verbatim or the whole edit fails without writing; no group or byte is
+silently omitted, repaired, or substituted. Ordinary CSV/TSV edits must leave
+the parsed record shape and formula cells unchanged. If exact requested bytes
+would violate those constraints, reject before staging and let the caller
+correct them. An explicitly requested shape or formula change must use
+`edit_text_file_structure`. Ordinary-data and formula changes must be separate
+edits. A structural proposal's first call is a no-effect preflight that returns
+a token bound to the exact format, baseline, and proposed bytes. That token
+identifies the proposal but never authorizes it. Shared examples are in
+`parity-fixtures/phone-control/file-mutation-contract.json`.
+Both edit paths limit the combined planned occurrences to 65,536 and preflight
+the final UTF-8 byte size, including any BOM, before allocating replacement
+output. A limit failure leaves the original bytes unchanged.
+Invalid Unicode scalar input must be rejected before commit; Android must not
+replace an unpaired UTF-16 surrogate while encoding the requested bytes.
 
 Every dedicated file write—ordinary edit, structural edit, or artifact save—
 also passes an independent target-scope checkpoint. Its bounded proposal
@@ -1145,16 +1281,132 @@ cooldown, and token-budget gates. They must not fall back to an authored-only
 snapshot that silently omits currently eligible models.
 
 An authorized write receives an immutable target lease containing the canonical
-path, whether it existed, and its existing hash when applicable. The commit edge
+path, whether it existed, its file-object identity and existing hash when applicable. The commit edge
 revalidates that lease. A target authorized while absent cannot overwrite a file
 that appeared later, including with `overwrite:true`; canonical-target drift or
-content drift is reported with proven no effect.
+content drift detected before publication leaves the target unchanged.
+Bounded descriptor reads reject a changed observed file version or a byte count
+that disagrees with its recorded size. Android compares the full available
+modification and change timestamps as well as two independent reads. Shared
+cases are in `parity-fixtures/phone-control/file-snapshot-observation.json`.
+
+Artifact save prepares the immutable source and target lease before the target
+scope checkpoint. The source ID, byte count and digest may enter the proposal;
+its content never does. Preparation creates no output directories or staging
+files. Publication uses complete synced bytes and an atomic create-only or
+audited replacement operation. A failed stage cannot truncate the destination.
+An overwrite whose old or new version cannot be verified returns an uncertain
+effect and preserves available recovery bytes; it cannot claim verified success
+or silently roll back. Receipts report retained staging/recovery paths and any
+created parent directories. Cancellation prevents a new publication after its
+commit admission boundary. Parent creation already admitted before cancellation
+may remain and must be reported. A retired source session cannot admit another
+export; an already admitted explicit export may finish from its frozen source.
+An ambiguous publication error remains uncertain even if read-back fails;
+unreadable entries cannot establish absence. Attempted parent creation is
+reported separately from confirmed creation. Terminal cancellation receipts
+preserve the transaction's recovery paths and parent-effect evidence.
+
+Windows canonical artifact publication is owned by
+`src/overlay/computer_control/artifacts/export.rs` and `export_target.rs`, using
+the shared exact-file transaction. The Android port uses the same prepared
+source/target, staged publication and old/new-version audit states, with a thin
+descriptor-relative native namespace shim. Missing targets use atomic no-replace
+publication; existing targets use atomic exchange so the displaced version is
+available to audit and recover. Unsupported kernel/filesystem operations fail
+explicitly without a truncating or unaudited fallback. Android API 29 remains
+supported; the shim does not require a newer public libc symbol.
+On a platform without identity-bound unlink, retain available recovery or
+unpublished staging and report its exact path/identity instead of deleting a
+name that could have been replaced. Verified success may retain its old-version
+backup. This is explicit retention in the canonical receipt, not an automatic
+rollback or hidden cache purge. Native/device and filesystem durability
+acceptance remain distinct from JVM transaction-state checks.
+An unchanged target with no retained output is a proven no-effect rejection.
+If staging already exists and cannot be identity-deleted safely, rejection
+reports the unchanged target separately from its retained filesystem effect.
+Cancellation settlement retains critical recovery/staging evidence even when
+the ordinary tool receipt loses the cancellation race.
+
+After a rejected exact-file transaction, alternate mutations require a fresh
+independent resource-effect assessment. Canonical Windows owners are
+`src/overlay/computer_control/uia_task/exact_edit_guard.rs`,
+`src/overlay/computer_control/uia_task/resource_boundary.rs`, and
+`src/overlay/computer_control/uia_task/request_authorization.rs`. The shared
+`parity-fixtures/phone-control/exact-resource-boundary.json` specifies activation,
+retirement, dispatch/cancellation truth and capability cases. Argument path
+occurrence or absence never decides permission. Assess the actual selected
+session declaration, exact arguments, process working directory when applicable,
+observed context and committed user scope. Treat action/context content as
+untrusted evidence. Unknown or denied effects cannot dispatch; approval does not
+verify the later effect. Exact text transactions keep their own preflights;
+artifact replacement cannot bypass a rejected text transaction's invariants.
+Successful exact transactions clear only their resource, and turn retirement
+clears the boundary. Capture identity before dispatch. A directory entry and the
+file object it currently references are separate identities: hard-link aliases
+share failure evidence, but replacing one entry cannot clear a sibling entry
+that still references the prior file. Compare native identities and exact names;
+never merge case-distinct names by text folding. Unknown identity cannot clear
+evidence. A single leaf-name case alias may match only when both native parent
+snapshots prove case-insensitive lookup; missing nested ancestry and unknown
+policy stay conservative. Native lookups must additionally confirm the same
+opened entry. A reported in-place mutation cannot credit a replacement file
+object. Credit a read or successful write only while a
+bounded stable read lease proves the current receipt digest and native identity.
+Retained identity handles can keep directories busy on Windows; explicit turn
+retirement must release them. Keep the complete catalog available. Android's
+canonical port uses `PhoneControlExactEditGuard` and native descriptor identities
+from `AndroidExactResourceIdentity`, beside the common dispatcher checkpoint.
+Device/inode identity and exact directory-entry names remain separate; no
+unproven case alias is merged. Linux read descriptors retain inode ownership
+and support bounded double-pass digest/version checks, but do not exclude every
+external writer. This is a platform isolation limitation, not verified Windows
+mandatory-sharing equivalence. Missing/unstable identity cannot clear evidence.
+Turn retirement releases every descriptor; stale jobs cannot reopen retired
+state. The production checkpoint uses the session's validated declarations and
+the existing independent request candidate client and committed request history.
+Every alternate-effect check is fresh. A request revision invalidates an
+in-flight decision; cancellation, turn retirement or changed observed context
+after approval prevents dispatch. Process execution and assessment share one
+bounded argv/working-directory parser. An approval never strengthens the
+operation's own effect receipt. A same-turn rebind preserves failure evidence.
+In-memory request authority and resource lifecycle always receive turn events,
+including app-originated turns hidden from conversation memory. Presentation
+suppression wraps only durable memory/diagnostics, never the session's authority
+recorders. Closing the runtime releases the dispatch boundary and its identities.
+A user-authored text goal (typed or assist text) is its turn's committed request,
+exactly as a spoken transcript is; SGT's silent setup goals never enter request
+history. As in Windows `request_authorization::begin_turn(turn, inherit)`, the
+turn that follows a turn interrupted while still acting (barge-in, transport or
+checkpoint retirement) continues that request lineage; any other new turn keeps
+only its own request. An interrupted request is never authority by itself; only
+the one following turn adopts it again.
+Native/device and final
+cross-flavor acceptance must be recorded separately from JVM transition tests.
+
+Exact-process program lookup is independent of the selected working directory.
+Bare names use configured search directories and native system lookup; local
+programs require explicit relative or absolute paths unless their directory is
+explicitly included in PATH. Windows preserves supported executable shims and
+extension order. Windows anchors explicit paths before launch, including absent
+paths, and resolves relative PATH entries before applying the child cwd. Ambiguous
+Windows drive-relative program paths are rejected. Android preserves the exact
+program word for its native process or shell backend; it does not prefix bare
+names with the selected cwd. Shared
+cases: `parity-fixtures/phone-control/program-lookup.json`. JVM tests prove request
+and wrapper preservation; actual Android executable search requires device proof.
 
 An identical structural retry can cross its separate private commit edge only
 after another text-model quorum compares the exact structural proposal with the
 same bounded current user request: at least two distinct positive verdicts and
 no negative verdict are required. Language meaning remains in the models;
-Kotlin uses no phrase or locale gate. Immediately before atomic replacement
+Kotlin uses no phrase or locale gate. Like Windows `request_authorization.rs`,
+the structural and the ordinary resource checks share one request-contract
+owner (`RequestContractChecker`): the same committed-request history, quorum,
+timeouts, verdict evidence, and a verdict cache keyed to the history revision.
+Each check owns only its proposal context, instruction, and result codes, and
+any request change during an assessment leaves the result unverified.
+Immediately before atomic replacement
 Android revalidates the target lease, expected hash, proposal, token, and
 structural audit. A concurrent creator or modifier is reported without silently
 overwriting its bytes. The shared machine contract is
@@ -1197,10 +1449,26 @@ protected directory. See
   code, Android/Play confirmation, credential, or trust decision. When the
   pairing surface is ready, the general protected-checkpoint lifecycle seals
   model-visible pixels and semantics and releases capture. A Shizuku adapter may
-  then relay the one-time pairing value locally between structurally identified
-  Android/Shizuku surfaces. It must refuse multiple candidates, unexpected
-  packages/windows, stale nodes, non-ephemeral inputs, or any need for model
-  interpretation. Android/Play install, wireless-debugging enablement, trust, and
+  then wait for the user to enter and submit the one-time value in Shizuku's
+  notification. Accessibility node labels and System UI ownership do not prove
+  who posted a notification, so the adapter never extracts or fills this value.
+  The sealed checkpoint remains active while waiting for the Binder or a user
+  cancellation. A fresh capture consent result belongs only to the exact
+  checkpoint that requested it; stale or unowned results cannot resume another
+  checkpoint or clear its recovery notification. An Android-restored in-flight
+  capture request with no live process owner is
+  retired before any replacement request is launched; saved state records only
+  the existence of the request, not its owner or its grant.
+  A projection dispatch is single-flight through its terminal receipt and one
+  process-owned replay claim. Deferred replay waits for service teardown to
+  finish if the dispatch requested teardown. If no Activity claims an outstanding user action,
+  an available notification offers its guarded replay; a newer action or process
+  restart invalidates that older notification. If notifications are unavailable,
+  the single pending action stays in memory until an Activity can reconcile it.
+  A queued stop applies only to the projection generation current when that
+  stop was requested. A new consent request reserves its generation before
+  opening Android's dialog, and its eventual grant must retain that generation.
+  Android/Play install, wireless-debugging enablement, trust, and
   confirmation remain user steps. After the adapter or user completes the step,
   SGT probes Binder authority and requests a fresh capture grant without ending
   the live conversation. It never claims the provider is ready before the grant
@@ -1211,7 +1479,10 @@ protected directory. See
   Shizuku user service. The AIDL bridge cancels that command only; it never
   destroys the shared user service or another command. Local root and Shizuku
   workers retain terminal ownership until the root process and owned descendant
-  tree are confirmed dead where Android exposes process-tree handles. A blocked
+  tree are confirmed dead where Android exposes process-tree handles. For root,
+  the owned process group is created inside the root shell, not around the
+  local `su` client, because the root manager's daemon spawns the root shell
+  outside the client's group. A blocked
   or failed Binder cancellation attempt cannot block the lifecycle caller and
   cannot be dropped: it remains owned settlement work until that attempt exits.
 - Never translate a shell failure into success. SELinux, OEM changes, user/profile
@@ -1221,6 +1492,13 @@ See the [Shizuku API](https://github.com/RikkaApps/Shizuku-API) and
 [current setup/reboot behavior](https://shizuku.rikka.app/guide/setup/).
 
 ### First-party SGT privileged bridge
+
+The current local wireless ADB transport cannot verify the command endpoint's
+identity. Until an authenticated peer binding is available, SGT Bridge returns
+typed `unsupported` before pairing, connecting, executing, or opening a browser
+tunnel. The selected authority and any existing pairing are retained; the user
+may explicitly select a different authority or forget the pairing. Other
+providers and the tool catalog remain unchanged.
 
 The first-party local ADB bridge removes the external Shizuku-app dependency
 when the device supports wireless debugging. It is an additional provider, not
@@ -1271,7 +1549,9 @@ real-device proof passes. Its contract is:
 - accept shell authority only from a successful `process_exited` receipt that
   proves process start, exit code zero, no timeout, no cancellation, shell
   provenance, and exact UID 2000 output. A marker observed in a timed-out or
-  cancelled receipt never authenticates the provider;
+  cancelled receipt never authenticates the provider. A verified receipt is
+  reused only for the same ADB transport generation and for at most 30
+  seconds; any reconnect, disconnect, forget, or failed check re-verifies;
 - require Android 17 `ACCESS_LOCAL_NETWORK` when applicable.
 
 Android 17 plus adb 37 can automatically reconnect a paired device to a trusted
@@ -1365,21 +1645,62 @@ See Android's [DevicePolicyManager](https://developer.android.com/reference/andr
   elevated authority or a credentialed browser. It uses isolated requests,
   blocks private/link-local destinations and credentials in URLs, preserves the
   shared source-policy/evidence bounds, and never claims browser-session state.
+  Android's direct HTTP adapter validates each redirect destination before
+  dispatch, including IP literals and any requested domain restriction; it
+  bypasses system proxies so destination DNS remains subject to the public-only
+  policy, bounds redirect chains, and rejects loops. These direct-fetch checks supplement
+  the Windows browser-based research boundary. Shared cases are in
+  `parity-fixtures/phone-control/public-research-redirects.json`.
+  Search discovery ports the Windows structural result-link rule
+  (`research/search_links.js` and `search_provider.rs`): hidden anchors and page
+  chrome are skipped, and only labelled http(s) anchors that own or sit in a
+  heading, or sit in an article, list item, or main region, become candidates
+  after redirect unwrapping. Android parses static markup, so visibility uses
+  `hidden`, `aria-hidden`, non-rendered elements, and inline hiding styles. A
+  search response whose final URL left the provider's result endpoint (host and
+  path) is an interstitial such as consent, captcha, or sign-in, not results.
+  Either case yields no links, so discovery falls through to the next provider.
+  Research relevance splits alphanumeric runs before lowercasing, retaining
+  distinct terms with at least two Unicode scalar values after lowercasing.
+  Two-scalar terms match excerpt text at an alphanumeric-run start so ordinary
+  word interiors do not spuriously match, and exact short-token evidence ranks
+  ahead of prefix-only hits; link labels use token overlap.
+  A long matching line is sampled around its query hit, and excerpt budgets
+  count complete Unicode scalar values. Unicode
+  classifications can vary with platform tables; no normalization is implied.
+  Passage layouts may differ by platform, but a matching passage
+  must remain eligible even when all query terms have two scalar values.
+  Shared term and bounded-evidence cases are in
+  `parity-fixtures/phone-control/public-research-relevance.json`.
   Credentialed or interactive page tools remain on the browser ladder above.
 - SGT Bridge and Shizuku CDP transports use the same bounded tunnel contract.
   Each lease owns an ephemeral loopback listener; every connection presents a
   random per-process bearer secret delivered only through the selected
   non-exported authority channel, and the tunnel strips it before proxying one
-  stream to `localabstract:chrome_devtools_remote`. Neither the secret nor the
+  stream to `localabstract:chrome_devtools_remote`. A connection carries only
+  that one authenticated request and its declared body, or the WebSocket Chrome
+  upgrades it to; further client bytes end the connection, and chunked or
+  ambiguous request framing is refused. Plain DevTools HTTP calls send
+  `Connection: close`. Neither the secret nor the
   lease is logged or persisted. Forgetting SGT Bridge, Shizuku service death,
   provider replacement, or service teardown closes that provider's tunnels and
   target sessions. A reachable loopback port without the secret proves no
-  authority.
+  authority. The whole request header must arrive within one 5-second
+  deadline. Only connections that present the secret take a client slot;
+  unauthenticated connections wait in a small bounded queue that evicts the
+  oldest first, so slow local sockets cannot lock out SGT's own client.
 - Chrome target enumeration establishes opaque target identity; it does not
   silently select by title or URL. Opening a target binds the returned exact
   target ID. Switching an existing target requires the numeric handle from the
   current authenticated `browser_tabs` observation, followed by a fresh target
   probe. Navigation retires the prior document generation.
+- As on Windows (`document_binding::eval_main_world`), `browser_eval` and
+  `browser_wait_for` resolve the bound document's root object first, check the
+  document identity, and then call the code on that object with
+  `Runtime.callFunctionOn`. A navigation after the check destroys the object's
+  context, so the code cannot run in the replacement page. `browser_upload`
+  checks the document after it resolves the file input node, which dies with
+  its document.
 - Browser content and auth state stay inside the provider. Logs/traces may record
   the credential-context kind (`attached_browser_tab`,
   `custom_tab_shared_state`, or `app_private_webview`) but never cookies, tokens,
@@ -1430,7 +1751,9 @@ limits them to computers.
 - Elevated command execution must perform the same fresh structural preflight
   immediately before process dispatch. While an active Android-owned user-step
   window is present, no shell or root command is dispatched; command text is
-  never parsed to guess intent or create exceptions.
+  never parsed to guess intent or create exceptions. Provider reconnection must
+  finish before that sample; an unavailable or unstable observation fails closed
+  with a proven-no-effect receipt rather than assuming no protected surface.
 - Platform APIs that report a pending confirmation register an opaque user-step
   session before presenting their system-owned UI and retire it on resolution,
   failure, or cancellation. Authority checks consume only that structural
@@ -1470,7 +1793,12 @@ A grounding request failure reports request freshness separately from provider
 health. `stale_frame`, `stale_target`, `target_not_found`, and other
 frame/request outcomes do not claim that the model chain became unavailable;
 only a genuinely missing key or unusable grounding provider reports
-`unavailable`.
+`unavailable`. Transport failures are typed, never swallowed: a missing,
+invalid, or rejected (401/403) Gemini key stops the chain at once as
+non-retryable `capability_unavailable` with required user step
+`configure_gemini_api_key`; HTTP 429 is retryable `rate_limited`; any other
+transport failure is retryable `vision_grounding_failed` carrying its detail,
+and is what the chain reports when no model produced a parseable answer.
 
 Hard walls return typed failures: secure/DRM capture, stale nodes, inaccessible
 profiles, OEM-omitted nodes, unsupported multi-window effects, revoked services,
@@ -1601,8 +1929,6 @@ tool plan and capability route.
   `parity-fixtures/phone-control/turn-contract.json`
 - Shared file-mutation fixture:
   `parity-fixtures/phone-control/file-mutation-contract.json`
-- Shared native-runtime identity fixture:
-  `parity-fixtures/phone-control/native-runtime-contract.json`
 - Shared launcher/activation fixture:
   `parity-fixtures/phone-control/activation-flow.json`
 - Shared diagnostics and target-recovery fixture:
@@ -1736,9 +2062,9 @@ consequential checkpoints. One initial run and at most one repair rerun per case
    discovery and the Accessibility browser-chrome/fallback matrix. Keep the
    owned-WebView bridge for SGT-owned or deliberately isolated content.
 6. Optional Shizuku shell backend and no-brainer setup/reboot diagnosis.
-7. Keep the first-party local ADB bridge as the recommended non-root route after
-   its pairing, reconnect, cancellation, revoke, and real-device lifecycle
-   checks; continue the transport threat-model and dependency-audit work.
+7. Keep the first-party local ADB bridge unavailable until its command peer is
+   authenticated and its pairing, reconnect, cancellation, revoke, and device
+   lifecycle are verified.
 8. Optional root/device-owner/privileged providers behind the same registry.
 9. Shared Gemini named-point, multi-mark, drag-endpoint, crosshair verification,
    and target-local visual-lease grounding.

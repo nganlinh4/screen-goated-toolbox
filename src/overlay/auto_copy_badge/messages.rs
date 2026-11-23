@@ -5,7 +5,6 @@ use windows::Win32::Graphics::Gdi::{
 use wry::WebView;
 
 /// Reposition the badge window to bottom-center of the primary screen and show it.
-/// Shared by the queue-processing and progress-update handlers.
 fn show_badge_centered(hwnd: HWND) {
     unsafe {
         let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
@@ -109,9 +108,9 @@ pub(super) unsafe extern "system" fn badge_wnd_proc(
                                     .unwrap_or_else(|| "null".to_string());
 
                                 let script = format!(
-                                    "window.addNotification('{}', '{}', '{}', {});",
-                                    escape_js_text(&safe_title),
-                                    escape_js_text(&safe_snippet),
+                                    "window.addNotification({}, {}, '{}', {});",
+                                    notification_text_literal(&safe_title),
+                                    notification_text_literal(&safe_snippet),
                                     type_str,
                                     duration_js
                                 );
@@ -121,41 +120,6 @@ pub(super) unsafe extern "system" fn badge_wnd_proc(
                     });
                 }
 
-                LRESULT(0)
-            }
-            WM_APP_UPDATE_PROGRESS => {
-                let app = APP.lock().unwrap();
-                let is_dark = app.config.theme_mode.is_dark();
-                drop(app);
-
-                show_badge_centered(hwnd);
-
-                let progress = ACTIVE_PROGRESS.lock().unwrap().clone();
-                if let Some(progress) = progress {
-                    BADGE_WEBVIEW.with(|wv| {
-                        if let Some(webview) = wv.borrow().as_ref() {
-                            push_theme(webview, is_dark);
-
-                            let script = format!(
-                                "window.upsertProgressNotification('{}', '{}', {});",
-                                escape_js_text(&progress.title),
-                                escape_js_text(&progress.snippet),
-                                serde_json::to_string(&progress.progress)
-                                    .unwrap_or_else(|_| "null".into())
-                            );
-                            let _ = webview.evaluate_script(&script);
-                        }
-                    });
-                }
-
-                LRESULT(0)
-            }
-            WM_APP_HIDE_PROGRESS => {
-                BADGE_WEBVIEW.with(|wv| {
-                    if let Some(webview) = wv.borrow().as_ref() {
-                        let _ = webview.evaluate_script("window.removeProgressNotification();");
-                    }
-                });
                 LRESULT(0)
             }
             WM_APP_HIDE_BADGE => {

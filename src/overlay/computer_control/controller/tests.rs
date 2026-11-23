@@ -19,6 +19,8 @@ fn browser_window() -> BrowserWindowIdentity {
 struct FakeSurface {
     world: WorldState,
     executed: Vec<Verb>,
+    protected: bool,
+    drift_on_fill: bool,
 }
 
 impl Surface for FakeSurface {
@@ -48,6 +50,9 @@ impl Surface for FakeSurface {
                 .find(|item| item.name == element.name)
                 .expect("planned field remains present");
             current.value = value.map(str::to_string);
+            if self.drift_on_fill {
+                self.world.title = Some("changed".to_string());
+            }
         }
         Ok(json!({
             "ok": true,
@@ -55,17 +60,110 @@ impl Surface for FakeSurface {
         }))
     }
 
-    fn read_back(&mut self, element: &IndexedElement) -> ReadBack {
+    fn read_back(&mut self, element: &IndexedElement, _expected: &SurfaceIdentity) -> ReadBack {
         ReadBack {
-            value: self
-                .world
-                .elements
-                .iter()
-                .find(|item| item.name == element.name)
-                .and_then(|item| item.value.clone()),
+            value: (!self.protected)
+                .then(|| {
+                    self.world
+                        .elements
+                        .iter()
+                        .find(|item| item.name == element.name)
+                        .and_then(|item| item.value.clone())
+                })
+                .flatten(),
             validity: None,
+            selected_text: None,
+            protected: self.protected,
         }
     }
+}
+
+struct CoverageFailureSurface {
+    world: WorldState,
+    observations_before_failure: usize,
+    executed: bool,
+}
+
+impl Surface for CoverageFailureSurface {
+    fn identity(&mut self) -> anyhow::Result<SurfaceIdentity> {
+        Ok(self.world.identity.clone())
+    }
+
+    fn observe(&mut self) -> anyhow::Result<WorldState> {
+        if self.observations_before_failure == 0 {
+            return Err(super::super::browser::incomplete_frame_coverage(
+                "frame unavailable",
+            ));
+        }
+        self.observations_before_failure -= 1;
+        Ok(self.world.clone())
+    }
+
+    fn execute(
+        &mut self,
+        _: &IndexedElement,
+        _: Verb,
+        _: Option<&str>,
+        _: &ActCtx,
+        _: &SurfaceIdentity,
+    ) -> anyhow::Result<Value> {
+        self.executed = true;
+        Ok(json!({"ok": true}))
+    }
+
+    fn read_back(&mut self, _: &IndexedElement, _: &SurfaceIdentity) -> ReadBack {
+        ReadBack::default()
+    }
+}
+
+#[test]
+fn sequence_preserves_frame_coverage_errors_before_and_after_dispatch() {
+    let initial = world(SurfaceIdentity::Native {
+        hwnd: 9,
+        pid: 4,
+        generation: 1,
+    });
+    let cancel = AtomicBool::new(false);
+    let profile = HumanProfile::instant();
+    let act = ActCtx {
+        profile: &profile,
+        cancel: &cancel,
+        dry: false,
+    };
+    for planned in [false, true] {
+        let mut controller = Controller {
+            last: planned.then(|| initial.clone()),
+            ..Controller::default()
+        };
+        let mut surface = CoverageFailureSurface {
+            world: initial.clone(),
+            observations_before_failure: 0,
+            executed: false,
+        };
+        let result =
+            controller.do_steps_on(&[json!({"id": 1, "verb": "click"})], &act, &mut surface);
+        assert_eq!(result["code"], "ERR_BROWSER_FRAME_COVERAGE_INCOMPLETE");
+        assert_eq!(result["effect_may_have_occurred"], false);
+        assert!(!surface.executed);
+        assert!(controller.last.is_none());
+    }
+    let mut controller = Controller {
+        last: Some(initial.clone()),
+        ..Controller::default()
+    };
+    let mut surface = CoverageFailureSurface {
+        world: initial,
+        observations_before_failure: 1,
+        executed: false,
+    };
+    let result = controller.do_steps_on(&[json!({"id": 1, "verb": "click"})], &act, &mut surface);
+    assert!(surface.executed);
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["effect_may_have_occurred"], true);
+    assert_eq!(
+        result["receipts"][0]["observation_error"]["code"],
+        "ERR_BROWSER_FRAME_COVERAGE_INCOMPLETE"
+    );
 }
 
 fn element(
@@ -81,7 +179,9 @@ fn element(
         role: role.to_string(),
         name: name.to_string(),
         value: value.map(str::to_string),
+        value_preview: None,
         editable: role == "textbox",
+        protected: false,
         state: None,
         enabled: true,
         required,
@@ -125,6 +225,8 @@ fn do_steps_regates_submit_against_post_fill_world_and_keeps_receipts() {
     let mut surface = FakeSurface {
         world: initial,
         executed: Vec::new(),
+        protected: false,
+        drift_on_fill: false,
     };
     let cancel = AtomicBool::new(false);
     let profile = HumanProfile::instant();
@@ -149,6 +251,216 @@ fn do_steps_regates_submit_against_post_fill_world_and_keeps_receipts() {
 }
 
 #[test]
+fn protected_fill_continues_with_an_explicitly_unverified_receipt() {
+    let initial = world(SurfaceIdentity::Native {
+        hwnd: 9,
+        pid: 4,
+        generation: 1,
+    });
+    let mut controller = Controller {
+        last: Some(initial.clone()),
+        ..Controller::default()
+    };
+    let mut surface = FakeSurface {
+        world: initial,
+        executed: Vec::new(),
+        protected: true,
+        drift_on_fill: false,
+    };
+    let cancel = AtomicBool::new(false);
+    let profile = HumanProfile::instant();
+    let act = ActCtx {
+        profile: &profile,
+        cancel: &cancel,
+        dry: false,
+    };
+    let result = controller.do_steps_on(
+        &[
+            json!({"id": 1, "verb": "fill", "value": "ready"}),
+            json!({"id": 2, "verb": "submit"}),
+        ],
+        &act,
+        &mut surface,
+    );
+    assert_eq!(result["ok"], true);
+    assert_eq!(surface.executed, vec![Verb::Fill, Verb::Submit]);
+    assert_eq!(
+        result["receipts"][0]["verification_status"],
+        "protected_unverified"
+    );
+    assert_eq!(result["receipts"][0]["effect_verified"], false);
+    assert_eq!(result["effect_status"], "may_have_occurred");
+}
+
+#[test]
+fn single_protected_fill_reports_dispatch_without_claiming_verification() {
+    let initial = world(SurfaceIdentity::Native {
+        hwnd: 9,
+        pid: 4,
+        generation: 1,
+    });
+    let mut controller = Controller {
+        last: Some(initial.clone()),
+        ..Controller::default()
+    };
+    let mut surface = FakeSurface {
+        world: initial,
+        executed: Vec::new(),
+        protected: true,
+        drift_on_fill: false,
+    };
+    let cancel = AtomicBool::new(false);
+    let profile = HumanProfile::instant();
+    let act = ActCtx {
+        profile: &profile,
+        cancel: &cancel,
+        dry: false,
+    };
+    let result = controller.act_on(1, "fill", Some("ready"), false, &act, &mut surface);
+    assert_eq!(surface.executed, vec![Verb::Fill]);
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["dispatch_ok"], true);
+    assert_eq!(result["effect_verified"], false);
+    assert_eq!(result["effect_may_have_occurred"], true);
+    assert_eq!(result["verification_status"], "protected_unverified");
+}
+
+#[test]
+fn unrelated_context_change_does_not_verify_protected_fill() {
+    let initial = world(SurfaceIdentity::Native {
+        hwnd: 9,
+        pid: 4,
+        generation: 1,
+    });
+    let mut controller = Controller {
+        last: Some(initial.clone()),
+        ..Controller::default()
+    };
+    let mut surface = FakeSurface {
+        world: initial,
+        executed: Vec::new(),
+        protected: true,
+        drift_on_fill: true,
+    };
+    let cancel = AtomicBool::new(false);
+    let profile = HumanProfile::instant();
+    let act = ActCtx {
+        profile: &profile,
+        cancel: &cancel,
+        dry: false,
+    };
+    let result = controller.do_steps_on(
+        &[json!({"id": 1, "verb": "fill", "value": "ready"})],
+        &act,
+        &mut surface,
+    );
+    assert_eq!(result["receipts"][0]["transition"]["context_changed"], true);
+    assert_eq!(result["receipts"][0]["effect_verified"], false);
+    assert_eq!(result["effect_status"], "may_have_occurred");
+}
+
+#[test]
+fn planned_fill_rejects_protection_changes_and_replaced_controls_before_dispatch() {
+    let identity = SurfaceIdentity::Native {
+        hwnd: 9,
+        pid: 4,
+        generation: 1,
+    };
+    for (before, after, replace) in [
+        (false, true, false),
+        (true, false, false),
+        (false, false, true),
+    ] {
+        let mut planned = world(identity.clone());
+        planned.elements[0].protected = before;
+        let mut current = planned.clone();
+        current.elements[0].protected = after;
+        if replace {
+            let ElHandle::Native { runtime_id, .. } = &mut current.elements[0].handle else {
+                unreachable!()
+            };
+            *runtime_id = vec![99, 7];
+        }
+        let mut controller = Controller {
+            last: Some(planned),
+            ..Controller::default()
+        };
+        let mut surface = FakeSurface {
+            world: current,
+            executed: Vec::new(),
+            protected: after,
+            drift_on_fill: false,
+        };
+        let cancel = AtomicBool::new(false);
+        let profile = HumanProfile::instant();
+        let act = ActCtx {
+            profile: &profile,
+            cancel: &cancel,
+            dry: false,
+        };
+        let result = controller.do_steps_on(
+            &[json!({"id": 1, "verb": "fill", "value": "ready"})],
+            &act,
+            &mut surface,
+        );
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["effect_may_have_occurred"], false);
+        assert!(surface.executed.is_empty());
+    }
+}
+
+#[test]
+fn browser_sequence_allows_renumbering_but_rejects_same_label_replacement() {
+    let identity = SurfaceIdentity::Browser {
+        tab_id: 7,
+        document_id: "doc".into(),
+        window: browser_window(),
+    };
+    for replaced in [false, true] {
+        let mut planned = world(identity.clone());
+        planned.elements[0].handle = ElHandle::Browser {
+            selector: "[data-sgt-id=\"1\"]".into(),
+            session: None,
+            tab_id: 7,
+            document_id: "doc".into(),
+            element_id: "original".into(),
+        };
+        let mut current = planned.clone();
+        current.elements[0].handle = ElHandle::Browser {
+            selector: "[data-sgt-id=\"9\"]".into(),
+            session: None,
+            tab_id: 7,
+            document_id: "doc".into(),
+            element_id: if replaced { "replacement" } else { "original" }.into(),
+        };
+        let mut controller = Controller {
+            last: Some(planned),
+            ..Controller::default()
+        };
+        let mut surface = FakeSurface {
+            world: current,
+            executed: Vec::new(),
+            protected: false,
+            drift_on_fill: false,
+        };
+        let cancel = AtomicBool::new(false);
+        let profile = HumanProfile::instant();
+        let act = ActCtx {
+            profile: &profile,
+            cancel: &cancel,
+            dry: false,
+        };
+        let result = controller.do_steps_on(
+            &[json!({"id": 1, "verb": "fill", "value": "ready"})],
+            &act,
+            &mut surface,
+        );
+        assert_eq!(result["ok"], !replaced);
+        assert_eq!(surface.executed.len(), usize::from(!replaced));
+    }
+}
+
+#[test]
 fn do_steps_rejects_same_hwnd_pid_with_a_new_generation_before_any_effect() {
     let planned = world(SurfaceIdentity::Native {
         hwnd: 1,
@@ -166,6 +478,8 @@ fn do_steps_rejects_same_hwnd_pid_with_a_new_generation_before_any_effect() {
             generation: 2,
         }),
         executed: Vec::new(),
+        protected: false,
+        drift_on_fill: false,
     };
     let cancel = AtomicBool::new(false);
     let profile = HumanProfile::instant();

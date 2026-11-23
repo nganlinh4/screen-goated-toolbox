@@ -4,6 +4,8 @@ import { BackgroundConfig, type ProjectComposition } from "@/types/video";
 import { DEFAULT_BUILT_IN_BACKGROUND_ID } from "@/lib/backgroundPresets";
 import { projectManager } from "@/lib/projectManager";
 import { collectProjectCustomBackgroundUrls } from "@/lib/projectMetadata";
+import { useSynchronizedState } from "@/hooks/useSynchronizedState";
+import { notifyUserError } from "@/lib/userNotifications";
 
 export const RECENT_UPLOADS_KEY = "screen-record-recent-uploads-v1";
 
@@ -30,25 +32,47 @@ function getInitialRecentUploads(): string[] {
   }
 }
 
+export interface BackgroundUploadTarget {
+  projectId: string | null;
+  clipId: string | null;
+  backgroundType: string;
+  customBackground?: string;
+  selectionRevision: number;
+  clipRevision: number;
+}
+
 interface UseBackgroundUploadParams {
   backgroundConfig: BackgroundConfig;
   composition: ProjectComposition | null;
   setBackgroundConfig: (
     updater: BackgroundConfig | ((prev: BackgroundConfig) => BackgroundConfig),
   ) => void;
+  getUploadTarget: () => BackgroundUploadTarget | null;
+  applyUploadedBackground: (url: string) => void;
 }
 
 export function useBackgroundUpload({
   backgroundConfig,
   composition,
   setBackgroundConfig,
+  getUploadTarget,
+  applyUploadedBackground,
 }: UseBackgroundUploadParams) {
   const [recentUploadLimit, setRecentUploadLimitState] = useState(initialUploadLimit);
-  const [recentUploads, setRecentUploads] = useState<string[]>(
+  const recentUploadLimitRef = useRef(recentUploadLimit);
+  const [recentUploads, setRecentUploads, recentUploadsRef] = useSynchronizedState<string[]>(
     getInitialRecentUploads,
   );
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] =
     useState(false);
+  const pendingUploadsRef = useRef(0);
+  const lastUploadRef = useRef(0);
+  const backgroundIoRef = useRef<Promise<void>>(Promise.resolve());
+  const enqueueBackgroundIo = useCallback(<T,>(operation: () => Promise<T>) => {
+    const result = backgroundIoRef.current.then(operation);
+    backgroundIoRef.current = result.then(() => undefined, () => undefined);
+    return result;
+  }, []);
   const activeProjectBackgrounds = collectProjectCustomBackgroundUrls([
     { backgroundConfig, composition: composition ?? undefined },
   ]);
@@ -71,20 +95,24 @@ export function useBackgroundUpload({
     const reconcile = async () => {
       const projectUrls = await projectManager.getManagedCustomBackgroundUrls();
       if (cancelled) return;
-      const retainedUrls = [...new Set([
-        ...recentUploads,
-        ...projectUrls,
-        ...activeProjectBackgroundsRef.current,
-      ].filter(Boolean))];
-      await invoke("reconcile_uploaded_backgrounds", { retainedUrls });
+      await enqueueBackgroundIo(async () => {
+        if (cancelled) return;
+        const retainedUrls = [...new Set([
+          ...recentUploadsRef.current,
+          ...projectUrls,
+          ...activeProjectBackgroundsRef.current,
+        ].filter(Boolean))];
+        await invoke("reconcile_uploaded_backgrounds", { retainedUrls });
+      });
     };
     void reconcile().catch((error) => console.warn("Failed to reconcile uploaded backgrounds:", error));
     return () => { cancelled = true; };
-  }, [activeProjectBackgroundKey, recentUploads]);
+  }, [activeProjectBackgroundKey, enqueueBackgroundIo, recentUploads, recentUploadsRef]);
 
   useEffect(() => {
     const applyHostLimit = (event: Event) => {
       const limit = normalizeRecentUploadLimit((event as CustomEvent<number>).detail);
+      recentUploadLimitRef.current = limit;
       setRecentUploadLimitState(limit);
       setRecentUploads((previous) => previous.slice(0, limit));
     };
@@ -97,6 +125,14 @@ export function useBackgroundUpload({
       const inputEl = e.currentTarget;
       const file = e.target.files?.[0];
       if (file) {
+        const target = getUploadTarget();
+        if (!target) {
+          notifyUserError("backgroundUploadWait");
+          inputEl.value = "";
+          return;
+        }
+        const uploadId = ++lastUploadRef.current;
+        pendingUploadsRef.current += 1;
         setIsBackgroundUploadProcessing(true);
         const img = new Image();
 
@@ -124,40 +160,52 @@ export function useBackgroundUpload({
 
             // Convert to JPEG to reduce IPC payload size (backgrounds do not need alpha).
             const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-            const imageUrl = await invoke<string>("save_uploaded_bg_data_url", {
-              dataUrl,
+            const imageUrl = await enqueueBackgroundIo(async () => {
+              const url = await invoke<string>("save_uploaded_bg_data_url", { dataUrl });
+              setRecentUploads((prev) =>
+                [url, ...prev.filter((v) => v !== url)].slice(0, recentUploadLimitRef.current),
+              );
+              return url;
             });
-            await invoke("prewarm_custom_background", { url: imageUrl });
-            setBackgroundConfig((prev) => ({
-              ...prev,
-              backgroundType: "custom",
-              customBackground: imageUrl,
-            }));
-            setRecentUploads((prev) =>
-              [imageUrl, ...prev.filter((v) => v !== imageUrl)].slice(0, recentUploadLimit),
-            );
+            const current = getUploadTarget();
+            if (uploadId === lastUploadRef.current && current &&
+                current.projectId === target.projectId && current.clipId === target.clipId &&
+                current.selectionRevision === target.selectionRevision &&
+                current.clipRevision === target.clipRevision &&
+                current.backgroundType === target.backgroundType &&
+                current.customBackground === target.customBackground) {
+              applyUploadedBackground(imageUrl);
+            } else {
+              notifyUserError("backgroundUploadTargetChanged");
+            }
+            void invoke("prewarm_custom_background", { url: imageUrl })
+              .catch((error) => console.warn("Failed to prewarm uploaded background:", error));
           } catch (err) {
             console.error(
               "[Background] Failed to persist uploaded image:",
               err,
             );
+            notifyUserError("backgroundUploadFailed");
           } finally {
             URL.revokeObjectURL(img.src);
-            setIsBackgroundUploadProcessing(false);
+            pendingUploadsRef.current -= 1;
+            setIsBackgroundUploadProcessing(pendingUploadsRef.current > 0);
             inputEl.value = "";
           }
         };
 
         img.onerror = () => {
           URL.revokeObjectURL(img.src);
-          setIsBackgroundUploadProcessing(false);
+          pendingUploadsRef.current -= 1;
+          setIsBackgroundUploadProcessing(pendingUploadsRef.current > 0);
           inputEl.value = "";
+          notifyUserError("backgroundUploadFailed");
         };
 
         img.src = URL.createObjectURL(file);
       }
     },
-    [recentUploadLimit, setBackgroundConfig, setRecentUploads],
+    [applyUploadedBackground, enqueueBackgroundIo, getUploadTarget, setRecentUploads],
   );
 
   const handleRemoveRecentUpload = useCallback((imageUrl: string) => {

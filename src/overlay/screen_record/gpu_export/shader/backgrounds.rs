@@ -1,4 +1,22 @@
 pub(super) const COMPOSITOR_SHADER_BACKGROUND_FUNCTIONS: &str = r#"
+// Uniform colors are linear, but the Canvas preview mixes and composites
+// gradient stops in encoded sRGB. Families drawn with Canvas gradients mix
+// through these so export matches what the editor shows.
+fn srgb_encode(c: vec3<f32>) -> vec3<f32> {
+    let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    let high = (1.055 * pow(v, vec3<f32>(1.0 / 2.4))) - vec3<f32>(0.055);
+    return select(high, v * 12.92, v <= vec3<f32>(0.0031308));
+}
+
+fn srgb_decode(c: vec3<f32>) -> vec3<f32> {
+    let high = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(high, c / 12.92, c <= vec3<f32>(0.04045));
+}
+
+fn mix_srgb(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
+    return srgb_decode(mix(srgb_encode(a), srgb_encode(b), t));
+}
+
 fn diagonal_glow_color(uv_raw: vec2<f32>, pixel_pos: vec2<f32>) -> vec4<f32> {
     let uv = clamp(uv_raw, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
     let diag = clamp((uv.x * u.bg_params1.x) + ((1.0 - uv.y) * u.bg_params1.y), 0.0, 1.0);
@@ -231,16 +249,18 @@ fn stacked_radial_color(uv_raw: vec2<f32>) -> vec4<f32> {
     let axis_t = select(uv.y, uv.x, u.bg_params1.x > 0.5);
     var base: vec3<f32>;
     if (axis_t < 0.5) {
-        base = mix(u.gradient_color1.rgb, u.gradient_color2.rgb, axis_t / 0.5);
+        base = mix_srgb(u.gradient_color1.rgb, u.gradient_color2.rgb, axis_t / 0.5);
     } else {
-        base = mix(u.gradient_color2.rgb, u.gradient_color3.rgb, (axis_t - 0.5) / 0.5);
+        base = mix_srgb(u.gradient_color2.rgb, u.gradient_color3.rgb, (axis_t - 0.5) / 0.5);
     }
 
     let aspect = max(u.output_size.x / max(u.output_size.y, 1.0), 0.0001);
     let center = vec2<f32>(u.bg_params2.x, u.bg_params2.y);
     let radial_distance = length(vec2<f32>(uv.x - center.x, (uv.y - center.y) / aspect));
-    let overlay_strength = (1.0 - smoothstep(0.0, u.bg_params2.z, radial_distance)) * u.bg_params2.w;
-    let shaded = mix(base, u.gradient_color4.rgb, overlay_strength);
+    // Canvas radial gradient: alpha falls off linearly to zero at the radius.
+    let falloff = 1.0 - clamp(radial_distance / max(u.bg_params2.z, 0.0001), 0.0, 1.0);
+    let overlay_strength = falloff * u.bg_params2.w;
+    let shaded = mix_srgb(base, u.gradient_color4.rgb, overlay_strength);
     return vec4<f32>(clamp(shaded, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 

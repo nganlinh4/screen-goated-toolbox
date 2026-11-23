@@ -18,7 +18,8 @@ import {
   stageFrameIterableInChunks,
   stageOverlayPayload,
 } from "@/lib/exportStaging";
-import { buildSequenceTimeline, mergeCompositionSegmentsToSequence } from "@/lib/sequenceTimeline";
+import { buildSequenceTimeline } from "@/lib/sequenceTimeline";
+import { getCompositionClipRenderSegment, getCompositionSequenceRenderSegment } from '@/lib/compositionSubtitles';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from "@/lib/trimSegments";
 import { materializeNarrationGroupTakes } from "@/lib/narrationGroupTakes";
 import { videoRenderer } from "@/lib/videoRenderer";
@@ -29,6 +30,10 @@ import {
   sanitizeNativeExportValue,
 } from "@/lib/videoExporterPreparation";
 import { throwIfExportCancelled } from "@/lib/exportCancellation";
+import {
+  resolveRenderScale,
+  scaleBackgroundFrameForRender,
+} from "@/lib/renderer/renderScale";
 import type {
   BackgroundConfig,
   ExportArtifact,
@@ -195,7 +200,7 @@ export async function buildCompositionExportDialogState(
     baseWidth: authority.baseWidth,
     baseHeight: authority.baseHeight,
     sourceFps: authority.sourceFps,
-    segment: timeline ? mergeCompositionSegmentsToSequence(timeline) : null,
+    segment: getCompositionSequenceRenderSegment(composition),
     backgroundConfig: authority.backgroundConfig,
     trimmedDurationSec: timeline?.totalDuration ?? 0,
     clipCount: composition.clips.length,
@@ -260,7 +265,7 @@ export async function exportCompositionAndDownload(
           clip.backgroundConfig,
       );
       const canvasSegment = normalizeAutoCanvasSegment(
-        clip.segment,
+        getCompositionClipRenderSegment(composition, clip.id, clip.segment),
         backgroundConfig,
         metadata.width,
         metadata.height,
@@ -274,6 +279,14 @@ export async function exportCompositionAndDownload(
         normalizedSegment,
         metadata.duration || normalizedSegment.trimEnd,
       );
+      // Each clip previews on its own canvas; its style pixels scale from there.
+      const clipCanvas = getCanvasBaseDimensions(
+        metadata.width,
+        metadata.height,
+        normalizedSegment,
+        backgroundConfig,
+      );
+      const reference = { width: clipCanvas.baseW, height: clipCanvas.baseH };
       const activeDuration = getTotalTrimDuration(
         normalizedSegment,
         metadata.duration || normalizedSegment.trimEnd,
@@ -293,6 +306,7 @@ export async function exportCompositionAndDownload(
         normalizedSegment,
         width,
         height,
+        reference,
         fps,
       );
       throwIfExportCancelled(isCancelled);
@@ -313,6 +327,7 @@ export async function exportCompositionAndDownload(
             clip.webcamConfig,
             width,
             height,
+            reference,
             webcamMetadata && webcamMetadata.height > 0
               ? webcamMetadata.width / webcamMetadata.height
               : undefined,
@@ -338,7 +353,10 @@ export async function exportCompositionAndDownload(
         trimStart: trimBounds.trimStart,
         duration: activeDuration,
         segment: normalizedSegment,
-        backgroundConfig,
+        backgroundConfig: scaleBackgroundFrameForRender(
+          backgroundConfig,
+          resolveRenderScale(height, reference),
+        ),
         webcamConfig: clip.webcamConfig,
         mousePositions: clip.mousePositions,
       }));
@@ -371,7 +389,7 @@ export async function exportCompositionAndDownload(
       );
     }
     throwIfExportCancelled(isCancelled);
-    return invoke<NativeCompositionExportResponse>(
+    return await invoke<NativeCompositionExportResponse>(
       "start_composition_export_server",
       request,
     );

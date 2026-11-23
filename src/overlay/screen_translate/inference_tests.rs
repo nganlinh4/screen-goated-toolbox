@@ -7,12 +7,17 @@ use crate::overlay::screen_translate::stream_parser::TranslationStreamParser;
 fn candidate(id: u16, top: u16) -> DetectedTextRegion {
     DetectedTextRegion {
         id,
-        bounds: NormalizedBounds {
-            left: id.saturating_mul(200),
-            top,
-            right: id.saturating_mul(200).saturating_add(80),
-            bottom: top + 20,
-        },
+        bounds: crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+            NormalizedBounds {
+                left: (id % 5).saturating_mul(200),
+                top,
+                right: (id % 5).saturating_mul(200).saturating_add(80),
+                bottom: top + 20,
+            },
+            1000,
+            1000,
+        )
+        .unwrap(),
         source_text: format!("source-{id}"),
         source_alternatives: vec![format!("source-{id}")],
         recognition: Default::default(),
@@ -29,12 +34,12 @@ fn translated(candidate: &DetectedTextRegion) -> TranslationRegion {
             region_id: candidate.id,
             candidate_id: format!("r{}c0", candidate.id),
             source_text: candidate.source_text.clone(),
-            bounds: candidate.bounds,
+            bounds: candidate.bounds.prompt(),
         }],
         semantic_role: super::super::contract::SemanticRole::Standalone,
         source_text: candidate.source_text.clone(),
         translated_segments: vec![format!("translated-{}", candidate.id)],
-        bounds: candidate.bounds,
+        bounds: candidate.bounds.prompt(),
         background_color: None,
         text_color: None,
     }

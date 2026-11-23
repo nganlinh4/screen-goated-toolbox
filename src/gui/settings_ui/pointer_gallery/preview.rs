@@ -131,7 +131,7 @@ pub(super) fn preview_strip_width(slot_count: usize, icon_size: f32) -> f32 {
     slot_count as f32 * icon_size + gaps
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub(super) fn render_collection_previews(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
@@ -321,7 +321,7 @@ fn preview_cache_file(path: &Path, ani_step: u32, size: i32) -> Option<std::path
 
     Some(
         gallery_root
-            .join(".preview-cache")
+            .join(super::backend::PREVIEW_CACHE_DIR)
             .join(PREVIEW_CACHE_VERSION)
             .join(collection_id)
             .join(file_name),

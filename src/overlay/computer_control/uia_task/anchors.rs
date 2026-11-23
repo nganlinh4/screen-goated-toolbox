@@ -49,7 +49,7 @@ impl Brain {
             let what = anchor.note.as_deref().unwrap_or("clickable");
             state.push_str(&format!("[{}] {what}\n", anchor.id));
         }
-        eprintln!("[cc] {} clickable marks", self.anchors.len());
+        cc_diagnostic!("[cc] {} clickable marks", self.anchors.len());
         Some(state)
     }
 
@@ -89,12 +89,15 @@ impl Brain {
                 "error": "the surface changed while targets were being mapped; observe again",
             });
         }
+        if let Some(point) = points.first() {
+            self.view = point.view;
+        }
         let first_id = self.next_anchor_id;
         self.anchors = points
             .iter()
             .enumerate()
             .map(|(index, point)| {
-                let (x, y) = self.view.to_screen_px(point.x, point.y);
+                let (x, y) = point.screen_point();
                 ClickAnchor {
                     id: first_id.saturating_add(index as u32),
                     x,
@@ -102,7 +105,7 @@ impl Brain {
                     note: point.note.clone(),
                     signature: point.signature.clone(),
                     frame_id: 0,
-                    view: self.view,
+                    view: point.view,
                     surface: surface.clone(),
                 }
             })
@@ -123,7 +126,7 @@ impl Brain {
                 "anchor_ids": self.anchors.iter().map(|anchor| anchor.id).collect::<Vec<_>>(),
             }),
         );
-        eprintln!(
+        cc_diagnostic!(
             "[cc] step {step:02} MAP_TARGETS '{description}' -> {} anchors",
             self.anchors.len()
         );
@@ -142,7 +145,7 @@ impl Brain {
         action: super::super::telemetry::ActionTrace,
         step: usize,
     ) -> Value {
-        let id = args.get("mark").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let id = super::dispatch::index_arg(args, "mark").unwrap_or(0);
         let button = if args.get("button").and_then(Value::as_str) == Some("right") {
             "right"
         } else {
@@ -214,11 +217,11 @@ impl Brain {
                 "error": "click mark is stale because its target pixels changed; map again",
             });
         }
-        let latest_view = if self.zoomed {
+        let latest_view = clamp_to_virtual_desktop(if self.zoomed {
             self.view
         } else {
-            clamp_to_virtual_desktop(window_view(self.target.as_deref(), self.whole_screen))
-        };
+            window_view(self.target.as_deref(), self.whole_screen)
+        });
         if !same_view(anchor.view, latest_view)
             || current_surface_identity(self.target.as_deref()).as_ref() != Some(&anchor.surface)
         {
@@ -246,13 +249,15 @@ impl Brain {
                 "view_rect": [self.view.x, self.view.y, self.view.w, self.view.h],
             }),
         );
-        eprintln!(
+        cc_diagnostic!(
             "[cc] step {step:02} CLICK_MARK {id} -> screen({},{})",
-            anchor.x, anchor.y
+            anchor.x,
+            anchor.y
         );
         let source = FrameSource {
             frame_id: anchor.frame_id,
             surface: anchor.surface.clone(),
+            view: anchor.view,
         };
         let input = click_screen(
             anchor.x,
@@ -302,16 +307,12 @@ pub(super) fn has_accessible_action(elements: &[UiElement], view: View) -> bool 
 
 pub(super) fn clamp_to_virtual_desktop(view: View) -> View {
     let (desktop_x, desktop_y, desktop_w, desktop_h) = uia::virtual_desktop();
-    let left = view.x.max(desktop_x);
-    let top = view.y.max(desktop_y);
-    let right = (view.x + view.w).min(desktop_x + desktop_w);
-    let bottom = (view.y + view.h).min(desktop_y + desktop_h);
-    View {
-        x: left,
-        y: top,
-        w: (right - left).max(1),
-        h: (bottom - top).max(1),
-    }
+    view.clamped_to(View {
+        x: desktop_x,
+        y: desktop_y,
+        w: desktop_w,
+        h: desktop_h,
+    })
 }
 
 pub(super) fn action_invalidates_anchors(name: &str) -> bool {

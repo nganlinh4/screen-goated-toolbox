@@ -63,13 +63,6 @@ pub(super) fn open_locked(
         .map_err(|_| "Creation publication receipt is unavailable.".to_string())
 }
 
-#[cfg(windows)]
-pub(super) fn identity(file: &std::fs::File) -> Result<String, String> {
-    crate::overlay::creation_file_identity::from_file(file)
-        .map_err(|_| "Creation publication receipt identity is unavailable.".to_string())
-}
-
-#[cfg(not(windows))]
 pub(super) fn identity(file: &std::fs::File) -> Result<String, String> {
     crate::overlay::creation_file_identity::from_file(file)
         .map_err(|_| "Creation publication receipt identity is unavailable.".to_string())
@@ -82,37 +75,9 @@ pub(super) fn rename_no_replace(
     destination: &Path,
 ) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt as _;
-    use std::os::windows::io::AsRawHandle as _;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::{
-        FILE_RENAME_INFO, FileRenameInfo, SetFileInformationByHandle,
-    };
-
     let destination = destination.as_os_str().encode_wide().collect::<Vec<_>>();
-    let size = std::mem::size_of::<FILE_RENAME_INFO>()
-        .saturating_add(destination.len().saturating_sub(1) * std::mem::size_of::<u16>());
-    let mut buffer = vec![0_u8; size];
-    let information = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-    unsafe {
-        (*information).Anonymous.ReplaceIfExists = false;
-        (*information).RootDirectory = HANDLE::default();
-        (*information).FileNameLength =
-            u32::try_from(destination.len() * std::mem::size_of::<u16>())
-                .map_err(|_| "Creation output destination is invalid.".to_string())?;
-        std::ptr::copy_nonoverlapping(
-            destination.as_ptr(),
-            std::ptr::addr_of_mut!((*information).FileName).cast::<u16>(),
-            destination.len(),
-        );
-        SetFileInformationByHandle(
-            HANDLE(file.as_raw_handle()),
-            FileRenameInfo,
-            buffer.as_ptr().cast(),
-            u32::try_from(buffer.len())
-                .map_err(|_| "Creation output destination is invalid.".to_string())?,
-        )
-    }
-    .map_err(|_| "Creation output destination is already in use.".to_string())
+    crate::verified_scratch::rename_file_by_handle(file, &destination, false)
+        .map_err(|_| "Creation output destination is already in use.".to_string())
 }
 
 #[cfg(not(windows))]
@@ -152,3 +117,61 @@ pub(super) fn delete(_file: &std::fs::File, path: &Path) -> Result<(), String> {
     std::fs::remove_file(path)
         .map_err(|_| "Creation publication cleanup could not finish.".to_string())
 }
+
+#[cfg(windows)]
+pub(super) fn unlink(file: std::fs::File, path: &Path) -> Result<(), String> {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows::Win32::Foundation::{
+        ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, HANDLE,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_FORCE_IMAGE_SECTION_CHECK,
+        FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO_EX,
+        FILE_DISPOSITION_INFO_EX_FLAGS, FileDispositionInfoEx, SetFileInformationByHandle,
+    };
+    use windows::core::HRESULT;
+
+    let disposition = FILE_DISPOSITION_INFO_EX {
+        Flags: FILE_DISPOSITION_INFO_EX_FLAGS(
+            FILE_DISPOSITION_FLAG_DELETE.0
+                | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS.0
+                | FILE_DISPOSITION_FLAG_FORCE_IMAGE_SECTION_CHECK.0,
+        ),
+    };
+    let result = unsafe {
+        SetFileInformationByHandle(
+            HANDLE(file.as_raw_handle()),
+            FileDispositionInfoEx,
+            std::ptr::from_ref(&disposition).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32,
+        )
+    };
+    let result = match result {
+        Err(error)
+            if [
+                ERROR_INVALID_FUNCTION,
+                ERROR_INVALID_PARAMETER,
+                ERROR_NOT_SUPPORTED,
+            ]
+            .into_iter()
+            .any(|code| error.code() == HRESULT::from_win32(code.0)) =>
+        {
+            // Unsupported filesystems retain classic pending-name semantics.
+            delete(&file, path)
+        }
+        result => result.map_err(|_| "Creation publication cleanup could not finish.".to_string()),
+    };
+    // POSIX namespace retirement happens when this attested DELETE handle closes.
+    drop(file);
+    result
+}
+
+#[cfg(not(windows))]
+pub(super) fn unlink(file: std::fs::File, path: &Path) -> Result<(), String> {
+    let result = delete(&file, path);
+    drop(file);
+    result
+}
+
+#[cfg(all(test, windows))]
+mod unlink_tests;

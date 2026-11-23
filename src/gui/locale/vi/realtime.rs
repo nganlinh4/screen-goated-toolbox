@@ -2,6 +2,7 @@ use crate::gui::locale::RealtimeLocaleText;
 
 pub(super) fn get() -> RealtimeLocaleText {
     RealtimeLocaleText {
+        realtime_audio_gap: "Kết nối bị gián đoạn; một phần âm thanh có thể bị thiếu.",
         listening: "Đang nghe...",
         device: "Thiết bị",
         waiting: "Đang chờ nói...",

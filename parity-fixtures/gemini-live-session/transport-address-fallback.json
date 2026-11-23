@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "totalConnectBudgetMs": 10000,
+  "perAddressLimitMs": 2000,
+  "maxAddresses": 32,
+  "maxResolverWorkers": 2,
+  "cases": [
+    {"name":"alternate_address_families", "addresses":["[2001:db8::1]:443", "[2001:db8::2]:443", "192.0.2.1:443", "192.0.2.2:443"], "expectedOrder":["[2001:db8::1]:443", "192.0.2.1:443", "[2001:db8::2]:443", "192.0.2.2:443"]},
+    {"name":"first_address_fails_second_connects", "failuresBeforeSuccess":1, "expectedAttempts":2},
+    {"name":"all_addresses_fail", "expected":"last-connection-error"},
+    {"name":"resolution_times_out", "expected":"timeout-with-worker-slot-retained-until-settled"}
+  ]
+}

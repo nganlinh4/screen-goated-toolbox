@@ -51,37 +51,15 @@ pub(super) fn validate_exact_tree(root: &Path, delivery: &CreationDelivery) -> R
         .map(|file| PathBuf::from(file.path))
         .collect::<HashSet<_>>();
     expected.insert(RECEIPT_NAME.into());
-    let mut actual = HashSet::new();
-    collect(root, root, &mut actual, 0)?;
+    let actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "Creation package",
+        MAX_ARCHIVE_ENTRIES + 1,
+    )?
+    .into_iter()
+    .collect::<HashSet<_>>();
     if actual != expected {
         bail!("Creation package contains unowned files");
-    }
-    Ok(())
-}
-
-fn collect(
-    root: &Path,
-    directory: &Path,
-    files: &mut HashSet<PathBuf>,
-    depth: usize,
-) -> Result<()> {
-    if depth > 16 || files.len() > MAX_ARCHIVE_ENTRIES {
-        bail!("Creation package exceeds traversal limits");
-    }
-    let metadata = std::fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || super::super::receipt::is_reparse_point(&metadata) {
-        bail!("Creation package contains an unsafe directory");
-    }
-    for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if metadata.is_dir() && !super::super::receipt::is_reparse_point(&metadata) {
-            collect(root, &path, files, depth + 1)?;
-        } else if metadata.is_file() && !super::super::receipt::is_reparse_point(&metadata) {
-            files.insert(path.strip_prefix(root)?.to_path_buf());
-        } else {
-            bail!("Creation package contains an unsafe entry");
-        }
     }
     Ok(())
 }

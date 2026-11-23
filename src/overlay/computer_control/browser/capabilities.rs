@@ -9,17 +9,21 @@ use std::sync::{OnceLock, RwLock};
 
 use serde_json::Value;
 
-pub(super) const CURRENT_PROTOCOL: u64 = 7;
+pub(super) const CURRENT_PROTOCOL: u64 = 11;
 const FIRST_PROTOCOL_REQUIRING_ADVERTISEMENT: u64 = 5;
 pub(super) const CDP: &str = "cdp.command";
 pub(super) const CDP_EXPLICIT_TAB: &str = "cdp.explicit_tab";
 pub(super) const CDP_SESSION: &str = "cdp.session";
+pub(super) const CDP_DISPATCH_ADMISSION: &str = "cdp.dispatch_admission";
+pub(super) const EFFECT_ADMISSION: &str = "rpc.effect_admission";
+pub(super) const FRAME_INVENTORY: &str = "rpc.frames";
 pub(super) const CDP_REQUIRE_ACTIVE: &str = "cdp.require_active";
 pub(super) const TABS_LIST: &str = "tabs.list";
 pub(super) const TABS_INVENTORY_WINDOW_IDENTITY: &str = "tabs.inventory.window_identity";
 pub(super) const TABS_ACTIVE: &str = "tabs.active";
 pub(super) const TABS_ACTIVE_FOCUSED_WINDOW: &str = "tabs.active.focused_window";
 pub(super) const TABS_ACTIVATE: &str = "tabs.activate";
+pub(super) const TABS_ACTIVATE_FOCUS_WINDOW: &str = "tabs.activate.focus_window";
 pub(super) const TABS_NAVIGATE: &str = "tabs.navigate";
 pub(super) const TABS_CREATE_FOREGROUND: &str = "tabs.create.foreground";
 pub(super) const TABS_CREATE_BACKGROUND: &str = "tabs.create.background";
@@ -45,16 +49,26 @@ pub(super) fn reset() {
     *state().write().unwrap() = Negotiated::default();
 }
 
+/// Read the connection's negotiated set. Tests may scope a set to their own
+/// thread so production capability gates run without touching shared state.
+fn read<R>(inspect: impl FnOnce(&Negotiated) -> R) -> R {
+    #[cfg(test)]
+    if let Some(scoped) = test_scope::current() {
+        return inspect(&scoped);
+    }
+    inspect(&state().read().unwrap())
+}
+
 pub(super) fn protocol_version() -> u64 {
-    state().read().unwrap().protocol
+    read(|negotiated| negotiated.protocol)
 }
 
 pub(super) fn list() -> Vec<String> {
-    state().read().unwrap().names.iter().cloned().collect()
+    read(|negotiated| negotiated.names.iter().cloned().collect())
 }
 
 pub(super) fn supports(name: &str) -> bool {
-    state().read().unwrap().names.contains(name)
+    read(|negotiated| negotiated.names.contains(name))
 }
 
 pub(super) fn usable() -> bool {
@@ -153,6 +167,38 @@ fn legacy_names(protocol: u64) -> BTreeSet<String> {
     names
 }
 
+/// Thread-scoped capability sets for tests of production capability gates.
+#[cfg(test)]
+pub(super) mod test_scope {
+    use super::{CURRENT_PROTOCOL, Negotiated};
+    use std::cell::RefCell;
+
+    thread_local! {
+        static SCOPED: RefCell<Option<Negotiated>> = const { RefCell::new(None) };
+    }
+
+    pub(in super::super) struct Scope(Option<Negotiated>);
+
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            SCOPED.with(|scoped| *scoped.borrow_mut() = self.0.take());
+        }
+    }
+
+    /// Advertise exactly `names` on this thread until the returned scope drops.
+    pub(in super::super) fn advertise(names: &[&str]) -> Scope {
+        let negotiated = Negotiated {
+            protocol: CURRENT_PROTOCOL,
+            names: names.iter().map(|name| name.to_string()).collect(),
+        };
+        Scope(SCOPED.with(|scoped| scoped.borrow_mut().replace(negotiated)))
+    }
+
+    pub(super) fn current() -> Option<Negotiated> {
+        SCOPED.with(|scoped| scoped.borrow().clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +285,24 @@ mod tests {
     fn capability_errors_remain_typed_through_anyhow() {
         let error = unsupported("future.operation");
         assert_eq!(unsupported_from(&error), Some("future.operation"));
+    }
+
+    #[test]
+    fn test_scope_is_thread_local_and_restores_on_drop() {
+        {
+            let _outer = test_scope::advertise(&[CDP]);
+            assert!(supports(CDP));
+            {
+                let _inner = test_scope::advertise(&[TABS_REMOVE]);
+                assert!(!supports(CDP) && supports(TABS_REMOVE));
+            }
+            assert!(supports(CDP) && !supports(TABS_REMOVE));
+            assert!(
+                !std::thread::spawn(|| test_scope::current().is_some())
+                    .join()
+                    .unwrap()
+            );
+        }
+        assert!(test_scope::current().is_none());
     }
 }

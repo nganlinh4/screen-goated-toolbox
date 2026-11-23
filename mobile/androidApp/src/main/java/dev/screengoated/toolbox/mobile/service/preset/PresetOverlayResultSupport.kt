@@ -2,12 +2,12 @@ package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.Context
 import android.graphics.Rect
-import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
 import dev.screengoated.toolbox.mobile.preset.PresetPlaceholderReason
 import dev.screengoated.toolbox.mobile.preset.PresetResultWindowId
 import dev.screengoated.toolbox.mobile.service.OverlayBounds
+import dev.screengoated.toolbox.mobile.service.resizeOverlayFromCorner
 
 internal data class PresetResultNavigationSync(
     val runtimeState: PresetResultWindowRuntimeState,
@@ -22,11 +22,21 @@ internal fun createResultOverlayWindowSupport(
     onMessage: (String) -> Unit,
     onPageFinished: (PresetResultWindowId, String?) -> Unit,
     onNavigationFailure: (PresetResultWindowId, OverlayNavigationFailure) -> Unit,
+    isDark: Boolean,
+    uiLanguage: String,
 ): PresetOverlayWindow {
     return PresetOverlayWindow(
         context = context,
         windowManager = windowManager,
-        spec = spec,
+        spec = spec.copy(
+            resultWindowId = id.wireValue(), resultIsDark = isDark,
+            resultCapabilityMessage = overlayLocalized(
+                uiLanguage,
+                "Some overlay controls are unavailable. Reading and navigation still work.",
+                "Một số điều khiển overlay không khả dụng. Bạn vẫn có thể đọc và điều hướng.",
+                "일부 오버레이 제어를 사용할 수 없습니다. 읽기와 탐색은 계속 사용할 수 있습니다.",
+            ),
+        ),
         onMessage = onMessage,
     ).also { window ->
         window.setOnPageFinishedListener { url -> onPageFinished(id, url) }
@@ -44,6 +54,8 @@ internal fun recreateResultOverlayWindowSupport(
     onMessage: (String) -> Unit,
     onPageFinished: (PresetResultWindowId, String?) -> Unit,
     onNavigationFailure: (PresetResultWindowId, OverlayNavigationFailure) -> Unit,
+    isDark: Boolean,
+    uiLanguage: String,
 ): PresetOverlayWindow {
     val bounds = active.window.currentBounds()
     active.window.setOnPageFinishedListener(null)
@@ -64,6 +76,8 @@ internal fun recreateResultOverlayWindowSupport(
         onMessage = onMessage,
         onPageFinished = onPageFinished,
         onNavigationFailure = onNavigationFailure,
+        isDark = isDark,
+        uiLanguage = uiLanguage,
     )
 }
 
@@ -81,10 +95,6 @@ internal fun syncCanvasWindowSupport(
     )
 }
 
-internal fun disabledActionsForWindowSupport(): Set<String> {
-    return emptySet()
-}
-
 internal fun resizeResultWindowSupport(
     active: ActivePresetResultWindow,
     corner: String,
@@ -94,24 +104,16 @@ internal fun resizeResultWindowSupport(
     dp: (Int) -> Int,
 ) {
     val current = active.window.currentBounds()
-    val minWidth = dp(110)
-    val minHeight = dp(90)
-    val nextBounds = when (corner) {
-        "br" -> current.copy(
-            width = (current.width + dx).coerceIn(minWidth, screenBounds.width() - current.x),
-            height = (current.height + dy).coerceIn(minHeight, screenBounds.height() - current.y),
-        )
-        "bl" -> {
-            val nextWidth = (current.width - dx).coerceIn(minWidth, current.x + current.width)
-            val nextX = (current.x + current.width - nextWidth).coerceAtLeast(0)
-            current.copy(
-                x = nextX,
-                width = nextWidth,
-                height = (current.height + dy).coerceIn(minHeight, screenBounds.height() - current.y),
-            )
-        }
-        else -> current
-    }
+    val nextBounds = resizeOverlayFromCorner(
+        current = current,
+        corner = corner,
+        dx = dx,
+        dy = dy,
+        screenWidth = screenBounds.width(),
+        screenHeight = screenBounds.height(),
+        minWidth = dp(110),
+        minHeight = dp(90),
+    ) ?: current
     active.window.updateBounds(nextBounds)
 }
 
@@ -166,68 +168,4 @@ internal fun showPlaceholderActionSupport(
         else -> overlayLocalized(uiLanguage, "This action is not ready on Android yet.", "Tính năng này chưa sẵn sàng trên Android.", "이 기능은 아직 안드로이드에서 준비되지 않았습니다.")
     }
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-}
-
-internal fun logResultGestureDebug(tag: String, payload: org.json.JSONObject) {
-    Log.d(
-        tag,
-        buildString {
-            append("resultGesture ")
-            append(payload.optString("phase"))
-            append(" window=")
-            append(payload.optString("windowId"))
-            append(" active=")
-            append(payload.optString("activeWindowId"))
-            append(" target=")
-            append(payload.optString("target"))
-            append(" corner=")
-            append(payload.optString("resizeCorner"))
-            append(" dx=")
-            append(payload.optString("dx"))
-            append(" dy=")
-            append(payload.optString("dy"))
-            append(" selectionTarget=")
-            append(payload.optString("selectionTarget"))
-            append(" selection=")
-            append(payload.optString("selectionText"))
-            append(" keep=")
-            append(payload.optString("keepTextSelection"))
-            append(" point=(")
-            append(payload.optString("clientX"))
-            append(",")
-            append(payload.optString("clientY"))
-            append(")")
-            append(" delay=")
-            append(payload.optString("delayMs"))
-            append(" error=")
-            append(payload.optString("error"))
-            append(" scroll=(")
-            append(payload.optString("scrollX"))
-            append(",")
-            append(payload.optString("scrollY"))
-            append(")")
-            append(" start=(")
-            append(payload.optString("startLeft"))
-            append(",")
-            append(payload.optString("startTop"))
-            append("..")
-            append(payload.optString("startBottom"))
-            append(")")
-            append(" end=(")
-            append(payload.optString("endLeft"))
-            append(",")
-            append(payload.optString("endTop"))
-            append("..")
-            append(payload.optString("endBottom"))
-            append(")")
-            if (payload.has("candidatePoint")) append(" candidate=").append(payload.opt("candidatePoint"))
-            if (payload.has("fixedPoint")) append(" fixed=").append(payload.opt("fixedPoint"))
-            if (payload.has("nextAnchor")) append(" nextAnchor=").append(payload.opt("nextAnchor"))
-            if (payload.has("nextFocus")) append(" nextFocus=").append(payload.opt("nextFocus"))
-            if (payload.has("anchorPoint")) append(" anchor=").append(payload.opt("anchorPoint"))
-            if (payload.has("focusPoint")) append(" focus=").append(payload.opt("focusPoint"))
-            if (payload.has("rangeStart")) append(" rangeStart=").append(payload.opt("rangeStart"))
-            if (payload.has("rangeEnd")) append(" rangeEnd=").append(payload.opt("rangeEnd"))
-        },
-    )
 }

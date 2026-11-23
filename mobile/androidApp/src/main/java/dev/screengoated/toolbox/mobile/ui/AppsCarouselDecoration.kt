@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +46,21 @@ private val allDecoShapes by lazy { listOf(
     MaterialShapes.Slanted, MaterialShapes.SoftBoom, MaterialShapes.SoftBurst,
     MaterialShapes.Square, MaterialShapes.Sunny, MaterialShapes.Triangle, MaterialShapes.VerySunny,
 ) }
+
+/**
+ * Animation values stay as [State] and are read only in the draw scope, so a
+ * running spring redraws the canvas without recomposing the tile every frame.
+ */
+private class AnimatedShape(
+    val morph: Morph,
+    private val progress: State<Float>,
+    private val reversed: Boolean,
+    private val spin: State<Float>,
+) {
+    fun morphProgress(): Float = if (reversed) 1f - progress.value else progress.value
+
+    fun rotation(): Float = spin.value
+}
 
 /** Place shapes with collision detection — no overlapping. */
 private fun generateNonOverlappingShapes(seed: Long): List<ShapeInstance> {
@@ -89,6 +105,8 @@ internal fun AnimatedShapesCanvas(
     isScrolling: Boolean = false,
 ) {
     val placements = remember(seed) { generateNonOverlappingShapes(seed) }
+    // A warm but off-screen shell page keeps its last shape and schedules no morphs.
+    val pageActive = LocalShellPageActive.current
 
     // Per-shape morph state: tracks the current from→to morph pair + generation counter
     // The generation counter drives the animateFloatAsState target flip (0f↔1f)
@@ -100,11 +118,12 @@ internal fun AnimatedShapesCanvas(
     )
 
     @Composable
-    fun rememberAnimatedShape(i: Int, inst: ShapeInstance): Triple<Morph, Float, Float> {
+    fun rememberAnimatedShape(i: Int, inst: ShapeInstance): AnimatedShape {
         var pair by remember { mutableStateOf(MorphPair(inst.shape, inst.shape, 0, 0f)) }
 
         val intervalMs = if (isScrolling) (800L + i * 200L) else (3000L + i * 1500L)
-        LaunchedEffect(isScrolling, i) {
+        LaunchedEffect(isScrolling, i, pageActive) {
+            if (!pageActive) return@LaunchedEffect
             val rng = java.util.Random(seed + i * 17L)
             while (true) {
                 kotlinx.coroutines.delay(intervalMs)
@@ -116,7 +135,7 @@ internal fun AnimatedShapesCanvas(
 
         // Morph progress: animate 0→1 each time gen changes (odd→1, even→0)
         val morphTarget = if (pair.gen % 2 == 0) 0f else 1f
-        val morphProgress by animateFloatAsState(
+        val morphProgress = animateFloatAsState(
             targetValue = morphTarget,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
@@ -124,12 +143,9 @@ internal fun AnimatedShapesCanvas(
             ),
             label = "morph-$i",
         )
-        // Actual progress within the current pair: how far from→to
-        val t = if (pair.gen % 2 == 0) (1f - morphProgress) else morphProgress
-
         // Spin: slight rotation during morph (spring bounce)
         val spinTarget = inst.rotation + pair.spinDelta * pair.gen
-        val spin by animateFloatAsState(
+        val spin = animateFloatAsState(
             targetValue = spinTarget,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -139,18 +155,15 @@ internal fun AnimatedShapesCanvas(
         )
 
         val morph = remember(pair.from, pair.to) { Morph(pair.from, pair.to) }
-        return Triple(morph, t, spin)
+        // Actual progress within the current pair runs from -> to; even generations run backwards.
+        return AnimatedShape(morph, morphProgress, reversed = pair.gen % 2 == 0, spin = spin)
     }
 
-    val animated = placements.mapIndexed { i, inst ->
-        val (morph, progress, spin) = rememberAnimatedShape(i, inst)
-        Triple(inst, Triple(morph, progress, spin), Unit)
-    }
+    val animated = placements.mapIndexed { i, inst -> inst to rememberAnimatedShape(i, inst) }
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        animated.forEach { (inst, anim, _) ->
-            val (morph, progress, spin) = anim
-            val path = morph.toPath(progress = progress)
+        animated.forEach { (inst, anim) ->
+            val path = anim.morph.toPath(progress = anim.morphProgress())
             val s = size.minDimension * inst.sizeFrac
             if (s < 1f) return@forEach
             val bounds = path.getBounds()
@@ -160,7 +173,7 @@ internal fun AnimatedShapesCanvas(
             val scale = s / pathSize
             val matrix = Matrix()
             matrix.translate(size.width * inst.xFrac, size.height * inst.yFrac)
-            matrix.rotateZ(spin)
+            matrix.rotateZ(anim.rotation())
             matrix.scale(scale, scale)
             matrix.translate(-cx, -cy)
             path.transform(matrix)

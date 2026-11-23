@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { VideoSegment } from "@/types/video";
+import { isTimelineKeyOwner } from "@/components/timeline/timelineKeyboard";
+import { removeZoomBlockAt } from "@/components/timeline/zoomBlockEdits";
 
 export interface UseAppShortcutsParams {
   togglePlayPause: () => void;
@@ -28,6 +30,27 @@ export interface UseAppShortcutsParams {
   redo: () => void;
   setSeekIndicatorKey: (key: number) => void;
   setSeekIndicatorDir: (dir: "left" | "right") => void;
+}
+
+const TEXT_INPUT_TYPES = new Set(["text", "number", "password", "search", "email", "url", "tel"]);
+
+/** Targets that consume typed characters, Delete/Backspace and their own undo history. */
+function isTextInputTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    (target.tagName === "INPUT" && TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)) ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable
+  );
+}
+
+/** Targets that own arrow keys: every form control (sliders, selects, inputs), ARIA widgets and focused timeline items. */
+function ownsArrowKeys(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (isTextInputTarget(target) || isTimelineKeyOwner(target)) return true;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return true;
+  const role = target.getAttribute("role");
+  return role === "slider" || role === "listbox" || role === "menu" || role === "spinbutton";
 }
 
 export function useAppShortcuts({
@@ -113,20 +136,6 @@ export function useAppShortcuts({
   };
 
   useEffect(() => {
-    const isTextInputTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return false;
-      const tag = target.tagName;
-      const targetType = (target as HTMLInputElement).type;
-      return (
-        (tag === "INPUT" &&
-          ["text", "number", "password", "search", "email"].includes(
-            targetType,
-          )) ||
-        tag === "TEXTAREA" ||
-        target.isContentEditable
-      );
-    };
-
     const handleKeyDown = (e: KeyboardEvent) => {
       const {
         togglePlayPause,
@@ -155,6 +164,7 @@ export function useAppShortcuts({
         setSeekIndicatorDir,
       } = latestRef.current;
       const isTextInput = isTextInputTarget(e.target);
+      const arrowsOwnedByTarget = ownsArrowKeys(e.target);
 
       if (e.code === "Space" && !isTextInput) {
         if (isModalOpen) return; // Let the dialog's native video controls handle Space
@@ -164,7 +174,7 @@ export function useAppShortcuts({
         if (isCropping) return; // Block play/pause during crop mode
         togglePlayPause();
       }
-      if (e.code === "ArrowLeft" && !isTextInput) {
+      if (e.code === "ArrowLeft" && !arrowsOwnedByTarget) {
         if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.max(0, currentTime - 5);
@@ -172,7 +182,7 @@ export function useAppShortcuts({
         setSeekIndicatorDir("left");
         setSeekIndicatorKey(Date.now());
       }
-      if (e.code === "ArrowRight" && !isTextInput) {
+      if (e.code === "ArrowRight" && !arrowsOwnedByTarget) {
         if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.min(duration, currentTime + 5);
@@ -180,26 +190,26 @@ export function useAppShortcuts({
         setSeekIndicatorDir("right");
         setSeekIndicatorKey(Date.now());
       }
-      if ((e.code === "Delete" || e.code === "Backspace") && !isTextInput) {
+      // Text fields and open dialogs keep their own editing and undo keys.
+      if (isTextInput || isModalOpen) return;
+      // A focused timeline item deletes itself, not the selection in another lane.
+      if ((e.code === "Delete" || e.code === "Backspace") && !isTimelineKeyOwner(e.target)) {
+        // One priority order: keystroke, pointer, subtitle, zoom block, then text.
         if (editingKeystrokeSegmentId) {
           handleDeleteKeystrokeSegment();
         } else if (editingPointerId) {
           handleDeletePointerSegment();
         } else if (editingSubtitleId) {
           handleDeleteSubtitle();
-        } else if (editingTextId && !editingKeyframeId) {
-          handleDeleteText();
         } else if (
           editingKeyframeId !== null &&
           segment?.zoomBlocks?.[editingKeyframeId]
         ) {
-          setSegment({
-            ...segment,
-            zoomBlocks: segment.zoomBlocks.filter(
-              (_, i) => i !== editingKeyframeId,
-            ),
-          });
-          setEditingKeyframeId(null);
+          const removed = removeZoomBlockAt(segment, editingKeyframeId, editingKeyframeId);
+          setSegment(removed.segment);
+          setEditingKeyframeId(removed.editingIndex);
+        } else if (editingTextId) {
+          handleDeleteText();
         }
       }
       if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {

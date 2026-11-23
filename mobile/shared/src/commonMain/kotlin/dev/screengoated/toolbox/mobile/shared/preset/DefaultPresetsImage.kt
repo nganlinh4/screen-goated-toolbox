@@ -38,7 +38,22 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 DEFAULT_IMAGE_MODEL_ID,
                 "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.",
                 "language1" to "Vietnamese",
-            ).copy(showOverlay = false, autoCopy = true),
+            ).copy(streamingEnabled = true, showOverlay = false, autoCopy = true),
+        ),
+    ),
+
+    Preset(
+        id = "preset_extract_table",
+        nameEn = "Extract Table",
+        nameVi = "Tr\u00edch b\u1ea3ng",
+        nameKo = "\ud45c \ucd94\ucd9c",
+        presetType = PresetType.IMAGE,
+        blocks = listOf(
+            imageBlock(
+                DEFAULT_IMAGE_MODEL_ID,
+                "Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.",
+                "language1" to "Vietnamese",
+            ).copy(renderMode = "markdown", autoCopy = true),
         ),
     ),
 
@@ -106,21 +121,6 @@ internal val defaultImagePresets: List<Preset> = listOf(
     ),
 
     Preset(
-        id = "preset_extract_table",
-        nameEn = "Extract Table",
-        nameVi = "Tr\u00edch b\u1ea3ng",
-        nameKo = "\ud45c \ucd94\ucd9c",
-        presetType = PresetType.IMAGE,
-        blocks = listOf(
-            imageBlock(
-                DEFAULT_IMAGE_MODEL_ID,
-                "Extract all data from any tables, forms, or structured content in this image. Format the output as a markdown table. Output ONLY the table, no explanations.",
-                "language1" to "Vietnamese",
-            ).copy(renderMode = "markdown", autoCopy = true),
-        ),
-    ),
-
-    Preset(
         id = "preset_qr_scanner",
         nameEn = "QR Scanner",
         nameVi = "Qu\u00e9t m\u00e3 QR",
@@ -130,6 +130,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
             imageBlock(
                 "qrserver-qr-scanner-vision",
                 "",
+                "language1" to "Vietnamese",
             ).copy(showOverlay = false, autoCopy = true),
             textBlock(
                 DEFAULT_TEXT_MODEL_ID,
@@ -159,7 +160,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 DEFAULT_IMAGE_MODEL_ID,
                 "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(streamingEnabled = true),
         ),
     ),
 
@@ -174,7 +175,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 DEFAULT_IMAGE_MODEL_ID,
                 "Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(streamingEnabled = true),
         ),
     ),
 
@@ -190,7 +191,7 @@ internal val defaultImagePresets: List<Preset> = listOf(
                 DEFAULT_IMAGE_MODEL_ID,
                 "",
                 "language1" to "Vietnamese",
-            ),
+            ).copy(streamingEnabled = true),
         ),
     ),
 

@@ -70,7 +70,7 @@ fn run_stdio_operation_attempt(
         fail(&job_id, &operation, "The 3D engine is unavailable.");
         return;
     };
-    let Ok(_component_lease) = crate::component_registry::acquire("creation-windows") else {
+    let Ok(component_lease) = crate::component_registry::acquire("creation-windows") else {
         fail(&job_id, &operation, "The 3D engine is being removed.");
         return;
     };
@@ -90,7 +90,8 @@ fn run_stdio_operation_attempt(
         {
             return;
         }
-        let child = command.spawn();
+        let child =
+            crate::overlay::creation_process::CreationProcess::spawn(&mut command, component_lease);
         if let Ok(child) = &child {
             state.pids.insert(job_id.clone(), child.id());
         }
@@ -111,7 +112,7 @@ fn run_stdio_operation_attempt(
         fail(&job_id, &operation, "The 3D engine could not start.");
         return;
     };
-    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+    let (Some(mut stdin), Some(stdout)) = (child.take_stdin(), child.take_stdout()) else {
         crate::overlay::creation_recovery::terminate_process_tree(child.id());
         fail(&job_id, &operation, "The 3D engine could not start.");
         return;
@@ -126,6 +127,11 @@ fn run_stdio_operation_attempt(
         fail(&job_id, &operation, "Creation exceeded its time limit.");
         return;
     };
+    if child.resume().is_err() {
+        crate::overlay::creation_recovery::terminate_process_tree(child.id());
+        fail(&job_id, &operation, "The 3D engine could not start.");
+        return;
+    }
     let identity = crate::overlay::creation_recovery::Identity {
         tool: "3d",
         operation: operation_name(&operation),
@@ -203,7 +209,7 @@ fn run_stdio_operation_attempt(
                 value.get("result").cloned().unwrap_or(Value::Null),
                 &runtime_status,
             );
-            let _ = child.wait();
+            let _ = events.finish(&mut child);
             let _ = prepare_runtime();
             return;
         } else if value.get("ok").and_then(Value::as_bool) == Some(false) {
@@ -217,11 +223,11 @@ fn run_stdio_operation_attempt(
             } else {
                 fail(&job_id, &operation, "Creation failed. Try again.");
             }
-            let _ = child.wait();
+            let _ = events.finish(&mut child);
             return;
         }
     }
-    let _ = child.wait();
+    let _ = events.finish(&mut child);
     if accepted {
         fail_retaining(&job_id, &operation);
     } else {
@@ -229,7 +235,7 @@ fn run_stdio_operation_attempt(
     }
 }
 
-fn job_cancelled(job_id: &str) -> bool {
+pub(super) fn job_cancelled(job_id: &str) -> bool {
     STATE.lock().is_ok_and(|state| {
         state
             .jobs
@@ -435,10 +441,10 @@ fn finish_success(
             saved.expires_at_ms,
         )
     {
-        eprintln!("[3d-generator] continuation retention failed: {error}");
+        crate::log_info!("[3D Generator] Continuation retention failed: {error}");
         continuation = None;
     } else if can_refine && continuation.is_none() {
-        eprintln!("[3d-generator] continuation expiry was not accepted");
+        crate::log_info!("[3D Generator] Continuation expiry was not accepted");
     }
     let status = JobStatus {
         job_id: Some(job_id.to_string()),
@@ -550,6 +556,7 @@ fn finish_success(
         Err(error) => {
             crate::log_info!("[3D Generator] Completion is still pending: {error}");
             super::process::finish_job_pending(job_id, status, continuation);
+            super::completion::settle_reconciled_completions();
         }
     }
 }

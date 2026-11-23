@@ -1,6 +1,5 @@
 use super::types::{RESTORE_SIGNAL, SettingsApp, UserEvent};
 use crate::config::ThemeMode;
-use crate::gui::locale::LocaleText;
 use crate::icon_gen;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use eframe::egui;
@@ -14,7 +13,14 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 impl SettingsApp {
     pub(crate) fn check_updater(&mut self) {
-        while let Ok(status) = self.update_rx.try_recv() {
+        while let Ok(event) = self.update_rx.try_recv() {
+            let Some(status) = self
+                .updater
+                .as_ref()
+                .and_then(|updater| updater.accept_event(event))
+            else {
+                continue;
+            };
             // Show popup notification when update is available
             if let crate::updater::UpdateStatus::UpdateAvailable { ref version, .. } = status {
                 // Show blue-themed update notification with longer duration
@@ -47,11 +53,21 @@ impl SettingsApp {
         // 1. Check if we need to poll system theme (only if in System mode)
         let mut current_system_dark = self.last_system_theme_dark;
 
-        if now - self.theme_check_timer > 1.0 {
+        if crate::gui::utils::take_theme_change() || now - self.theme_check_timer > 1.0 {
             self.theme_check_timer = now;
             // Always update system state tracker, even if not currently used
             current_system_dark = crate::gui::utils::is_system_in_dark_mode();
             self.last_system_theme_dark = current_system_dark;
+            self.last_taskbar_dark = crate::gui::utils::is_taskbar_in_dark_mode();
+        }
+
+        let tray_dark =
+            crate::gui::utils::tray_icon_dark(&self.config.theme_mode, self.last_taskbar_dark);
+        if tray_dark != self.last_tray_icon_dark {
+            self.last_tray_icon_dark = tray_dark;
+            if let Some(tray) = &mut self.tray_icon {
+                let _ = tray.set_icon(Some(icon_gen::get_tray_icon(tray_dark)));
+            }
         }
 
         // 2. Calculate Effective Theme
@@ -68,11 +84,8 @@ impl SettingsApp {
             // A. Update Visuals (egui) — Material-style global style for all widgets
             crate::gui::theme::AppTheme::apply_global_style(ctx, effective_dark);
 
-            // B. Update Native Icons (Tray & Window) based on Effective Theme
-            if let Some(tray) = &mut self.tray_icon {
-                let new_icon = icon_gen::get_tray_icon(effective_dark);
-                let _ = tray.set_icon(Some(new_icon));
-            }
+            // B. The window icon follows the app theme; the tray icon follows
+            // the taskbar above.
             crate::gui::utils::update_window_icon_native(effective_dark);
 
             // C. Update the realtime compositor.
@@ -116,25 +129,21 @@ impl SettingsApp {
             }
         }
 
-        // --- TRAY MENU I18N UPDATE ---
-        // Update tray menu items when language changes
         if self.config.ui_language != self.last_ui_language {
             self.last_ui_language = self.config.ui_language.clone();
-            let new_locale = LocaleText::get(&self.config.ui_language);
-            self.tray_settings_item
-                .set_text(new_locale.shell.tray_settings);
-            self.tray_quit_item.set_text(new_locale.shell.tray_quit);
+            crate::overlay::result::scene_compositor::update_locale();
         }
 
         // --- LAZY TRAY ICON RECONCILE ---
         if self.tray_icon.is_none() && now - self.tray_retry_timer > 1.0 {
             self.tray_retry_timer = now;
-            let icon = icon_gen::get_tray_icon(self.last_effective_theme_dark);
+            let icon = icon_gen::get_tray_icon(self.last_tray_icon_dark);
             if let Ok(tray) = TrayIconBuilder::new()
                 .with_tooltip("Screen Goated Toolbox (nganlinh4)")
                 .with_icon(icon)
                 .build()
             {
+                super::exit_preparation::register_tray_icon(&tray);
                 self.tray_icon = Some(tray);
             }
         }
@@ -177,6 +186,9 @@ impl SettingsApp {
                 // saved geometry these two commands would overwrite what the
                 // user resized the window to, every single launch — which they
                 // did, silently, even before the save path was fixed.
+                // A saved position is physical, so it is applied to the window
+                // that now exists, on whichever monitor it was created.
+                crate::gui::window_state::apply_restored_position();
                 if !self.config.start_in_tray && !crate::gui::window_state::restored_geometry() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
                         x_logical, y_logical,
@@ -200,7 +212,7 @@ impl SettingsApp {
 
             // 2. Trigger auto-update check (Network/Disk IO)
             if let Some(updater) = &self.updater {
-                updater.check_for_updates();
+                updater.auto_check_for_updates();
             }
 
             self.startup_stage = 2;
@@ -236,7 +248,10 @@ impl SettingsApp {
                 // Create the splash while the window is still invisible. When
                 // disabled, render the main UI into that first hidden frame.
                 if self.config.show_startup_animation && self.splash.is_none() {
-                    self.splash = Some(crate::gui::splash::SplashScreen::new(ctx));
+                    self.splash = Some(crate::gui::splash::SplashScreen::new(
+                        ctx,
+                        &self.config.ui_language,
+                    ));
                 }
 
                 if !crate::gui::window_state::restored_geometry() {
@@ -286,16 +301,6 @@ impl SettingsApp {
         let current_has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
         let current_bubble_enabled = self.config.show_favorite_bubble;
 
-        let locale = LocaleText::get(&self.config.ui_language);
-        let bubble_text = if current_has_favorites {
-            locale.shell.tray_favorite_bubble
-        } else {
-            locale.shell.tray_favorite_bubble_disabled
-        };
-
-        self.tray_favorite_bubble_item.set_text(bubble_text);
-        self.tray_favorite_bubble_item.set_enabled(true);
-
         // Detect state change
         let state_changed = current_bubble_enabled != self.last_bubble_enabled
             || current_has_favorites != self.last_has_favorites;
@@ -319,8 +324,13 @@ impl SettingsApp {
                     // Do NOT return here. Continue to render main UI underneath.
                 }
                 crate::gui::splash::SplashStatus::Finished => {
+                    // A quiet exit happened behind other windows: pulling the
+                    // window forward would interrupt whatever the user is doing.
+                    let exited_quietly = splash.exited_quietly();
                     self.splash = None;
-                    self.on_splash_finished(ctx);
+                    if !exited_quietly {
+                        self.on_splash_finished(ctx);
+                    }
                 }
             }
         }
@@ -348,36 +358,55 @@ impl SettingsApp {
                         self.restore_window(ctx);
                     }
                 }
-                UserEvent::Menu(menu_event) => {
-                    match menu_event.id.0.as_str() {
-                        "1002" => {
-                            self.restore_window(ctx);
-                        }
-                        "1003" => {
-                            // Toggle favorite bubble
-                            self.config.show_favorite_bubble = !self.config.show_favorite_bubble;
-                            self.tray_favorite_bubble_item
-                                .set_checked(self.config.show_favorite_bubble);
-                            self.save_and_sync();
-
-                            // Spawn or dismiss the bubble overlay
-                            if self.config.show_favorite_bubble {
-                                crate::overlay::favorite_bubble::show_favorite_bubble();
-                            } else {
-                                crate::overlay::favorite_bubble::hide_favorite_bubble();
-                            }
-                        }
-                        _ => {}
-                    }
-                }
             }
         }
     }
+}
 
-    pub(crate) fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && !self.is_quitting {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        }
+pub(super) fn poll_and_handle_close(ctx: &egui::Context, live_resize: bool, poll: impl FnOnce()) {
+    if !live_resize {
+        poll();
+    }
+    handle_close_request(ctx);
+}
+
+/// Closing the settings window hides it; quitting goes through exit_app.
+pub(super) fn handle_close_request(ctx: &egui::Context) {
+    if ctx.input(|i| i.viewport().close_requested()) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+    }
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    #[test]
+    fn close_during_live_resize_is_cancelled_and_hidden_without_polling() {
+        let mut input = egui::RawInput::default();
+        input
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let mut output = egui::Context::default().run_ui(input, |ui| {
+            poll_and_handle_close(ui.ctx(), true, || {
+                panic!("polling must wait until resizing ends")
+            });
+        });
+        let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| matches!(cmd, egui::ViewportCommand::CancelClose))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| matches!(cmd, egui::ViewportCommand::Visible(false)))
+        );
+        output.textures_delta.clear();
     }
 }

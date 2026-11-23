@@ -1,4 +1,4 @@
-//! Shared P-256 signature verification.
+//! Shared signature verification and message authentication.
 //!
 //! Delivery manifests (the component catalog and host app update feed) use the
 //! update-delivery key. The provider availability feed only influences model
@@ -12,6 +12,18 @@
 //! both are accepted here and normalised.
 
 use anyhow::{Result, bail};
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "crypto/authentication.rs"]
+mod authentication;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use authentication::{constant_time_eq, hmac_sha256_hex};
+#[cfg(not(feature = "recorder-worker"))]
+#[path = "crypto/digest.rs"]
+mod digest;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use digest::sha256_hex;
+#[cfg(not(feature = "recorder-worker"))]
+pub(crate) use digest::sha256_reader;
 use sha2::{Digest, Sha256};
 use windows::Win32::Security::Cryptography::{
     BCRYPT_ALG_HANDLE, BCRYPT_ECCPUBLIC_BLOB, BCRYPT_ECDSA_P256_ALGORITHM,

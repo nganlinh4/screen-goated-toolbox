@@ -289,6 +289,13 @@ pub fn refresh_selected_audio_capture_pid() -> Option<u32> {
     Some(refresh_audio_capture_pid(&candidate))
 }
 
+/// A visible window other than the shell (excluded by its handle) is offered
+/// when it is titled and belongs to another process. Titles are localized, so
+/// none is ever excluded by name.
+fn offers_titled_window(title: &str, pid: u32, own_pid: u32) -> bool {
+    !title.is_empty() && pid != 0 && pid != own_pid
+}
+
 pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
     let mut apps: Vec<AudioAppCandidate> = Vec::new();
     let mut seen_pids: HashSet<u32> = HashSet::new();
@@ -300,7 +307,7 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
 
         extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
             unsafe {
-                if !IsWindowVisible(hwnd).as_bool() {
+                if hwnd == GetShellWindow() || !IsWindowVisible(hwnd).as_bool() {
                     return BOOL(1);
                 }
 
@@ -311,13 +318,9 @@ pub fn enumerate_audio_app_candidates() -> Vec<AudioAppCandidate> {
                 }
 
                 let title = String::from_utf16_lossy(&title_buf[..len as usize]);
-                if title.is_empty() || title == "Program Manager" || title == "Settings" {
-                    return BOOL(1);
-                }
-
                 let mut pid = 0u32;
                 GetWindowThreadProcessId(hwnd, Some(&mut pid));
-                if pid == 0 || pid == std::process::id() {
+                if !offers_titled_window(&title, pid, std::process::id()) {
                     return BOOL(1);
                 }
 
@@ -411,6 +414,22 @@ mod tests {
             resolve_capture_pid_for_window(10, &sessions, &parents),
             (10, true)
         );
+    }
+
+    #[test]
+    fn window_titles_never_exclude_an_application() {
+        for title in [
+            "Program Manager",
+            "Settings",
+            "Einstellungen",
+            "설정",
+            "Cài đặt",
+        ] {
+            assert!(offers_titled_window(title, 42, 7), "{title}");
+        }
+        assert!(!offers_titled_window("", 42, 7));
+        assert!(!offers_titled_window("Settings", 0, 7));
+        assert!(!offers_titled_window("Settings", 7, 7));
     }
 
     #[test]

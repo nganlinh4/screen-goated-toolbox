@@ -1,4 +1,8 @@
 use anyhow::{Result, anyhow};
+
+pub(super) use super::control_types::{
+    name_for_id as control_type_name, role_for_id as role_for_control_type,
+};
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, SAFEARRAY,
@@ -6,7 +10,12 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Ole::{
     SafeArrayDestroy, SafeArrayGetDim, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
 };
-use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationElement};
+use windows::Win32::System::Variant::VT_BOOL;
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
+    IUIAutomationValuePattern, UIA_DocumentControlTypeId, UIA_IsReadOnlyAttributeId,
+    UIA_TextPatternId, UIA_ValuePatternId,
+};
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,63 +41,13 @@ pub(super) fn is_interactive_control_type(control_type: i32) -> bool {
 /// Interactive handles and Text labels are the only provider nodes that can
 /// enter the model-facing native world.
 pub(super) fn is_grounding_control_type(control_type: i32) -> bool {
-    control_type == 50020 || is_interactive_control_type(control_type)
-}
-
-pub(super) fn control_type_name(id: i32) -> &'static str {
-    match id {
-        50000 => "Button",
-        50002 => "CheckBox",
-        50003 => "ComboBox",
-        50004 => "Edit",
-        50005 => "Hyperlink",
-        50006 => "Image",
-        50007 => "ListItem",
-        50008 => "List",
-        50009 => "Menu",
-        50010 => "MenuBar",
-        50011 => "MenuItem",
-        50013 => "RadioButton",
-        50015 => "Slider",
-        50018 => "Tab",
-        50019 => "TabItem",
-        50020 => "Text",
-        50021 => "ToolBar",
-        50023 => "Tree",
-        50024 => "TreeItem",
-        50025 => "Custom",
-        50026 => "Group",
-        50030 => "Document",
-        50031 => "SplitButton",
-        50032 => "Window",
-        50033 => "Pane",
-        50036 => "Table",
-        50037 => "TitleBar",
-        _ => "Other",
-    }
+    super::control_types::is_grounding(control_type)
 }
 
 /// Global point hit-testing describes only the visible foreground surface. An
 /// occluded capture must retain its provider tree until it is raised for input.
 pub(super) unsafe fn point_hit_test_is_authoritative(selected_hwnd: HWND) -> bool {
     unsafe { selected_hwnd == GetForegroundWindow() }
-}
-
-fn role_for_control_type(control_type: i32) -> Option<&'static str> {
-    Some(match control_type {
-        50004 | 50030 => "textbox",
-        50000 | 50031 => "button",
-        50005 => "link",
-        50002 => "checkbox",
-        50013 => "radio",
-        50003 => "combobox",
-        50015 => "slider",
-        50019 => "tab",
-        50011 => "menuitem",
-        50007 => "listitem",
-        50024 => "treeitem",
-        _ => return None,
-    })
 }
 
 /// UIA providers can expose controls from hidden/inactive views with a non-empty
@@ -164,6 +123,134 @@ pub(in crate::overlay::computer_control) fn validate_native_focused_element(
         Err(anyhow!("native focused-element validation timed out")),
         move || validate_native_focused_element_inner(&expected),
     )
+}
+
+/// Capture the one OS-focused writable editor immediately before an artifact paste.
+pub(in crate::overlay::computer_control) fn focused_editable_guard(
+    require_document: bool,
+) -> Result<serde_json::Value> {
+    super::with_timeout(
+        "focused_editable_guard",
+        3,
+        Err(anyhow!("focused editor observation timed out")),
+        move || unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let focused = uia.GetFocusedElement()?;
+            ensure_editable(&focused)?;
+            if require_document && !within_document(&uia, focused.clone()) {
+                return Err(anyhow!(
+                    "focused editor is outside the active browser document"
+                ));
+            }
+            let identity = provider_identity(&focused)
+                .filter(|identity| !identity.runtime_id.is_empty())
+                .ok_or_else(|| anyhow!("focused editor has no stable provider identity"))?;
+            Ok(serde_json::json!({
+                "screen_px": [0, 0], "role": identity.role,
+                "provider_name": identity.name, "automation_id": identity.automation_id,
+                "runtime_id": identity.runtime_id, "require_document": require_document,
+            }))
+        },
+    )
+}
+
+pub(in crate::overlay::computer_control) fn validate_focused_editable(
+    element: ExpectedNativeElement<'_>,
+    require_document: bool,
+) -> Result<()> {
+    let expected = ProviderIdentity {
+        role: element.role.to_string(),
+        name: element.provider_name.to_string(),
+        automation_id: element.automation_id.to_string(),
+        runtime_id: element.runtime_id.to_vec(),
+    };
+    super::with_timeout(
+        "validate_focused_editable",
+        3,
+        Err(anyhow!("focused editor validation timed out")),
+        move || unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+            let focused = uia.GetFocusedElement()?;
+            let actual = provider_identity(&focused)
+                .ok_or_else(|| anyhow!("focused editor identity is unavailable"))?;
+            if !focused_editor_identity_matches(&expected, &actual) {
+                return Err(anyhow!(
+                    "focused editor changed before paste; observe again"
+                ));
+            }
+            if require_document && !within_document(&uia, focused.clone()) {
+                return Err(anyhow!(
+                    "focused editor is outside the active browser document"
+                ));
+            }
+            ensure_editable(&focused)
+        },
+    )
+}
+
+unsafe fn within_document(uia: &IUIAutomation, mut element: IUIAutomationElement) -> bool {
+    unsafe {
+        let Ok(walker) = uia.RawViewWalker() else {
+            return false;
+        };
+        for _ in 0..64 {
+            if element
+                .CurrentControlType()
+                .is_ok_and(|role| role == UIA_DocumentControlTypeId)
+            {
+                return true;
+            }
+            let Ok(parent) = walker.GetParentElement(&element) else {
+                return false;
+            };
+            element = parent;
+        }
+        false
+    }
+}
+
+unsafe fn ensure_editable(element: &IUIAutomationElement) -> Result<()> {
+    unsafe {
+        if !is_enabled_editor(
+            role_for_control_type(element.CurrentControlType()?.0),
+            element.CurrentIsEnabled()?.as_bool(),
+        ) {
+            return Err(anyhow!("focused element is not an enabled editor"));
+        }
+        let read_only = if let Ok(value) =
+            element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+        {
+            value.CurrentIsReadOnly()?.as_bool()
+        } else {
+            let text = element
+                .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                .map_err(|_| anyhow!("focused editor does not expose writable text state"))?;
+            let value = text
+                .DocumentRange()?
+                .GetAttributeValue(UIA_IsReadOnlyAttributeId)?;
+            if value.vt() != VT_BOOL {
+                return Err(anyhow!("focused editor writable state is ambiguous"));
+            }
+            bool::try_from(&value)?
+        };
+        if read_only {
+            return Err(anyhow!("focused editor is read-only"));
+        }
+        Ok(())
+    }
+}
+
+fn is_enabled_editor(role: Option<&str>, enabled: bool) -> bool {
+    role == Some("textbox") && enabled
+}
+
+fn focused_editor_identity_matches(expected: &ProviderIdentity, actual: &ProviderIdentity) -> bool {
+    expected.role == actual.role
+        && expected.automation_id == actual.automation_id
+        && !expected.runtime_id.is_empty()
+        && expected.runtime_id == actual.runtime_id
 }
 
 pub(in crate::overlay::computer_control) fn validate_native_provider_ownership() -> Result<()> {
@@ -343,6 +430,27 @@ mod tests {
             automation_id: automation_id.into(),
             runtime_id: runtime_id.to_vec(),
         }
+    }
+
+    #[test]
+    fn paste_editor_must_be_an_enabled_textbox() {
+        assert!(is_enabled_editor(Some("textbox"), true));
+        assert!(!is_enabled_editor(Some("textbox"), false));
+        assert!(!is_enabled_editor(Some("button"), true));
+        assert!(!is_enabled_editor(None, true));
+    }
+
+    #[test]
+    fn paste_editor_identity_survives_value_labels_but_not_focus_replacement() {
+        let expected = identity("textbox", "before", "editor", &[4, 8]);
+        assert!(focused_editor_identity_matches(
+            &expected,
+            &identity("textbox", "after", "editor", &[4, 8]),
+        ));
+        assert!(!focused_editor_identity_matches(
+            &expected,
+            &identity("textbox", "before", "editor", &[4, 9]),
+        ));
     }
 
     #[test]

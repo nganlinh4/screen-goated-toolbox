@@ -2,8 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-sdk tools:overrideLibrary="ai.moonshine.voice" />
-
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
         <intent>
@@ -66,6 +64,12 @@
         </provider>
 
         <provider
+            android:name="dev.screengoated.toolbox.mobile.history.HistoryMediaProvider"
+            android:authorities="${applicationId}.history-media"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
             android:enabled="true"
@@ -119,13 +123,13 @@
             android:name=".service.LiveTranslateService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone|mediaProjection" />
+            android:foregroundServiceType="microphone|mediaProjection|shortService" />
 
         <service
             android:name=".translationgummy.TranslationGummyService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|shortService" />
 
         <service
             android:name=".service.SgtTileService"
@@ -161,6 +165,13 @@
             android:taskAffinity=""
             android:exported="false" />
 
+        <activity
+            android:name=".AudioPresetPermissionActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <service
             android:name=".service.SgtAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -183,7 +194,7 @@
             android:name=".service.BubbleService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|microphone|mediaProjection">
+            android:foregroundServiceType="specialUse|microphone|mediaProjection|shortService">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating_overlay_bubble_for_favorite_presets" />
@@ -193,13 +204,17 @@
             android:name=".service.PresetAudioForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="microphone|mediaProjection" />
+            android:foregroundServiceType="microphone|mediaProjection|shortService" />
+
+        <receiver
+            android:name=".phonecontrol.PhoneControlStopReceiver"
+            android:exported="false" />
 
         <service
             android:name=".phonecontrol.PhoneControlService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|microphone|mediaPlayback|mediaProjection">
+            android:foregroundServiceType="specialUse|microphone|mediaPlayback|mediaProjection|shortService">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="user_started_voice_agent_controlling_visible_phone_interfaces" />
@@ -232,14 +247,6 @@
             android:name=".creation.worker.ImageToSvgWorker1Service"
             android:exported="false"
             android:process=":sgt_creation_svg_1" />
-        <service
-            android:name=".creation.worker.ImageCreatorWorker0Service"
-            android:exported="false"
-            android:process=":sgt_creation_image_0" />
-        <service
-            android:name=".creation.worker.ImageCreatorWorker1Service"
-            android:exported="false"
-            android:process=":sgt_creation_image_1" />
     </application>
 
 </manifest>

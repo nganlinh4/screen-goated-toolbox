@@ -34,7 +34,7 @@ internal fun phoneControlPowerChoicePresentation(
     selectedChoice: PhoneControlPowerChoice?,
 ) = PhoneControlPowerChoicePresentation(
     selected = choice == selectedChoice,
-    recommended = choice == PhoneControlPowerChoice.SGT_ADB,
+    recommended = false,
 )
 
 internal fun phoneControlPowerSelectionRoute(

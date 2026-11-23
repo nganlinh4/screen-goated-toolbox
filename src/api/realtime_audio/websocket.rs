@@ -134,14 +134,22 @@ pub fn live_translate_target_language_code(language: &str) -> String {
         }
         "filipino" | "tagalog" => return "fil".to_string(),
         "norwegian" => return "no".to_string(),
-        code if is_bcp47_like(code) => return normalize_bcp47_code(trimmed),
         _ => {}
     }
 
-    isolang::Language::from_name(trimmed)
-        .map(|language| language.to_639_1().unwrap_or_else(|| language.to_639_3()))
-        .map(str::to_string)
-        .unwrap_or_else(|| "en".to_string())
+    // Names resolve before the code-shape test: "Lao", "Ewe", "Twi" and "Ido"
+    // are both picker names and three-letter shapes, and BCP-47 needs their
+    // two-letter codes.
+    if let Some(language) = crate::config::language_from_name(trimmed) {
+        return language
+            .to_639_1()
+            .unwrap_or_else(|| language.to_639_3())
+            .to_string();
+    }
+    if is_bcp47_like(&trimmed.to_ascii_lowercase()) {
+        return normalize_bcp47_code(trimmed);
+    }
+    "en".to_string()
 }
 
 fn is_bcp47_like(value: &str) -> bool {
@@ -212,6 +220,35 @@ mod tests {
                 "input {:?}",
                 c.input
             );
+        }
+    }
+
+    #[test]
+    fn short_language_names_use_their_shortest_bcp47_code() {
+        for (name, code) in [("Lao", "lo"), ("Ewe", "ee"), ("Twi", "tw"), ("Ido", "io")] {
+            assert_eq!(live_translate_target_language_code(name), code, "{name}");
+        }
+        assert_eq!(live_translate_target_language_code("ko"), "ko");
+        assert_eq!(live_translate_target_language_code("Korean"), "ko");
+        assert_eq!(live_translate_target_language_code("Klingonish"), "en");
+    }
+
+    // The picker list is host-only; the recorder worker compiles this module without it.
+    #[cfg(not(feature = "recorder-worker"))]
+    #[test]
+    fn picker_names_shared_with_other_languages_target_the_listed_language() {
+        let shared: Vec<&String> = crate::config::get_all_languages()
+            .iter()
+            .filter(|name| {
+                isolang::Language::from_name(name) != crate::config::language_from_name(name)
+            })
+            .collect();
+        assert!(!shared.is_empty());
+        for name in shared {
+            let listed = crate::config::language_from_name(name)
+                .and_then(|language| language.to_639_1())
+                .expect("picker languages have a two-letter code");
+            assert_eq!(live_translate_target_language_code(name), listed, "{name}");
         }
     }
 

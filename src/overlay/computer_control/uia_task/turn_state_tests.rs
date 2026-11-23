@@ -59,7 +59,7 @@ fn new_turn_clears_task_local_recovery_state() {
     assert!(brain.show_coarse_grid);
     assert_eq!(brain.controlled_tab_id, Some(73));
 
-    let expected_view = window_view(brain.target.as_deref(), false);
+    let expected_view = clamp_to_virtual_desktop(window_view(brain.target.as_deref(), false));
     brain.begin_job(12, None, false);
     assert_eq!(brain.current_turn_id, Some(12));
     assert!(brain.trail.is_empty());
@@ -85,6 +85,12 @@ fn new_turn_binds_browser_tools_to_the_source_frame_tab() {
     let mut brain = Brain::new(None);
     let source = FrameSource {
         frame_id: 81,
+        view: View {
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 100,
+        },
         surface: super::super::controller::world::SurfaceIdentity::Browser {
             tab_id: 37,
             document_id: "document-81".into(),
@@ -102,4 +108,40 @@ fn new_turn_binds_browser_tools_to_the_source_frame_tab() {
     assert_eq!(brain.source_frame, Some(native_source));
     assert_eq!(brain.controlled_tab_id, Some(37));
     assert_eq!(brain.controlled_document_id.as_deref(), Some("document-81"));
+}
+
+#[test]
+fn jobs_bind_coordinates_to_the_delivered_frame_and_retire_a_different_view() {
+    let mut brain = Brain::new(None);
+    let mut source = FrameSource::native(81, (5, 6, 7));
+    source.view = View {
+        x: -400,
+        y: 80,
+        w: 1200,
+        h: 800,
+    };
+    brain.begin_job(44, Some(source.clone()), false);
+    assert_eq!(brain.view, source.view);
+    brain.zoomed = true;
+    brain.whole_screen = true;
+    brain.anchors.push(ClickAnchor {
+        id: 1,
+        x: -300,
+        y: 100,
+        note: None,
+        signature: vec![0; 24 * 24 * 3],
+        frame_id: 81,
+        view: source.view,
+        surface: source.surface.clone(),
+    });
+    source.frame_id = 82;
+    brain.begin_job(44, Some(source.clone()), false);
+    assert_eq!(brain.view, source.view);
+    assert_eq!(brain.anchors.len(), 1);
+    assert!(brain.zoomed && brain.whole_screen);
+    source.view.x += 10;
+    brain.begin_job(44, Some(source.clone()), false);
+    assert_eq!(brain.view, source.view);
+    assert!(brain.anchors.is_empty());
+    assert!(!brain.zoomed && !brain.whole_screen);
 }

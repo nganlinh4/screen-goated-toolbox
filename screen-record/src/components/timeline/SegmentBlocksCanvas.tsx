@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getTimelineCanvasSize } from "./timelineCanvasSize";
 
 export interface TimelineVisibleRange {
   startTime: number;
@@ -89,9 +90,11 @@ export const SegmentBlocksCanvas: React.FC<SegmentBlocksCanvasProps> = ({
     if (!canvas) return;
     const cssWidth = size.width;
     const cssHeight = size.height;
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(cssWidth * dpr));
-    const height = Math.max(1, Math.round(cssHeight * dpr));
+    const { width, height, scaleX, scaleY } = getTimelineCanvasSize(
+      cssWidth,
+      cssHeight,
+      window.devicePixelRatio || 1,
+    );
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -103,7 +106,7 @@ export const SegmentBlocksCanvas: React.FC<SegmentBlocksCanvasProps> = ({
     ctx.clearRect(0, 0, width, height);
     if (duration <= 0 || cssWidth <= 0 || cssHeight <= 0 || segments.length === 0) return;
 
-    ctx.scale(dpr, dpr);
+    ctx.scale(scaleX, scaleY);
     const computed = getComputedStyle(canvas);
     const defaultColor = computed.getPropertyValue(colorVar).trim() || fallbackColor;
     const y = 0;

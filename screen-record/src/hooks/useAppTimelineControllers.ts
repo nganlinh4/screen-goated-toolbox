@@ -1,4 +1,5 @@
 import { useAppDropActions, usePendingAutoSubtitleGeneration } from "@/hooks/useAppDropActions";
+import { captureImportStartOwner } from '@/hooks/importProjectOwnership';
 import { useAppMediaImports } from "@/hooks/useAppMediaImports";
 import { useTimelineTrackCallbacks } from "@/hooks/useTimelineTrackCallbacks";
 import { useTimelineWorkspaceComposition } from "@/hooks/useTimelineWorkspaceComposition";
@@ -34,9 +35,10 @@ export interface AppTimelineControllerArgs {
   isGeneratingSubtitles: boolean;
   isPlaceholderBackedProject: boolean;
   isPlaying: boolean;
+  loadedClipIdRef: MutableRefObject<string | null>;
   loadProjects: () => Promise<unknown>;
   pendingAutoSubtitleArmed: boolean;
-  pendingAutoSubtitleProjectId: string | null;
+  pendingAutoSubtitleProjectId: import('./useAppDropActions').PendingAutoSubtitleRequest | null;
   projects: ProjectsState;
   rawSetComposition: Dispatch<SetStateAction<ProjectComposition | null>>;
   rawSetSegment: Dispatch<SetStateAction<VideoSegment | null>>;
@@ -53,7 +55,7 @@ export interface AppTimelineControllerArgs {
   setEditingSubtitleId: (id: string | null) => void;
   setError: (message: string) => void;
   setPendingAutoSubtitleArmed: (armed: boolean) => void;
-  setPendingAutoSubtitleProjectId: (id: string | null) => void;
+  setPendingAutoSubtitleProjectId: (request: import('./useAppDropActions').PendingAutoSubtitleRequest | null) => void;
   setSegment: SegmentSetter;
   setSubtitleSource: (source: SubtitleSource) => void;
   subtitleSource: SubtitleSource;
@@ -75,6 +77,7 @@ export function useAppTimelineControllers(args: AppTimelineControllerArgs) {
     handleGenerateSubtitles,
     isGeneratingSubtitles,
     isPlaceholderBackedProject,
+    loadedClipIdRef,
     isPlaying,
     loadProjects,
     pendingAutoSubtitleArmed,
@@ -152,6 +155,7 @@ export function useAppTimelineControllers(args: AppTimelineControllerArgs) {
     currentTime,
     duration,
     isPlaceholderBackedProject,
+    loadedClipIdRef,
     persistTimelineWorkspaceState: timelineWorkspace.persistTimelineWorkspaceState,
     projects,
     segment,
@@ -171,10 +175,14 @@ export function useAppTimelineControllers(args: AppTimelineControllerArgs) {
 
   useAppDropActions({
     getCurrentProjectId: () => currentProjectIdRef.current,
+    captureStartOwner: () => captureImportStartOwner(currentProjectIdRef),
     importAudioPaths: mediaImports.importAudioPaths,
     importSubtitlePayload: mediaImports.importSubtitlePayload,
     importVideoPath: mediaImports.importVideoPath,
     setPendingAutoSubtitleProjectId,
+    isAudioImportBusy: mediaImports.isImportingAudio,
+    isSubtitleImportBusy: mediaImports.isImportingSubtitle,
+    isVideoImportBusy: mediaImports.isImporting,
   });
 
   usePendingAutoSubtitleGeneration({

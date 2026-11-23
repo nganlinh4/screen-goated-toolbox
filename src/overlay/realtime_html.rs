@@ -1,4 +1,5 @@
 use crate::gui::locale::LocaleText;
+use crate::overlay::html_components::icons::OverlayIcon;
 
 pub struct RealtimeHtmlOptions<'a> {
     pub is_translation: bool,
@@ -55,7 +56,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ""
             };
             // Get 2-letter ISO 639-1 code
-            let lang_code = isolang::Language::from_name(lang)
+            let lang_code = crate::config::language_from_name(lang)
                 .and_then(|l| l.to_639_1())
                 .map(|c| c.to_uppercase())
                 .unwrap_or_else(|| lang.chars().take(2).collect::<String>().to_uppercase());
@@ -73,10 +74,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         let is_device = audio_source == "device";
 
         {
-            let qwen3_0_6b_id = crate::model_config::QWEN3_ASR_0_6B_MODEL_ID;
-
             // Build transcription model dropdown options from the shared model catalog.
-            let qwen3_1_7b_id = crate::model_config::QWEN3_ASR_1_7B_MODEL_ID;
             let trans_options = crate::model_config::realtime_transcription_model_options();
             let options_html: String = trans_options
                 .iter()
@@ -91,28 +89,24 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            // Build transcription language dropdown (only active for zipformer)
+            // The transcription language dropdown is active only for selectors
+            // that transcribe an explicitly chosen source language.
+            let requires_source_language =
+                crate::model_config::realtime_transcription_requires_source_language(
+                    transcription_model,
+                );
             let trans_lang_code = {
                 let app = crate::APP.lock().unwrap();
                 app.config.realtime_transcription_language.clone()
             };
             let is_all_lang = crate::model_config::get_all_models()
                 .iter()
-                .any(|model| model.id == transcription_model && model.provider == "gemini-live")
-                || transcription_model == qwen3_0_6b_id
-                || transcription_model == qwen3_1_7b_id;
-            let is_en_only = transcription_model == "parakeet";
-            let mut effective_lang = if is_all_lang {
-                "all"
-            } else if is_en_only {
-                "en"
-            } else {
-                &trans_lang_code
-            };
-            if transcription_model == "zipformer" && effective_lang == "all" {
+                .any(|model| model.id == transcription_model && model.provider == "gemini-live");
+            let mut effective_lang = if is_all_lang { "all" } else { &trans_lang_code };
+            if requires_source_language && effective_lang == "all" {
                 effective_lang = "en";
             }
-            let zipformer_lang_options = [
+            let source_lang_options = [
                 ("en", "English"),
                 ("ko", "Korean"),
                 ("zh", "Chinese"),
@@ -122,7 +116,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ("ru", "Russian"),
                 ("all-8", "AR,EN,ID,JA,RU,TH,VI,ZH"),
             ];
-            let non_zipformer_lang_options = [
+            let any_lang_options = [
                 ("all", "All"),
                 ("en", "English"),
                 ("ko", "Korean"),
@@ -133,10 +127,10 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 ("ru", "Russian"),
                 ("all-8", "AR,EN,ID,JA,RU,TH,VI,ZH"),
             ];
-            let trans_lang_options: &[(&str, &str)] = if transcription_model == "zipformer" {
-                &zipformer_lang_options
+            let trans_lang_options: &[(&str, &str)] = if requires_source_language {
+                &source_lang_options
             } else {
-                &non_zipformer_lang_options
+                &any_lang_options
             };
             let trans_lang_html: String = trans_lang_options
                 .iter()
@@ -150,12 +144,12 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let trans_lang_disabled = if transcription_model == "zipformer" {
+            let trans_lang_disabled = if requires_source_language {
                 ""
             } else {
                 "disabled"
             };
-            let trans_lang_hidden = if transcription_model == "zipformer" {
+            let trans_lang_hidden = if requires_source_language {
                 ""
             } else {
                 "hidden"
@@ -178,8 +172,9 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
             "#,
                 mic_active = if !is_device { "active" } else { "" },
                 device_active = if is_device { "active" } else { "" },
-                mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
-                device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group"),
+                mic_svg = crate::overlay::html_components::icons::OverlayIcon::Mic.svg(),
+                device_svg =
+                    crate::overlay::html_components::icons::OverlayIcon::SpeakerGroup.svg(),
                 mic_title = text.realtime.realtime_tooltip_microphone_input,
                 device_title = text.realtime.realtime_tooltip_device_audio,
                 model_title = text.realtime.realtime_tooltip_transcription_model,
@@ -192,7 +187,8 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                 } else {
                     "hidden"
                 },
-                vocabulary_svg = crate::overlay::html_components::icons::get_icon_svg("dictionary"),
+                vocabulary_svg =
+                    crate::overlay::html_components::icons::OverlayIcon::Dictionary.svg(),
                 language_title = text.realtime.realtime_tooltip_transcription_language,
                 options_html = options_html,
                 trans_lang_html = trans_lang_html,
@@ -254,16 +250,21 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
                     text.realtime.realtime_tooltip_target_language
                 },
                 language_disabled = "",
-                volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
+                volume_up_svg = crate::overlay::html_components::icons::OverlayIcon::VolumeUp.svg(),
             )
         }
     };
 
-    let loading_icon = if is_translation {
-        r##"<svg class="loading-svg" viewBox="0 0 24 24" fill="#ff9633"><path d="m11.9 22l4.55-12h2.1l4.55 12H21l-1.075-3.05h-4.85L14 22zM4 19l-1.4-1.4l5.05-5.05q-.875-.875-1.588-2T4.75 8h2.1q.5.975 1 1.7t1.2 1.45q.825-.825 1.713-2.313T12.1 6H1V4h7V2h2v2h7v2h-2.9q-.525 1.8-1.575 3.7t-2.075 2.9l2.4 2.45l-.75 2.05l-3.05-3.125zm11.7-1.8h3.6l-1.8-5.1z"/></svg>"##
+    let (loading_symbol, loading_color) = if is_translation {
+        (OverlayIcon::Translate, "#ff9633")
     } else {
-        r##"<svg class="loading-svg" viewBox="0 0 24 24" fill="#00c8ff"><path d="M7 18V6h2v12zm4 4V2h2v20zm-8-8v-4h2v4zm12 4V6h2v12zm4-4v-4h2v4z"/></svg>"##
+        (OverlayIcon::GraphicEq, "#00c8ff")
     };
+    let loading_icon = loading_symbol.svg().replacen(
+        "<svg ",
+        &format!(r#"<svg class="loading-svg" style="color: {loading_color}" "#),
+        1,
+    );
 
     // Construct CSS and JS from components
     let css = format!(
@@ -278,6 +279,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
     );
     let l10n_json = serde_json::json!({
         "s2sModelIds": crate::model_config::GENERATED_REALTIME_S2S_MODEL_IDS,
+        "sourceLanguageModelIds": crate::model_config::GENERATED_REALTIME_SOURCE_LANGUAGE_MODEL_IDS,
         "translationModel": text.realtime.realtime_tooltip_translation_model,
         "s2sTranslationModel": text.realtime.realtime_tooltip_s2s_translation_model,
         "targetLanguage": text.realtime.realtime_tooltip_target_language,
@@ -288,14 +290,13 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         "ttsEnable": text.realtime.realtime_tts_enable_tooltip,
     })
     .to_string();
+    let l10n_json = crate::overlay::utils::inline_script_json(&l10n_json);
 
     // Get local font CSS (cached fonts, no network loading)
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let ipc_bootstrap = if let Some(role) = compositor_role {
         let role = serde_json::to_string(role).unwrap_or_else(|_| "\"transcription\"".to_string());
-        format!(
-            "window.REALTIME_COMPOSITOR_ROLE={role};window.realtimePostMessage=function(message){{window.parent.realtimePostMessage(window.REALTIME_COMPOSITOR_ROLE,message);}};"
-        )
+        include_str!("realtime_webview/card_session.js").replace("__SGT_REALTIME_ROLE__", &role)
     } else {
         "window.REALTIME_COMPOSITOR_ROLE=null;window.realtimePostMessage=function(message){window.ipc.postMessage(message);};".to_string()
     };
@@ -414,8 +415,7 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         js_content = js,
         l10n_json = l10n_json,
         vocabulary_json =
-            serde_json::to_string(&crate::api::realtime_audio::vocabulary_snapshot().1)
-                .unwrap_or_else(|_| "[]".to_string()),
+            vocabulary_script_json(&crate::api::realtime_audio::vocabulary_snapshot().1),
         ipc_bootstrap = ipc_bootstrap,
         is_s2s_attr = if is_s2s { "1" } else { "0" },
         is_live_translate_attr = if is_live_translate { "1" } else { "0" },
@@ -446,20 +446,48 @@ pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
         tts_volume = text.realtime.realtime_tts_volume,
         app_select_title = text.realtime.app_select_title,
         app_select_hint = text.realtime.app_select_hint,
-        content_copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
-        remove_svg = crate::overlay::html_components::icons::get_icon_svg("remove"),
-        add_svg = crate::overlay::html_components::icons::get_icon_svg("add"),
-        subtitles_svg = crate::overlay::html_components::icons::get_icon_svg("subtitles"),
-        translate_svg = crate::overlay::html_components::icons::get_icon_svg("translate"),
-        expand_less_svg = crate::overlay::html_components::icons::get_icon_svg("expand_less"),
-        pip_svg = crate::overlay::html_components::icons::get_icon_svg("resize_corner"),
-        volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
-        apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps"),
-        download_svg = crate::overlay::html_components::icons::get_icon_svg("download"),
-        close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
-        dictionary_svg = crate::overlay::html_components::icons::get_icon_svg("dictionary"),
+        content_copy_svg = crate::overlay::html_components::icons::OverlayIcon::ContentCopy.svg(),
+        remove_svg = crate::overlay::html_components::icons::OverlayIcon::Remove.svg(),
+        add_svg = crate::overlay::html_components::icons::OverlayIcon::Add.svg(),
+        subtitles_svg = crate::overlay::html_components::icons::OverlayIcon::Subtitles.svg(),
+        translate_svg = crate::overlay::html_components::icons::OverlayIcon::Translate.svg(),
+        expand_less_svg = crate::overlay::html_components::icons::OverlayIcon::ExpandLess.svg(),
+        pip_svg = crate::overlay::html_components::icons::OverlayIcon::ResizeCorner.svg(),
+        volume_up_svg = crate::overlay::html_components::icons::OverlayIcon::VolumeUp.svg(),
+        apps_svg = crate::overlay::html_components::icons::OverlayIcon::Apps.svg(),
+        download_svg = crate::overlay::html_components::icons::OverlayIcon::Download.svg(),
+        close_svg = crate::overlay::html_components::icons::OverlayIcon::Close.svg(),
+        dictionary_svg = crate::overlay::html_components::icons::OverlayIcon::Dictionary.svg(),
         vocabulary_title = text.realtime.realtime_tooltip_custom_vocabulary,
         vocabulary_prompt = text.realtime.realtime_custom_vocabulary_prompt,
         cancel_text = text.preset_basics.cancel_label,
     )
+}
+
+/// The user's custom vocabulary as an inline-script value. Entries are free
+/// text, so they must not be able to change how the page's script element ends.
+fn vocabulary_script_json(entries: &[String]) -> String {
+    crate::overlay::utils::inline_script_json(
+        &serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string()),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vocabulary_script_json;
+
+    #[test]
+    fn custom_vocabulary_cannot_change_how_the_script_element_ends() {
+        let entries = vec![
+            "<!--".to_string(),
+            "<script>".to_string(),
+            "</SCRIPT>".to_string(),
+        ];
+        let json = vocabulary_script_json(&entries);
+        assert!(
+            !json.contains(['<', '>']),
+            "vocabulary reached the inline script as markup: {json}"
+        );
+        assert_eq!(serde_json::from_str::<Vec<String>>(&json).unwrap(), entries);
+    }
 }

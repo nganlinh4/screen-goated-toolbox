@@ -9,9 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 /// Whether continuous mode is currently active
 static CONTINUOUS_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Whether continuous mode is pending start (e.g. from favorite bubble)
-static CONTINUOUS_PENDING_START: AtomicBool = AtomicBool::new(false);
-
 /// The preset index that is running in continuous mode
 static CONTINUOUS_PRESET_IDX: AtomicUsize = AtomicUsize::new(usize::MAX);
 
@@ -24,11 +21,6 @@ static LATEST_HOTKEY_NAME: Mutex<String> = Mutex::new(String::new());
 /// Check if continuous mode is currently active
 pub fn is_active() -> bool {
     CONTINUOUS_MODE_ACTIVE.load(Ordering::SeqCst)
-}
-
-/// Check if continuous mode is pending start
-pub fn is_pending_start() -> bool {
-    CONTINUOUS_PENDING_START.load(Ordering::SeqCst)
 }
 
 /// Get the preset index running in continuous mode
@@ -59,23 +51,20 @@ pub fn get_latest_hotkey_name() -> String {
     LATEST_HOTKEY_NAME.lock().unwrap().clone()
 }
 
-/// Activate continuous mode for a preset (promotes pending to active)
+/// Activate continuous mode for a preset
 pub fn activate(preset_idx: usize, hotkey_name: String) {
     CONTINUOUS_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
     *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = hotkey_name;
     CONTINUOUS_MODE_ACTIVE.store(true, Ordering::SeqCst);
-    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
 }
 
 /// Deactivate continuous mode
 pub fn deactivate() {
     CONTINUOUS_MODE_ACTIVE.store(false, Ordering::SeqCst);
-    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
     CONTINUOUS_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
     *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = String::new();
 }
 
-/// Show the continuous mode activation notification
 /// Show the continuous mode activation notification
 pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
     let lang = {
@@ -94,15 +83,11 @@ pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
 
     let localized_name = crate::gui::settings_ui::get_localized_preset_name(preset_id, &lang);
 
-    // 1. Title Suffix
-    let suffix = match lang.as_str() {
-        "vi" => "Chế độ liên tục",
-        "ko" => "연속 모드",
-        _ => "Continuous Mode",
-    };
-    let title = format!("{} - {}", localized_name, suffix);
-
     let locale = crate::gui::locale::LocaleText::get(&lang);
+    let title = format!(
+        "{} - {}",
+        localized_name, locale.auxiliary.continuous_mode_title_suffix
+    );
     let message = locale
         .auxiliary
         .continuous_mode_activated
@@ -132,27 +117,16 @@ pub fn show_image_continuous_notification(display_name: &str, hotkey_name: &str)
         hotkey_name
     );
 
-    // 1. Title Suffix
-    let suffix = match lang.as_str() {
-        "vi" => "Chế độ liên tục",
-        "ko" => "연속 모드",
-        _ => "Continuous Mode",
-    };
-    let title = format!("{} - {}", display_name, suffix);
-
     let locale = crate::gui::locale::LocaleText::get(&lang);
+    let title = format!(
+        "{} - {}",
+        display_name, locale.auxiliary.continuous_mode_title_suffix
+    );
     let mut message = locale
         .auxiliary
         .continuous_mode_activated
         .replace("{hotkey}", &crate::hotkey::names::with_escape(hotkey_name));
-
-    // 4. Add RIGHT MOUSE instruction for image continuous mode
-    let right_mouse_hint = match lang.as_str() {
-        "vi" => ", DÙNG CHUỘT PHẢI.",
-        "ko" => ", 오른쪽 마우스 사용.",
-        _ => ", USE RIGHT MOUSE.",
-    };
-    message.push_str(right_mouse_hint);
+    message.push_str(locale.auxiliary.continuous_mode_right_mouse_hint);
 
     // Call the detailed notification
     crate::overlay::auto_copy_badge::show_detailed_notification(

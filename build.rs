@@ -14,8 +14,6 @@ mod icon_atlas;
 mod local_asr_delivery;
 #[path = "build_support/model_catalog.rs"]
 mod model_catalog;
-#[path = "build_support/qwen_runtime_delivery.rs"]
-mod qwen_runtime_delivery;
 #[path = "build_support/recorder_delivery.rs"]
 mod recorder_delivery;
 #[path = "build_support/screen_text_detector_delivery.rs"]
@@ -38,11 +36,6 @@ fn main() {
     // Declare the custom configuration 'nopack' to avoid warnings
     println!("cargo::rustc-check-cfg=cfg(nopack)");
     delivery_channel::configure_build();
-    delivery_channel::copy_selected_manifest(
-        &manifest_dir,
-        "model-delivery/windows-v1.json",
-        &out_dir.join("windows_model_delivery.json"),
-    );
 
     model_catalog::generate(
         &model_manifest_path,
@@ -55,29 +48,12 @@ fn main() {
     computer_control_delivery::generate(&manifest_dir, &out_dir);
     external_tool_delivery::generate(&manifest_dir, &out_dir);
     local_asr_delivery::generate(&manifest_dir, &out_dir);
-    qwen_runtime_delivery::generate(&manifest_dir, &out_dir);
     recorder_delivery::generate(&manifest_dir, &out_dir);
     screen_text_detector_delivery::generate(&manifest_dir, &out_dir);
     web_asset_delivery::generate(&manifest_dir, &out_dir);
     vc_runtime_delivery::generate(&manifest_dir, &out_dir);
 
-    // Moonshine Voice SDK: loaded dynamically at runtime via libloading
-    // to avoid CRT mismatch (Moonshine libs use /MD, project uses /MT).
-    // See src/api/realtime_audio/moonshine/ for the runtime loading.
-
-    // Ensure assets directory exists
     let assets_dir = manifest_dir.join("assets");
-    let _ = fs::create_dir_all(&assets_dir);
-
-    // Optimize Tray Icon (32x32 is standard for tray)
-    let tray_source = assets_dir.join("tray-icon.png");
-    if tray_source.exists() {
-        let tray_icon_path = assets_dir.join("tray_icon.png");
-        if let Ok(img) = image::open(&tray_source) {
-            let resized = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
-            let _ = resized.save_with_format(&tray_icon_path, image::ImageFormat::Png);
-        }
-    }
 
     // Generate the Windows app icon into OUT_DIR so builds do not dirty the repo.
     let app_icon_small_path = assets_dir.join("app-icon-small.png");
@@ -105,11 +81,14 @@ fn main() {
         }
     }
 
+    restrict_static_imports_to_system32();
+
     println!("cargo:rerun-if-changed=assets/app-icon-small.png");
-    println!("cargo:rerun-if-changed=assets/tray-icon.png");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog.rs");
+    println!("cargo:rerun-if-changed=build_support/model_catalog_realtime.rs");
+    println!("cargo:rerun-if-changed=build_support/model_catalog_retry.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/presentation.rs");
     println!("cargo:rerun-if-changed=build_support/model_catalog_validation/vision.rs");
@@ -119,11 +98,22 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/computer_control_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/external_tool_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/local_asr_delivery.rs");
-    println!("cargo:rerun-if-changed=build_support/qwen_runtime_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/recorder_delivery.rs");
     println!("cargo:rerun-if-changed=build_support/screen_text_detector_delivery.rs");
+    println!("cargo:rerun-if-changed=src/component_registry/screen_text_detector/protocol.rs");
     println!("cargo:rerun-if-changed=build_support/vc_runtime_delivery.rs");
     println!("cargo:rerun-if-changed={}", model_manifest_path.display());
+}
+
+/// The portable exe often runs from a shared folder such as Downloads, where a
+/// same-named uxtheme.dll or dwmapi.dll beside it would otherwise be loaded at
+/// process start. Every static import is a Windows system DLL and the CRT is
+/// static, so resolving them only from System32 (LOAD_LIBRARY_SEARCH_SYSTEM32)
+/// loses nothing. Components loaded later with LoadLibrary are unaffected.
+fn restrict_static_imports_to_system32() {
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+    }
 }
 
 #[cfg(target_os = "windows")]

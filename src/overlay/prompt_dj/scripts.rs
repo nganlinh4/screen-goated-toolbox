@@ -1,6 +1,4 @@
-fn js_string(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned())
-}
+use crate::overlay::utils::js_string_literal as js_string;
 
 pub fn build_settings_post_message_script(api_key: &str, lang: &str, theme: &str) -> String {
     let api_key = js_string(api_key);
@@ -9,47 +7,32 @@ pub fn build_settings_post_message_script(api_key: &str, lang: &str, theme: &str
     format!(
         r#"
                         if (window.postMessage) {{
-                            window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: {api_key}, lang: {lang} }}, '*');
-                            window.postMessage({{ type: 'pm-dj-set-theme', theme: {theme} }}, '*');
+                            window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: {api_key}, lang: {lang} }}, location.origin);
+                            window.postMessage({{ type: 'pm-dj-set-theme', theme: {theme} }}, location.origin);
                         }}
                         "#
     )
 }
 
-pub fn build_prompt_dj_init_script(api_key: &str, lang: &str, theme: &str) -> String {
+/// The key is posted only into the page this WebView was pinned to.
+pub fn build_prompt_dj_init_script(
+    api_key: &str,
+    lang: &str,
+    theme: &str,
+    page_url: &str,
+) -> String {
     let api_key = js_string(api_key);
     let lang = js_string(lang);
     let theme = js_string(theme);
+    let page_url = js_string(page_url);
+    let minimize_icon = js_string(include_str!(
+        "../../../ui-shared/material-symbols/remove.svg"
+    ));
+    let close_icon = js_string(include_str!(
+        "../../../ui-shared/material-symbols/close.svg"
+    ));
     format!(
         r#"
-        // --- High-Priority Audio Hook ---
-        (function() {{
-            window._currentVolume = 1.0;
-            window._activeMasterGains = [];
-
-            const OriginalAC = window.AudioContext || window.webkitAudioContext;
-            if (OriginalAC) {{
-                const proto = OriginalAC.prototype;
-                const desc = Object.getOwnPropertyDescriptor(proto, 'destination');
-                if (desc && desc.get) {{
-                    Object.defineProperty(proto, 'destination', {{
-                        configurable: true,
-                        enumerable: true,
-                        get: function() {{
-                            if (!this._masterGain) {{
-                                const realDest = desc.get.call(this);
-                                this._masterGain = this.createGain();
-                                this._masterGain.gain.value = window._currentVolume;
-                                this._masterGain.connect(realDest);
-                                window._activeMasterGains.push(this._masterGain);
-                            }}
-                            return this._masterGain;
-                        }}
-                    }});
-                }}
-            }}
-        }})();
-
         window.addEventListener('DOMContentLoaded', () => {{
             const style = document.createElement('style');
             style.innerHTML = `
@@ -133,7 +116,7 @@ pub fn build_prompt_dj_init_script(api_key: &str, lang: &str, theme: &str) -> St
 
             const minBtn = document.createElement('button');
             minBtn.id = 'dj-min-btn';
-            minBtn.innerHTML = '—';
+            minBtn.innerHTML = {minimize_icon};
             minBtn.onclick = (e) => {{
                 e.stopPropagation();
                 if (window.ipc) window.ipc.postMessage('minimize_window');
@@ -142,10 +125,10 @@ pub fn build_prompt_dj_init_script(api_key: &str, lang: &str, theme: &str) -> St
 
             const closeBtn = document.createElement('button');
             closeBtn.id = 'dj-close-btn';
-            closeBtn.innerHTML = '✕';
+            closeBtn.innerHTML = {close_icon};
             closeBtn.onclick = (e) => {{
                 e.stopPropagation();
-                window.postMessage({{ type: 'pm-dj-stop-audio' }}, '*');
+                window.postMessage({{ type: 'pm-dj-stop-audio' }}, location.origin);
                 if (window.ipc) window.ipc.postMessage('close_window');
             }};
             header.appendChild(closeBtn);
@@ -171,12 +154,49 @@ pub fn build_prompt_dj_init_script(api_key: &str, lang: &str, theme: &str) -> St
             document.body.appendChild(header);
 
             setTimeout(() => {{
-                window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: {api_key}, lang: {lang} }}, '*');
-                window.postMessage({{ type: 'pm-dj-set-theme', theme: {theme} }}, '*');
-                window.postMessage({{ type: 'pm-dj-set-font', font: 'google-sans-flex' }}, '*');
+                if (location.href !== {page_url}) return;
+                window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: {api_key}, lang: {lang} }}, location.origin);
+                window.postMessage({{ type: 'pm-dj-set-theme', theme: {theme} }}, location.origin);
+                window.postMessage({{ type: 'pm-dj-set-font', font: 'google-sans-flex' }}, location.origin);
             }}, 250);
         }});
 
         "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_prompt_dj_init_script;
+
+    #[test]
+    fn the_api_key_is_posted_only_into_the_pinned_page() {
+        let script =
+            build_prompt_dj_init_script("secret-key", "en", "dark", "http://127.0.0.1:9/t/p");
+        let guard = script
+            .find(r#"if (location.href !== "http://127.0.0.1:9/t/p") return;"#)
+            .expect("page guard");
+        let key = script.find("\"secret-key\"").expect("key post");
+        assert!(guard < key);
+        assert!(!script.contains("'*'"));
+    }
+
+    #[test]
+    fn the_window_controls_draw_material_symbols() {
+        let script = build_prompt_dj_init_script("", "en", "dark", "http://127.0.0.1:9/t/p");
+        for symbol in [
+            include_str!("../../../ui-shared/material-symbols/remove.svg"),
+            include_str!("../../../ui-shared/material-symbols/close.svg"),
+        ] {
+            let path = symbol
+                .split(" d=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            assert!(script.contains(path), "{path}");
+        }
+        assert!(!script.contains('—') && !script.contains('✕'));
+    }
 }

@@ -1,12 +1,16 @@
+use crate::component_registry::is_reparse_point;
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use super::*;
 
+mod reclaim;
 mod storage_scan;
+mod volume;
+use reclaim::*;
 use storage_scan::*;
-
+use volume::*;
 const FREE_SPACE_RESERVE_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_RELATIVE_FREE_RESERVE_BYTES: u64 = FREE_SPACE_RESERVE_BYTES;
 const FREE_PRESSURE_HIGH_BYTES: u64 = 512 * 1024 * 1024;
@@ -14,7 +18,6 @@ const FREE_PRESSURE_LOW_BYTES: u64 = 1024 * 1024 * 1024;
 const MANAGED_HIGH_WATERMARK_BYTES: u64 = MAX_MANAGED_ARTIFACT_BYTES * 9 / 10;
 const MANAGED_LOW_WATERMARK_BYTES: u64 = MAX_MANAGED_ARTIFACT_BYTES * 4 / 5;
 const MAX_SCANNED_MANAGED_ENTRIES: usize = 16_384;
-
 static ADMISSION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone, Copy, Debug)]
@@ -175,39 +178,9 @@ fn path_key(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 
-fn volume_key(path: &Path) -> Result<String, String> {
-    let path = std::fs::canonicalize(path)
-        .map_err(|_| "Creation storage location is unavailable.".to_string())?;
-    match path.components().next() {
-        Some(Component::Prefix(prefix)) => {
-            Ok(prefix.as_os_str().to_string_lossy().to_ascii_lowercase())
-        }
-        _ => Err("Creation storage location is unavailable.".to_string()),
-    }
-}
-
-fn volume_capacity(path: &Path) -> Result<(u64, u64), String> {
-    use std::os::windows::ffi::OsStrExt as _;
-    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    use windows::core::PCWSTR;
-
-    let path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    let mut available = 0_u64;
-    let mut total = 0_u64;
-    unsafe {
-        GetDiskFreeSpaceExW(
-            PCWSTR(path.as_ptr()),
-            Some(&mut available),
-            Some(&mut total),
-            None,
-        )
-    }
-    .map_err(|_| "Creation storage capacity is unavailable.".to_string())?;
-    Ok((available, total))
+fn saved_path_key(path: &Path) -> Result<String, String> {
+    crate::overlay::creation_path::normalized_absolute(path)
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 fn free_reserve_bytes(total_bytes: u64) -> u64 {
@@ -215,7 +188,7 @@ fn free_reserve_bytes(total_bytes: u64) -> u64 {
 }
 
 fn managed_root() -> Result<PathBuf, String> {
-    canonical_managed_root(crate::paths::app_local_data_dir())
+    canonical_managed_root(crate::paths::app_runtime_local_data_dir())
 }
 
 fn runtime_managed_root() -> Result<PathBuf, String> {
@@ -228,14 +201,22 @@ fn canonical_managed_root(root: PathBuf) -> Result<PathBuf, String> {
     std::fs::canonicalize(root).map_err(|_| "Creation storage location is unavailable.".to_string())
 }
 
-fn is_managed_output_directory(path: &Path, root: &Path) -> bool {
-    path.parent() == Some(root)
-        && path.file_name().is_some_and(|name| {
-            matches!(
-                name.to_string_lossy().as_ref(),
-                "3d-generator" | "vectors" | "images"
-            )
-        })
+fn is_managed_output_directory(path: &Path, root: &Path) -> Result<bool, String> {
+    let Some(parent) = path.parent() else {
+        return Ok(false);
+    };
+    if !crate::overlay::creation_path::same(&saved_path_key(parent)?, &saved_path_key(root)?)? {
+        return Ok(false);
+    }
+    let Some(name) = path.file_name() else {
+        return Ok(false);
+    };
+    for managed in ["3d-generator", "vectors", "images"] {
+        if crate::overlay::creation_path::same(&name.to_string_lossy(), managed)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn intent_directories(
@@ -255,10 +236,8 @@ fn intent_directories(
         .ok_or_else(|| "Saved creation storage request is invalid.".to_string())?;
     crate::overlay::creation_intent_journal::validate_persisted_path(&staging)?;
     crate::overlay::creation_intent_journal::validate_persisted_path(&output)?;
-    let staging = std::fs::canonicalize(staging)
-        .map_err(|_| "Saved creation storage location is unavailable.".to_string())?;
-    let output = std::fs::canonicalize(output)
-        .map_err(|_| "Saved creation storage location is unavailable.".to_string())?;
+    crate::overlay::creation_path::normalized_absolute(&staging)?;
+    crate::overlay::creation_path::normalized_absolute(&output)?;
     Ok((staging, output))
 }
 
@@ -281,7 +260,14 @@ fn add_volume_reservation(
     volume: String,
     bytes: u64,
 ) -> Result<(), String> {
-    let total = reservations.entry(volume).or_default();
+    let mut matching = None;
+    for key in reservations.keys() {
+        if crate::overlay::creation_path::same(key, &volume)? {
+            matching = Some(key.clone());
+            break;
+        }
+    }
+    let total = reservations.entry(matching.unwrap_or(volume)).or_default();
     *total = total
         .checked_add(bytes)
         .ok_or_else(|| "Creation storage reservation is too large.".to_string())?;
@@ -293,7 +279,21 @@ fn reservation_snapshot(
     internal_volume: &str,
     pending_deliveries: &[crate::overlay::creation_delivery::PendingStorageReservation],
 ) -> Result<ReservationSnapshot, String> {
-    let deliveries = pending_deliveries
+    reservation_snapshot_for(
+        &crate::overlay::creation_intent_journal::load_all()?,
+        root,
+        internal_volume,
+        pending_deliveries,
+    )
+}
+
+fn reservation_snapshot_for(
+    intents: &[crate::overlay::creation_intent_journal::Intent],
+    root: &Path,
+    internal_volume: &str,
+    pending_deliveries: &[crate::overlay::creation_delivery::PendingStorageReservation],
+) -> Result<ReservationSnapshot, String> {
+    let mut deliveries = pending_deliveries
         .iter()
         .map(|delivery| (delivery.dispatch_id.as_str(), delivery))
         .collect::<HashMap<_, _>>();
@@ -302,27 +302,33 @@ fn reservation_snapshot(
         pending_managed_bytes: 0,
         protected_paths: pending_deliveries
             .iter()
-            .map(|delivery| path_key(Path::new(&delivery.output_path)))
-            .collect(),
+            .map(|delivery| saved_path_key(Path::new(&delivery.output_path)))
+            .collect::<Result<_, _>>()?,
     };
-    for intent in crate::overlay::creation_intent_journal::load_all()? {
-        let (staging_directory, output_directory) = intent_directories(&intent)?;
-        let expected = intent_expected_path(&intent, &output_directory);
-        let staging = intent_expected_path(&intent, &staging_directory);
-        let expected_key = expected.as_ref().map(|path| path_key(path));
+    for intent in intents {
+        let (staging_directory, output_directory) = intent_directories(intent)?;
+        let expected = intent_expected_path(intent, &output_directory);
+        let staging = intent_expected_path(intent, &staging_directory);
+        let expected_key = expected
+            .as_ref()
+            .map(|path| saved_path_key(path))
+            .transpose()?;
         if let Some(path) = &expected_key {
             snapshot.protected_paths.insert(path.clone());
         }
-        let (source_bytes, descriptors) = intent_source_reservation(&intent)?;
+        let (source_bytes, descriptors) = intent_source_reservation(intent)?;
         let reservation = product_reservation(&intent.product, source_bytes, descriptors.len())?;
         crate::overlay::creation_source_snapshot::validate_sources(&descriptors)?;
         let remaining_presentations =
             crate::overlay::creation_source_snapshot::remaining_presentation_reservation(
                 &descriptors,
             )?;
-        let delivery = deliveries.get(intent.dispatch_id.as_str()).copied();
+        let delivery = deliveries.remove(intent.dispatch_id.as_str());
         if let (Some(delivery), Some(expected_key)) = (delivery, expected_key.as_ref())
-            && path_key(Path::new(&delivery.output_path)) != *expected_key
+            && !crate::overlay::creation_path::same(
+                &saved_path_key(Path::new(&delivery.output_path))?,
+                expected_key,
+            )?
         {
             return Err("Saved creation storage request conflicts with delivery.".to_string());
         }
@@ -355,72 +361,45 @@ fn reservation_snapshot(
             .pending_managed_bytes
             .checked_add(remaining_internal)
             .ok_or_else(|| "Creation storage reservation is too large.".to_string())?;
-        if is_managed_output_directory(&output_directory, root) {
+        if is_managed_output_directory(&output_directory, root)? {
             snapshot.pending_managed_bytes = snapshot
                 .pending_managed_bytes
                 .checked_add(remaining_output)
                 .ok_or_else(|| "Creation storage reservation is too large.".to_string())?;
         }
     }
+    for delivery in deliveries.into_values() {
+        let directory = Path::new(&delivery.output_path)
+            .parent()
+            .ok_or("Saved creation storage destination is invalid.")?;
+        add_volume_reservation(
+            &mut snapshot.pending_volume_bytes,
+            volume_key(directory)?,
+            delivery.additional_output_bytes,
+        )?;
+        if is_managed_output_directory(directory, root)? {
+            snapshot.pending_managed_bytes = snapshot
+                .pending_managed_bytes
+                .checked_add(delivery.additional_output_bytes)
+                .ok_or("Creation storage reservation is too large.")?;
+        }
+    }
     Ok(snapshot)
 }
 
-#[cfg(windows)]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
-
-#[cfg(not(windows))]
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    metadata.file_type().is_symlink()
-}
-
-fn reclaimable_entries(
-    store: &ResultHistoryStore,
-    files: &HashMap<String, u64>,
-    protected_paths: &HashSet<String>,
-) -> Vec<ResultHistoryEntry> {
-    let mut newest_by_tool: HashMap<&str, &ResultHistoryEntry> = HashMap::new();
-    for entry in &store.entries {
-        let replace = newest_by_tool
-            .get(entry.tool.as_str())
-            .is_none_or(|newest| {
-                (entry.created_at_ms, entry.id.as_str())
-                    > (newest.created_at_ms, newest.id.as_str())
-            });
-        if replace {
-            newest_by_tool.insert(entry.tool.as_str(), entry);
-        }
-    }
-    let protected_ids = newest_by_tool
-        .values()
-        .map(|entry| entry.id.as_str())
-        .collect::<HashSet<_>>();
-    let mut entries = store
-        .entries
-        .iter()
-        .filter(|entry| {
-            entry.managed_artifact
-                && entry.artifact_size_bytes > 0
-                && entry.artifact_sha256.len() == 64
-                && !protected_ids.contains(entry.id.as_str())
-                && !protected_paths.contains(&path_key(Path::new(&entry.output_path)))
-                && files.get(&path_key(Path::new(&entry.output_path)))
-                    == Some(&entry.artifact_size_bytes)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|entry| entry.created_at_ms);
-    entries
-}
-
-fn run_saved_cleanup(path: &Path, store: &mut ResultHistoryStore) -> Result<(), String> {
+fn run_saved_cleanup(
+    path: &Path,
+    store: &mut ResultHistoryStore,
+    protected: &protected::ProtectedPaths,
+) -> Result<(), String> {
     if prepare_cleanup_quarantines(store) {
         save_store(path, store)?;
     }
-    if run_pending_cleanup_at(path, store)? {
+    if run_pending_cleanup_at_protected(path, store, protected)? {
         retain_live_delivery_identities(store);
+        save_store(path, store)?;
+    }
+    if deletion::reconcile_pending_deletes_protected(store, protected) {
         save_store(path, store)?;
     }
     Ok(())
@@ -430,21 +409,17 @@ fn ensure_capacity(
     output_dir: &Path,
     requested: Reservation,
     pending_deliveries: Vec<crate::overlay::creation_delivery::PendingStorageReservation>,
+    pending_paths: &protected::ProtectedPaths,
+    results_per_tool: usize,
 ) -> Result<(), String> {
     let output_volume = volume_key(output_dir)?;
     let root = managed_root()?;
     let runtime_root = runtime_managed_root()?;
     let root_volume = volume_key(&root)?;
     let runtime_volume = volume_key(&runtime_root)?;
-    let managed = is_managed_output_directory(output_dir, &root);
+    let managed = is_managed_output_directory(output_dir, &root)?;
     let reservations = reservation_snapshot(&root, &runtime_volume, &pending_deliveries)?;
-    let pending_on = |volume: &str| {
-        reservations
-            .pending_volume_bytes
-            .get(volume)
-            .copied()
-            .unwrap_or(0)
-    };
+    let pending_on = |volume: &str| volume_bytes(&reservations.pending_volume_bytes, volume);
     let mut requested_by_volume = HashMap::new();
     add_volume_reservation(
         &mut requested_by_volume,
@@ -457,10 +432,10 @@ fn ensure_capacity(
         requested.output_bytes,
     )?;
     for (volume, bytes) in &requested_by_volume {
-        if volume == &root_volume {
+        if crate::overlay::creation_path::same(volume, &root_volume)? {
             continue;
         }
-        let probe = if volume == &runtime_volume {
+        let probe = if crate::overlay::creation_path::same(volume, &runtime_volume)? {
             runtime_root.as_path()
         } else {
             output_dir
@@ -472,26 +447,23 @@ fn ensure_capacity(
             pending_managed_bytes: 0,
             available_bytes: available,
             free_reserve_bytes: free_reserve_bytes(total),
-            pending_volume_bytes: pending_on(volume),
+            pending_volume_bytes: pending_on(volume)?,
             requested_volume_bytes: *bytes,
             requested_managed_bytes: 0,
             reclaimable_bytes: 0,
         })?;
     }
 
-    let results_per_tool = results_per_tool_limit();
     let path = history_path();
-    let history_guard = HISTORY_LOCK
-        .lock()
-        .map_err(|_| "Result history is unavailable.".to_string())?;
+    let history_guard = locking::acquire()?;
     let mut store = load_store(&path)?;
-    reconcile_store_protected(
-        &path,
-        &mut store,
-        results_per_tool,
-        &reservations.protected_paths,
+    let mut protected = protected::ProtectedPaths::from_saved_paths(
+        reservations.protected_paths.iter().map(PathBuf::from),
     )?;
-    run_saved_cleanup(&path, &mut store)?;
+    protected.extend(pending_paths);
+    let protected_paths = protected.expanded(&store)?;
+    reconcile_store_protected(&path, &mut store, results_per_tool, &protected_paths)?;
+    run_saved_cleanup(&path, &mut store, &protected)?;
 
     let roots = if root == runtime_root {
         vec![root.clone()]
@@ -499,12 +471,7 @@ fn ensure_capacity(
         vec![root.clone(), runtime_root.clone()]
     };
     let mut files = scan_managed_files(&roots)?;
-    let candidates = reclaimable_entries(&store, &files.paths, &reservations.protected_paths);
-    let reclaimable_bytes = candidates
-        .iter()
-        .map(|entry| entry.artifact_size_bytes)
-        .fold(0_u64, u64::saturating_add);
-    let root_requested_volume = requested_by_volume.get(&root_volume).copied().unwrap_or(0);
+    let root_requested_volume = volume_bytes(&requested_by_volume, &root_volume)?;
     let root_requested_managed =
         requested
             .internal_bytes
@@ -516,39 +483,28 @@ fn ensure_capacity(
         pending_managed_bytes: reservations.pending_managed_bytes,
         available_bytes: root_available,
         free_reserve_bytes: free_reserve_bytes(root_total),
-        pending_volume_bytes: pending_on(&root_volume),
+        pending_volume_bytes: pending_on(&root_volume)?,
         requested_volume_bytes: root_requested_volume,
         requested_managed_bytes: root_requested_managed,
-        reclaimable_bytes,
+        reclaimable_bytes: 0,
     };
-    let required = match required_reclaim(budget) {
-        Ok(required) => required,
-        Err(_) if !candidates.is_empty() => u64::MAX,
-        Err(error) => return Err(error),
-    };
+    let selected_ids = plan_reclamation(&store, &files.paths, &protected_paths, budget)?;
     let mut pruned_history = false;
-    if required > 0 {
-        let mut selected = 0_u64;
-        let mut selected_ids = HashSet::new();
-        for entry in candidates {
-            selected = selected.saturating_add(entry.artifact_size_bytes);
-            selected_ids.insert(entry.id);
-            if required != u64::MAX && selected >= required {
-                break;
-            }
-        }
+    if !selected_ids.is_empty() {
         let mut index = store.entries.len();
         while index > 0 {
             index -= 1;
             if selected_ids.contains(&store.entries[index].id) {
                 let entry = store.entries.remove(index);
-                queue_managed_cleanup(&mut store, entry);
+                if !queue_managed_cleanup(&mut store, entry.clone()) {
+                    store.entries.push(entry);
+                }
             }
         }
         retain_live_delivery_identities(&mut store);
         prepare_cleanup_quarantines(&mut store);
         save_store(&path, &store)?;
-        run_saved_cleanup(&path, &mut store)?;
+        run_saved_cleanup(&path, &mut store, &protected)?;
         pruned_history = true;
     }
     drop(history_guard);
@@ -563,7 +519,7 @@ fn ensure_capacity(
         pending_managed_bytes: reservations.pending_managed_bytes,
         available_bytes: root_available,
         free_reserve_bytes: free_reserve_bytes(root_total),
-        pending_volume_bytes: pending_on(&root_volume),
+        pending_volume_bytes: pending_on(&root_volume)?,
         requested_volume_bytes: root_requested_volume,
         requested_managed_bytes: root_requested_managed,
         reclaimable_bytes: 0,
@@ -578,6 +534,7 @@ pub(crate) fn admit_and_record<T>(
     source_count: usize,
     record: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
+    let _lifecycle = crate::overlay::creation_lifecycle::acquire()?;
     let requested = product_reservation(product, source_bytes, source_count)?;
     let _guard = ADMISSION_LOCK
         .lock()
@@ -585,10 +542,23 @@ pub(crate) fn admit_and_record<T>(
     crate::overlay::creation_source_snapshot::sweep_pressure()?;
     crate::overlay::creation_output::sweep_staging()?;
     crate::overlay::creation_delivery::ensure_cancellation_capacity()?;
+    let results_per_tool = results_per_tool_limit();
+    let _delivery = crate::overlay::creation_lifecycle::acquire_delivery()?;
     let pending = crate::overlay::creation_delivery::pending_storage_reservations()?;
-    ensure_capacity(output_dir, requested, pending)?;
+    let pending_paths = protected::ProtectedPaths::pending()?;
+    ensure_capacity(
+        output_dir,
+        requested,
+        pending,
+        &pending_paths,
+        results_per_tool,
+    )?;
     record()
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "admission/destination_tests.rs"]
+mod destination_tests;

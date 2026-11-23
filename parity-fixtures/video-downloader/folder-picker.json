@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "cases": [
+    {"event": "selected_current", "apply": true},
+    {"event": "cancelled", "apply": false},
+    {"event": "failed", "apply": false},
+    {"event": "selected_after_close", "apply": false},
+    {"event": "selected_after_replacement", "apply": false},
+    {"event": "repeated_open", "overlap_allowed": false},
+    {"event": "unicode_path", "preserve_path": true}
+  ]
+}

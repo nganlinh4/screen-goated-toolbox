@@ -138,13 +138,14 @@ internal class SgtAdbCommandRunner(
         }
         if (operation.cancelled.get()) operation.closeStream()
         reader.join(READER_SETTLE_MS)
-        if (reader.isAlive) {
+        val readerTerminated = !reader.isAlive
+        if (!readerTerminated) {
             operation.closeStream()
             reader.interrupt()
         }
         val exitCode = terminalStatus.get() ?: output.exitCode(marker)
         operation.closeStream()
-        return receipt(operation, exitCode, output, readerFailure.get(), startedAt)
+        return receipt(operation, exitCode, output, readerFailure.get(), startedAt, marker, readerTerminated)
     }
 
     private fun receipt(
@@ -153,6 +154,8 @@ internal class SgtAdbCommandRunner(
         output: BoundedAdbOutput,
         readerError: Throwable?,
         startedAt: Long,
+        marker: String? = null,
+        readerTerminated: Boolean = false,
     ): JsonObject = buildJsonObject {
         val cancelled = operation.cancelled.get()
         val timedOut = operation.timedOut.get() && !cancelled
@@ -175,9 +178,7 @@ internal class SgtAdbCommandRunner(
             cancelled && operation.stream.get()?.isClosed != false,
         )
         put("operation_id", operation.id)
-        put("output", output.visibleText())
-        put("output_truncated", output.truncated)
-        put("output_bytes", output.totalBytes)
+        output.evidence(marker, readerTerminated, readerError == null).forEach { (key, value) -> put(key, value) }
         put("authority_uid", ADB_SHELL_UID)
         put("duration_ms", elapsedMs(startedAt))
         readerError?.let { put("reader_error", it.message ?: it.javaClass.simpleName) }
@@ -271,6 +272,7 @@ internal class BoundedAdbOutput {
         private set
 
     val truncated: Boolean
+        @Synchronized
         get() = totalBytes > MAX_OUTPUT_BYTES
 
     fun read(
@@ -286,6 +288,7 @@ internal class BoundedAdbOutput {
         }
     }
 
+    @Synchronized
     fun exitCode(marker: String): Int? {
         val text = tail.toByteArray().toString(StandardCharsets.UTF_8)
         return Regex("(?:^|\\r?\\n)${Regex.escape(marker)}(-?\\d+)\\r?\\n$")
@@ -295,13 +298,49 @@ internal class BoundedAdbOutput {
             ?.toIntOrNull()
     }
 
+    @Synchronized
     fun visibleText(): String {
         val text = prefix.toByteArray().toString(StandardCharsets.UTF_8)
         return text.replace(STATUS_SUFFIX, "").trimEnd('\r', '\n')
     }
 
+    @Synchronized
+    fun evidence(marker: String?, readerTerminated: Boolean, readerSucceeded: Boolean): JsonObject {
+        val captured = prefix.toByteArray()
+        val suffixLength = marker?.let(::provenSuffixLength)
+        val sourceLength = suffixLength?.let { totalBytes - it }
+        val separated = sourceLength != null && sourceLength >= 0 &&
+            (sourceLength <= captured.size || captured.size >= COMMAND_RAW_PREFIX_BYTES)
+        val source = if (separated) captured.copyOf(minOf(captured.size.toLong(), sourceLength).toInt()) else captured
+        val snapshot = CommandOutputSnapshot(
+            source,
+            sourceLength ?: totalBytes,
+            if (sourceLength != null) sourceLength > MAX_OUTPUT_BYTES else truncated,
+        )
+        return buildJsonObject {
+            // ADB's reader stops at the marker, not EOF; descendants may still hold the stream.
+            snapshot.evidence(false).forEach { (key, value) -> put(key, value) }
+            put("output", visibleText())
+            put("output_reader_terminated", readerTerminated && readerSucceeded)
+            put("output_bytes_available", separated)
+            if (!separated) put("output_bytes_base64", JsonNull)
+        }
+    }
+
+    private fun provenSuffixLength(marker: String): Int? {
+        val bytes = tail.toByteArray()
+        val text = bytes.toString(StandardCharsets.ISO_8859_1)
+        val match = Regex("\n${Regex.escape(marker)}(-?\\d+)\\r?\\n$").find(text) ?: return null
+        if (match.groupValues[1].toIntOrNull() == null) return null
+        val start = match.range.first
+        // A preceding CR could be program output or terminal newline translation.
+        if ((start == 0 && totalBytes > bytes.size) || (start > 0 && bytes[start - 1] == 13.toByte())) return null
+        return bytes.size - start
+    }
+
+    @Synchronized
     private fun append(bytes: ByteArray, count: Int) {
-        totalBytes += count
+        totalBytes = if (Long.MAX_VALUE - totalBytes < count) Long.MAX_VALUE else totalBytes + count
         val remaining = (MAX_OUTPUT_BYTES - prefix.size()).coerceAtLeast(0)
         if (remaining > 0) prefix.write(bytes, 0, minOf(count, remaining))
         repeat(count) { index ->

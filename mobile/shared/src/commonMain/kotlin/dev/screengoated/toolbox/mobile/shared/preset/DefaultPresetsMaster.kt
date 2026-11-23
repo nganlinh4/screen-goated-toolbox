@@ -17,7 +17,6 @@ internal val defaultMasterPresets: List<Preset> = listOf(
         presetType = PresetType.IMAGE,
         isMaster = true,
         showControllerUi = true,
-        isUpcoming = true,
         blocks = emptyList(),
     ),
 

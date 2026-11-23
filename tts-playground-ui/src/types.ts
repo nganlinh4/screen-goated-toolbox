@@ -5,18 +5,9 @@
 export type TtsMethod =
   | "GeminiLive"
   | "EdgeTTS"
-  | "GoogleTranslate"
-  | "StepAudioEditX"
-  | "MagpieMultilingual"
-  | "Kokoro"
-  | "Supertonic"
-  | "VieneuTts";
+  | "GoogleTranslate";
 
-export type TtsMode =
-  | "SpeechToSpeech"
-  | "TtsClone"
-  | "AudioEdit"
-  | "ReferenceLibrary";
+export type TtsMode = "SpeechToSpeech" | "TtsClone";
 
 export type SpeedKind = "Slow" | "Normal" | "Fast";
 
@@ -49,39 +40,8 @@ export type GoogleSettings = {
   speed: SpeedKind;
 };
 
-export type LocalVoiceConfig = {
-  language: string;
-  voice: string;
-};
-
-export type LocalProviderSettings = {
-  speed: number;
-  threads: number;
-  steps?: number; // Supertonic only
-  voices: LocalVoiceConfig[];
-};
-
-export type ReferenceVoice = {
-  id: string;
-  name: string;
-  audioPath: string;
-  transcript: string;
-};
-
-export type StepAudioSettings = {
-  reference: string;
-};
-
-export type VieneuSettings = {
-  reference: string;
-};
-
-export type AudioEditSettings = {
+export type SourceAudioSettings = {
   sourcePath: string;
-  sourceText: string;
-  editType: string; // "emotion" | "style" | "speed" | "denoise" | "vad" | "paralinguistic"
-  editInfo: string;
-  targetText: string;
 };
 
 export type CurrentClip = {
@@ -117,18 +77,11 @@ export type PlayerState = {
 export type LocaleStrings = {
   title: string;
   modeTtsClone: string;
-  modeAudioEdit: string;
-  modeReferenceLibrary: string;
   modeS2S: string;
   methodLabel: string;
   methodGemini: string;
   methodEdge: string;
   methodGoogle: string;
-  methodStepAudio: string;
-  methodMagpie: string;
-  methodKokoro: string;
-  methodSupertonic: string;
-  methodVieneu: string;
   textLabel: string;
   textHint: string;
   charCountTemplate: string;
@@ -158,38 +111,17 @@ export type LocaleStrings = {
   speedFast: string;
   pitchLabel: string;
   rateLabel: string;
-  threadsLabel: string;
-  qualityStepsLabel: string;
   pickSource: string;
-  useCurrent: string;
   recordMic: string;
   stopMic: string;
   noSource: string;
-  sourceTranscript: string;
-  task: string;
-  subtask: string;
-  inlineSoundTag: string;
-  insertTag: string;
-  targetText: string;
   referenceVoice: string;
-  referenceLibraryDesc: string;
-  referenceAdd: string;
-  referenceLabel: string;
-  referencePickAudio: string;
-  referenceAutoRecognize: string;
-  referenceUsePlayground: string;
-  referenceUseGlobal: string;
-  referenceNoAudio: string;
-  referenceExactTranscript: string;
   geminiModelLabel: string;
   instructionsLabel: string;
   instructionsHint: string;
   preview: string;
   delete: string;
-  stepAudioDesc: string;
-  vieneuDesc: string;
   s2sTarget: string;
-  referenceEmpty: string;
 };
 
 export type CatalogOption<V extends string = string> = {
@@ -203,18 +135,7 @@ export type ProviderCatalogs = {
   geminiInstructionLanguages: CatalogOption[];
   edgeVoicesByLanguage: Record<string, CatalogOption[]>;
   edgeAvailableLanguages: CatalogOption[];
-  magpieVoicesByLanguage: Record<string, CatalogOption[]>;
-  magpieAvailableLanguages: CatalogOption[];
-  kokoroVoicesByLanguage: Record<string, CatalogOption[]>;
-  kokoroAvailableLanguages: CatalogOption[];
-  supertonicVoicesByLanguage: Record<string, CatalogOption[]>;
-  supertonicAvailableLanguages: CatalogOption[];
   s2sLanguages: CatalogOption[];
-  audioEditTasks: CatalogOption[];
-  audioEditSubtasksByTask: Record<string, CatalogOption[]>;
-  paralinguisticTags: string[];
-  stepAudioReferences: ReferenceVoice[];
-  vieneuReferences: ReferenceVoice[];
 };
 
 export type TtsPlaygroundState = {
@@ -226,12 +147,7 @@ export type TtsPlaygroundState = {
   gemini: GeminiSettings;
   edge: EdgeSettings;
   google: GoogleSettings;
-  stepAudio: StepAudioSettings;
-  magpie: LocalProviderSettings;
-  kokoro: LocalProviderSettings;
-  supertonic: LocalProviderSettings;
-  vieneu: VieneuSettings;
-  audioEdit: AudioEditSettings;
+  sourceAudio: SourceAudioSettings;
   s2sTargetLanguage: string;
   player: PlayerState;
   recentLimit: number;

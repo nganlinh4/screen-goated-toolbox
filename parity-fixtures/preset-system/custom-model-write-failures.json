@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"failure_before_effect","published":"previous","later_writes":"blocked"},
+    {"event":"failure_after_effect","published":"previous","later_writes":"blocked"},
+    {"event":"accepted","published":"new","later_writes":"allowed"},
+    {"event":"retry_uncertain","published":"new","later_writes":"allowed"}
+  ]
+}

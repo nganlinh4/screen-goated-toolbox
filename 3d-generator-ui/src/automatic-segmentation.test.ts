@@ -37,3 +37,8 @@ test("completed or unavailable continuations are never started again", () => {
     false,
   );
 });
+
+test("a cancelled item does not continue into part separation after its base result", () => {
+  assert.equal(shouldStartAutomaticSegmentation(true, status(), true), false);
+  assert.equal(shouldStartAutomaticSegmentation(true, status(), false), true);
+});

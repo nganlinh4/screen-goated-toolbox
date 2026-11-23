@@ -1,18 +1,10 @@
-//! Shared helpers for the offline open-weights TTS workers.
-//!
-//! Only the Kokoro worker is currently functional; the other four leaderboard
-//! providers route through here for `fail_request` (so the request channel and
-//! UI loading state stay clean when a method has no offline pipeline yet).
-//!
-//! Once additional offline providers land, [`stream_pcm_samples`] is the
-//! canonical place to chunk raw 24 kHz PCM16 samples onto the AudioEvent
-//! channel that drives the shared TTS player.
+//! Shared request plumbing for TTS workers: PCM streaming onto the player
+//! channel and fatal-request reporting.
 
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 
 use super::super::manager::TtsManager;
 use super::super::types::AudioEvent;
-use super::super::utils::{clear_tts_loading_state, clear_tts_state};
 
 /// Chunk a mono PCM16 LE buffer at `source_rate` Hz onto the AudioEvent
 /// channel as 24 kHz frames. Resampling is delegated to [`resample_audio`]
@@ -24,16 +16,23 @@ pub(super) fn stream_pcm_samples(
     samples: Vec<i16>,
     source_rate: u32,
 ) {
-    let hwnd = request.req.hwnd;
-    let generation = request.generation;
+    send_pcm_samples(manager, request, tx, samples, source_rate);
+    let _ = tx.send(AudioEvent::End);
+}
 
+/// Sends one PCM buffer as 24 kHz frames without ending the stream, so a
+/// provider that synthesizes several pieces can append them in order.
+/// Returns false once the request is cancelled or the receiver is gone.
+pub(super) fn send_pcm_samples(
+    manager: &Arc<TtsManager>,
+    request: &super::super::types::QueuedRequest,
+    tx: &std::sync::mpsc::Sender<AudioEvent>,
+    samples: Vec<i16>,
+    source_rate: u32,
+) -> bool {
     if samples.is_empty() {
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(hwnd);
-        return;
+        return true;
     }
-
-    clear_tts_loading_state(hwnd);
 
     let resampled = if source_rate != 24000 {
         super::resample_audio(&samples, source_rate, 24000)
@@ -48,13 +47,11 @@ pub(super) fn stream_pcm_samples(
 
     let chunk_size = 24000usize;
     for chunk in bytes.chunks(chunk_size) {
-        if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-            break;
+        if request.is_cancelled(manager) || tx.send(AudioEvent::Data(chunk.to_vec())).is_err() {
+            return false;
         }
-        let _ = tx.send(AudioEvent::Data(chunk.to_vec()));
     }
-    let _ = tx.send(AudioEvent::End);
-    clear_tts_state(hwnd);
+    true
 }
 
 /// Short-circuit a request that hit a fatal error (model missing, runtime
@@ -62,7 +59,7 @@ pub(super) fn stream_pcm_samples(
 /// callers can show the actual failure instead of treating it as empty audio.
 pub(super) fn fail_request(
     provider: &str,
-    hwnd: isize,
+    _hwnd: isize,
     tx: &std::sync::mpsc::Sender<AudioEvent>,
     reason: impl AsRef<str>,
 ) {
@@ -70,6 +67,4 @@ pub(super) fn fail_request(
     eprintln!("[TTS {provider}] {reason}");
     let _ = tx.send(AudioEvent::Error(reason));
     let _ = tx.send(AudioEvent::End);
-    clear_tts_loading_state(hwnd);
-    clear_tts_state(hwnd);
 }

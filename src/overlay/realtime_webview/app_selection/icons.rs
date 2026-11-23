@@ -7,11 +7,24 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-/// Icon cache key: `(icon index, module-path hash)`.
-type IconCacheKey = (u32, usize);
+/// Icon cache key: process id, window handle and the window's executable, so a
+/// reused process id or window handle cannot return another app's icon.
+type IconCacheKey = (u32, usize, Option<String>);
+const MAX_CACHED_ICONS: usize = 256;
 
-static ICON_CACHE: LazyLock<Mutex<HashMap<IconCacheKey, Option<String>>>> =
+// This file is also compiled into the recorder worker, so it keeps its own
+// bound instead of depending on the main crate's overlay utilities.
+static ICON_CACHE: LazyLock<Mutex<HashMap<IconCacheKey, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Caches `icon`, starting over once the cache is full: icons are cheap to
+/// re-resolve, and stale process or window keys must not accumulate.
+fn remember_icon(cache: &mut HashMap<IconCacheKey, String>, key: IconCacheKey, icon: String) {
+    if cache.len() >= MAX_CACHED_ICONS && !cache.contains_key(&key) {
+        cache.clear();
+    }
+    cache.insert(key, icon);
+}
 
 fn hicon_to_data_url(icon: HICON, destroy_icon: bool) -> Option<String> {
     unsafe {
@@ -330,11 +343,11 @@ pub fn get_app_icon_data_url(
     capture_exe_path: Option<&str>,
     hosted_exe_paths: &[String],
 ) -> Option<String> {
-    let cache_key = (pid, hwnd.0 as usize);
+    let cache_key = (pid, hwnd.0 as usize, window_exe_path.map(str::to_string));
     {
         let cache = ICON_CACHE.lock().ok()?;
         if let Some(cached) = cache.get(&cache_key) {
-            return cached.clone();
+            return Some(cached.clone());
         }
     }
 
@@ -353,8 +366,38 @@ pub fn get_app_icon_data_url(
                 .find_map(|path| extract_icon_data_url_from_exe(path))
         })
         .or_else(|| window_exe_path.and_then(extract_icon_data_url_from_exe));
-    if let Ok(mut cache) = ICON_CACHE.lock() {
-        cache.insert(cache_key, icon.clone());
+    // A failed lookup may be transient, so only successes are cached.
+    if let Some(icon) = &icon
+        && let Ok(mut cache) = ICON_CACHE.lock()
+    {
+        remember_icon(&mut cache, cache_key, icon.clone());
     }
     icon
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ICON_CACHE, MAX_CACHED_ICONS, get_app_icon_data_url, remember_icon};
+    use std::collections::HashMap;
+    use windows::Win32::Foundation::HWND;
+
+    #[test]
+    fn icon_cache_stays_bounded_over_many_windows() {
+        let mut cache = HashMap::new();
+        for pid in 0..(MAX_CACHED_ICONS as u32 * 4) {
+            remember_icon(&mut cache, (pid, pid as usize, None), "icon".into());
+            assert!(cache.len() <= MAX_CACHED_ICONS);
+        }
+        let newest = (MAX_CACHED_ICONS as u32 * 4 - 1, 0, None);
+        remember_icon(&mut cache, newest.clone(), "fresh".into());
+        assert_eq!(cache.get(&newest).map(String::as_str), Some("fresh"));
+    }
+
+    #[test]
+    fn failed_icon_lookups_are_not_cached() {
+        let hwnd = HWND(std::ptr::null_mut());
+        assert!(get_app_icon_data_url(u32::MAX, hwnd, None, None, &[]).is_none());
+        let key = (u32::MAX, 0, None);
+        assert!(ICON_CACHE.lock().unwrap().get(&key).is_none());
+    }
 }

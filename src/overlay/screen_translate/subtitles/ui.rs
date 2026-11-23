@@ -200,7 +200,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 if let Some((session, _)) = current() {
                     session.native_window.store(0, Ordering::Release);
-                    super::stop_expected(Some(&session));
+                    if msg == WM_DISPLAYCHANGE {
+                        super::display_change::stop(&session);
+                    } else {
+                        super::stop_expected(Some(&session));
+                    }
                 }
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);

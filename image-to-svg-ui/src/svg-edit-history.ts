@@ -81,3 +81,65 @@ export function applyDelta(
   parent.insertBefore(restored, parent.children.item(delta.childIndex));
   return { applied: true, selected: restored as SVGGraphicsElement };
 }
+
+/**
+ * Moves one edit between the undo and redo stacks by applying it. A step that
+ * no longer applies (its shape is gone) stays where it was rather than being
+ * discarded, so the history keeps matching the document.
+ */
+export function stepEditHistory(
+  root: SVGSVGElement,
+  item: Item,
+  forward: boolean,
+): { applied: boolean; selected?: SVGGraphicsElement } {
+  const source = forward ? item.redoStack : item.undoStack;
+  const delta = source?.[source.length - 1];
+  if (!source || !delta) return { applied: false };
+  const result = applyDelta(root, delta, forward);
+  if (!result.applied) return result;
+  source.pop();
+  const bytes = deltaBytes(delta);
+  if (forward) {
+    item.undoStack ||= [];
+    item.undoStack.push(delta);
+    item.redoBytes = Math.max(0, (item.redoBytes || 0) - bytes);
+    item.undoBytes = (item.undoBytes || 0) + bytes;
+  } else {
+    item.redoStack ||= [];
+    item.redoStack.push(delta);
+    item.undoBytes = Math.max(0, (item.undoBytes || 0) - bytes);
+    item.redoBytes = (item.redoBytes || 0) + bytes;
+  }
+  return result;
+}
+
+const editRevisions = new WeakMap<Item, number>();
+
+/** Records that the item's live SVG changed (paint, delete, undo or redo). */
+export function noteSvgEdit(item: Item) {
+  editRevisions.set(item, (editRevisions.get(item) || 0) + 1);
+}
+
+/** The edit revision a save serializes; pass it to settleSavedSvg. */
+export function beginSvgSave(item: Item) {
+  return editRevisions.get(item) || 0;
+}
+
+/**
+ * Applies a confirmed save. The item becomes clean, and its history is
+ * cleared, only when no edit happened while the write was in flight;
+ * otherwise those later edits stay unsaved, undoable and savable.
+ */
+export function settleSavedSvg(item: Item, savedSvg: string, revision: number) {
+  item.saveError = false;
+  if ((editRevisions.get(item) || 0) !== revision) return false;
+  item.svgText = savedSvg;
+  item.dirty = false;
+  item.undoStack = [];
+  item.redoStack = [];
+  item.undoBytes = 0;
+  item.redoBytes = 0;
+  item.undoBaselineLost = false;
+  item.editLimitReached = false;
+  return true;
+}

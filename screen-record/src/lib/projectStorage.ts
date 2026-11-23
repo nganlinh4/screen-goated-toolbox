@@ -183,6 +183,11 @@ export function openProjectDB(): Promise<IDBDatabase> {
         }
       };
     });
+    // A failed open (e.g. blocked by another tab) must not poison later opens.
+    const pending = dbPromise;
+    pending.catch(() => {
+      if (dbPromise === pending) dbPromise = null;
+    });
   }
   return dbPromise;
 }
@@ -211,6 +216,26 @@ export async function idbGet<T>(
     const tx = db.transaction(storeName, "readonly");
     const request = tx.objectStore(storeName).get(key);
     request.onsuccess = () => resolve((request.result as T) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function idbHasKey(storeName: string, key: IDBValidKey): Promise<boolean> {
+  const db = await openProjectDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const request = tx.objectStore(storeName).getKey(key);
+    request.onsuccess = () => resolve(request.result !== undefined);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function idbCount(storeName: string): Promise<number> {
+  const db = await openProjectDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const request = tx.objectStore(storeName).count();
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
@@ -281,12 +306,14 @@ function writeOptionalBlob(
 }
 
 /** Writes a new project record and all root media in one durable transaction. */
-export async function idbCreateProjectBundle(project: Project): Promise<void> {
+export async function idbCreateProjectBundle(project: Project, rejectExisting = false): Promise<void> {
   const db = await openProjectDB();
   const transaction = db.transaction([...PROJECT_BUNDLE_STORES], "readwrite");
   const done = transactionDone(transaction);
   try {
-    transaction.objectStore(PROJECTS_STORE).put(stripHeavyProjectFields(project));
+    const records = transaction.objectStore(PROJECTS_STORE);
+    if (rejectExisting) records.add(stripHeavyProjectFields(project));
+    else records.put(stripHeavyProjectFields(project));
     writeOptionalBlob(transaction.objectStore("videos"), project.id, project.videoBlob);
     writeOptionalBlob(transaction.objectStore("audio"), project.id, project.audioBlob);
     writeOptionalBlob(
@@ -312,24 +339,31 @@ export async function idbCreateProjectBundle(project: Project): Promise<void> {
 export async function idbUpdateProjectBundle(
   id: string,
   updates: Partial<Omit<Project, "id" | "createdAt" | "lastModified">>,
-): Promise<StoredProjectRecord | null> {
+  canCommit?: () => boolean,
+  onInvalidated?: (listener: () => void) => () => void,
+): Promise<StoredProjectRecord | null | undefined> {
   const db = await openProjectDB();
   const transaction = db.transaction([...PROJECT_BUNDLE_STORES], "readwrite");
   const done = transactionDone(transaction);
   const projectStore = transaction.objectStore(PROJECTS_STORE);
-  const previousProject =
-    (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
-  if (!previousProject) {
-    transaction.abort();
-    try {
-      await done;
-    } catch {
-      // The abort is intentional: no writes should be committed for a missing project.
-    }
-    return null;
-  }
-
+  let invalidated = false;
+  const unsubscribe = onInvalidated?.(() => {
+    invalidated = true;
+    try { transaction.abort(); } catch { /* It already settled. */ }
+  });
   try {
+    const previousProject =
+      (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
+    if (!previousProject) {
+      transaction.abort();
+      try { await done; } catch { /* Missing project intentionally aborts the write. */ }
+      return null;
+    }
+    if (canCommit && !canCommit()) {
+      transaction.abort();
+      try { await done; } catch { /* The stale transaction was intentionally aborted. */ }
+      return undefined;
+    }
     const mediaUpdates = updates as Partial<ProjectMediaFields>;
     if ("videoBlob" in updates) {
       writeOptionalBlob(transaction.objectStore("videos"), id, mediaUpdates.videoBlob);
@@ -363,7 +397,13 @@ export async function idbUpdateProjectBundle(
     await done;
     return nextProject;
   } catch (error) {
+    if (invalidated) {
+      try { await done; } catch { /* Owner invalidation intentionally aborted the write. */ }
+      return undefined;
+    }
     return abortFailedTransaction(transaction, done, error);
+  } finally {
+    unsubscribe?.();
   }
 }
 
@@ -413,6 +453,8 @@ function writeCompositionAssetBundle(
 export async function idbWriteCompositionAssetBundle(
   key: string,
   data: CompositionAssetBundle,
+  canCommit?: () => boolean,
+  onInvalidated?: (listener: () => void) => () => void,
 ): Promise<void> {
   const db = await openProjectDB();
   const transaction = db.transaction(
@@ -420,11 +462,15 @@ export async function idbWriteCompositionAssetBundle(
     "readwrite",
   );
   const done = transactionDone(transaction);
+  const unsubscribe = onInvalidated?.(() => { try { transaction.abort(); } catch { /* Already settled. */ } });
   try {
+    if (canCommit && !canCommit()) throw new Error('Project write is no longer current');
     writeCompositionAssetBundle(transaction, key, data);
     await done;
   } catch (error) {
     await abortFailedTransaction(transaction, done, error);
+  } finally {
+    unsubscribe?.();
   }
 }
 
@@ -434,6 +480,8 @@ export async function idbUpdateProjectWithCompositionAssetBundle(
   clipId: string,
   composition: ProjectComposition,
   data: CompositionAssetBundle,
+  canCommit?: () => boolean,
+  onInvalidated?: (listener: () => void) => () => void,
 ): Promise<StoredProjectRecord | null> {
   const db = await openProjectDB();
   const transaction = db.transaction(
@@ -441,15 +489,17 @@ export async function idbUpdateProjectWithCompositionAssetBundle(
     "readwrite",
   );
   const done = transactionDone(transaction);
+  const unsubscribe = onInvalidated?.(() => { try { transaction.abort(); } catch { /* Already settled. */ } });
   const projectStore = transaction.objectStore(PROJECTS_STORE);
-  const previousProject =
-    (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
-  if (!previousProject) {
-    transaction.abort();
-    await done.catch(() => undefined);
-    return null;
-  }
   try {
+    const previousProject =
+      (await requestResult(projectStore.get(id))) as StoredProjectRecord | undefined;
+    if (!previousProject) {
+      transaction.abort();
+      await done.catch(() => undefined);
+      return null;
+    }
+    if (canCommit && !canCommit()) throw new Error('Project write is no longer current');
     writeCompositionAssetBundle(
       transaction,
       buildCompositionAssetKey(id, clipId),
@@ -465,6 +515,8 @@ export async function idbUpdateProjectWithCompositionAssetBundle(
     return nextProject;
   } catch (error) {
     return abortFailedTransaction(transaction, done, error);
+  } finally {
+    unsubscribe?.();
   }
 }
 
@@ -472,11 +524,15 @@ export async function idbUpdateProjectWithCompositionAssetBundle(
 export async function idbDeleteProjectBundle(
   id: string,
   project: Pick<StoredProjectRecord, "composition"> | null | undefined,
+  canCommit?: () => boolean,
+  onInvalidated?: (listener: () => void) => () => void,
 ): Promise<void> {
   const db = await openProjectDB();
   const transaction = db.transaction([...PROJECT_DELETE_STORES], "readwrite");
   const done = transactionDone(transaction);
+  const unsubscribe = onInvalidated?.(() => { try { transaction.abort(); } catch { /* Already settled. */ } });
   try {
+    if (canCommit && !canCommit()) throw new Error('Project write is no longer current');
     for (const storeName of PROJECT_BUNDLE_STORES) {
       transaction.objectStore(storeName).delete(id);
     }
@@ -500,11 +556,15 @@ export async function idbDeleteProjectBundle(
     await done;
   } catch (error) {
     await abortFailedTransaction(transaction, done, error);
+  } finally {
+    unsubscribe?.();
   }
 }
 
 export async function idbDeleteCompositionAssetBundle(
   key: string,
+  canCommit?: () => boolean,
+  onInvalidated?: (listener: () => void) => () => void,
 ): Promise<void> {
   const db = await openProjectDB();
   const transaction = db.transaction(
@@ -512,12 +572,16 @@ export async function idbDeleteCompositionAssetBundle(
     "readwrite",
   );
   const done = transactionDone(transaction);
+  const unsubscribe = onInvalidated?.(() => { try { transaction.abort(); } catch { /* Already settled. */ } });
   try {
+    if (canCommit && !canCommit()) throw new Error('Project write is no longer current');
     for (const storeName of COMPOSITION_ASSET_STORES) {
       transaction.objectStore(storeName).delete(key);
     }
     await done;
   } catch (error) {
     await abortFailedTransaction(transaction, done, error);
+  } finally {
+    unsubscribe?.();
   }
 }

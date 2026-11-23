@@ -1,4 +1,5 @@
 pub mod html;
+mod lifecycle;
 pub mod panel;
 mod panel_actions;
 mod panel_window;

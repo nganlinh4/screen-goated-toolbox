@@ -50,11 +50,14 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         }
         "copy" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
-            clipboardManager.setPrimaryClip(
-                ClipData.newPlainText("preset_result", window.windowState.markdownText),
-            )
-            Toast.makeText(context, copyStatusText(), Toast.LENGTH_SHORT).show()
-            updateRuntimeState(window.id) { it.copy(copySuccess = true) }
+            val state = window.windowState
+            val copied = copyResultPayload(state, { text ->
+                clipboardManager.setPrimaryClip(ClipData.newPlainText("preset_result", text))
+                true
+            }, onCopyInputImage)
+            val message = copyToastText(uiLanguage(), copied)
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            updateRuntimeState(window.id) { it.copy(copySuccess = copied) }
             setActiveResultWindow(window.id)
         }
         "back" -> {
@@ -98,6 +101,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         }
         "speaker" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
+            if (resultMediaKind(window.windowState) != PresetResultMediaKind.NONE) return
             val tts = ttsRuntimeService ?: return
             if (window.runtimeState.ttsRequestId != 0L) {
                 tts.stop()
@@ -116,7 +120,9 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                         ownerToken = window.id.wireValue(),
                     ),
                 )
-                updateRuntimeState(window.id) { it.copy(ttsRequestId = requestId, ttsLoading = true) }
+                if (requestId != 0L) {
+                    updateRuntimeState(window.id) { it.copy(ttsRequestId = requestId, ttsLoading = true) }
+                }
             }
             setActiveResultWindow(window.id)
         }
@@ -126,6 +132,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         }
         "edit" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
+            if (resultMediaKind(window.windowState) != PresetResultMediaKind.NONE) return
             val nowEditing = !window.runtimeState.isEditing
             updateRuntimeState(window.id) { it.copy(isEditing = nowEditing) }
             canvasWindow?.setFocusable(nowEditing)
@@ -133,8 +140,10 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         }
         "submit_refine" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
+            if (resultMediaKind(window.windowState) != PresetResultMediaKind.NONE) return
             val refineText = payload.optString("text").trim()
             if (refineText.isEmpty()) return
+            if (!refineSupported(window.presetId)) return
             val currentText = window.windowState.markdownText
             val windowId = window.id
 
@@ -146,7 +155,6 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                     redoHistory = emptyList(),
                 )
             }
-            if (presetRepository.getResolvedPreset(window.presetId) == null) return
 
             val loadingState = window.windowState.copy(
                 markdownText = "",
@@ -158,11 +166,13 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
             resultWindows[windowId] = resultWindows[windowId]!!.copy(windowState = loadingState)
             updateResultWindowSupport(resultWindows[windowId]!!)
             val accumulated = StringBuilder()
-            presetRepository.refineInPlace(
+            val refineToken = refineJobs.begin(windowId)
+            val refineJob = presetRepository.refineInPlace(
                 originalModelId = window.windowState.modelId,
                 previousText = currentText,
                 refinePrompt = refineText,
                 onModelSelected = { model ->
+                    if (!refineJobs.isCurrent(windowId, refineToken)) return@refineInPlace
                     val active = resultWindows[windowId] ?: return@refineInPlace
                     resultWindows[windowId] = active.copy(
                         windowState = active.windowState.copy(
@@ -173,7 +183,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                     updateResultWindowSupport(resultWindows[windowId] ?: return@refineInPlace)
                 },
                 onChunk = { chunk ->
-
+                    if (!refineJobs.isCurrent(windowId, refineToken)) return@refineInPlace
                     if (chunk.startsWith("\u0000WIPE\u0000")) {
                         accumulated.clear()
                         accumulated.append(chunk.removePrefix("\u0000WIPE\u0000"))
@@ -194,6 +204,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                     updateResultWindowSupport(resultWindows[windowId] ?: return@refineInPlace)
                 },
                 onComplete = { result ->
+                    if (!refineJobs.finish(windowId, refineToken)) return@refineInPlace
                     val active = resultWindows[windowId] ?: return@refineInPlace
                     val refined = result.getOrNull()
                     val finalText = refined?.text ?: result.exceptionOrNull()?.message ?: "Refine failed"
@@ -212,6 +223,7 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
                     ensureCanvasWindowSupport()
                 },
             )
+            refineJobs.attach(windowId, refineToken, refineJob)
             setActiveResultWindow(windowId)
         }
         "cancel_refine" -> {
@@ -264,6 +276,17 @@ internal fun PresetOverlayResultModule.handleCanvasMessageSupport(message: Strin
         }
         "download" -> {
             val window = payload.optString("hwnd").toResultWindowIdOrNull()?.let(resultWindows::get) ?: return
+            if (downloadInputAudioSupport(window)) {
+                setActiveResultWindow(window.id)
+                return
+            }
+            if (resultMediaKind(window.windowState) != PresetResultMediaKind.NONE) return
+            if (!resultTextFitsClipboard(window.windowState.markdownText)) {
+                Toast.makeText(context, overlayLocalized(
+                    uiLanguage(), "Result is too large to share.", "Kết quả quá lớn để chia sẻ.", "결과가 너무 커서 공유할 수 없습니다.",
+                ), Toast.LENGTH_SHORT).show()
+                return
+            }
             val text = window.windowState.markdownText.trim()
             if (text.isEmpty()) return
             val shareIntent = Intent(Intent.ACTION_SEND).apply {

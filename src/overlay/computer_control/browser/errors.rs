@@ -2,7 +2,61 @@
 
 use serde_json::{Value, json};
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum DebuggerAccess {
+    Revoked,
+    StorageUnavailable,
+}
+impl DebuggerAccess {
+    pub(super) fn code(self) -> &'static str {
+        match self {
+            Self::Revoked => "ERR_BROWSER_DEBUGGER_REVOKED",
+            Self::StorageUnavailable => "ERR_BROWSER_DEBUGGER_REVOCATION_STORAGE",
+        }
+    }
+}
+impl std::fmt::Display for DebuggerAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.code())
+    }
+}
+impl std::error::Error for DebuggerAccess {}
+
+/// A request that reached a mutation dispatch may have taken effect even when
+/// its response is unavailable or cannot be interpreted.
+pub(super) fn uncertain_dispatch(error: anyhow::Error) -> Value {
+    let mut result = response(error);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("effect_may_have_occurred".to_string(), json!(true));
+    }
+    result
+}
+
 pub(super) fn response(error: anyhow::Error) -> Value {
+    if let Some(access) = error.downcast_ref::<DebuggerAccess>() {
+        return json!({"ok":false, "code":access.code(),
+        "instruction": match access {
+            DebuggerAccess::Revoked => "The user revoked control for this tab. Stop using it. Only the user may resume it from the SGT extension popup.",
+            DebuggerAccess::StorageUnavailable => "Debugger revocation storage is unavailable. Browser control remains paused until the extension's storage is repaired and the extension is restarted.",
+        }});
+    }
+    if let Some(key_error) = error.downcast_ref::<super::bridge::PairingKeyError>() {
+        return json!({
+            "ok": false, "code": key_error.code(), "executed": false,
+            "effect_may_have_occurred": false,
+            "instruction": "Pairing material is unavailable. Preserve the existing key file, resolve its storage or entropy error, and restart the application before trying browser_setup again.",
+        });
+    }
+    if error
+        .downcast_ref::<super::effect_barrier::EffectSettling>()
+        .is_some()
+    {
+        return json!({
+            "ok": false, "code": "ERR_BROWSER_EFFECT_SETTLING", "executed": false,
+            "effect_may_have_occurred": false, "error": error.to_string(),
+            "instruction": "Wait for the outstanding browser operation to finish or reconnect its extension. Do not treat an observation as reconciliation while the operation is unsettled. If terminal evidence is unavailable after the extension restarts, close the affected browser and restart Computer Control.",
+        });
+    }
     if let Some(effect_may_have_occurred) = super::bridge_wait::cancellation_effect(&error) {
         return json!({
             "ok": false,
@@ -41,4 +95,42 @@ pub(super) fn response(error: anyhow::Error) -> Value {
         "code": "ERR_BROWSER_TOOL_FAILED",
         "error": error.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn debugger_revocation_codes_survive_extension_error_decoding() {
+        for code in [
+            "ERR_BROWSER_DEBUGGER_REVOKED",
+            "ERR_BROWSER_DEBUGGER_REVOCATION_STORAGE",
+        ] {
+            let error = super::super::bridge::response_error(
+                &serde_json::json!({"ok":false,"code":code}),
+                "fallback",
+            );
+            let result = super::response(error);
+            assert_eq!(result["code"], code);
+            assert_eq!(result["ok"], false);
+        }
+    }
+    #[test]
+    fn pairing_failure_has_a_typed_code_without_secret_contents() {
+        for error in [
+            super::super::bridge::PairingKeyError::Unavailable,
+            super::super::bridge::PairingKeyError::Invalid,
+            super::super::bridge::PairingKeyError::Entropy,
+        ] {
+            let result = super::response(anyhow::Error::new(error));
+            assert_eq!(result["code"], error.code());
+            assert_eq!(result["executed"], false);
+            assert_eq!(result["effect_may_have_occurred"], false);
+        }
+    }
+    #[test]
+    fn lost_mutation_response_is_effect_uncertain() {
+        let result = super::uncertain_dispatch(anyhow::anyhow!("response lost"));
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["effect_may_have_occurred"], true);
+    }
 }

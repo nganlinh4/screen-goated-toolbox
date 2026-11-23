@@ -7,22 +7,15 @@ import dev.screengoated.toolbox.mobile.model.MobileThemeMode
  * Kotlin interface delegation while keeping generated JVM method signatures bounded.
  */
 interface MobileShellText {
-    val appTitle: String
     val appHeaderTitle: String
-    val appSubtitle: String
-    val shellUtilitiesTitle: String
     val shellAppsLabel: String
     val shellToolsLabel: String
     val shellSettingsLabel: String
     val shellHistoryLabel: String
     val shellDownloadedToolsLabel: String
-    val shellDownloadedToolsDescription: String
     val shellHelpLabel: String
-    val shellHelpDescription: String
     val shellCredentialsTitle: String
-    val shellCredentialsDescription: String
     val shellLiveTitle: String
-    val shellLiveDescription: String
     val appVideoDownloaderTitle: String
     val appFeatureUnsupportedTitle: String
     val appFeatureUnsupportedMessage: String
@@ -34,17 +27,17 @@ interface MobileShellText {
     val toolsCategoryTextInput: String
     val toolsCategoryMicRecording: String
     val toolsCategoryDeviceAudio: String
-    val comingSoonLabel: String
+    val toolsToolbar: MobileToolsToolbarCopy
     val donateHeader: String
     val donateBody: String
     val donateNote: String
     val donateVietnamese: Boolean
+    val donateActions: MobileDonateActionsCopy
 }
 
 interface MobileCreationAppsText {
     val appImageTo3dTitle: String
     val appImageToSvgTitle: String
-    val appImageCreatorTitle: String
 }
 
 interface MobileHistoryText {
@@ -58,6 +51,9 @@ interface MobileHistoryText {
     val historyOpenFolder: String
     val historyClearAll: String
     val historyEmpty: String
+    val historyWriteFailed: String
+    val historyLoadFailed: String
+    val historyStorageChanged: String
     val historyCopiedText: String
     val historyOpenFailed: String
     val historyCopyText: String
@@ -72,16 +68,7 @@ interface MobileHelpText {
     val helpAssistantQuestionLabel: String
     val helpAssistantAskButton: String
     val helpAssistantHint: String
-    val helpAssistantQuickOption: String
-    val helpAssistantDetailedOption: String
-    val helpAssistantScreenRecordOption: String
-    val helpAssistantAndroidOption: String
-    val helpAssistantRestOption: String
-    val helpAssistantScreenRecordPlaceholder: String
-    val helpAssistantAndroidPlaceholder: String
     val helpAssistantRestPlaceholder: String
-    val helpAssistantScreenRecordLoading: String
-    val helpAssistantAndroidLoading: String
     val helpAssistantRestLoading: String
     val toolsHelpCopy: MobileToolsHelpCopy
 }
@@ -96,7 +83,6 @@ interface MobileTranslationGummyText {
     val translationGummyApply: String
     val translationGummyStart: String
     val translationGummyStop: String
-    val translationGummyTranscriptTitle: String
     val translationGummyInputChip: String
     val translationGummyOutputChip: String
     val translationGummyNoTranscriptYet: String
@@ -116,12 +102,6 @@ interface MobileTranslationGummyText {
 }
 
 interface MobileProviderText {
-    val shellVoiceTitle: String
-    val shellVoiceDescription: String
-    val shellStatusIdle: String
-    val shellStatusActive: String
-    val shellStatusStarting: String
-    val shellStatusTranslating: String
     val geminiKeyLabel: String
     val groqKeyLabel: String
     val openRouterKeyLabel: String
@@ -129,6 +109,8 @@ interface MobileProviderText {
     val ollamaUrlLabel: String
     val geminiGetKeyLink: String
     val groqGetKeyLink: String
+    val apiKeyShow: String
+    val apiKeyHide: String
     val openRouterGetKeyLink: String
     val nvidiaGetKeyLink: String
     val ollamaLearnMoreLink: String
@@ -172,14 +154,12 @@ interface MobilePresetRuntimeText {
     val presetRuntimeLive: String
     val presetRuntimeDescription: String
     val presetRuntimeButton: String
-    val presetRuntimeSettingsAction: String
     val usageStatsButton: String
     val usageStatsTitle: String
     val usageStatsNoData: String
-    val usageStatsSettingsAction: String
     val usageStatsSessionHint: String
-    val usageStatsEndpointCount: String
     val usageStatsSharedQuota: String
+    val usageStatsQuotaLeft: String
     val usageStatsUpdatedNow: String
     val usageStatsMinutesAgo: String
     val usageStatsStale: String
@@ -196,13 +176,9 @@ interface MobilePresetRuntimeText {
     val presetRuntimeProvidersLabel: String
     val presetRuntimeImageChainLabel: String
     val presetRuntimeTextChainLabel: String
-    val presetRuntimeChainHint: String
-    val presetRuntimeSave: String
-    val presetRuntimeCancel: String
     val presetRuntimeAddModel: String
     val presetRuntimeRestoreDefault: String
     val presetRuntimeChosenModel: String
-    val presetRuntimeChosenHint: String
     val presetRuntimeAuto: String
     val presetRuntimeAutoHint: String
 }
@@ -222,6 +198,7 @@ interface MobileUpdateText {
     val updateAvailableNotification: String
     val checkingPlayUpdates: String
     val updateDownloadingLabel: String
+    val updateInstallingLabel: String
     val updateDownloadedLabel: String
     val restartToUpdateButton: String
     val updateNowButton: String
@@ -231,13 +208,15 @@ interface MobileCustomModelsText {
     val customModelsButton: String
     val customModelsTitle: String
     val customModelsDescription: String
+    val customModelsUnavailable: String
+    val customModelsSaveUncertain: String
+    val customModelsChangedElsewhere: String
+    val customModelsRetry: String
+    val customModelsSaving: String
     val customModelsBuiltinLocked: String
     val customModelsUserModels: String
     val customModelsDiscoveredModels: String
-    val customModelsAddOpenRouter: String
     val customModelsAdd: String
-    val customModelsImportOpenRouter: String
-    val customModelsScanOllama: String
     val customModelsScan: String
     val customModelsNoModels: String
     val customModelsDisplayName: String
@@ -246,8 +225,8 @@ interface MobileCustomModelsText {
     val customModelsTextType: String
     val customModelsVisionType: String
     val customModelsSearch: String
+    val customModelsImportSearch: String
     val customModelsEnabled: String
-    val customModelsSave: String
     val customModelsDelete: String
 }
 
@@ -263,7 +242,6 @@ interface MobileAppearanceText {
 
 interface MobileTtsSettingsText {
     val ttsSettingsTitle: String
-    val ttsMethodLabel: String
     val ttsMethodStandard: String
     val ttsMethodFast: String
     val ttsMethodEdge: String
@@ -276,12 +254,9 @@ interface MobileTtsSettingsText {
     val ttsRateLabel: String
     val ttsVolumeLabel: String
     val ttsVoicePerLanguageLabel: String
-    val ttsLoadingVoices: String
     val ttsFailedLoadVoicesTemplate: String
     val ttsRetryLabel: String
-    val ttsInitializingVoices: String
     val ttsAddLanguageLabel: String
-    val ttsResetToDefaultsLabel: String
     val instructionLabel: String
     val removeLabel: String
     val closeLabel: String
@@ -293,20 +268,17 @@ interface MobileTtsVoiceText {
     val ttsSpeedSlow: String
     val ttsSpeedFast: String
     val ttsVoiceLabel: String
+    val ttsPreviewEnglishFallback: String
     val ttsPreviewAction: String
-    val ttsPreviewTexts: List<String>
     val ttsMale: String
     val ttsFemale: String
     val ttsInstructionsLabel: String
-    val ttsInstructionsHint: String
     val ttsAddCondition: String
     val noLanguageConditionsYet: String
 }
 
 interface MobileDownloadText {
-    val dlTitle: String
     val dlUrlLabel: String
-    val dlFormatLabel: String
     val dlStartBtn: String
     val dlStartNowBtn: String
     val dlOpenFile: String
@@ -339,10 +311,8 @@ interface MobileDownloadOptionsText {
     val dlBest: String
     val dlAuto: String
     val dlScanning: String
-    val dlSubsFoundHeader: String
     val dlSubsNoneFound: String
     val dlRetry: String
     val dlShowLog: String
     val dlHideLog: String
-    val dlReset: String
 }

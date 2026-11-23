@@ -145,13 +145,22 @@ pub fn handle_start_gemini_translate_narration(
     let mut jobs = jobs()
         .lock()
         .map_err(|_| "Gemini Translate narration jobs lock poisoned".to_string())?;
+    let job_id = job_registry::start_id(args, "gemini-translate-narration")?;
+    if jobs.contains_key(&job_id) {
+        return Ok(serde_json::json!({ "jobId": job_id }));
+    }
     if let Some(active) = job_registry::find_active(&jobs) {
         return Err(format!(
             "Gemini Translate narration already running (job={active})"
         ));
     }
     job_registry::prepare_for_insert(&mut jobs)?;
-    let job_id = job_registry::uuid("gemini-translate-narration");
+    let mut requests = job_registry::client_requests()?;
+    job_registry::claim_client_start(
+        &mut requests,
+        &job_id,
+        job_registry::NarrationKind::GeminiTranslate,
+    )?;
     let snapshot = Arc::new(Mutex::new(JobSnapshot {
         total_clips: request.clips.len(),
         ..JobSnapshot::default()
@@ -159,11 +168,9 @@ pub fn handle_start_gemini_translate_narration(
     let cancelled = Arc::new(AtomicBool::new(false));
     jobs.insert(
         job_id.clone(),
-        JobHandle {
-            snapshot: snapshot.clone(),
-            cancelled: cancelled.clone(),
-        },
+        JobHandle::new(snapshot.clone(), cancelled.clone()),
     );
+    drop(requests);
     drop(jobs);
     let thread_job_id = job_id.clone();
     std::thread::spawn(move || run_job(&thread_job_id, request, snapshot, cancelled));
@@ -219,16 +226,16 @@ pub fn handle_cancel_gemini_translate_narration(
     let jobs = jobs()
         .lock()
         .map_err(|_| "Gemini Translate narration jobs lock poisoned".to_string())?;
-    let handle = jobs
-        .get(job_id)
-        .ok_or_else(|| format!("Unknown Gemini Translate narration job: {job_id}"))?;
-    handle.cancelled.store(true, Ordering::SeqCst);
-    if let Ok(mut snapshot) = handle.snapshot.lock() {
-        snapshot.state = "cancelled".to_string();
-        snapshot.message = "Cancelled".to_string();
-        snapshot.active_clip_id = None;
-    }
-    Ok(serde_json::Value::Null)
+    job_registry::cancel_job(
+        &jobs,
+        job_id,
+        job_registry::NarrationKind::GeminiTranslate,
+        |snapshot| {
+            snapshot.state = "cancelled".to_string();
+            snapshot.message = "Cancelled".to_string();
+            snapshot.active_clip_id = None;
+        },
+    )
 }
 
 pub(super) fn cancel_all_jobs() {

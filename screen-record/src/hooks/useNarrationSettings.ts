@@ -2,15 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 import { createPersistedSetting } from '@/lib/persistedState';
 
-export type NarrationTtsMethod =
-  | 'GeminiLive'
-  | 'GoogleTranslate'
-  | 'EdgeTTS'
-  | 'Kokoro'
-  | 'Supertonic'
-  | 'VieneuTts'
-  | 'StepAudioEditX'
-  | 'MagpieMultilingual';
+const NARRATION_TTS_METHODS = ['GeminiLive', 'GoogleTranslate', 'EdgeTTS'] as const;
+
+export type NarrationTtsMethod = (typeof NARRATION_TTS_METHODS)[number];
+
+function isNarrationTtsMethod(value: unknown): value is NarrationTtsMethod {
+  return NARRATION_TTS_METHODS.some((method) => method === value);
+}
 
 export interface NarrationLanguageCondition {
   languageCode: string;
@@ -22,29 +20,6 @@ export interface NarrationEdgeVoiceConfig {
   languageCode: string;
   languageName: string;
   voiceName: string;
-}
-
-export interface NarrationKokoroVoiceConfig {
-  languageCode: string;
-  languageName: string;
-  voiceId: string;
-}
-
-export interface NarrationMagpieVoiceConfig {
-  languageCode: string;
-  languageName: string;
-  voiceId: string;
-}
-
-export interface NarrationSupertonicVoiceConfig {
-  languageCode: string;
-  languageName: string;
-  voiceId: string;
-}
-
-export interface NarrationStepAudioVoice {
-  id: string;
-  label: string;
 }
 
 export interface NarrationSettingsState {
@@ -61,26 +36,6 @@ export interface NarrationSettingsState {
   edgePitch: number;
   edgeRate: number;
   edgeVoiceConfigs: NarrationEdgeVoiceConfig[];
-  kokoroVoice: string;
-  kokoroSpeed: number;
-  kokoroNumThreads: number;
-  kokoroVoiceConfigs: NarrationKokoroVoiceConfig[];
-  stepAudioVoice: string;
-  stepAudioReferenceVoiceId: string;
-  stepAudioPromptText: string;
-  stepAudioUseCustomReference: boolean;
-  stepAudioReferenceAudioPath: string;
-  stepAudioReferenceText: string;
-  stepAudioReferenceLabel: string;
-  magpieVoice: string;
-  magpieVoiceConfigs: NarrationMagpieVoiceConfig[];
-  supertonicSpeed: number;
-  supertonicNumSteps: number;
-  supertonicNumThreads: number;
-  supertonicVoiceConfigs: NarrationSupertonicVoiceConfig[];
-  vieneuVariant: string;
-  vieneuEmotion: string;
-  vieneuReferenceVoiceId: string;
 }
 
 export type NarrationProfilePayload = NarrationSettingsState;
@@ -117,27 +72,6 @@ export interface NarrationTtsProviderOption {
   label: string;
 }
 
-export interface NarrationKokoroVoice {
-  id: string;
-  label: string;
-  languageCode: string;
-}
-
-export interface NarrationMagpieVoice {
-  id: string;
-  label: string;
-}
-
-export interface NarrationSupertonicLanguage {
-  languageCode: string;
-  languageName: string;
-}
-
-export interface NarrationSupertonicVoice {
-  id: string;
-  label: string;
-}
-
 interface NarrationTtsMetadata {
   providers?: NarrationTtsProviderOption[];
   geminiVoices: NarrationGeminiVoice[];
@@ -145,15 +79,6 @@ interface NarrationTtsMetadata {
   geminiInstructionLanguages: NarrationGeminiInstructionLanguage[];
   geminiSpeedOptions: string[];
   googleSpeedOptions: string[];
-  kokoroVoices?: NarrationKokoroVoice[];
-  kokoroVoiceLanguages?: NarrationGeminiInstructionLanguage[];
-  magpieVoices?: NarrationMagpieVoice[];
-  magpieVoiceLanguages?: NarrationGeminiInstructionLanguage[];
-  supertonicLanguages?: NarrationSupertonicLanguage[];
-  supertonicVoices?: NarrationSupertonicVoice[];
-  stepAudioVoices?: NarrationStepAudioVoice[];
-  stepAudioVoiceLanguages?: NarrationGeminiInstructionLanguage[];
-  stepAudioReferenceVoices?: NarrationStepAudioVoice[];
   edgeVoiceState?: 'idle' | 'loading' | 'loaded' | 'error';
   edgeVoiceError?: string | null;
   edgeVoiceLanguages?: NarrationEdgeVoiceLanguage[];
@@ -177,26 +102,6 @@ const FALLBACK_DEFAULTS: NarrationSettingsState = {
   edgePitch: 0,
   edgeRate: 0,
   edgeVoiceConfigs: [],
-  kokoroVoice: 'af_heart',
-  kokoroSpeed: 1,
-  kokoroNumThreads: 2,
-  kokoroVoiceConfigs: [],
-  stepAudioVoice: 'default_en',
-  stepAudioReferenceVoiceId: '',
-  stepAudioPromptText: '',
-  stepAudioUseCustomReference: false,
-  stepAudioReferenceAudioPath: '',
-  stepAudioReferenceText: '',
-  stepAudioReferenceLabel: '',
-  magpieVoice: '',
-  magpieVoiceConfigs: [],
-  supertonicSpeed: 1,
-  supertonicNumSteps: 5,
-  supertonicNumThreads: 2,
-  supertonicVoiceConfigs: [],
-  vieneuVariant: 'v2-turbo-gpu',
-  vieneuEmotion: 'natural',
-  vieneuReferenceVoiceId: '',
 };
 
 const narrationSettingsStore = createPersistedSetting<Partial<NarrationSettingsState> | null>(
@@ -225,39 +130,25 @@ function mergeWithDefaults(
     edgeVoiceConfigs: Array.isArray(defaults.edgeVoiceConfigs)
       ? defaults.edgeVoiceConfigs
       : FALLBACK_DEFAULTS.edgeVoiceConfigs,
-    kokoroVoiceConfigs: Array.isArray(defaults.kokoroVoiceConfigs)
-      ? defaults.kokoroVoiceConfigs
-      : FALLBACK_DEFAULTS.kokoroVoiceConfigs,
-    magpieVoiceConfigs: Array.isArray(defaults.magpieVoiceConfigs)
-      ? defaults.magpieVoiceConfigs
-      : FALLBACK_DEFAULTS.magpieVoiceConfigs,
-    supertonicVoiceConfigs: Array.isArray(defaults.supertonicVoiceConfigs)
-      ? defaults.supertonicVoiceConfigs
-      : FALLBACK_DEFAULTS.supertonicVoiceConfigs,
   };
   if (!overrides) return normalizedDefaults;
   return {
     ...normalizedDefaults,
     ...overrides,
+    // A provider saved by an earlier version may no longer exist.
+    method: isNarrationTtsMethod(overrides.method) ? overrides.method : normalizedDefaults.method,
     geminiLanguageConditions: Array.isArray(overrides.geminiLanguageConditions)
       ? overrides.geminiLanguageConditions
       : normalizedDefaults.geminiLanguageConditions,
     edgeVoiceConfigs: Array.isArray(overrides.edgeVoiceConfigs) && overrides.edgeVoiceConfigs.length
       ? overrides.edgeVoiceConfigs
       : normalizedDefaults.edgeVoiceConfigs,
-    kokoroVoiceConfigs: Array.isArray(overrides.kokoroVoiceConfigs) && overrides.kokoroVoiceConfigs.length
-      ? overrides.kokoroVoiceConfigs
-      : normalizedDefaults.kokoroVoiceConfigs,
-    magpieVoiceConfigs: Array.isArray(overrides.magpieVoiceConfigs) && overrides.magpieVoiceConfigs.length
-      ? overrides.magpieVoiceConfigs
-      : normalizedDefaults.magpieVoiceConfigs,
-    supertonicVoiceConfigs: Array.isArray(overrides.supertonicVoiceConfigs) && overrides.supertonicVoiceConfigs.length
-      ? overrides.supertonicVoiceConfigs
-      : normalizedDefaults.supertonicVoiceConfigs,
   };
 }
 
 export function useNarrationSettings() {
+  // The user's choices over the host defaults. Every edit lands here too, so a
+  // metadata (re)load merges fresh defaults under them instead of reverting them.
   const overridesRef = useRef<Partial<NarrationSettingsState> | null>(readStoredOverrides());
   const [defaults, setDefaults] = useState<NarrationSettingsState>(FALLBACK_DEFAULTS);
   const [metadata, setMetadata] = useState<NarrationTtsMetadata | null>(null);
@@ -304,10 +195,12 @@ export function useNarrationSettings() {
     key: K,
     value: NarrationSettingsState[K],
   ) => {
+    overridesRef.current = { ...overridesRef.current, [key]: value };
     setSettings((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   const replace = useCallback((next: NarrationSettingsState) => {
+    overridesRef.current = next;
     setSettings(next);
   }, []);
 

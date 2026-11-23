@@ -29,7 +29,7 @@ pub fn is_realtime_overlay_active() -> bool {
     ) {
         return true;
     }
-    unsafe { IS_ACTIVE }
+    IS_ACTIVE.load(Ordering::SeqCst)
 }
 
 pub fn stop_realtime_overlay() {
@@ -46,30 +46,38 @@ pub fn stop_realtime_overlay() {
 }
 
 pub fn show_realtime_overlay() {
-    let capability = crate::runtime_support::require_webview2("Realtime overlay");
+    let capability = crate::runtime_support::require_webview2(
+        crate::runtime_support::WebViewFeature::RealtimeOverlay,
+    );
     if !capability.is_supported() {
         crate::runtime_support::notify_capability_issue(&capability);
         return;
     }
-    unsafe {
-        if IS_ACTIVE || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
-            return;
-        }
+    if IS_ACTIVE.load(Ordering::SeqCst) || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
+        return;
     }
     PENDING_REALTIME_START.store(true, Ordering::SeqCst);
     ensure_relay();
     post_pending_start();
 }
 
-pub(super) fn request_close_from_renderer() {
+pub(super) fn request_close_from_renderer(session_id: u64) {
+    let Some(tag) = renderer_close_tag(session_id) else {
+        return;
+    };
     let hwnd = relay_hwnd();
     if hwnd.is_invalid() {
-        finish_stop();
         return;
     }
-    unsafe {
-        let _ = PostMessageW(Some(hwnd), WM_APP_REALTIME_HIDE, WPARAM(0), LPARAM(0));
+    if let Err(error) =
+        unsafe { PostMessageW(Some(hwnd), WM_APP_REALTIME_HIDE, WPARAM(tag), LPARAM(0)) }
+    {
+        crate::log_info!("[RealtimeCompositor] could not post session close: {error}");
     }
+}
+
+fn renderer_close_tag(session_id: u64) -> Option<usize> {
+    usize::try_from(session_id).ok().filter(|tag| *tag != 0)
 }
 
 pub(crate) fn run_child() -> anyhow::Result<()> {
@@ -188,10 +196,8 @@ fn handle_start_overlay() {
     {
         return;
     }
-    unsafe {
-        if IS_ACTIVE || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
-            return;
-        }
+    if IS_ACTIVE.load(Ordering::SeqCst) || REALTIME_SESSION_STOPPING.load(Ordering::SeqCst) {
+        return;
     }
     let session_config = super::controller::load_session_config();
     let (translation_size, transcription_size) = {
@@ -219,6 +225,7 @@ fn handle_start_overlay() {
         font_size: active_config.font_size,
     };
     super::parent::replace_scene(RealtimeScene {
+        session_id: REALTIME_SESSION_ID.load(Ordering::SeqCst),
         active: true,
         layout,
         settings,
@@ -298,16 +305,23 @@ fn initial_layout(
 }
 
 pub(super) fn finish_stop() {
-    unsafe {
-        IS_ACTIVE = false;
-    }
+    IS_ACTIVE.store(false, Ordering::SeqCst);
     REALTIME_SESSION_STOPPING.store(false, Ordering::SeqCst);
     super::parent::set_active(false);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{initial_layout, session_transition_in_progress};
+    use super::{initial_layout, renderer_close_tag, session_transition_in_progress};
+
+    #[test]
+    fn renderer_close_never_uses_the_unscoped_stop_tag() {
+        assert_eq!(renderer_close_tag(0), None);
+        assert_eq!(renderer_close_tag(17), Some(17));
+        if usize::BITS < u64::BITS {
+            assert_eq!(renderer_close_tag(u64::MAX), None);
+        }
+    }
 
     #[test]
     fn pending_or_stopping_session_remains_available_to_the_toggle() {

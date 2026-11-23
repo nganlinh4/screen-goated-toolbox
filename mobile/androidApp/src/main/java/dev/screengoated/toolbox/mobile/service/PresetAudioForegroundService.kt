@@ -17,6 +17,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import dev.screengoated.toolbox.mobile.MainActivity
 import dev.screengoated.toolbox.mobile.R
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
 
@@ -24,6 +25,10 @@ class PresetAudioForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            stopForUnavailableSecureStore(startId)
+            return START_NOT_STICKY
+        }
         val mode = intent?.getStringExtra(EXTRA_MODE)
             ?.let(PresetAudioForegroundMode::valueOf)
             ?: PresetAudioForegroundMode.NONE
@@ -109,7 +114,7 @@ class PresetAudioForegroundService : Service() {
     companion object {
         private const val TAG = "PresetAudioFgs"
         private const val CHANNEL_ID = "sgt_preset_audio_capture"
-        private const val NOTIFICATION_ID = 1003
+        private const val NOTIFICATION_ID = ForegroundNotificationIds.PRESET_AUDIO
         private const val EXTRA_MODE = "dev.screengoated.toolbox.mobile.extra.PRESET_AUDIO_FGS_MODE"
 
         internal fun sync(context: Context, mode: PresetAudioForegroundMode) {

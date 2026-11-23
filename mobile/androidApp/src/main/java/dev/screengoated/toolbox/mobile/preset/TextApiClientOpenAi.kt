@@ -86,6 +86,8 @@ internal suspend fun TextApiClient.streamOpenAiCompatible(
     return fullContent.toString()
 }
 
+internal fun isGroqCompound(fullName: String): Boolean = fullName.startsWith("groq/compound")
+
 internal fun TextApiClient.runGroqCompound(
     apiKey: String,
     model: PresetModelDescriptor,
@@ -96,38 +98,7 @@ internal fun TextApiClient.runGroqCompound(
 ): String {
     if (apiKey.isBlank()) throw IOException("NO_API_KEY:groq")
 
-    val payload = JSONObject()
-        .put("model", model.fullName)
-        .put(
-            "messages",
-            JSONArray()
-                .put(
-                    JSONObject()
-                        .put("role", "system")
-                        .put(
-                            "content",
-                            "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient.",
-                        ),
-                )
-                .put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("content", "$prompt\n\n$inputText"),
-                ),
-        )
-        .put("temperature", 1)
-        .put("max_tokens", 8192)
-        .put("stream", false)
-        .put(
-            "compound_custom",
-            JSONObject().put(
-                "tools",
-                JSONObject().put(
-                    "enabled_tools",
-                    JSONArray().put("web_search").put("visit_website"),
-                ),
-            ),
-        )
+    val payload = groqCompoundPayload(model.fullName, prompt, inputText)
 
     val request = Request.Builder()
         .url(GROQ_ENDPOINT)
@@ -159,6 +130,45 @@ internal fun TextApiClient.runGroqCompound(
         onChunk(content)
         return content
     }
+}
+
+internal fun groqCompoundPayload(
+    fullName: String,
+    prompt: String,
+    inputText: String,
+): JSONObject {
+    return JSONObject()
+        .put("model", fullName)
+        .put(
+            "messages",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("role", "system")
+                        .put(
+                            "content",
+                            "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient.",
+                        ),
+                )
+                .put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "$prompt\n\n$inputText"),
+                ),
+        )
+        .put("temperature", 1)
+        .put("max_tokens", 8192)
+        .put("stream", false)
+        .put(
+            "compound_custom",
+            JSONObject().put(
+                "tools",
+                JSONObject().put(
+                    "enabled_tools",
+                    JSONArray().put("web_search").put("visit_website"),
+                ),
+            ),
+        )
 }
 
 private suspend fun TextApiClient.generateOpenAiCompatibleBlocking(

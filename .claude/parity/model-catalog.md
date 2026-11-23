@@ -14,9 +14,29 @@
   the shared catalog on both platforms. Historical rejection does not substitute
   for a current evaluation; provisional candidates do not enter recommended
   defaults or chains until their complete benchmark is reviewed.
+- The 2026-11-18 protocol-17 decisions updated the shared image default, both
+  recommendation chains, and measured performance metadata. See the
+  [decision record](../../tests/catalog-benchmark/RESULTS-2026-11-18-PROTOCOL17.md).
+- On 2026-11-23 both Dots 3 Note free rows were disabled after OpenRouter
+  reported zero serving endpoints. The catalog retains their IDs and request
+  profiles and omits them from both shipped retry chains.
+- Groq Qwen 3.8 returns to the image default and first image retry position
+  after completing all ten protocol-17 OCR levels at the interactive deadline.
+  Gemini 3.5 Flash Lite and Gemini 3 Flash follow it after same-policy recovery.
+  GPT-OSS 120B leads the GPT-OSS retry pair, and Particle-1 joins the text
+  catalog and precedes Ling 3.2 Flash in the text chain. The
+  [November 23 decision record](../../tests/catalog-benchmark/RESULTS-2026-11-23-PROTOCOL17.md)
+  contains the evidence for both recommendations.
 - Built-in model IDs, endpoint profiles, localized names, quotas, search
   capability, default search-tool behavior, reasoning policy, intelligence
   tiers, and typical latency come only from the shared catalog.
+- Saved model IDs, including blank or whitespace-only IDs, are durable
+  selections even when discovery is incomplete.
+  Selectors retain and display unresolved IDs; model execution must not route
+  an unresolved or wrong-modality pin to another endpoint. Authored chain rows
+  survive temporary lookup failure and are skipped only for the current attempt.
+  The shared persistence and discovery cases are in
+  [saved-model-resolution.json](../../parity-fixtures/preset-system/saved-model-resolution.json).
 - Every expanded built-in model row and every authored priority-chain row
   starts with fixed-width intelligence-stat and latency columns, followed by
   its provider icon and model text. The latency column uses tabular numerals
@@ -89,9 +109,15 @@
   discovered row with its feed latency on both platforms.
 - The image `9` and text `12` counts are shipped-default preparation targets,
   never UI, persistence, or runtime limits. Users may add any number of rows.
-- The chosen-model sentinel is numbered `0`, editable retry rows are numbered
-  continuously from `1`, and the automatic-fallback sentinel receives the next
-  number after the final visible row.
+- The chosen-model row shares the numbered drag order with concrete models.
+  Existing settings and Restore Defaults place it first. A row placed above it
+  can run first for any eligible preset block that uses that global chain.
+  The preset retains its saved model ID and attempts that model at the chosen
+  row, skipping concrete duplicates. Automatic fallback stays last.
+- Live never moves an automatic offer ahead of the chosen-model row. Models
+  explicitly placed above it retain their relative order while available.
+  The shared cases are in
+  [preset-attempt-order.json](../../parity-fixtures/preset-system/preset-attempt-order.json).
 - A benchmark-qualified built-in endpoint becomes selectable
   on Windows and Android from the same catalog revision; neither platform may
   hide it behind a platform-local allowlist or duplicate its fallback placement.
@@ -175,6 +201,14 @@
   Search only on the explicit Gemini request path, and reject an enabled search
   request if the selected endpoint lacks search capability. Ordinary blocks
   continue to omit provider tools even when they use the same endpoint.
+- Retry compatibility follows the request's search flag on every attempt, not
+  the previous model's capabilities. An ordinary request may use any compatible
+  non-search-only candidate; an explicit search request may use only a candidate
+  whose adapter can carry the search request. If no such candidate is available,
+  stop without dispatching a request that omits the requested tool. Image-block
+  search is unavailable until its adapter supports it and fails before dispatch.
+  Custom endpoint overrides must agree with the actual adapter and request
+  validation rather than promising an unsupported tool.
 
 ## Failure And Recovery
 
@@ -183,8 +217,9 @@
   malformed or unreferenced presentation variants, malformed quota triplets, a
   default search tool without provider support, or provider-incompatible
   reasoning policies fail catalog generation.
-- Unknown persisted IDs do not alias or migrate. Preset loading replaces them
-  with the canonical default for the block modality.
+- Unknown persisted IDs do not alias or migrate. They remain saved, and an
+  unresolved or incompatible pinned model stops before dispatch until it is
+  discovered or the user changes the selection.
 - A verified feed cache is replaced atomically when the filesystem supports it;
   a same-directory replace is the compatibility fallback. Lack of atomic-move
   support must not prevent a valid signed refresh from becoming active.

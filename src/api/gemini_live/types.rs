@@ -79,8 +79,33 @@ impl LiveRequest {
 /// Queued request with generation tracking for interrupts
 pub struct QueuedLiveRequest {
     pub req: LiveRequest,
-    pub generation: u64,
+    pub(crate) control: Arc<super::request::RequestControl>,
     pub response_tx: mpsc::Sender<LiveEvent>,
+}
+
+impl QueuedLiveRequest {
+    pub(super) fn is_cancelled_or_expired(&self) -> bool {
+        self.control.is_retired() || self.req.is_cancelled_or_expired()
+    }
+
+    pub(super) fn publish(&self, event: LiveEvent) -> bool {
+        if matches!(&event, LiveEvent::TextChunk(text) if text.is_empty()) {
+            return !self.is_cancelled_or_expired();
+        }
+        let published = self.control.admit(
+            || !self.req.is_cancelled_or_expired(),
+            || {
+                if matches!(event, LiveEvent::TextChunk(_)) {
+                    self.req.first_output_received.store(true, Ordering::SeqCst);
+                }
+                self.response_tx.send(event).is_ok()
+            },
+        );
+        if !published {
+            self.control.retire();
+        }
+        published
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,8 @@ package dev.screengoated.toolbox.mobile.phonecontrol.ui
 import android.app.role.RoleManager
 import android.content.Intent
 import android.os.Bundle
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
+import dev.screengoated.toolbox.mobile.MainActivity
 import androidx.activity.ComponentActivity
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlExternalGoalRegistry
 import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlExternalGoalSlot
@@ -13,6 +15,11 @@ import dev.screengoated.toolbox.mobile.phonecontrol.PhoneControlService
 class PhoneControlAssistActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
+            return
+        }
         dispatchAssistantInvocation(intent)
         finish()
     }

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"newer_edit_during_write","published_before_ack":"previous","editor":"latest","final":"latest"},
+    {"event":"failure_with_newer_edit","published_after_failure":"previous","pending":"latest","after_retry":"latest"},
+    {"event":"cancelled_with_newer_edit","published_after_failure":"previous","pending":"latest","after_retry":"latest"},
+    {"event":"commit_returns_false","status":"uncertain","later_edits":"blocked"}
+  ]
+}

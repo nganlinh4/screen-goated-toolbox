@@ -19,8 +19,13 @@ internal class PhoneControlMemoryRepository internal constructor(
     init {
         require(maxFinalizedSessions > 0) { "maxFinalizedSessions must be positive" }
         synchronized(lock) {
-            store.recoverInterruptedWrites()
-            reconcileIndexLocked()
+            // Windows parity: a file from an unsupported schema fails memory operations
+            // without rewriting it or the index. Construction runs in Application.onCreate,
+            // so it must not turn that operation failure into a process crash.
+            skipUnsupportedSchemaAtStartup {
+                store.recoverInterruptedWrites()
+                reconcileIndexLocked()
+            }
         }
     }
 
@@ -252,4 +257,16 @@ private fun String.takeCodePoints(maxCodePoints: Int): String {
     if (isEmpty() || maxCodePoints <= 0) return ""
     val end = offsetByCodePoints(0, codePointCount(0, length).coerceAtMost(maxCodePoints))
     return substring(0, end)
+}
+
+/**
+ * Runs a process-start memory step. An unsupported schema leaves memory unavailable
+ * (each later memory operation reports it) instead of failing app startup; returns
+ * false in that case. Every other failure still propagates.
+ */
+internal inline fun skipUnsupportedSchemaAtStartup(step: () -> Unit): Boolean = try {
+    step()
+    true
+} catch (_: PhoneControlMemorySchemaException) {
+    false
 }

@@ -1,6 +1,7 @@
 use super::UpdateCandidate;
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::io::Read;
 use std::time::Duration;
 
@@ -28,41 +29,66 @@ struct GithubAsset {
 }
 
 pub(super) fn fetch_latest() -> Result<UpdateCandidate> {
-    let mut candidates = Vec::new();
+    fetch_latest_with(fetch_page)
+}
+
+fn fetch_page(page: usize) -> Result<Vec<GithubRelease>> {
+    let url = format!(
+        "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page={RELEASES_PER_PAGE}&page={page}"
+    );
+    let response = crate::api::client::with_request_timeout(
+        crate::api::client::UREQ_AGENT
+            .get(&url)
+            .header("User-Agent", "screen-goated-toolbox-updater"),
+        Some(Duration::from_secs(10)),
+    )
+    .call()
+    .context("failed to fetch GitHub stable releases")?;
+    let mut body = String::new();
+    response
+        .into_body()
+        .into_reader()
+        .take(MAX_RELEASE_RESPONSE_BYTES + 1)
+        .read_to_string(&mut body)
+        .context("failed to read GitHub release response")?;
+    if body.len() as u64 > MAX_RELEASE_RESPONSE_BYTES {
+        anyhow::bail!("GitHub release response exceeded its size limit");
+    }
+    serde_json::from_str(&body).context("GitHub release response was invalid")
+}
+
+fn fetch_latest_with(
+    mut fetch_page: impl FnMut(usize) -> Result<Vec<GithubRelease>>,
+) -> Result<UpdateCandidate> {
+    let mut latest: Option<UpdateCandidate> = None;
+    let mut ambiguous = false;
     for page in 1..=MAX_RELEASE_PAGES {
-        let url = format!(
-            "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page={RELEASES_PER_PAGE}&page={page}"
-        );
-        let response = crate::api::client::with_request_timeout(
-            crate::api::client::UREQ_AGENT
-                .get(&url)
-                .header("User-Agent", "screen-goated-toolbox-updater"),
-            Some(Duration::from_secs(10)),
-        )
-        .call()
-        .context("failed to fetch GitHub stable releases")?;
-        let mut body = String::new();
-        response
-            .into_body()
-            .into_reader()
-            .take(MAX_RELEASE_RESPONSE_BYTES + 1)
-            .read_to_string(&mut body)
-            .context("failed to read GitHub release response")?;
-        if body.len() as u64 > MAX_RELEASE_RESPONSE_BYTES {
-            anyhow::bail!("GitHub release response exceeded its size limit");
-        }
-        let releases: Vec<GithubRelease> =
-            serde_json::from_str(&body).context("GitHub release response was invalid")?;
+        let releases = fetch_page(page)?;
         let count = releases.len();
-        candidates.extend(select_candidates(releases));
+        if count > RELEASES_PER_PAGE {
+            anyhow::bail!("GitHub release page exceeded its entry limit");
+        }
+        for candidate in select_candidates(releases) {
+            let ordering = latest.as_ref().map_or(Ordering::Greater, |current| {
+                candidate.version.cmp(&current.version)
+            });
+            match ordering {
+                Ordering::Greater => {
+                    latest = Some(candidate);
+                    ambiguous = false;
+                }
+                Ordering::Equal if latest.as_ref() != Some(&candidate) => ambiguous = true,
+                _ => {}
+            }
+        }
         if count < RELEASES_PER_PAGE {
-            break;
+            if ambiguous {
+                anyhow::bail!("highest stable GitHub release has conflicting metadata");
+            }
+            return latest.context("no compatible stable GitHub release was found");
         }
     }
-    candidates
-        .into_iter()
-        .max_by(|left, right| left.version.cmp(&right.version))
-        .context("no compatible stable GitHub release was found")
+    anyhow::bail!("GitHub release census exceeded its page limit before completion")
 }
 
 fn select_candidates(releases: Vec<GithubRelease>) -> Vec<UpdateCandidate> {
@@ -81,10 +107,14 @@ fn candidate_from_release(release: GithubRelease) -> Option<UpdateCandidate> {
         .strip_prefix('v')
         .and_then(|value| semver::Version::parse(value).ok())?;
     let expected_name = format!("ScreenGoatedToolbox_v{version}.exe");
-    let asset = release
+    let mut matches = release
         .assets
         .into_iter()
-        .find(|asset| asset.name == expected_name)?;
+        .filter(|asset| asset.name == expected_name);
+    let asset = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
     let sha256 = asset
         .digest
         .as_deref()
@@ -100,6 +130,14 @@ fn candidate_from_release(release: GithubRelease) -> Option<UpdateCandidate> {
     };
     candidate.validate().ok().map(|()| candidate)
 }
+
+#[cfg(test)]
+#[path = "selection_tests.rs"]
+mod selection_tests;
+
+#[cfg(test)]
+#[path = "github_parity_tests.rs"]
+mod parity_tests;
 
 #[cfg(test)]
 mod tests {

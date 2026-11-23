@@ -26,6 +26,7 @@ pub(crate) fn record_app_audio_sidecar(
     let (sample_rate, channels) = get_default_audio_config();
     let channels = channels as usize;
     if sample_rate == 0 || channels == 0 {
+        finished_signal.store(true, Ordering::SeqCst);
         bail!("default system output reported an invalid audio format");
     }
 

@@ -1,197 +1,137 @@
 //! Audio transcription APIs - Gemini, Whisper/Groq, and shared processing logic.
 
-use std::io::BufRead;
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 
 use super::utils::extract_pcm_from_wav;
-use crate::api::client::{UREQ_AGENT, is_auth_error};
-use crate::api::providers::Provider;
-use crate::config::Preset;
-use crate::model_config::{get_model_by_id, is_gemini_live_translate_model_id, model_is_non_llm};
+use live_read::{LiveRead, classify_live_read};
 
+mod audio_block;
 mod groq;
-use groq::upload_audio_to_whisper;
+mod live_prompt;
+mod live_read;
+pub(crate) use audio_block::execute_audio_block_cancellable;
 
-/// Borrow a prefix of `s` up to `max` bytes without splitting a UTF-8 char.
-/// Slicing on a raw byte index (`&s[..max]`) panics when `max` lands inside a
-/// multibyte character, which the JSON/text frames from the WS server can hit.
-fn truncate_str(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
-/// Transcribe audio using Gemini REST API with streaming
-pub fn transcribe_audio_gemini<F>(
+/// Transcribe audio through the Gemini `generateContent` REST path.
+///
+/// General models go through the shared Gemini helper, so the upload gets the
+/// same first-token/idle deadlines, cancellation, transient-HTTP retry and
+/// completion validation (finish reason, error events, every part) as text and
+/// vision requests. Dedicated transcription keeps its unary endpoint and
+/// explicit `audioTranscriptionConfig` while using the same completion parser.
+pub fn transcribe_audio_gemini(
     gemini_api_key: &str,
     prompt: String,
     model: String,
-    wav_data: Vec<u8>,
-    mut on_chunk: F,
-) -> Result<String>
-where
-    F: FnMut(&str),
-{
+    wav_data: &[u8],
+    cancel_token: Option<Arc<AtomicBool>>,
+) -> Result<String> {
     if gemini_api_key.trim().is_empty() {
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
-    if model.contains("gemma-4-") {
-        return Err(anyhow::anyhow!("Unsupported audio model: {}", model));
-    }
 
-    let b64_audio = general_purpose::STANDARD.encode(&wav_data);
-    let is_dedicated_transcribe = model == crate::model_config::GEMINI_TRANSCRIBE_BATCH_API_MODEL;
-    let url = crate::api::gemini_generate::gemini_content_url(&model, !is_dedicated_transcribe);
-
-    let mut payload = serde_json::json!({
-        "contents": [{
-            "role": "user",
-            "parts": [
-                { "text": prompt },
-                {
-                    "inline_data": {
-                        "mime_type": "audio/wav",
-                        "data": b64_audio.clone()
-                    }
-                }
-            ]
-        }]
+    let b64_audio = general_purpose::STANDARD.encode(wav_data);
+    let audio_part = serde_json::json!({
+        "inline_data": {"mime_type": "audio/wav", "data": b64_audio}
     });
-
-    if is_dedicated_transcribe {
-        payload["contents"][0]["parts"] = serde_json::json!([{
-            "inline_data": {
-                "mime_type": "audio/wav",
-                "data": b64_audio
-            }
-        }]);
-        let vocabulary = crate::APP
-            .lock()
-            .unwrap()
-            .config
-            .realtime_custom_vocabulary
-            .clone();
-        payload["generationConfig"] = serde_json::json!({
-            "audioTranscriptionConfig": {
-                "languageCodes": [],
-                "mode": "SMART",
-                "customVocabulary": vocabulary,
-            }
-        });
-    } else if let Some(thinking_config) = crate::api::gemini_thinking_config(&model) {
-        payload["generationConfig"] = serde_json::json!({
-            "thinkingConfig": thinking_config
-        });
+    if model == crate::model_config::GEMINI_TRANSCRIBE_BATCH_API_MODEL {
+        return transcribe_with_dedicated_model(gemini_api_key, &model, audio_part, cancel_token);
     }
 
-    // Search support is capability metadata, not consent to spend grounding
-    // quota on an audio transcription request.
-
-    let resp = UREQ_AGENT
-        .post(&url)
-        .header("x-goog-api-key", gemini_api_key)
-        .send_json(payload)
-        .map_err(|e| {
-            if is_auth_error(&e) {
-                anyhow::anyhow!("INVALID_API_KEY")
-            } else {
-                anyhow::anyhow!("Gemini Audio API Error: {}", e)
-            }
-        })?;
-
-    if is_dedicated_transcribe {
-        let root: serde_json::Value = resp.into_body().read_json()?;
-        let text = root["candidates"][0]["content"]["parts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|part| part["text"].as_str())
-            .collect::<String>();
-        if text.is_empty() {
-            return Err(anyhow::anyhow!("No content received from Gemini Audio API"));
-        }
-        on_chunk(&text);
-        return Ok(text);
-    }
-
-    let mut full_content = String::new();
-    let reader = std::io::BufReader::new(resp.into_body().into_reader());
-
-    for line in reader.lines() {
-        let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
-        if let Some(json_str) = line.strip_prefix("data: ") {
-            if json_str.trim() == "[DONE]" {
-                break;
-            }
-
-            if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
-                && let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array())
-                && let Some(first_candidate) = candidates.first()
-                && let Some(parts) = first_candidate
-                    .get("content")
-                    .and_then(|c| c.get("parts"))
-                    .and_then(|p| p.as_array())
-                && let Some(first_part) = parts.first()
-                && let Some(text) = first_part.get("text").and_then(|t| t.as_str())
-            {
-                full_content.push_str(text);
-                on_chunk(text);
-            }
-        }
-    }
-
-    if full_content.is_empty() {
+    let ui_language = crate::APP.lock().unwrap().config.ui_language.clone();
+    let text = crate::api::gemini_generate::stream_gemini_generate(
+        crate::api::gemini_generate::GeminiGenerateRequest {
+            parts: serde_json::json!([{"text": prompt}, audio_part]),
+            model: &model,
+            api_key: gemini_api_key,
+            streaming: true,
+            ui_language: &ui_language,
+            cancel_token: &cancel_token,
+            error_label: Some("Gemini Audio"),
+            map_auth_errors: true,
+            request_timeout: None,
+            response_schema: None,
+            audio_transcription_config: None,
+            media_resolution: None,
+            enable_google_search: false,
+            retry_observer: None,
+        },
+        &mut |_| {},
+    )?;
+    if text.trim().is_empty() {
         return Err(anyhow::anyhow!("No content received from Gemini Audio API"));
     }
-
-    Ok(full_content)
+    Ok(text)
 }
 
-/// Transcribe audio using Gemini Live WebSocket with INPUT transcription
-/// (transcribes what was recorded, not AI response)
-pub fn transcribe_with_gemini_live_input(
-    api_key: &str,
+fn transcribe_with_dedicated_model(
+    gemini_api_key: &str,
     model: &str,
-    wav_data: Vec<u8>,
-) -> anyhow::Result<String> {
-    transcribe_with_gemini_live(api_key, model, None, wav_data)
-}
-
-/// Translate audio using Gemini Live Translate and return outputTranscription.
-pub fn translate_with_gemini_live_output(
-    api_key: &str,
-    model: &str,
-    target_language: &str,
-    wav_data: Vec<u8>,
-) -> anyhow::Result<String> {
-    transcribe_with_gemini_live(api_key, model, Some(target_language), wav_data)
+    audio_part: serde_json::Value,
+    cancel_token: Option<Arc<AtomicBool>>,
+) -> Result<String> {
+    let vocabulary = crate::APP
+        .lock()
+        .unwrap()
+        .config
+        .realtime_custom_vocabulary
+        .clone();
+    let transcription_config = serde_json::json!({
+        "languageCodes": [],
+        "mode": "SMART",
+        "customVocabulary": vocabulary,
+    });
+    let ui_language = crate::APP.lock().unwrap().config.ui_language.clone();
+    crate::api::gemini_generate::stream_gemini_generate(
+        crate::api::gemini_generate::GeminiGenerateRequest {
+            parts: serde_json::json!([audio_part]),
+            model,
+            api_key: gemini_api_key,
+            streaming: false,
+            ui_language: &ui_language,
+            cancel_token: &cancel_token,
+            error_label: Some("Gemini Audio API Error"),
+            map_auth_errors: true,
+            request_timeout: Some(crate::api::client::RequestTimeouts::uniform(
+                Duration::from_secs(10 * 60),
+            )),
+            response_schema: None,
+            audio_transcription_config: Some(&transcription_config),
+            media_resolution: None,
+            enable_google_search: false,
+            retry_observer: None,
+        },
+        &mut |_| {},
+    )
 }
 
 fn transcribe_with_gemini_live(
     api_key: &str,
     model: &str,
     target_language: Option<&str>,
-    wav_data: Vec<u8>,
+    prompt: Option<&str>,
+    wav_data: &[u8],
+    cancelled: Option<&AtomicBool>,
 ) -> anyhow::Result<String> {
     use crate::api::gemini_live::transport::{
-        connect_websocket, set_socket_nonblocking, set_socket_short_timeout,
+        connect_websocket_cancellable, set_socket_nonblocking, set_socket_short_timeout,
     };
     use crate::api::realtime_audio::websocket::{
         parse_input_transcription, parse_output_transcription, send_audio_chunk,
         send_audio_stream_end, send_live_translate_setup_message, send_setup_message,
     };
-    use crate::overlay::recording::AUDIO_INITIALIZING;
 
     let is_translate = target_language.is_some();
+    live_prompt::check_cancelled(cancelled)?;
+    let output_transcription = is_translate || prompt.is_some();
+    let require_interaction_idle = crate::model_config::live_endpoint_profile(model)
+        .is_some_and(|profile| profile.require_interaction_idle);
+    let mut prompted_response =
+        prompt.map(|_| live_prompt::ResponseState::new(require_interaction_idle));
     let manual_activity = !is_translate
         && crate::model_config::live_endpoint_profile(model)
             .is_some_and(|profile| profile.protocol == Some("native-audio"));
@@ -205,116 +145,53 @@ fn transcribe_with_gemini_live(
         wav_data.len()
     );
 
-    // Signal that we're initializing (WebSocket connection)
-    AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
-
     // Connect and setup WebSocket
     println!("[GeminiLiveInput] Connecting to WebSocket...");
-    let mut socket = match connect_websocket(api_key) {
+    let is_cancelled = || cancelled.is_some_and(|flag| flag.load(Ordering::SeqCst));
+    let mut socket = match connect_websocket_cancellable(api_key, &is_cancelled) {
         Ok(s) => {
             println!("[GeminiLiveInput] WebSocket connected successfully");
             s
         }
         Err(e) => {
             println!("[GeminiLiveInput] WebSocket connection failed: {}", e);
-            AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
             return Err(e);
         }
     };
+    live_prompt::check_cancelled(cancelled)?;
 
-    println!("[GeminiLiveInput] Sending setup message...");
-    let setup_result = if let Some(target_language) = target_language {
+    let setup_result = if let Some(prompt) = prompt {
+        live_prompt::send_setup(&mut socket, model, prompt, manual_activity)
+    } else if let Some(target_language) = target_language {
         send_live_translate_setup_message(&mut socket, model, target_language)
     } else {
         send_setup_message(&mut socket, model, manual_activity)
     };
     if let Err(e) = setup_result {
         println!("[GeminiLiveInput] Setup message failed: {}", e);
-        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
         return Err(e);
     }
 
     // Set short timeout for setup phase
-    if let Err(e) = set_socket_short_timeout(&mut socket) {
-        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-        return Err(e);
-    }
-
-    // Wait for setup complete
+    set_socket_short_timeout(&mut socket)?;
     println!("[GeminiLiveInput] Waiting for setupComplete...");
-    let setup_start = Instant::now();
-    loop {
-        match socket.read() {
-            Ok(tungstenite::Message::Text(msg)) => {
-                let msg = msg.as_str();
-                println!(
-                    "[GeminiLiveInput] Received text message: {}",
-                    truncate_str(msg, 200)
-                );
-                if crate::api::gemini_live::websocket::is_setup_complete(msg) {
-                    println!("[GeminiLiveInput] Setup complete received!");
-                    break;
-                }
-                if let Some(err) = crate::api::gemini_live::websocket::parse_error(msg) {
-                    println!("[GeminiLiveInput] Server error: {}", err);
-                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                    return Err(anyhow::anyhow!("Server returned error: {}", err));
-                }
-            }
-            Ok(tungstenite::Message::Binary(data)) => {
-                println!(
-                    "[GeminiLiveInput] Received binary message: {} bytes",
-                    data.len()
-                );
-                if let Ok(text) = String::from_utf8(data.to_vec()) {
-                    if crate::api::gemini_live::websocket::is_setup_complete(&text) {
-                        println!("[GeminiLiveInput] Setup complete (from binary)!");
-                        break;
-                    }
-                    if let Some(err) = crate::api::gemini_live::websocket::parse_error(&text) {
-                        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                        return Err(anyhow::anyhow!("Server returned error: {}", err));
-                    }
-                }
-            }
-            Ok(other) => {
-                println!("[GeminiLiveInput] Received other message type: {:?}", other);
-            }
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                if setup_start.elapsed() > Duration::from_secs(30) {
-                    println!("[GeminiLiveInput] Setup timeout after 30s");
-                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                    return Err(anyhow::anyhow!("Setup timeout"));
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                println!("[GeminiLiveInput] Socket error during setup: {}", e);
-                AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-                return Err(e.into());
-            }
-        }
-    }
+    live_read::wait_for_setup(
+        || socket.read(),
+        |message| match &prompted_response {
+            Some(state) => state.observe_setup(message),
+            None => Ok(crate::api::gemini_live::websocket::is_setup_complete(
+                message,
+            )),
+        },
+        || live_prompt::check_cancelled(cancelled),
+        Duration::from_secs(30),
+    )?;
 
-    // Setup complete - switch to non-blocking mode and clear initializing state
-    if let Err(e) = set_socket_nonblocking(&mut socket) {
-        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-        return Err(e);
-    }
-    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
-    // Now signal warmup complete so UI shows recording state
-    crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+    // Setup complete - switch to non-blocking mode.
+    set_socket_nonblocking(&mut socket)?;
 
     // Extract PCM samples from WAV data
-    println!("[GeminiLiveInput] Extracting PCM samples from WAV...");
-    let pcm_samples = extract_pcm_from_wav(&wav_data)?;
-    println!(
-        "[GeminiLiveInput] Extracted {} PCM samples",
-        pcm_samples.len()
-    );
+    let pcm_samples = extract_pcm_from_wav(wav_data)?;
 
     // Send audio in chunks (16kHz, 100ms chunks = 1600 samples)
     let chunk_size = 1600;
@@ -323,14 +200,13 @@ fn transcribe_with_gemini_live(
     let mut chunks_sent = 0;
     let mut transcripts_received = 0;
     let parse_text = |msg: &str| {
-        if is_translate {
+        if output_transcription {
             parse_output_transcription(msg)
         } else {
             parse_input_transcription(msg)
         }
     };
 
-    println!("[GeminiLiveInput] Sending audio chunks...");
     if manual_activity {
         socket.write(tungstenite::Message::Text(
             crate::api::gemini_live::client_message::activity_boundary(true)
@@ -340,57 +216,32 @@ fn transcribe_with_gemini_live(
         socket.flush()?;
     }
     while offset < pcm_samples.len() {
+        live_prompt::check_cancelled(cancelled)?;
         let end = (offset + chunk_size).min(pcm_samples.len());
         let chunk = &pcm_samples[offset..end];
 
-        if send_audio_chunk(&mut socket, chunk).is_err() {
-            println!(
-                "[GeminiLiveInput] Failed to send audio chunk at offset {}",
-                offset
-            );
-            break;
-        }
+        send_audio_chunk(&mut socket, chunk)?;
         chunks_sent += 1;
         offset = end;
 
         // Read any available transcriptions
         loop {
-            match socket.read() {
-                Ok(tungstenite::Message::Text(msg)) => {
-                    let msg = msg.as_str();
-                    println!(
-                        "[GeminiLiveInput] Message while sending: {}",
-                        truncate_str(msg, 300)
-                    );
-                    if let Some(transcript) = parse_text(msg)
+            live_prompt::check_cancelled(cancelled)?;
+            match classify_live_read(socket.read(), "while sending audio")? {
+                LiveRead::Text(msg) => {
+                    if let Some(state) = &prompted_response {
+                        state.observe(&msg)?;
+                    }
+                    if let Some(transcript) = parse_text(&msg)
                         && !transcript.is_empty()
                     {
-                        println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
                         transcripts_received += 1;
                         accumulated_text.push_str(&transcript);
                     }
                 }
-                Ok(tungstenite::Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data.to_vec())
-                        && let Some(transcript) = parse_text(&text)
-                        && !transcript.is_empty()
-                    {
-                        println!(
-                            "[GeminiLiveInput] Got transcript (binary): '{}'",
-                            transcript
-                        );
-                        transcripts_received += 1;
-                        accumulated_text.push_str(&transcript);
-                    }
-                }
-                Ok(_) => {}
-                Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
-                    break; // No more messages available, continue sending
-                }
-                Err(_) => break,
+                LiveRead::Other => {}
+                // No more messages available, continue sending.
+                LiveRead::Idle => break,
             }
         }
 
@@ -403,6 +254,7 @@ fn transcribe_with_gemini_live(
         chunks_sent
     );
 
+    live_prompt::check_cancelled(cancelled)?;
     if manual_activity {
         socket.write(tungstenite::Message::Text(
             crate::api::gemini_live::client_message::activity_boundary(false)
@@ -413,186 +265,67 @@ fn transcribe_with_gemini_live(
     } else {
         send_audio_stream_end(&mut socket)?;
     }
+    if let Some(state) = &mut prompted_response {
+        state.finish_input();
+    }
 
     // Allow speech-boundary transcripts to arrive before applying the tail idle limit.
     let conclude_start = Instant::now();
-    let conclude_duration = Duration::from_secs(15);
+    let conclude_duration = Duration::from_secs(if prompt.is_some() { 60 } else { 15 });
     let mut last_transcript_at = (!accumulated_text.is_empty()).then(Instant::now);
+    let mut response_complete = false;
 
     while conclude_start.elapsed() < conclude_duration {
-        if last_transcript_at.is_some_and(|last| last.elapsed() >= Duration::from_secs(2)) {
+        live_prompt::check_cancelled(cancelled)?;
+        if prompt.is_none()
+            && last_transcript_at.is_some_and(|last| last.elapsed() >= Duration::from_secs(2))
+        {
             break;
         }
-        match socket.read() {
-            Ok(tungstenite::Message::Text(msg)) => {
-                let msg = msg.as_str();
-                println!(
-                    "[GeminiLiveInput] Message in conclude phase: {}",
-                    truncate_str(msg, 300)
-                );
-                if let Some(transcript) = parse_text(msg)
+        match classify_live_read(socket.read(), "before response completion")? {
+            LiveRead::Text(msg) => {
+                let complete = if let Some(state) = &prompted_response {
+                    state.observe(&msg)?
+                } else {
+                    false
+                };
+                if let Some(transcript) = parse_text(&msg)
                     && !transcript.is_empty()
                 {
-                    println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
                     last_transcript_at = Some(Instant::now());
                     transcripts_received += 1;
                     accumulated_text.push_str(&transcript);
                 }
-            }
-            Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.to_vec())
-                    && let Some(transcript) = parse_text(&text)
-                    && !transcript.is_empty()
-                {
-                    println!(
-                        "[GeminiLiveInput] Got final transcript (binary): '{}'",
-                        transcript
-                    );
-                    last_transcript_at = Some(Instant::now());
-                    transcripts_received += 1;
-                    accumulated_text.push_str(&transcript);
+                if complete {
+                    response_complete = true;
+                    break;
                 }
             }
-            Ok(_) => {}
-            Err(tungstenite::Error::Io(ref e))
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => break,
+            LiveRead::Other => {}
+            LiveRead::Idle => std::thread::sleep(Duration::from_millis(50)),
         }
     }
 
     let _ = socket.close(None);
+
+    if prompt.is_some() && !response_complete {
+        anyhow::bail!("Live audio response ended before completion");
+    }
+
+    if prompt.is_some() && accumulated_text.trim().is_empty() {
+        anyhow::bail!("Live audio response contained no output transcription");
+    }
 
     println!(
         "[GeminiLiveInput] Done! Transcripts received: {}, Total text length: {}",
         transcripts_received,
         accumulated_text.len()
     );
-    println!("[GeminiLiveInput] Final result: '{}'", accumulated_text);
 
     if accumulated_text.is_empty() {
         // This is actually okay - could be silence or inaudible
         Ok(String::new())
     } else {
         Ok(accumulated_text)
-    }
-}
-
-/// Shared logic to process audio data based on a preset's configuration.
-/// Returns the transcription/processing result text.
-pub fn execute_audio_processing_logic(
-    preset: &Preset,
-    wav_data: Vec<u8>,
-) -> anyhow::Result<String> {
-    // Find the first block that is specifically an "audio" processing block
-    // OR allow input_adapter if no audio block exists (for raw audio overlay)
-    let (audio_block, is_raw_input_adapter) = match preset
-        .blocks
-        .iter()
-        .find(|b| b.block_type == "audio")
-    {
-        Some(b) => (b.clone(), false),
-        None => match preset
-            .blocks
-            .iter()
-            .find(|b| b.block_type == "input_adapter")
-        {
-            Some(b) => (b.clone(), true),
-            None => {
-                let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
-                eprintln!(
-                    "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
-                    debug_types
-                );
-                return Err(anyhow::anyhow!(
-                    "Audio preset has no 'audio' processing blocks configured"
-                ));
-            }
-        },
-    };
-
-    if is_raw_input_adapter {
-        return Ok(String::new());
-    }
-
-    let model_config = get_model_by_id(&audio_block.model);
-    let model_config = match model_config {
-        Some(c) => c,
-        None => {
-            return Err(anyhow::anyhow!(
-                "Model config not found for audio model: {}",
-                audio_block.model
-            ));
-        }
-    };
-    let model_name = model_config.full_name.clone();
-    let provider = model_config.provider.clone();
-
-    let (groq_api_key, gemini_api_key) = {
-        let app = crate::APP.lock().unwrap();
-        (
-            app.config.api_key.clone(),
-            app.config.gemini_api_key.clone(),
-        )
-    };
-
-    // Use block's prompt and language settings
-    let mut final_prompt = if model_is_non_llm(&audio_block.model) {
-        String::new()
-    } else {
-        audio_block.prompt.clone()
-    };
-
-    for (key, value) in &audio_block.language_vars {
-        let pattern = format!("{{{}}}", key);
-        final_prompt = final_prompt.replace(&pattern, value);
-    }
-
-    if final_prompt.contains("{language1}") && !audio_block.language_vars.contains_key("language1")
-    {
-        final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
-    }
-
-    final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
-
-    if Provider::from_wire(&provider) == Some(Provider::Groq) {
-        if groq_api_key.trim().is_empty() {
-            Err(anyhow::anyhow!("NO_API_KEY:groq"))
-        } else {
-            upload_audio_to_whisper(
-                &groq_api_key,
-                &model_name,
-                wav_data,
-                audio_block
-                    .language_vars
-                    .get(crate::config::speech_languages::INPUT_LANGUAGE_KEY)
-                    .map(String::as_str),
-            )
-        }
-    } else if Provider::from_wire(&provider) == Some(Provider::Google) {
-        if gemini_api_key.trim().is_empty() {
-            Err(anyhow::anyhow!("NO_API_KEY:google"))
-        } else {
-            transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
-        }
-    } else if Provider::from_wire(&provider) == Some(Provider::GeminiLive) {
-        // Gemini Live API (WebSocket-based).
-        if gemini_api_key.trim().is_empty() {
-            Err(anyhow::anyhow!("NO_API_KEY:gemini"))
-        } else if is_gemini_live_translate_model_id(&audio_block.model) {
-            translate_with_gemini_live_output(
-                &gemini_api_key,
-                &model_name,
-                &audio_block.selected_language,
-                wav_data,
-            )
-        } else {
-            transcribe_with_gemini_live_input(&gemini_api_key, &model_name, wav_data)
-        }
-    } else {
-        Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
     }
 }

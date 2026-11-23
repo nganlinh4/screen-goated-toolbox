@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 44,
+  "schemaVersion": 45,
   "tool": "image-to-svg",
   "releaseAvailability": {
     "enabled": true,
@@ -20,6 +20,7 @@
     "preparing",
     "generating",
     "finalizing",
+    "cancelling",
     "done",
     "failed",
     "cancelled"
@@ -180,6 +181,14 @@
     "primaryActionRemainsReachable": true
   },
   "history": {
+    "svgEditsValidateBeforePublication": true,
+    "svgEditsPreserveOriginalOnFailure": true,
+    "svgEditHistoryProofMatchesPublishedBytes": true,
+    "androidSvgEditsPublishNewResultInOriginalDestination": true,
+    "androidRetainedOriginalsRemainVisibleBeyondHistoryLimit": true,
+    "androidRetainedOriginalDeletionRequiresMatchingProof": true,
+    "androidUnavailableRetentionDoesNotBlockUnrelatedHistory": true,
+    "svgEditFailureRetainsDraft": true,
     "presentationOrder": "newest_session_first",
     "singleDeleteRequiresConfirmation": false,
     "deleteAllRequiresConfirmation": true,

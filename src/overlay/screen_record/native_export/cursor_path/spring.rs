@@ -61,15 +61,21 @@ pub(super) fn spring_step_scalar(
     }
 }
 
-pub(super) fn normalize_angle(angle: f64) -> f64 {
-    let mut a = angle;
-    while a > std::f64::consts::PI {
-        a -= std::f64::consts::TAU;
+/// Wraps an angle into [-PI, PI] in constant time. Angles already in range are
+/// returned unchanged and a positive angle that wraps onto the boundary maps to
+/// +PI, matching the frontend's subtract-a-turn loop without its hang on huge
+/// finite inputs (where subtracting TAU no longer changes the f64).
+pub(crate) fn normalize_angle(angle: f64) -> f64 {
+    use std::f64::consts::{PI, TAU};
+    if (-PI..=PI).contains(&angle) {
+        return angle;
     }
-    while a < -std::f64::consts::PI {
-        a += std::f64::consts::TAU;
+    let wrapped = (angle + PI).rem_euclid(TAU) - PI;
+    if angle > 0.0 && wrapped <= -PI {
+        PI
+    } else {
+        wrapped
     }
-    a
 }
 
 pub(super) fn spring_step_angle(
@@ -188,6 +194,16 @@ mod tests {
             assert!((turns - turns.round()).abs() < 1e-9);
         }
         assert_eq!(normalize_angle(0.0), 0.0);
+    }
+
+    #[test]
+    fn normalize_angle_returns_promptly_for_huge_finite_angles() {
+        for a in [1e16, -1e16, 1e300, -f64::MAX, f64::MAX] {
+            let n = normalize_angle(a);
+            assert!((-PI..=PI).contains(&n), "{a} -> {n} out of range");
+        }
+        assert_eq!(normalize_angle(PI), PI);
+        assert!(normalize_angle(f64::NAN).is_nan());
     }
 
     #[test]

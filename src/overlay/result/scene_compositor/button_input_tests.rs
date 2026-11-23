@@ -7,15 +7,49 @@ use windows::Win32::Foundation::{POINT, RECT};
 
 #[test]
 fn refinement_focus_messages_use_an_explicit_child_contract() {
-    let cards = std::collections::HashMap::new();
+    let mut cards = std::collections::HashMap::new();
+    let mut card: super::super::protocol::SceneCard = serde_json::from_value(serde_json::json!({
+        "id": 42, "rect": {"x": 0, "y": 0, "width": 100, "height": 100},
+        "body": "", "document": null, "refining": false, "background": "",
+        "opacity": 100, "visible": true
+    }))
+    .unwrap();
+    card.controls.edit_session = Some("123".to_string());
+    card.controls.is_editing = true;
+    cards.insert(42, card);
     assert_eq!(
         handle_renderer_message(
-            r#"{"action":"request_refine_focus","hwnd":"42"}"#,
+            r#"{"action":"request_refine_focus","hwnd":"42","editSession":"123"}"#,
             windows::Win32::Foundation::HWND::default(),
             &cards,
         ),
-        RendererInput::FocusRefine { id: 42 }
+        RendererInput::FocusRefine {
+            id: 42,
+            session: 123
+        }
     );
+    assert_eq!(
+        handle_renderer_message(
+            r#"{"action":"request_refine_focus","hwnd":"42","editSession":"122"}"#,
+            windows::Win32::Foundation::HWND::default(),
+            &cards,
+        ),
+        RendererInput::Handled
+    );
+    for state in ["hidden", "invisible", "not_editing"] {
+        let card = cards.get_mut(&42).unwrap();
+        card.controls.hidden = state == "hidden";
+        card.visible = state != "invisible";
+        card.controls.is_editing = state != "not_editing";
+        assert_eq!(
+            handle_renderer_message(
+                r#"{"action":"request_refine_focus","hwnd":"42","editSession":"123"}"#,
+                windows::Win32::Foundation::HWND::default(),
+                &cards
+            ),
+            RendererInput::Handled
+        );
+    }
     assert_eq!(
         handle_renderer_message(
             r#"{"action":"release_refine_focus","hwnd":"0"}"#,
@@ -37,16 +71,33 @@ fn renderer_actions_become_typed_parent_events() {
         })
     );
     assert!(button_action(42, "unknown", &message).is_none());
+    assert!(
+        button_action(
+            42,
+            "update_refine_draft",
+            &serde_json::json!({"text": "stale"})
+        )
+        .is_none()
+    );
+    assert!(
+        button_action(
+            42,
+            "update_refine_draft",
+            &serde_json::json!({ "text": "stale" })
+        )
+        .is_none()
+    );
     assert_eq!(
         button_action(
             42,
             "update_refine_draft",
-            &serde_json::json!({ "text": "shorter" })
+            &serde_json::json!({ "text": "shorter", "editSession": "123" })
         ),
         Some(ChildEvent::ButtonAction {
             id: 42,
             action: ButtonAction::UpdateRefineDraft {
-                text: "shorter".to_string()
+                text: "shorter".to_string(),
+                session: 123
             }
         })
     );

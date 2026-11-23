@@ -40,7 +40,7 @@ def valid_manifest() -> dict[str, object]:
     return {
         "schemaVersion": 1,
         "version": "1.2.3",
-        "features": ["image_to_3d", "image_to_svg", "image_creator"],
+        "features": ["image_to_3d", "image_to_svg"],
         "windows": delivery("windows"),
         "android": {
             "full": delivery("android.full"),
@@ -76,7 +76,7 @@ def record(manifest: dict[str, object], label: str) -> dict[str, object]:
 class CreationRuntimeReleaseVerifierTests(unittest.TestCase):
     def test_accepts_exact_feature_set_and_all_delivery_records(self) -> None:
         manifest = valid_manifest()
-        manifest["features"] = ["image_creator", "image_to_3d", "image_to_svg"]
+        manifest["features"] = ["image_to_svg", "image_to_3d"]
 
         records = verifier.validate_manifest(manifest)
 
@@ -87,18 +87,16 @@ class CreationRuntimeReleaseVerifierTests(unittest.TestCase):
 
     def test_rejects_missing_extra_and_duplicate_features(self) -> None:
         invalid_sets = {
-            "missing": ["image_to_3d", "image_to_svg"],
+            "missing": ["image_to_3d"],
             "extra": [
                 "image_to_3d",
                 "image_to_svg",
-                "image_creator",
                 "future_tool",
             ],
             "duplicate": [
                 "image_to_3d",
                 "image_to_svg",
-                "image_creator",
-                "image_creator",
+                "image_to_svg",
             ],
         }
         for name, features in invalid_sets.items():

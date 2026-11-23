@@ -6,6 +6,7 @@ use super::*;
 mod history;
 #[path = "browser_dispatch/managed_open.rs"]
 mod managed_open;
+mod upload;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TabRoute {
@@ -490,19 +491,7 @@ impl Brain {
                 let url = args.get("url").and_then(Value::as_str).unwrap_or("");
                 self.open_browser_tab_lease(url, lifetime)
             }
-            "browser_upload" => {
-                let selector = args.get("selector").and_then(Value::as_str).unwrap_or("");
-                let path = args.get("path").and_then(Value::as_str).unwrap_or("");
-                match route {
-                    TabRoute::Current => super::super::browser::upload_file(selector, path),
-                    TabRoute::Exact(tab_id) => super::super::browser::upload_file_on_document(
-                        selector,
-                        path,
-                        tab_id,
-                        self.controlled_document_id.as_deref().unwrap_or(""),
-                    ),
-                }
-            }
+            "browser_upload" => upload::dispatch(self, args, route, cancel),
             "browser_tabs" => super::super::browser::get_tabs(),
             "browser_switch_tab" => {
                 let tab_id = args.get("tab_id").and_then(Value::as_i64).unwrap_or(0);

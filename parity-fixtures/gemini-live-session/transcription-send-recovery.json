@@ -1,0 +1,22 @@
+{
+  "canonical_windows_files": ["src/api/realtime_audio/transcription/main_loop.rs", "src/api/realtime_audio/transcription/reconnect.rs"],
+  "maxReconnectAttempts": 6,
+  "maxPendingSamples": 960000,
+  "attempts": [
+    {"attempt":0,"delayMs":277},
+    {"attempt":1,"delayMs":580},
+    {"attempt":2,"delayMs":1133},
+    {"attempt":3,"delayMs":2186},
+    {"attempt":4,"delayMs":4059},
+    {"attempt":5,"delayMs":6000}
+  ],
+  "rejectedHandle": "expired-session",
+  "preSetupFailures": ["closed", "setup-send-rejected"],
+  "frameWithGoAway": {"goAway": {"timeLeft": "1s"}, "serverContent": {"inputTranscription": {"text": "source text"}}},
+  "setupFrameWithGoAway": {"setupComplete": {}, "goAway": {"timeLeft": "1s"}, "serverContent": {"interimInputTranscription": {"text": "draft"}}},
+  "cases": [
+    {"capacity":5,"queue":[3,4],"unattempted":[1,2],"newer":[5],"expected":[1,2,3,4,5],"dropped":0},
+    {"capacity":5,"queue":[3,4,5],"unattempted":[1,2],"newer":[6],"expected":[2,3,4,5,6],"dropped":1},
+    {"capacity":3,"queue":[],"unattempted":[],"newer":[1,2,3,4],"expected":[2,3,4],"dropped":1}
+  ]
+}

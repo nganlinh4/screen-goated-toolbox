@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::config::types::LiveModelOverrides;
-use crate::retry_model_chain::RetryChainKind;
+use crate::retry_model_chain::{RetryChainKind, editable_priority_order};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ManualEdit {
@@ -60,11 +60,12 @@ pub(super) fn prepare_chain(
     overrides: &LiveModelOverrides,
     adaptive_enabled: bool,
 ) -> PreparedChain {
-    let adaptive = visible_chain(config, chain_kind, authored, overrides, true);
+    let authored = editable_priority_order(authored.to_vec(), chain_kind.chosen_after(config));
+    let adaptive = visible_chain(config, chain_kind, &authored, overrides, true);
     let visible = if adaptive_enabled {
         adaptive.clone()
     } else {
-        authored.to_vec()
+        authored
     };
     PreparedChain {
         visible,

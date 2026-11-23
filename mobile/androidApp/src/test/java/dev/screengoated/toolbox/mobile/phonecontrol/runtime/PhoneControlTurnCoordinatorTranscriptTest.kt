@@ -11,6 +11,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.boolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -73,17 +78,20 @@ class PhoneControlTurnCoordinatorTranscriptTest {
     }
 
     @Test
-    fun `local speech onset replaces active work only when playback is quiet`() {
+    fun `local speech bursts keep active input until provider interruption`() {
         val harness = Harness()
         try {
             harness.input("old request")
 
-            harness.coordinator.userSpeechStarted(assistantPlaybackActive = true)
+            harness.coordinator.userSpeechActivity(assistantPlaybackActive = true, burstStarted = true)
             harness.input("old request revised")
             assertEquals(1, harness.recorder.started.size)
             assertTrue(harness.recorder.interrupted.isEmpty())
 
-            harness.coordinator.userSpeechStarted(assistantPlaybackActive = false)
+            harness.coordinator.userSpeechActivity(assistantPlaybackActive = false, burstStarted = true)
+            harness.input("old request revised with details")
+            assertEquals(1, harness.recorder.started.size)
+            harness.interrupt()
             harness.input("new request")
 
             assertEquals(listOf(1L, 2L), harness.recorder.started.map(Started::turnId))
@@ -110,15 +118,14 @@ class PhoneControlTurnCoordinatorTranscriptTest {
             assertEquals("first request revised", harness.sink.inputs.last())
             assertEquals(PhoneControlTurnPhase.IDLE, harness.coordinator.phase)
 
-            harness.coordinator.userSpeechStarted(assistantPlaybackActive = true)
-            harness.input("first request revised again")
-            assertEquals(1, harness.recorder.started.size)
-
-            harness.coordinator.userSpeechStarted(assistantPlaybackActive = false)
+            harness.coordinator.userSpeechActivity(assistantPlaybackActive = true, burstStarted = true)
             harness.input("second request")
 
             assertEquals(listOf(1L, 2L), harness.recorder.started.map(Started::turnId))
             assertEquals(UserUpdate(2L, "second request"), harness.recorder.users.last())
+            harness.coordinator.userSpeechActivity(assistantPlaybackActive = false, burstStarted = true)
+            harness.input("second request revised")
+            assertEquals(2, harness.recorder.started.size)
         } finally {
             harness.close()
         }
@@ -205,6 +212,79 @@ class PhoneControlTurnCoordinatorTranscriptTest {
         }
     }
 
+    @Test
+    fun `shared speech input epoch replays match Windows`() {
+        val fixture = generateSequence(java.io.File(requireNotNull(System.getProperty("user.dir")))) { it.parentFile }
+            .map { java.io.File(it, "parity-fixtures/phone-control/speech-input-epochs.json") }
+            .first { it.isFile }
+        val cases = Json.parseToJsonElement(fixture.readText()).jsonObject.getValue("cases").jsonArray
+        for (case in cases) {
+            val value = case.jsonObject
+            val harness = Harness()
+            try {
+                for (step in value.getValue("steps").jsonArray) {
+                    val item = step.jsonObject
+                    when (val event = item.getValue("event").jsonPrimitive.content) {
+                        "input" -> harness.input(item.getValue("text").jsonPrimitive.content)
+                        "output" -> harness.output(item.getValue("text").jsonPrimitive.content)
+                        "complete" -> harness.completeGeneration()
+                        "interrupt" -> harness.interrupt()
+                        "speech_start", "speech_continues" -> harness.coordinator.userSpeechActivity(
+                            item.getValue("playing").jsonPrimitive.boolean, burstStarted = event == "speech_start",
+                        )
+                        else -> error("Unknown speech replay event: $event")
+                    }
+                }
+                val expected = value.getValue("userTurns").jsonArray.map { it.jsonPrimitive.content }
+                val actual = harness.recorder.users.associate { it.turnId to it.text }.values.toList()
+                assertEquals(value.getValue("name").jsonPrimitive.content, expected, actual)
+                assertEquals(expected.size, harness.recorder.started.size)
+                assertEquals(value.getValue("active").jsonPrimitive.boolean, harness.coordinator.phase == PhoneControlTurnPhase.WORKING)
+            } finally { harness.close() }
+        }
+    }
+
+    @Test
+    fun `protocol rebound preserves active transcript and rearms retired input`() {
+        val harness = Harness()
+        try {
+            harness.input("first request")
+            harness.coordinator.freshProtocolSessionBound()
+            harness.input("with details")
+            assertEquals(1, harness.recorder.started.size)
+            assertEquals(UserUpdate(1L, "first request with details"), harness.recorder.users.last())
+            harness.coordinator.abandonProtocolSession()
+            harness.coordinator.freshProtocolSessionBound()
+            harness.input("new request")
+            assertEquals(listOf(1L, 2L), harness.recorder.started.map(Started::turnId))
+            assertEquals(UserUpdate(2L, "new request"), harness.recorder.users.last())
+        } finally { harness.close() }
+    }
+
+    @Test
+    fun `provider cancellation arms input only for the owned job`() {
+        val harness = Harness()
+        try {
+            harness.input("old request")
+            val call = GeminiLiveFunctionCall("owned-job", "observe", JsonObject(emptyMap()))
+            harness.coordinator.handleFrame(GeminiLiveServerFrame(toolCalls = listOf(call), toolCallPresent = true),
+                listOf(GeminiLiveLifecycleEffect.DispatchTools(listOf(call.id))))
+            val interrupts = harness.sink.playbackInterrupts
+            harness.coordinator.handleFrame(GeminiLiveServerFrame(),
+                listOf(GeminiLiveLifecycleEffect.CancelTools(listOf("retired-job"))))
+            assertEquals(interrupts, harness.sink.playbackInterrupts)
+            harness.input("old request revised")
+            assertEquals(1, harness.recorder.started.size)
+            harness.coordinator.handleFrame(GeminiLiveServerFrame(),
+                listOf(GeminiLiveLifecycleEffect.CancelTools(listOf(call.id))))
+            assertEquals(interrupts + 1, harness.sink.playbackInterrupts)
+            harness.input("new request")
+            assertEquals(listOf(1L, 2L), harness.recorder.started.map(Started::turnId))
+            assertEquals(UserUpdate(2L, "new request"), harness.recorder.users.last())
+            assertEquals(1, harness.coordinator.pendingWorkCount)
+        } finally { harness.close() }
+    }
+
     private class Harness(surfaceAssistantContent: Boolean = true) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val executor = CountingExecutor()
@@ -265,6 +345,7 @@ class PhoneControlTurnCoordinatorTranscriptTest {
     private class RecordingSink(
         private val surfaceAssistantContent: Boolean,
     ) : PhoneControlTurnSink {
+        var playbackInterrupts = 0
         val payloads = mutableListOf<String>()
         val inputs = mutableListOf<String>()
         val outputs = mutableListOf<String>()
@@ -273,7 +354,7 @@ class PhoneControlTurnCoordinatorTranscriptTest {
 
         override fun sendPayload(payload: String): Boolean = payloads.add(payload)
         override fun playAudio(bytes: ByteArray) = Unit
-        override fun interruptPlayback() = Unit
+        override fun interruptPlayback() { playbackInterrupts += 1 }
         override fun discardQueuedPlayback() = Unit
         override fun updateInputCaption(text: String) {
             inputs += text

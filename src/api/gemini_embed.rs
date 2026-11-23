@@ -7,10 +7,18 @@ use crate::api::client::UREQ_AGENT;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
+/// Diagnostic overrides apply to debug builds only, so an inherited variable
+/// can never change what a release build sends or how it sizes stored vectors.
+fn debug_override(name: &str) -> Option<String> {
+    cfg!(debug_assertions)
+        .then(|| std::env::var(name).ok())
+        .flatten()
+}
+
 /// `CC_EMBED_MODEL` can override the catalog model for diagnostics.
 /// Unlike `gemini-embedding-001`, Embedding 2 takes no `taskType`.
 fn model_candidates() -> Vec<String> {
-    if let Ok(m) = std::env::var("CC_EMBED_MODEL") {
+    if let Some(m) = debug_override("CC_EMBED_MODEL") {
         return vec![m];
     }
     vec![crate::model_config::GEMINI_EMBEDDING_API_MODEL.to_string()]
@@ -20,8 +28,7 @@ fn model_candidates() -> Vec<String> {
 /// compact size — ample for ranking a few dozen conversations, small on disk.
 /// Changing this invalidates stored vectors (cosine needs equal lengths).
 fn embed_dim() -> u32 {
-    std::env::var("CC_EMBED_DIM")
-        .ok()
+    debug_override("CC_EMBED_DIM")
         .and_then(|s| s.parse().ok())
         .filter(|&d| (128..=3072).contains(&d))
         .unwrap_or(768)

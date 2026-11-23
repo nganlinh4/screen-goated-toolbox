@@ -162,13 +162,15 @@ internal class ArtifactToolHandlers(
         if (!isAbsolute(path)) return unavailableArtifactPath(job, "save_artifact")
         val overwrite = args.optionalBoolean("overwrite", false)
             ?: return invalidArgs(job, "save_artifact", "overwrite must be boolean")
-        val result = executeResourceScopedMutation(
-            tool = "save_artifact",
-            arguments = args,
-            authorizer = resourceAuthorization,
-        ) { targetLease ->
-            files.saveArtifact(id, path, overwrite, targetLease)
-        }
+        val preparation = runCatching { files.prepareArtifactSave(id, path, overwrite) }
+        val result = preparation.fold(
+            onSuccess = { preparedSave -> preparedSave.use {
+                executeResourceScopedMutation(
+                    tool = "save_artifact", prepared = it.mutation, authorizer = resourceAuthorization,
+                ) { stillAuthorized -> it.commit(job.effectOwner, stillAuthorized) }
+            } },
+            onFailure = files::preparationFailure,
+        )
         return providerResult(
             job,
             "save_artifact",

@@ -13,13 +13,27 @@ internal class PresetExecutionCapabilityResolver {
             )
         }
 
+        val activePreset = preset.copy(blocks = preset.reachableBlocks())
+        val unresolved = activePreset.blocks.any { block ->
+            val expected = when (block.blockType) {
+                BlockType.TEXT -> PresetModelType.TEXT
+                BlockType.IMAGE -> PresetModelType.VISION
+                BlockType.AUDIO -> PresetModelType.AUDIO
+                BlockType.INPUT_ADAPTER -> null
+            }
+            expected != null && PresetModelCatalog.getById(block.model)?.modelType != expected
+        }
+        if (unresolved) {
+            return PresetExecutionCapability(false, PresetPlaceholderReason.MODEL_UNAVAILABLE)
+        }
+
         return when (preset.presetType) {
-            PresetType.IMAGE -> resolveImageCapability(preset)
-            PresetType.TEXT_SELECT -> resolveTextSelectCapability(preset)
-            PresetType.TEXT_INPUT -> resolveTextInputCapability(preset)
+            PresetType.IMAGE -> resolveImageCapability(activePreset)
+            PresetType.TEXT_SELECT -> resolveTextSelectCapability(activePreset)
+            PresetType.TEXT_INPUT -> resolveTextInputCapability(activePreset)
             PresetType.MIC,
             PresetType.DEVICE_AUDIO,
-            -> resolveAudioCapability(preset)
+            -> resolveAudioCapability(activePreset)
         }
     }
 
@@ -205,6 +219,8 @@ internal fun PresetPlaceholderReason.message(): String = when (this) {
         "Overlay-style text input is not ready on Android yet."
     PresetPlaceholderReason.MODEL_PROVIDER_NOT_READY ->
         "This preset uses a text model/provider runtime that Android does not implement yet."
+    PresetPlaceholderReason.MODEL_UNAVAILABLE ->
+        "The selected model is unavailable or incompatible. Check model discovery or select another model."
     PresetPlaceholderReason.AUDIO_CAPTURE_NOT_READY ->
         "This audio preset still needs a supported Android capture/runtime path."
     PresetPlaceholderReason.REALTIME_AUDIO_NOT_READY ->

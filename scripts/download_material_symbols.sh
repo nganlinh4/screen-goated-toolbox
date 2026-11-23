@@ -1,6 +1,11 @@
 #!/bin/bash
 # Download filled, rounded Material Symbols from Iconify for Android and offline web UIs.
 # Converts SVG path data into Android VectorDrawable XML and keeps the source SVG.
+#
+# Usage: download_material_symbols.sh [name ...]   (no names: every icon below)
+
+# grep -P below needs a UTF-8 locale (Git Bash defaults to none).
+export LC_ALL=C.UTF-8
 
 DRAWABLE_DIR="mobile/androidApp/src/main/res/drawable"
 WEB_ICON_DIR="ui-shared/material-symbols"
@@ -24,6 +29,7 @@ declare -A ICONS=(
   ["breakfast_dining"]="breakfast_dining"
   ["camera_alt"]="photo_camera"
   ["check"]="check"
+  ["cleaning_services"]="cleaning_services"
   ["close"]="close"
   ["compare_arrows"]="compare_arrows"
   ["computer"]="computer"
@@ -41,8 +47,11 @@ declare -A ICONS=(
   ["expand_less"]="expand_less"
   ["expand_more"]="expand_more"
   ["fiber_smart_record"]="fiber_smart_record"
+  ["file_copy"]="file_copy"
+  ["file_copy_off"]="file_copy_off"
   ["filter"]="filter"
   ["folder"]="folder"
+  ["format_italic"]="format_italic"
   ["format_quote"]="format_quote"
   ["gamepad"]="gamepad"
   ["graphic_eq"]="graphic_eq"
@@ -51,6 +60,7 @@ declare -A ICONS=(
   ["g_translate"]="g_translate"
   ["help_outline"]="help_outline"
   ["history"]="history"
+  ["hourglass_empty"]="hourglass_empty"
   ["image"]="image"
   ["image_search"]="image_search"
   ["info"]="info"
@@ -63,7 +73,10 @@ declare -A ICONS=(
   ["local_fire_department"]="local_fire_department"
   ["mic"]="mic"
   ["music_note"]="music_note"
+  ["newsmode"]="newsmode"
   ["note"]="note"
+  ["notes"]="notes"
+  ["opacity"]="opacity"
   ["open_in_full"]="open_in_full"
   ["open_in_new"]="open_in_new"
   ["outline"]="border_style"
@@ -87,6 +100,7 @@ declare -A ICONS=(
   ["settings"]="settings"
   ["settings_voice"]="settings_voice"
   ["smart_toy"]="smart_toy"
+  ["speaker_group"]="speaker_group"
   ["speaker_phone"]="speaker_phone"
   ["spellcheck"]="spellcheck"
   ["star"]="star"
@@ -116,6 +130,52 @@ declare -A ICONS=(
   ["undo"]="undo"
   ["zoom_in"]="zoom_in"
   ["zoom_out"]="zoom_out"
+  ["emoji_objects"]="emoji_objects"
+  ["location_searching"]="location_searching"
+  ["my_location"]="my_location"
+  ["person_celebrate"]="person_celebrate"
+  ["keyboard_double_arrow_left"]="keyboard_double_arrow_left"
+  ["keyboard_double_arrow_right"]="keyboard_double_arrow_right"
+  ["keyboard_double_arrow_up"]="keyboard_double_arrow_up"
+  ["table_eye"]="table_eye"
+  ["hov"]="hov"
+  ["graph_1"]="graph_1"
+  ["graph_2"]="graph_2"
+  ["graph_3"]="graph_3"
+  ["graph_4"]="graph_4"
+  ["graph_5"]="graph_5"
+  ["graph_6"]="graph_6"
+  ["graph_7"]="graph_7"
+  ["hourglass_bottom"]="hourglass_bottom"
+  ["hourglass_top"]="hourglass_top"
+  ["cognition"]="cognition"
+  ["bug_report"]="bug_report"
+  ["frame_bug"]="frame_bug"
+  ["eyeglasses_2"]="eyeglasses_2"
+  ["eyeglasses_3"]="eyeglasses_3"
+  ["sentiment_calm"]="sentiment_calm"
+  ["sentiment_content"]="sentiment_content"
+  ["sentiment_dissatisfied"]="sentiment_dissatisfied"
+  ["sentiment_extremely_dissatisfied"]="sentiment_extremely_dissatisfied"
+  ["sentiment_neutral"]="sentiment_neutral"
+  ["sentiment_sad"]="sentiment_sad"
+  ["sentiment_satisfied"]="sentiment_satisfied"
+  ["sentiment_stressed"]="sentiment_stressed"
+  ["sentiment_very_dissatisfied"]="sentiment_very_dissatisfied"
+  ["sentiment_very_satisfied"]="sentiment_very_satisfied"
+  ["sentiment_worried"]="sentiment_worried"
+  ["sentiment_excited"]="sentiment_excited"
+  ["sentiment_frustrated"]="sentiment_frustrated"
+  ["arrow_selector_tool"]="arrow_selector_tool"
+  ["rtt"]="rtt"
+  ["gesture"]="gesture"
+  ["keyboard_double_arrow_down"]="keyboard_double_arrow_down"
+  ["backlight_high"]="backlight_high"
+  ["globe_asia"]="globe_asia"
+  ["person_play"]="person_play"
+  ["terminal"]="terminal"
+  ["comment"]="comment"
+  ["check_small"]="check_small"
 )
 
 count=0
@@ -141,7 +201,7 @@ for key in "${!ICONS[@]}"; do
   fi
 
   # Download SVG from Iconify
-  svg=$(curl -s "https://api.iconify.design/material-symbols:${symbol_url}-rounded.svg" 2>/dev/null)
+  svg=$(curl -s "https://api.iconify.design/material-symbols/${symbol_url}-rounded.svg" 2>/dev/null)
 
   if [ -z "$svg" ] || echo "$svg" | grep -q "404"; then
     echo "FAIL $key ($symbol) — not found"

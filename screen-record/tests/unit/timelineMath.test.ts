@@ -90,7 +90,19 @@ describe("timeline trim and speed math", () => {
     expect(normalized.trimStart).toBe(3);
     expect(normalized.trimEnd).toBe(6);
     expect(normalized.trimSegments).toEqual([{ id: "keep", startTime: 3, endTime: 6 }]);
-    expect(normalized.speedPoints?.at(-1)).toEqual({ time: 6, speed: 12 });
+    // Out-of-range points clamp to the source, not the trim end (see trimSpeedNormalization.test.ts).
+    expect(normalized.speedPoints?.at(-1)).toEqual({ time: 10, speed: 12 });
+  });
+
+  it("migrates legacy zoom keyframes once without resurrecting deleted blocks", () => {
+    const legacy = segment({
+      zoomKeyframes: [{ time: 2, duration: 0, zoomFactor: 1.5, positionX: 0.3, positionY: 0.3, easingType: "easeInOut" }],
+    });
+    const migrated = normalizeSegmentTrimData(legacy, 12);
+    expect(migrated.zoomBlocks).toHaveLength(1);
+    const deleted = normalizeSegmentTrimData({ ...migrated, zoomBlocks: [] }, 12);
+    expect(deleted.zoomBlocks).toEqual([]);
+    expect(normalizeSegmentTrimData(deleted, 12).zoomBlocks).toEqual([]);
   });
 });
 

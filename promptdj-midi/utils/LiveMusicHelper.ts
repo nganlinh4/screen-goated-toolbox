@@ -5,7 +5,10 @@
 import type { PlaybackState, Prompt } from '../types';
 import type { AudioChunk, GoogleGenAI, LiveMusicFilteredPrompt, LiveMusicServerMessage, LiveMusicSession } from '@google/genai';
 import { decode, decodeAudioData } from './audio';
-import { throttle } from './throttle';
+import { PlaybackVolume } from './PlaybackVolume';
+
+const PROMPT_SYNC_INTERVAL_MS = 200;
+const OUTPUT_FADE_SECONDS = 0.1;
 
 export class LiveMusicHelper extends EventTarget {
 
@@ -25,23 +28,41 @@ export class LiveMusicHelper extends EventTarget {
   public extraDestination: AudioNode | null = null;
 
   private outputNode: GainNode;
+  private readonly playbackVolume: PlaybackVolume;
+  private disposed = false;
   private playbackState: PlaybackState = 'stopped';
   private loadingTimer: number | null = null;
   private bufferTimer: number | null = null;
   private retryTimer: number | null = null;
   private retryCount = 0;
   private readonly maxRetries = 3;
+  private promptSyncTimer: number | null = null;
+  private lastPromptSyncAt = -Infinity;
 
   private prompts: Map<string, Prompt>;
   private sessionSeq: number = 0; // increments to invalidate stale callbacks
 
-  constructor(ai: GoogleGenAI, model: string) {
+  constructor(ai: GoogleGenAI, model: string, volume = 1) {
     super();
     this.ai = ai;
     this.model = model;
     this.prompts = new Map();
     this.audioContext = new AudioContext({ sampleRate: 48000 });
+    this.playbackVolume = new PlaybackVolume(this.audioContext, volume);
     this.outputNode = this.audioContext.createGain();
+  }
+
+  public setVolume(volume: number) {
+    this.playbackVolume.setVolume(volume);
+  }
+
+  public get isDisposed() { return this.disposed; }
+
+  public dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.stop();
+    this.playbackVolume.disconnect();
   }
 
   // DEBUG
@@ -122,45 +143,67 @@ export class LiveMusicHelper extends EventTarget {
     this.dispatchEvent(new CustomEvent('playback-state-changed', { detail: state }));
   }
 
+  private isCurrent(generation: number) {
+    return !this.disposed && generation === this.sessionSeq;
+  }
+
+  private isReceivingAudio() {
+    return this.playbackState === 'playing' || this.playbackState === 'loading';
+  }
+
+  private clearBufferTimer() {
+    if (this.bufferTimer) { clearTimeout(this.bufferTimer); this.bufferTimer = null; }
+  }
+
   private async processAudioChunks(audioChunks: AudioChunk[]) {
     // Only schedule when we're in playing or loading states; ignore if paused or stopped
-    if (this.playbackState !== 'playing' && this.playbackState !== 'loading') {
+    if (!this.isReceivingAudio()) {
       this.debug('processAudioChunks: early return due to state', this.playbackState);
       return;
     }
 
-    const audioBuffer = await decodeAudioData(
-      decode(audioChunks[0].data!),
-      this.audioContext,
-      48000,
-      2,
-    );
+    const generation = this.sessionSeq;
+    // Decode the whole message before scheduling so its chunks stay contiguous
+    // even when another message is processed concurrently.
+    const buffers: AudioBuffer[] = [];
+    for (const chunk of audioChunks) {
+      if (!chunk.data) { this.debug('processAudioChunks: skipping chunk without data'); continue; }
+      buffers.push(await decodeAudioData(decode(chunk.data), this.audioContext, 48000, 2));
+    }
+    if (!this.isCurrent(generation) || !this.isReceivingAudio()) return;
+    for (const buffer of buffers) this.scheduleBuffer(buffer, generation);
+  }
+
+  private scheduleBuffer(audioBuffer: AudioBuffer, generation: number) {
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(this.outputNode);
 
     const now = this.audioContext.currentTime;
-    this.debug('processAudioChunks: now=', now.toFixed(3), 'nextStartTime=', this.nextStartTime.toFixed(3), 'bufDur=', audioBuffer.duration.toFixed(3));
+    this.debug('scheduleBuffer: now=', now.toFixed(3), 'nextStartTime=', this.nextStartTime.toFixed(3), 'bufDur=', audioBuffer.duration.toFixed(3));
 
     if (this.nextStartTime === 0) {
       this.nextStartTime = now + this.bufferTime;
-      this.debug('processAudioChunks: scheduling first start at', this.nextStartTime.toFixed(3), 'bufferTime=', this.bufferTime);
-      setTimeout(() => {
-        this.debug('processAudioChunks: set playing after buffer');
+      this.debug('scheduleBuffer: scheduling first start at', this.nextStartTime.toFixed(3), 'bufferTime=', this.bufferTime);
+      this.clearBufferTimer();
+      this.bufferTimer = (setTimeout(() => {
+        this.bufferTimer = null;
+        if (!this.isCurrent(generation) || this.playbackState !== 'loading') return;
+        this.debug('scheduleBuffer: set playing after buffer');
         this.setPlaybackState('playing');
-      }, this.bufferTime * 1000);
+      }, this.bufferTime * 1000) as unknown) as number;
     }
     if (this.nextStartTime < now) {
-      this.debug('processAudioChunks: fell behind, resetting to loading and rescheduling');
+      this.debug('scheduleBuffer: fell behind, resetting to loading and rescheduling');
       this.setPlaybackState('loading');
       this.nextStartTime = 0;
       return;
     }
     try {
       source.start(this.nextStartTime);
-      this.debug('processAudioChunks: scheduled source at', this.nextStartTime.toFixed(3));
+      this.debug('scheduleBuffer: scheduled source at', this.nextStartTime.toFixed(3));
     } catch (e) {
-      this.debug('processAudioChunks: start() error', e);
+      this.debug('scheduleBuffer: start() error', e);
     }
     this.nextStartTime += audioBuffer.duration;
   }
@@ -172,8 +215,31 @@ export class LiveMusicHelper extends EventTarget {
       })
   }
 
-  public readonly setWeightedPrompts = throttle(async (prompts: Map<string, Prompt>) => {
+  /**
+   * Records the latest prompts at once and sends them at most once per
+   * PROMPT_SYNC_INTERVAL_MS. A burst (knob drag, MIDI CC stream) ends with a
+   * trailing send, so the session always converges on the last state.
+   */
+  public setWeightedPrompts(prompts: Map<string, Prompt>): Promise<void> {
     this.prompts = prompts;
+    const wait = this.lastPromptSyncAt + PROMPT_SYNC_INTERVAL_MS - Date.now();
+    if (wait <= 0) return this.syncPrompts();
+    if (this.promptSyncTimer === null) {
+      this.promptSyncTimer = (setTimeout(() => {
+        this.promptSyncTimer = null;
+        void this.syncPrompts();
+      }, wait) as unknown) as number;
+    }
+    return Promise.resolve();
+  }
+
+  private clearPromptSyncTimer() {
+    if (this.promptSyncTimer !== null) { clearTimeout(this.promptSyncTimer); this.promptSyncTimer = null; }
+  }
+
+  private async syncPrompts() {
+    this.clearPromptSyncTimer();
+    this.lastPromptSyncAt = Date.now();
 
     if (this.activePrompts.length === 0) {
       this.dispatchEvent(new CustomEvent('error', { detail: 'There needs to be one active prompt to play.' }));
@@ -193,9 +259,10 @@ export class LiveMusicHelper extends EventTarget {
       this.dispatchEvent(new CustomEvent('error', { detail: e.message }));
       this.pause();
     }
-  }, 200);
+  }
 
   public async play(resetRetries = true) {
+    if (this.disposed) return;
     this.debug('play() called');
     if (resetRetries) {
       this.retryCount = 0;
@@ -211,34 +278,70 @@ export class LiveMusicHelper extends EventTarget {
     }, 12000) as unknown) as number;
 
     this.debug('play(): awaiting getSession()');
-    this.session = await this.getSession();
+    const pending = this.getSession();
+    const generation = this.sessionSeq;
+    let session: LiveMusicSession;
+    try {
+      session = await pending;
+    } catch (error) {
+      if (!this.isCurrent(generation)) return;
+      throw error;
+    }
+    if (!this.isCurrent(generation)) {
+      // Stop (or a newer connection) superseded this one while it was connecting.
+      try { session.stop(); } catch {}
+      return;
+    }
+    this.session = session;
     this.debug('play(): got session');
+    // Every await below can race with stop()/pause(); only continue while this
+    // connection is current and playback is still being requested.
+    const stillRequested = () => this.isCurrent(generation) && this.playbackState === 'loading';
+    if (!stillRequested()) return;
     this.debug('play(): setWeightedPrompts()');
-    await this.setWeightedPrompts(this.prompts);
+    // A new session starts without prompts, so send them now, unthrottled.
+    await this.syncPrompts();
+    if (!stillRequested()) return;
     this.debug('play(): audioContext.resume()');
     await this.audioContext.resume();
+    if (!stillRequested()) return;
     this.debug('play(): session.play()');
-    this.session.play();
+    session.play();
     this.debug('play(): connect destinations');
-    this.outputNode.connect(this.audioContext.destination);
-    if (this.extraDestination) this.outputNode.connect(this.extraDestination);
+    this.playbackVolume.connect(this.outputNode, this.extraDestination);
     this.outputNode.gain.setValueAtTime(0, this.audioContext.currentTime);
     this.outputNode.gain.linearRampToValueAtTime(1, this.audioContext.currentTime + 0.1);
   }
 
   public pause() {
+    this.clearBufferTimer();
     if (this.session) this.session.pause();
     this.setPlaybackState('paused');
-    this.outputNode.gain.setValueAtTime(1, this.audioContext.currentTime);
-    this.outputNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.1);
+    this.fadeOutAndRelease(this.outputNode);
     this.nextStartTime = 0;
     this.outputNode = this.audioContext.createGain();
+  }
+
+  /**
+   * Fades a replaced output to silence, then detaches it so each pause does not
+   * leave a dead node (and the audio already scheduled on it) in the graph.
+   */
+  private fadeOutAndRelease(output: GainNode) {
+    const now = this.audioContext.currentTime;
+    output.gain.setValueAtTime(1, now);
+    output.gain.linearRampToValueAtTime(0, now + OUTPUT_FADE_SECONDS);
+    setTimeout(() => {
+      try { output.disconnect(); } catch {}
+    }, OUTPUT_FADE_SECONDS * 1000 + 50);
   }
 
   public stop() {
     // Invalidate any in-flight callbacks from previous connection
     this.sessionSeq++;
     if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+    // play() resends the latest prompts to the next session.
+    this.clearPromptSyncTimer();
+    this.clearBufferTimer();
     try { this.session?.stop(); } catch {}
     // Hard mute and disconnect
     try { this.outputNode.disconnect(); } catch {}

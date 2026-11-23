@@ -1,15 +1,16 @@
-use std::collections::HashSet;
-use std::io::{Read as _, Write as _};
+use crate::component_registry::verified_archive::{self, FileSpec, Policy};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Result, anyhow, bail};
 
+use super::super::persisted_download;
 use super::super::receipt::{ComponentReceipt, OwnedComponentFile, file_matches};
 use super::{
     ARCHITECTURE, COMPONENT_ID, MAX_COMPONENT_FILES, VcRuntimeDelivery, delivery, owned_file,
-    staging, validate_exact_tree, validate_install, version_root,
+    staging, validate_exact_tree, validate_install,
 };
 
 static INSTALL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -33,43 +34,22 @@ pub(super) fn install(cancelled: &AtomicBool, on_progress: impl Fn(u64, u64)) ->
     if validate_install(delivery).is_ok() {
         return Ok(());
     }
-    clear_invalid_install()?;
-    let _install_lease = super::super::acquire(COMPONENT_ID)?;
+    let mut install_lease = super::super::acquire(COMPONENT_ID)?;
     ensure_not_cancelled(cancelled)?;
-    if adopt_legacy(delivery, cancelled)? {
+    if adopt_legacy(delivery, cancelled, &mut install_lease)? {
         return Ok(());
     }
-    install_delivery(delivery, cancelled, on_progress)
-}
-
-fn clear_invalid_install() -> Result<()> {
-    match super::super::request_remove(COMPONENT_ID)? {
-        super::super::RemovalOutcome::Missing | super::super::RemovalOutcome::Removed => Ok(()),
-        super::super::RemovalOutcome::Pending => bail!("VC runtime support is currently in use"),
-        super::super::RemovalOutcome::RequiredBy(dependents) => bail!(
-            "VC runtime support cannot be repaired while required by installed components: {}",
-            dependents.join(", ")
-        ),
-        super::super::RemovalOutcome::PreservedModified(paths) => bail!(
-            "VC runtime support cannot be repaired because {} modified managed file(s) were preserved",
-            paths.len()
-        ),
-    }
+    install_delivery(delivery, cancelled, on_progress, &mut install_lease)
 }
 
 fn install_delivery(
     delivery: &VcRuntimeDelivery,
     cancelled: &AtomicBool,
     on_progress: impl Fn(u64, u64),
+    install_lease: &mut super::super::ComponentLease,
 ) -> Result<()> {
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let working_root = crate::paths::app_local_data_dir();
-    let scratch = working_root.join("component-downloads");
-    ensure_regular_directory(&working_root, &scratch)?;
-    let archive_path = scratch.join(format!(
-        "{COMPONENT_ID}-{}-{sequence}.download",
-        std::process::id()
-    ));
+    let working_root = crate::paths::app_runtime_local_data_dir();
     let staging_parent = working_root.join("component-staging");
     ensure_regular_directory(&working_root, &staging_parent)?;
     let staging = staging_parent.join(format!(
@@ -81,19 +61,28 @@ fn install_delivery(
     require_regular_directory(&staging)?;
 
     let result = (|| {
-        download_archive(delivery, &archive_path, cancelled, on_progress)?;
+        let archive_path = persisted_download::fetch(
+            COMPONENT_ID,
+            &pinned_body(delivery),
+            cancelled,
+            &on_progress,
+        )
+        .map_err(|error| anyhow!("VC runtime download failed: {error:#}"))?;
         validate_archive(&archive_path, delivery)?;
         extract_archive(&archive_path, &staging, delivery, cancelled)?;
         ensure_not_cancelled(cancelled)?;
-        finish_staging(&staging, delivery)
+        finish_staging(&staging, delivery, install_lease)?;
+        // A failed install keeps the received archive for the next attempt.
+        persisted_download::discard_leftovers(COMPONENT_ID);
+        Ok(())
     })();
-    let _ = std::fs::remove_file(&archive_path);
     if staging.exists() {
-        let owned_paths = delivery
+        let mut owned_paths = delivery
             .files
             .iter()
             .map(|file| file.path)
             .collect::<Vec<_>>();
+        owned_paths.push(super::super::receipt::RECEIPT_NAME);
         let _ = staging::cleanup_owned(&staging, &owned_paths);
     }
     result
@@ -121,54 +110,34 @@ fn ensure_regular_directory(root: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn download_archive(
+/// Transfers the archive of a fresh install while holding only this
+/// component's transfer guard, so the caller runs it before the registry
+/// mutation guard. Installs that can adopt the legacy runtime skip it.
+pub(super) fn prefetch(
     delivery: &VcRuntimeDelivery,
-    target: &Path,
     cancelled: &AtomicBool,
-    on_progress: impl Fn(u64, u64),
+    on_progress: &impl Fn(u64, u64),
 ) -> Result<()> {
-    let response = crate::api::client::UREQ_DOWNLOAD_AGENT
-        .get(delivery.download_url)
-        .header("User-Agent", "ScreenGoatedToolbox")
-        .call()
-        .map_err(|error| anyhow!("VC runtime download failed: {error}"))?;
-    if response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|size| size != delivery.size_bytes)
+    if validate_install(delivery).is_ok()
+        || (crate::paths::runtime_state_root().is_none() && legacy_bin_dir().is_dir())
     {
-        bail!("VC runtime download size does not match this build");
+        return Ok(());
     }
-    let mut reader = response.into_body().into_reader();
-    let mut output = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(target)?;
-    let mut buffer = [0_u8; 128 * 1024];
-    let mut downloaded = 0_u64;
-    loop {
-        ensure_not_cancelled(cancelled)?;
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        downloaded = downloaded
-            .checked_add(read as u64)
-            .ok_or_else(|| anyhow!("VC runtime download is too large"))?;
-        if downloaded > delivery.size_bytes {
-            bail!("VC runtime download is larger than this build allows");
-        }
-        output.write_all(&buffer[..read])?;
-        on_progress(downloaded, delivery.size_bytes);
+    persisted_download::prefetch(
+        COMPONENT_ID,
+        &[pinned_body(delivery)],
+        cancelled,
+        on_progress,
+    )
+    .map_err(|error| anyhow!("VC runtime download failed: {error:#}"))
+}
+
+fn pinned_body(delivery: &VcRuntimeDelivery) -> persisted_download::PinnedBody<'_> {
+    persisted_download::PinnedBody {
+        url: delivery.download_url,
+        size: delivery.size_bytes,
+        sha256: delivery.sha256,
     }
-    if downloaded != delivery.size_bytes {
-        bail!("VC runtime download is incomplete");
-    }
-    output.flush()?;
-    output.sync_all()?;
-    Ok(())
 }
 
 fn validate_archive(path: &Path, delivery: &VcRuntimeDelivery) -> Result<()> {
@@ -189,58 +158,39 @@ fn extract_archive(
     delivery: &VcRuntimeDelivery,
     cancelled: &AtomicBool,
 ) -> Result<()> {
-    let file = std::fs::File::open(path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    if archive.len() != delivery.files.len() || archive.len() > MAX_COMPONENT_FILES {
-        bail!("VC runtime archive has an unexpected entry count");
-    }
-    let mut extracted = HashSet::new();
-    let mut extracted_bytes = 0_u64;
-    for index in 0..archive.len() {
-        ensure_not_cancelled(cancelled)?;
-        let mut entry = archive.by_index(index)?;
-        if entry.is_dir() {
-            bail!("VC runtime archive contains an unexpected directory entry");
-        }
-        let relative = entry
-            .enclosed_name()
-            .ok_or_else(|| anyhow!("VC runtime archive contains an unsafe path"))?
-            .to_path_buf();
-        let expected = delivery
-            .files
-            .iter()
-            .find(|file| Path::new(file.path) == relative)
-            .ok_or_else(|| anyhow!("VC runtime archive contains an unowned file"))?;
-        if !extracted.insert(relative.clone()) || entry.size() != expected.size_bytes {
-            bail!("VC runtime archive entry does not match its manifest");
-        }
-        extracted_bytes = extracted_bytes
-            .checked_add(entry.size())
-            .ok_or_else(|| anyhow!("VC runtime archive expands beyond its limit"))?;
-        if extracted_bytes > delivery.unpacked_size_bytes {
-            bail!("VC runtime archive expands beyond its declared size");
-        }
-        let target = staging::prepare_target(staging, &relative)?;
-        let mut output = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)?;
-        std::io::copy(&mut entry, &mut output)?;
-        output.flush()?;
-        if !file_matches(&target, &owned_file(expected))? {
-            bail!("extracted VC runtime file failed integrity verification");
-        }
-        if relative
-            .extension()
-            .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("dll"))
-        {
-            staging::validate_x64_pe(&target)?;
-        }
-    }
-    if extracted.len() != delivery.files.len() || extracted_bytes != delivery.unpacked_size_bytes {
-        bail!("VC runtime archive is incomplete");
-    }
-    Ok(())
+    let files = delivery
+        .files
+        .iter()
+        .map(|file| FileSpec::same(Path::new(file.path), file.size_bytes, file.sha256))
+        .collect::<Vec<_>>();
+    verified_archive::extract(
+        std::fs::File::open(path)?,
+        &files,
+        Policy::files(MAX_COMPONENT_FILES, delivery.unpacked_size_bytes),
+        cancelled,
+        |index, member| {
+            let expected = &delivery.files[index];
+            let (target, _directories) =
+                staging::prepare_target(staging, Path::new(expected.path))?;
+            let mut output = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&target)?;
+            member.copy_to(&mut output, &|_| {})?;
+            output.flush()?;
+            drop(output);
+            if !file_matches(&target, &owned_file(expected))? {
+                bail!("extracted component file failed integrity verification");
+            }
+            if target
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("dll"))
+            {
+                staging::validate_x64_pe(&target)?;
+            }
+            Ok(())
+        },
+    )
 }
 
 fn ensure_not_cancelled(cancelled: &AtomicBool) -> Result<()> {
@@ -256,14 +206,21 @@ fn legacy_bin_dir() -> PathBuf {
         .join("x64")
 }
 
-fn adopt_legacy(delivery: &VcRuntimeDelivery, cancelled: &AtomicBool) -> Result<bool> {
+fn adopt_legacy(
+    delivery: &VcRuntimeDelivery,
+    cancelled: &AtomicBool,
+    install_lease: &mut super::super::ComponentLease,
+) -> Result<bool> {
+    if crate::paths::runtime_state_root().is_some() {
+        return Ok(false);
+    }
     let legacy = legacy_bin_dir();
     if !legacy.is_dir() {
         return Ok(false);
     }
     require_regular_directory(&legacy)?;
     let sequence = INSTALL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let working_root = crate::paths::app_local_data_dir();
+    let working_root = crate::paths::app_runtime_local_data_dir();
     let staging_parent = working_root.join("component-staging");
     ensure_regular_directory(&working_root, &staging_parent)?;
     let staging = staging_parent.join(format!(
@@ -276,25 +233,27 @@ fn adopt_legacy(delivery: &VcRuntimeDelivery, cancelled: &AtomicBool) -> Result<
     match result {
         Ok(true) => {
             ensure_not_cancelled(cancelled)?;
-            finish_staging(&staging, delivery)?;
+            finish_staging(&staging, delivery, install_lease)?;
             cleanup_verified_legacy(&legacy, delivery);
             Ok(true)
         }
         Ok(false) => {
-            let owned = delivery
+            let mut owned = delivery
                 .files
                 .iter()
                 .map(|file| file.path)
                 .collect::<Vec<_>>();
+            owned.push(super::super::receipt::RECEIPT_NAME);
             let _ = staging::cleanup_owned(&staging, &owned);
             Ok(false)
         }
         Err(error) => {
-            let owned = delivery
+            let mut owned = delivery
                 .files
                 .iter()
                 .map(|file| file.path)
                 .collect::<Vec<_>>();
+            owned.push(super::super::receipt::RECEIPT_NAME);
             let _ = staging::cleanup_owned(&staging, &owned);
             Err(error)
         }
@@ -318,7 +277,7 @@ fn adopt_from(legacy: &Path, staging_root: &Path, delivery: &VcRuntimeDelivery) 
         }
     }
     for file in delivery.files {
-        let target = staging::prepare_target(staging_root, Path::new(file.path))?;
+        let (target, _directories) = staging::prepare_target(staging_root, Path::new(file.path))?;
         if let Some(name) = Path::new(file.path)
             .strip_prefix("bin/x64")
             .ok()
@@ -349,6 +308,9 @@ fn embedded_notice(path: &str) -> Option<&'static [u8]> {
 }
 
 fn cleanup_verified_legacy(legacy: &Path, delivery: &VcRuntimeDelivery) {
+    if crate::paths::runtime_state_root().is_some() {
+        return;
+    }
     for file in delivery.files {
         let Ok(relative) = Path::new(file.path).strip_prefix("bin/x64") else {
             continue;
@@ -365,18 +327,20 @@ fn cleanup_verified_legacy(legacy: &Path, delivery: &VcRuntimeDelivery) {
     }
 }
 
-fn finish_staging(staging_root: &Path, delivery: &VcRuntimeDelivery) -> Result<()> {
+fn finish_staging(
+    staging_root: &Path,
+    delivery: &VcRuntimeDelivery,
+    install_lease: &mut super::super::ComponentLease,
+) -> Result<()> {
     super::super::write_receipt(staging_root, &receipt(delivery))?;
     validate_exact_tree(staging_root, delivery.files)?;
-    let target = version_root(delivery)?;
-    let parent = super::super::ensure_component_parent(COMPONENT_ID)?;
-    if target.parent() != Some(parent.as_path()) {
-        bail!("VC runtime install target escaped its component directory");
-    }
-    if target.exists() {
-        bail!("VC runtime install target already exists");
-    }
-    std::fs::rename(staging_root, &target)?;
+    super::super::publication::publish_verified(
+        COMPONENT_ID,
+        delivery.version,
+        &receipt(delivery).files,
+        staging_root,
+        install_lease,
+    )?;
     super::super::validate_version_root(COMPONENT_ID, delivery.version)?;
     validate_install(delivery)
 }
@@ -407,4 +371,65 @@ fn require_regular_directory(path: &Path) -> Result<()> {
         bail!("VC runtime working directory is unsafe");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::VcRuntimeFile;
+    use super::*;
+
+    #[test]
+    fn archive_extraction_finishes_writing_before_native_inspection() {
+        use sha2::{Digest as _, Sha256};
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sgt-native-archive-{}-{unique}",
+            std::process::id()
+        ));
+        let stage = root.join("stage");
+        std::fs::create_dir_all(&stage).unwrap();
+        let mut bytes = vec![0_u8; 70];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[60..64].copy_from_slice(&64_u32.to_le_bytes());
+        bytes[64..68].copy_from_slice(b"PE\0\0");
+        bytes[68..70].copy_from_slice(&0x8664_u16.to_le_bytes());
+        let files = [VcRuntimeFile {
+            path: "bin/x64/runtime.dll",
+            size_bytes: bytes.len() as u64,
+            sha256: Box::leak(format!("{:x}", Sha256::digest(&bytes)).into_boxed_str()),
+        }];
+        let delivery = VcRuntimeDelivery {
+            version: "test",
+            asset: "fixture.zip",
+            download_url: "https://example.invalid/archive.zip",
+            size_bytes: 1,
+            sha256: "0",
+            unpacked_size_bytes: bytes.len() as u64,
+            files: Box::leak(Box::new(files)),
+        };
+        let archive_path = root.join("fixture.zip");
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+        archive
+            .start_file(
+                "bin/x64/runtime.dll",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        archive.write_all(&bytes).unwrap();
+        drop(archive.finish().unwrap());
+        extract_archive(&archive_path, &stage, &delivery, &AtomicBool::new(false)).unwrap();
+        assert_eq!(
+            std::fs::read(stage.join("bin/x64/runtime.dll")).unwrap(),
+            bytes
+        );
+        std::fs::remove_file(stage.join("bin/x64/runtime.dll")).unwrap();
+        std::fs::remove_dir(stage.join("bin/x64")).unwrap();
+        std::fs::remove_dir(stage.join("bin")).unwrap();
+        std::fs::remove_dir(stage).unwrap();
+        std::fs::remove_file(archive_path).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 }

@@ -80,6 +80,13 @@ internal fun deleteReservedCreationStagingFile(
     return deleteCreationFileConfined(root, candidate)
 }
 
+/**
+ * Sealing keeps the journal-owned staging path stable, so the bytes are pinned by
+ * digest instead: prepare() hashes before validating and begin() must see that hash.
+ */
+internal fun creationStagingDigestUnchanged(validatedSha256: String?, observedSha256: String): Boolean =
+    validatedSha256 == null || validatedSha256.equals(observedSha256, ignoreCase = true)
+
 private fun creationStagingRoot(filesDir: File, tool: CreationTool): File =
     File(filesDir, "creation/staging/${tool.wireName}")
 

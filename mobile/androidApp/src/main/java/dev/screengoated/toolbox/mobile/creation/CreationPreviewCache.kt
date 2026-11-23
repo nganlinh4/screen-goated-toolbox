@@ -46,10 +46,11 @@ internal class CreationPreviewCache {
                         StandardCopyOption.REPLACE_EXISTING,
                     )
                 }
+                // The validated temporary is moved, not rewritten, so the target holds
+                // exactly the bytes that passed validation; parse them only once.
                 require(isCreationRegularFileConfined(directory, target)) {
                     "Preview cache is unavailable"
                 }
-                validate(target)
                 target
             } finally {
                 temporary.delete()

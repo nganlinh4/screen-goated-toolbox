@@ -43,6 +43,7 @@ data class HistoryUiBundle(
     val onClearSearchQuery: () -> Unit,
     val onMaxItemsChanged: (Int) -> Unit,
     val onDeleteItem: (Long) -> Unit,
+    val mediaProofForOpen: (dev.screengoated.toolbox.mobile.history.HistoryItem) -> dev.screengoated.toolbox.mobile.history.HistoryMediaProof?,
     val onClearItems: () -> Unit,
 )
 
@@ -68,6 +69,5 @@ internal data class ShellNavActions(
     val onTranslationGummyClick: () -> Unit,
     val onImageTo3dClick: () -> Unit,
     val onImageToSvgClick: () -> Unit,
-    val onImageCreatorClick: () -> Unit,
     val onPresetClick: (String) -> Unit,
 )

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use super::state::{CurrentClip, RecentClip};
@@ -64,8 +65,8 @@ pub(super) fn save_recent(
     let mut stored = Vec::new();
     for (clip, audio) in clips {
         let wav_file = format!("{}.wav", safe_file_stem(&clip.id));
-        if std::fs::write(dir.join(&wav_file), &audio.wav_data).is_err() {
-            continue;
+        if !write_clip_if_new_or_unchanged(&dir.join(&wav_file), &audio.wav_data) {
+            return;
         }
         stored.push(StoredClip {
             id: clip.id.clone(),
@@ -109,6 +110,21 @@ pub(super) fn save_recent(
     }
 }
 
+fn write_clip_if_new_or_unchanged(path: &Path, bytes: &[u8]) -> bool {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(mut file) => file.write_all(bytes).is_ok(),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+                && std::fs::read(path).is_ok_and(|existing| existing == bytes)
+        }
+        Err(_) => false,
+    }
+}
+
 pub(super) fn save_managed_wav(prefix: &str, wav_data: &[u8]) -> Result<PathBuf, String> {
     let (_, _, dir) = paths();
     let id = chrono::Local::now()
@@ -141,8 +157,8 @@ pub(super) fn delete_managed_audio(raw: &str) {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("");
-    let owned_playground_wav = path.parent() == Some(paths().2.as_path())
-        && (file_name.starts_with("mic_") || file_name.starts_with("reference-mic_"));
+    let owned_playground_wav =
+        path.parent() == Some(paths().2.as_path()) && file_name.starts_with("mic_");
     let owned_temp_wav = path.parent() == Some(std::env::temp_dir().as_path())
         && file_name.starts_with("sgt-tts-source-");
     if path.extension().and_then(|value| value.to_str()) == Some("wav")
@@ -165,10 +181,7 @@ pub(super) fn prune_managed_audio(retained: &[String]) {
             }
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("mic_")
-                || name.starts_with("reference-mic_")
-                || name.starts_with("sgt-tts-source-")
-            {
+            if name.starts_with("mic_") || name.starts_with("sgt-tts-source-") {
                 delete_managed_audio(path.to_string_lossy().as_ref());
             }
         }
@@ -216,7 +229,7 @@ pub(super) fn decode_wav_to_24khz_mono(wav_data: &[u8]) -> Result<Vec<i16>, Stri
 }
 
 fn paths() -> (PathBuf, PathBuf, PathBuf) {
-    let config_dir = crate::paths::app_config_dir();
+    let config_dir = crate::paths::app_runtime_config_dir();
     let dir = config_dir.join("tts_playground");
     let db_path = dir.join("clips.json");
     let _ = std::fs::create_dir_all(&dir);
@@ -267,8 +280,21 @@ fn delete_regular_file(path: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{owned_clip_path, owned_legacy_clip_path};
+    use super::{owned_clip_path, owned_legacy_clip_path, write_clip_if_new_or_unchanged};
     use std::path::Path;
+
+    #[test]
+    fn existing_clip_is_never_overwritten_on_id_collision() {
+        let root =
+            std::env::temp_dir().join(format!("sgt-tts-clip-collision-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let clip = root.join("clip-1.wav");
+        std::fs::write(&clip, b"original audio").unwrap();
+        assert!(!write_clip_if_new_or_unchanged(&clip, b"different audio"));
+        assert_eq!(std::fs::read(&clip).unwrap(), b"original audio");
+        assert!(write_clip_if_new_or_unchanged(&clip, b"original audio"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn clip_cleanup_accepts_only_exact_app_owned_names() {

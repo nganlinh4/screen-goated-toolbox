@@ -101,6 +101,41 @@ class PhoneControlRuntimeOutboundTest {
         assertEquals(0, bufferedAudio.get())
     }
 
+    @Test
+    fun `sent ui goal opens its turn`() {
+        val goals = PhoneControlUserInterfaceGoalQueue()
+        val session = RecordingSession()
+        val opened = AtomicInteger()
+        assertEquals(PhoneControlUiGoalOffer.QUEUED, goals.offer("open settings", runtimeReady = true).disposition)
+
+        val outbound = PhoneControlRuntimeOutbound(
+            visualEvidence = PhoneControlRuntimeVisualEvidence(),
+            audioFrames = Channel(1),
+            bufferedAudio = AtomicInteger(),
+            controlPayloads = PhoneControlSessionPayloadQueue(),
+            screenFrames = Channel(1),
+            screenReconciliationQueued = AtomicBoolean(false),
+            sender = PhoneControlOutboundSender { 1L },
+            audioFramesSent = AtomicLong(),
+            screenFramesSent = AtomicLong(),
+            pendingWorkCount = { 0 },
+            turnPhase = { PhoneControlTurnPhase.IDLE },
+            microphoneInput = PhoneControlSetupSessionGate(),
+            userSpeaking = { false },
+            userInterfaceGoals = goals,
+            onInputSent = {},
+            onInputActivity = {},
+            onFreshScreenDelivered = {},
+            onUserInterfaceGoalSent = { opened.incrementAndGet() },
+        )
+
+        assertTrue(outbound.flush(session))
+        assertTrue(session.sent.single().contains("open settings"))
+        assertEquals(1, opened.get())
+        assertTrue(outbound.flush(session))
+        assertEquals(1, opened.get())
+    }
+
     private class RecordingSession : GeminiLiveReadySession {
         val sent = mutableListOf<String>()
         override val phase: GeminiLiveSessionPhase = GeminiLiveSessionPhase.ACTIVE

@@ -8,13 +8,16 @@ import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtec
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupAdapter
 import dev.screengoated.toolbox.mobile.phonecontrol.authority.PhoneControlProtectedSetupResult
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
+import kotlinx.coroutines.CancellationException
 
 internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter {
     override val capturePolicy = PhoneControlProtectedCapturePolicy.RETAIN_PROJECTION
     override val navigationContract = WirelessDebuggingSetupContract
 
     override fun checkpointReadiness(context: Context): PhoneControlProtectedCheckpointReadiness =
-        if (SgtAdbCommandBridge.hasPairing(context)) {
+        if (!SgtAdbPeerTrust.isAvailable()) {
+            PhoneControlProtectedCheckpointReadiness.NotReady("peer_authentication_unavailable")
+        } else if (SgtAdbCommandBridge.hasPairing(context)) {
             PhoneControlProtectedCheckpointReadiness.Ready
         } else {
             ProtectedPairingCodeReader.surfaceReadiness(context)
@@ -24,13 +27,15 @@ internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter 
         context: Context,
         token: PhoneControlProtectedCheckpointToken,
     ): PhoneControlProtectedSetupResult {
+        if (!SgtAdbPeerTrust.isAvailable()) {
+            return PhoneControlProtectedSetupResult.Failed("peer_authentication_unavailable")
+        }
         val current = SgtAdbCommandBridge.probe(context)
         if (sgtAdbPairingRelayCompleted(current)) {
             return PhoneControlProtectedSetupResult.Completed
         }
         if (SgtAdbCommandBridge.hasPairing(context)) {
-            val reconciled = runCatching { SgtAdbCommandBridge.reconnect(context) }
-                .getOrNull()
+            val reconciled = reconcileSgtAdbPairing { SgtAdbCommandBridge.reconnect(context) }
             if (reconciled != null && sgtAdbPairingRelayCompleted(reconciled)) {
                 return PhoneControlProtectedSetupResult.Completed
             }
@@ -68,6 +73,17 @@ internal object SgtAdbProtectedSetupAdapter : PhoneControlProtectedSetupAdapter 
     }
 
     private const val PAIRING_CODE_TIMEOUT_MS = 10_000L
+}
+
+/** A failed reconnect falls through to pairing; checkpoint cancellation still propagates. */
+internal suspend fun reconcileSgtAdbPairing(
+    reconnect: suspend () -> SgtAdbBridgeProbe,
+): SgtAdbBridgeProbe? = try {
+    reconnect()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    null
 }
 
 internal fun sgtAdbPairingRelayCompleted(result: SgtAdbBridgeProbe): Boolean =

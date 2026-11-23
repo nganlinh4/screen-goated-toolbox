@@ -4,12 +4,10 @@
 use std::io::Cursor;
 use std::path::Path;
 
-pub(crate) const SUPPORTED_AUDIO_EXTENSIONS: &[&str] = &[
-    "wav", "mp3", "flac", "ogg", "m4a", "m4b", "aac", "alac", "aiff", "aif", "opus",
-];
-
+/// Shared with the recorder worker, which imports dropped audio under the
+/// same extensions.
 pub(crate) fn is_supported_audio_extension(extension: &str) -> bool {
-    SUPPORTED_AUDIO_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+    sgt_recorder_protocol::supported_audio_extension(extension).is_some()
 }
 
 /// Load an audio file and convert it to interleaved 16-bit PCM WAV.
@@ -59,16 +57,21 @@ fn decode_with_media_foundation(path: &Path) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    use sgt_recorder_protocol::SUPPORTED_AUDIO_EXTENSIONS;
+
     #[test]
     fn advertised_extensions_are_the_exact_core_audio_contract() {
         assert_eq!(
             SUPPORTED_AUDIO_EXTENSIONS,
             [
                 "wav", "mp3", "flac", "ogg", "m4a", "m4b", "aac", "alac", "aiff", "aif", "opus",
+                "mka",
             ]
         );
         assert!(!is_supported_audio_extension("wma"));
         assert!(is_supported_audio_extension("OPUS"));
+        // The recorder imports Matroska audio, so the host must route it there.
+        assert!(is_supported_audio_extension("mka"));
     }
 
     #[test]

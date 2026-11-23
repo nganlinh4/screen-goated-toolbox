@@ -19,8 +19,8 @@ export function CanvasResizeOverlay({
   commitBatch,
   onDragStateChange
 }: CanvasResizeOverlayProps) {
-  const moveListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
-  const upListenerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  const moveListenerRef = useRef<((event: PointerEvent) => void) | null>(null);
+  const upListenerRef = useRef<((event: PointerEvent) => void) | null>(null);
   const dragActiveRef = useRef(false);
   const labelHideTimeoutRef = useRef<number | null>(null);
   const [isLabelVisible, setIsLabelVisible] = useState(false);
@@ -33,11 +33,12 @@ export function CanvasResizeOverlay({
       cancelAnimationFrame(pendingAnimationFrameId);
     }
     if (moveListenerRef.current) {
-      window.removeEventListener('mousemove', moveListenerRef.current);
+      window.removeEventListener('pointermove', moveListenerRef.current);
       moveListenerRef.current = null;
     }
     if (upListenerRef.current) {
-      window.removeEventListener('mouseup', upListenerRef.current);
+      window.removeEventListener('pointerup', upListenerRef.current);
+      window.removeEventListener('pointercancel', upListenerRef.current);
       upListenerRef.current = null;
     }
     if (dragActiveRef.current) {
@@ -85,12 +86,10 @@ export function CanvasResizeOverlay({
     };
   }, [clearWindowDragListeners]);
 
-  const container = previewContainerRef.current;
-  if (!container) return null;
+  const containerSize = useObservedSize(previewContainerRef);
+  if (!containerSize) return null;
 
-  const containerRect = container.getBoundingClientRect();
-  const containerW = containerRect.width;
-  const containerH = containerRect.height;
+  const { width: containerW, height: containerH } = containerSize;
   const canvasW = backgroundConfig.canvasWidth || 1920;
   const canvasH = backgroundConfig.canvasHeight || 1080;
 
@@ -103,7 +102,8 @@ export function CanvasResizeOverlay({
   const oLeft = (containerW - dispW) / 2;
   const oTop = (containerH - dispH) / 2;
 
-  const handleDragStart = (e: React.MouseEvent, type: string) => {
+  const handleDragStart = (e: React.PointerEvent<HTMLDivElement>, type: string) => {
+    if (!e.isPrimary || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     clearWindowDragListeners(false);
@@ -116,6 +116,13 @@ export function CanvasResizeOverlay({
     onDragStateChange?.(true);
     beginBatch();
 
+    const pointerId = e.pointerId;
+    try {
+      // Keep receiving moves when the pointer leaves the WebView mid-drag.
+      e.currentTarget.setPointerCapture(pointerId);
+    } catch {
+      // Capture is best-effort; window listeners below still track the drag.
+    }
     const startX = e.clientX;
     const startY = e.clientY;
     const startW = canvasW;
@@ -124,43 +131,54 @@ export function CanvasResizeOverlay({
     const pxPerCanvas = scale > 0 ? 1 / scale : 1;
 
     let rafId: number | null = null;
-    let latestEvent: MouseEvent | null = null;
+    let latestEvent: PointerEvent | null = null;
 
-    const handleMove = (me: MouseEvent) => {
+    const applyLatestResize = () => {
+      const evt = latestEvent;
+      latestEvent = null;
+      if (!evt) return;
+      const dx = evt.clientX - startX;
+      const dy = evt.clientY - startY;
+      let newW = startW;
+      let newH = startH;
+
+      if (type.includes('e')) newW = startW + dx * pxPerCanvas * 2;
+      if (type.includes('w')) newW = startW - dx * pxPerCanvas * 2;
+      if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
+      if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
+
+      const dimensions = resolveOutputCanvasDimensions(
+        Math.max(100, Math.round(newW)),
+        Math.max(100, Math.round(newH)),
+      );
+      newW = dimensions.width;
+      newH = dimensions.height;
+
+      setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
+    };
+
+    const handleMove = (me: PointerEvent) => {
+      if (me.pointerId !== pointerId) return;
       latestEvent = me;
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        const evt = latestEvent;
-        if (!evt) return;
-        const dx = evt.clientX - startX;
-        const dy = evt.clientY - startY;
-        let newW = startW;
-        let newH = startH;
-
-        if (type.includes('e')) newW = startW + dx * pxPerCanvas * 2;
-        if (type.includes('w')) newW = startW - dx * pxPerCanvas * 2;
-        if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
-        if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
-
-        const dimensions = resolveOutputCanvasDimensions(
-          Math.max(100, Math.round(newW)),
-          Math.max(100, Math.round(newH)),
-        );
-        newW = dimensions.width;
-        newH = dimensions.height;
-
-        setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
+        applyLatestResize();
       });
     };
 
-    const handleUp = () => {
+    const handleUp = (ue: PointerEvent) => {
+      if (ue.pointerId !== pointerId) return;
+      // A move still waiting for its frame is the size the user released at;
+      // apply it inside the drag's undo batch before committing.
+      applyLatestResize();
       clearWindowDragListeners(true, rafId);
     };
     moveListenerRef.current = handleMove;
     upListenerRef.current = handleUp;
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
   };
 
   const handles = [
@@ -195,11 +213,42 @@ export function CanvasResizeOverlay({
           <div
             key={handle.t}
             className={`canvas-resize-handle absolute w-2.5 h-2.5 bg-white/80 border border-white/50 rounded-full -translate-x-1/2 -translate-y-1/2 ${handle.cursor} pointer-events-auto hover:scale-150 transition-transform`}
-            style={{ left: handle.x, top: handle.y }}
-            onMouseDown={(e) => handleDragStart(e, handle.t)}
+            style={{ left: handle.x, top: handle.y, touchAction: 'none' }}
+            onPointerDown={(e) => handleDragStart(e, handle.t)}
           />
         ))}
       </div>
     </div>
   );
+}
+
+interface ElementSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Container size kept in state so handles re-layout whenever it resizes.
+ * A passive effect runs after every ref in the tree is attached, including an
+ * ancestor container's, so the first measurement sees the mounted element.
+ */
+function useObservedSize(ref: React.RefObject<HTMLElement | null>): ElementSize | null {
+  const [size, setSize] = useState<ElementSize | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const rect = element.getBoundingClientRect();
+      setSize((prev) =>
+        prev && prev.width === rect.width && prev.height === rect.height
+          ? prev
+          : { width: rect.width, height: rect.height },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return size;
 }

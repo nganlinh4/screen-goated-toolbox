@@ -16,9 +16,9 @@ Text-to-speech reads entered or generated text with the selected voice. Cloud vo
 
 ## Creation projects
 
-Image to 3D, Image to SVG, and Image Creator use project-style histories. A project keeps its source, previews, job state, and generated artifacts so the user can return to it. Generation can continue after its mini-app window closes. The app keeps results in the project until the user explicitly downloads the artifact they want.
+Image to 3D and Image to SVG use project-style histories. A project keeps its source, previews, job state, and generated artifacts so the user can return to it. Generation can continue after its mini-app window closes. The app keeps results in the project until the user explicitly downloads the artifact they want.
 
-Image to 3D accepts a reference image and produces a model preview. Available refinement actions depend on the completed artifact and current account capability. Image to SVG converts a reference image into scalable vector output with configurable detail and segmentation. Image Creator produces new images from instructions and optional references.
+Image to 3D accepts a reference image and produces a model preview. Available refinement actions depend on the completed artifact and current account capability. Image to SVG converts a reference image into scalable vector output with configurable detail and segmentation.
 
 Downloaded artifacts are user-owned files. When a user chooses Download, the app publishes the selected result to the system Downloads collection. Internal project files are not presented as the user's final export.
 

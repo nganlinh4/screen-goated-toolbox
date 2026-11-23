@@ -13,11 +13,7 @@ import okhttp3.Headers
 object ModelUsageStats {
     const val FRESH_THROUGH_SECONDS = 300L
     const val AGING_THROUGH_SECONDS = 900L
-    private val localRuntimeProviders = setOf(
-        PresetModelProvider.OLLAMA,
-        PresetModelProvider.PARAKEET,
-        PresetModelProvider.MOONSHINE,
-    )
+    private val localRuntimeProviders = setOf(PresetModelProvider.OLLAMA)
 
     enum class UsageScope {
         PROVIDER,

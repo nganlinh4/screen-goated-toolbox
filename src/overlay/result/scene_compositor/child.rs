@@ -2,6 +2,7 @@ use super::card_document::compositor_document;
 use super::dcomp::{DcompHost, build_host};
 use super::mailbox::{CommandBuffer, PushResult};
 use super::protocol::{ChildEvent, HostCommand, SceneCard};
+use serde::Deserialize;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -21,6 +22,14 @@ use windows::core::w;
 const WM_DRAIN_COMMANDS: u32 = WM_APP + 91;
 #[path = "command_delivery.rs"]
 mod command_delivery;
+#[path = "cursor_poll.rs"]
+mod cursor_poll;
+#[path = "renderer_event_gate.rs"]
+mod renderer_event_gate;
+#[path = "topology.rs"]
+pub(super) mod topology;
+#[path = "topology_transition.rs"]
+pub(super) mod topology_transition;
 const WM_REFRESH_VISUAL: u32 = WM_APP + 92;
 const WM_RECONCILE_STACK: u32 = WM_APP + 93;
 static STACK_RECONCILIATION_PENDING: AtomicBool = AtomicBool::new(false);
@@ -41,17 +50,36 @@ thread_local! {
 pub fn run() -> anyhow::Result<()> {
     crate::initialization::init_com_and_dpi();
     let visual_hwnd = create_host_window()?;
-    HOST_HWND.store(visual_hwnd.0 as isize, Ordering::SeqCst);
-
-    let origin = super::isolated_server::start()?;
-    let compositor_html = compositor_document(&origin);
-    super::isolated_server::set_compositor_html(compositor_html);
-    let page_url = format!("{origin}/index.html");
-
+    let mut initial_rect = windows::Win32::Foundation::RECT::default();
+    unsafe { GetWindowRect(visual_hwnd, &mut initial_rect)? };
     let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) };
     let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
     let x = super::compositor_host_x(unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) }, width);
     let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    anyhow::ensure!(
+        topology::matches_requested_bounds(initial_rect, x, y, width, height),
+        "compositor host bounds mismatch"
+    );
+    topology::set_size(width, height);
+    topology::set_origin(topology::coordinate_origin(
+        topology::Origin {
+            x: initial_rect.left,
+            y: initial_rect.top,
+        },
+        topology::Origin {
+            x: unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) },
+            y: unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) },
+        },
+        super::acceptance_offscreen(),
+    ));
+    HOST_HWND.store(visual_hwnd.0 as isize, Ordering::SeqCst);
+
+    let resource_server = super::isolated_server::start()?;
+    let origin = resource_server.origin();
+    let compositor_html = compositor_document();
+    resource_server.set_html(compositor_html);
+    let page_url = format!("{origin}/index.html");
+
     let software = super::supervisor::software_rendering_requested();
 
     let dcomp_host = build_host(visual_hwnd, software, width, height, 1.0, &page_url)?;
@@ -61,7 +89,9 @@ pub fn run() -> anyhow::Result<()> {
     HOST.with(|slot| *slot.borrow_mut() = Some(dcomp_host));
 
     unsafe {
-        let _ = SetTimer(Some(visual_hwnd), INPUT_TIMER_ID, 100, None);
+        if SetTimer(Some(visual_hwnd), INPUT_TIMER_ID, 100, None) == 0 {
+            crate::crash_report::exit(1, "renderer-input-timer-failed");
+        }
     }
     start_input_thread();
 
@@ -187,7 +217,9 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
-                resize_host(hwnd);
+                if HOST_HWND.load(Ordering::SeqCst) != 0 {
+                    topology_transition::begin(hwnd);
+                }
                 LRESULT(0)
             }
             WM_TIMER if wparam.0 == INPUT_TIMER_ID => {
@@ -196,7 +228,10 @@ unsafe extern "system" fn window_proc(
                         host.poll_heartbeat();
                     }
                 });
-                poll_compositor_cursor();
+                topology_transition::tick(hwnd);
+                if !topology_transition::active() {
+                    poll_compositor_cursor();
+                }
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -259,24 +294,61 @@ fn drain_commands(hwnd: HWND) {
 }
 
 pub(super) fn handle_renderer_event(body: &str) {
+    let message = serde_json::from_str::<serde_json::Value>(body).ok();
+    if !renderer_event_gate::accept(message.as_ref()) {
+        return;
+    }
+    if let Some(message) = message.as_ref()
+        && message.get("action").and_then(|action| action.as_str())
+            == Some("control_tooltip_region")
+    {
+        let rect = message
+            .get("rect")
+            .and_then(|rect| super::protocol::SceneRect::deserialize(rect).ok())
+            .filter(|rect| rect.width > 0 && rect.height > 0);
+        if super::visual_region::set_tooltip(rect) {
+            request_visual_region();
+        }
+        return;
+    }
     if let Some(token) = body
         .strip_prefix("scene_painted:")
         .and_then(|value| value.parse().ok())
     {
-        if command_delivery::current_paint_token(token) {
+        if !topology_transition::active() && command_delivery::current_paint_token(token) {
             super::visual_region::mark_first_scene_painted();
             let visual = HWND(HOST_HWND.load(Ordering::SeqCst) as _);
             if !visual.is_invalid() {
-                super::region::update(visual, true);
+                super::region::update(visual);
             }
         }
         return;
     }
     let host_value = HOST_HWND.load(Ordering::SeqCst);
-    if host_value != 0 {
+    if host_value != 0
+        && message
+            .as_ref()
+            .is_some_and(|message| message.get("action").is_some())
+    {
         let host = HWND(host_value as *mut std::ffi::c_void);
         let outcome = {
-            let cards = CARDS.lock().unwrap();
+            let region_only = matches!(
+                message
+                    .as_ref()
+                    .and_then(|value| value.get("action"))
+                    .and_then(|value| value.as_str()),
+                Some(
+                    "update_clickable_regions"
+                        | "restore_clickable_regions"
+                        | "processing_control_regions"
+                        | "release_refine_focus"
+                )
+            );
+            let cards = if region_only {
+                HashMap::new()
+            } else {
+                CARDS.lock().unwrap().clone()
+            };
             let input = HWND(INPUT_SURFACE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
             super::button_input::handle_renderer_message(body, input, &cards)
         };
@@ -284,21 +356,27 @@ pub(super) fn handle_renderer_event(body: &str) {
             super::button_input::RendererInput::Unhandled => {}
             super::button_input::RendererInput::Handled => return,
             super::button_input::RendererInput::RefreshRegion => {
-                super::region::update(host, true);
+                super::region::update(host);
                 return;
             }
-            super::button_input::RendererInput::FocusRefine { id } => {
+            super::button_input::RendererInput::FocusRefine { id, session } => {
                 if !super::acceptance_offscreen() {
                     let input_val = INPUT_SURFACE_HWND.load(Ordering::SeqCst);
                     if input_val != 0 {
                         super::input_surface::activate_for_refine(HWND(input_val as *mut _));
                     }
                 }
+                let epoch = message
+                    .as_ref()
+                    .and_then(|value| value.get("topology_epoch"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let epoch = serde_json::to_string(epoch).expect("epoch must serialize");
                 evaluate_script(&format!(
-                    "window.__SGT_REFINE_EDITOR__?.nativeFocusGranted('{}');",
-                    id
+                    "window.__SGT_REFINE_EDITOR__?.nativeFocusGranted('{}', '{}', {});",
+                    id, session, epoch
                 ));
-                super::region::update(host, true);
+                super::region::update(host);
                 return;
             }
             super::button_input::RendererInput::ReleaseRefineFocus => {
@@ -306,7 +384,7 @@ pub(super) fn handle_renderer_event(body: &str) {
                 if input_val != 0 {
                     super::input_surface::restore_nonactivating(HWND(input_val as *mut _));
                 }
-                super::region::update(host, true);
+                super::region::update(host);
                 return;
             }
             super::button_input::RendererInput::Event(event) => {
@@ -319,14 +397,14 @@ pub(super) fn handle_renderer_event(body: &str) {
                     _ => None,
                 };
                 if let Some(gesture_id) = started_gesture {
-                    super::region::update(host, true);
+                    super::region::update(host);
                     evaluate_script(&format!(
                         "window.__SGT_BUTTON_SCENE__?.setDragActive(true,{gesture_id});"
                     ));
                 }
                 emit_event(event);
                 if started_gesture.is_none() {
-                    super::region::update(host, true);
+                    super::region::update(host);
                 }
                 return;
             }
@@ -335,7 +413,10 @@ pub(super) fn handle_renderer_event(body: &str) {
     match body {
         "renderer_ready" => {
             RENDERER_READY.store(true, Ordering::SeqCst);
-            evaluate_script(&super::control_surface::monitor_work_areas_script());
+            let origin = topology::origin();
+            evaluate_script(&super::control_surface::monitor_work_areas_script((
+                origin.x, origin.y,
+            )));
             emit_event(ChildEvent::Ready);
             let hwnd_value = HOST_HWND.load(Ordering::SeqCst);
             if hwnd_value != 0 {
@@ -363,13 +444,15 @@ pub(super) fn handle_renderer_event(body: &str) {
                     });
                 }
                 match event {
+                    ChildEvent::StateAcknowledged { .. } if topology_transition::active() => {
+                        topology_transition::hold_ack(event);
+                    }
                     ChildEvent::ProcessingFinished { id } => {
                         super::processing::child_finished(id);
-                        super::region::update(HWND(HOST_HWND.load(Ordering::SeqCst) as _), true);
+                        super::region::update(HWND(HOST_HWND.load(Ordering::SeqCst) as _));
                         emit_event(event);
                     }
-                    ChildEvent::Navigation { .. }
-                    | ChildEvent::ProcessingDiagnostic { .. }
+                    ChildEvent::ProcessingDiagnostic { .. }
                     | ChildEvent::SourceImageReady { .. }
                     | ChildEvent::NavigationRequest { .. }
                     | ChildEvent::Interaction { .. }
@@ -393,6 +476,7 @@ pub(super) fn handle_renderer_event(body: &str) {
                     | ChildEvent::StackChanged
                     | ChildEvent::Heartbeat
                     | ChildEvent::ResyncRequested
+                    | ChildEvent::TopologyHold { .. }
                     | ChildEvent::RendererFailure { .. } => {}
                 }
             }
@@ -411,28 +495,19 @@ fn click_acceptance_link() {
 
 fn poll_compositor_cursor() {
     if let Some(event) = super::button_input::reconcile_released_pointer() {
+        cursor_poll::invalidate();
         emit_event(event);
         let host_value = HOST_HWND.load(Ordering::SeqCst);
         if host_value != 0 {
-            super::region::update(HWND(host_value as *mut std::ffi::c_void), true);
+            super::region::update(HWND(host_value as *mut std::ffi::c_void));
         }
         return;
     }
-    if super::button_input::captures_desktop_input() || super::button_input::is_dragging() {
-        return;
-    }
-    let mut cursor = windows::Win32::Foundation::POINT::default();
-    if unsafe { GetCursorPos(&mut cursor) }.is_err() {
-        return;
-    }
-    let virtual_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    let virtual_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-    let script = format!(
-        "window.updateCursorPosition?.({}/(window.devicePixelRatio||1),{}/(window.devicePixelRatio||1));",
-        cursor.x - virtual_x,
-        cursor.y - virtual_y
+    cursor_poll::poll(
+        RENDERER_READY.load(Ordering::SeqCst)
+            && !super::button_input::captures_desktop_input()
+            && !super::button_input::is_dragging(),
     );
-    evaluate_script(&script);
 }
 
 fn evaluate_script(script: &str) {
@@ -441,41 +516,6 @@ fn evaluate_script(script: &str) {
             host.evaluate_script(script);
         }
     });
-}
-
-fn resize_host(hwnd: HWND) {
-    unsafe {
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1);
-        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
-        let x = super::compositor_host_x(GetSystemMetrics(SM_XVIRTUALSCREEN), width);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOPMOST),
-            x,
-            y,
-            width,
-            height,
-            SWP_NOACTIVATE,
-        );
-        HOST.with(|slot| {
-            if let Some(host) = slot.borrow().as_ref() {
-                let _ = host.update_display(width, height, 1.0);
-            }
-        });
-        let input_val = INPUT_SURFACE_HWND.load(Ordering::SeqCst);
-        if input_val != 0 {
-            super::input_surface::sync_input_surface_bounds(
-                HWND(input_val as *mut std::ffi::c_void),
-                x,
-                y,
-                width,
-                height,
-            );
-        }
-    }
-    evaluate_script(&super::control_surface::monitor_work_areas_script());
-    super::region::update(hwnd, true);
 }
 
 pub(super) fn request_visual_region() {
@@ -493,21 +533,14 @@ pub(super) fn request_stack_reconciliation() {
 }
 
 fn refresh_visual_region() {
+    if topology_transition::active() {
+        return;
+    }
     let value = HOST_HWND.load(Ordering::SeqCst);
     if value == 0 {
         return;
     }
-    let cards = CARDS.lock().unwrap();
-    let buttons = super::button_input::interactive_regions();
-    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) };
-    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) };
-    if !super::visual_region::update(HWND(value as *mut _), &cards, &buttons, width, height) {
-        let input = INPUT_SURFACE_HWND.load(Ordering::SeqCst);
-        if input != 0 {
-            super::visual_region::hide(HWND(input as *mut _));
-        }
-        crate::crash_report::exit(1, "renderer-visual-region-failed");
-    }
+    super::region::update(HWND(value as *mut _));
 }
 
 static EVENT_TX: LazyLock<std::sync::mpsc::SyncSender<ChildEvent>> = LazyLock::new(|| {
@@ -530,7 +563,18 @@ static EVENT_TX: LazyLock<std::sync::mpsc::SyncSender<ChildEvent>> = LazyLock::n
     tx
 });
 
-pub(super) fn emit_event(event: ChildEvent) {
+pub(super) fn emit_event(mut event: ChildEvent) {
+    if let ChildEvent::ResizeFinished { rect, .. } = &mut event {
+        let origin = topology::origin();
+        let Some(x) = rect.x.checked_add(origin.x) else {
+            crate::crash_report::exit(1, "renderer-coordinate-overflow");
+        };
+        let Some(y) = rect.y.checked_add(origin.y) else {
+            crate::crash_report::exit(1, "renderer-coordinate-overflow");
+        };
+        rect.x = x;
+        rect.y = y;
+    }
     if EVENT_TX.try_send(event).is_err() {
         // Lost lifecycle events invalidate the input contract. Ending this owned
         // child removes its HWNDs and lets the parent supervisor resynchronize.

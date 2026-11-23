@@ -1,11 +1,23 @@
+use crate::overlay::store_support::valid_identifier;
 use std::path::Path;
 
 use super::*;
 
 pub(super) fn validate_input(delivery: &PublishedDelivery) -> Result<(), String> {
+    validate_input_structure(delivery)?;
+    publication::output_identity(Path::new(&delivery.output_path))?;
+    crate::overlay::creation_output::validate_staging_path(
+        &delivery.dispatch_id,
+        &delivery.output_name,
+        Path::new(&delivery.staging_path),
+    )?;
+    Ok(())
+}
+
+pub(super) fn validate_input_structure(delivery: &PublishedDelivery) -> Result<(), String> {
     validate_product(delivery.product)?;
-    if !valid_id(&delivery.job_id)
-        || !valid_id(&delivery.dispatch_id)
+    if !valid_identifier(&delivery.job_id)
+        || !valid_identifier(&delivery.dispatch_id)
         || delivery.source_path.len() > MAX_PATH_BYTES
         || delivery.staging_path.len() > MAX_PATH_BYTES
         || delivery.output_path.len() > MAX_PATH_BYTES
@@ -27,12 +39,15 @@ pub(super) fn validate_input(delivery: &PublishedDelivery) -> Result<(), String>
     {
         return Err("Creation delivery output assignment is invalid.".to_string());
     }
-    publication::output_identity(Path::new(&delivery.output_path))?;
-    crate::overlay::creation_output::validate_staging_path(
+    crate::overlay::creation_path::normalized_absolute(Path::new(&delivery.output_path))?;
+    crate::overlay::creation_output::validate_staging_assignment(
         &delivery.dispatch_id,
         output_name,
         Path::new(&delivery.staging_path),
     )?;
+    if let Some(companion) = &delivery.companion {
+        super::companion::validate_assignment_structure(delivery, companion)?;
+    }
     Ok(())
 }
 
@@ -53,8 +68,10 @@ pub(super) fn verify_active_intent(
         output_name,
     )?;
     if !same_path(&assignment.staging_path.to_string_lossy(), staging_path)
-        || publication::output_identity(&assignment.output_path)?
-            != publication::output_identity(Path::new(output_path))?
+        || !crate::overlay::creation_path::same(
+            &publication::output_identity(&assignment.output_path)?,
+            &publication::output_identity(Path::new(output_path))?,
+        )?
     {
         return Err("Creation delivery conflicts with its accepted request.".to_string());
     }
@@ -63,8 +80,8 @@ pub(super) fn verify_active_intent(
 
 pub(super) fn validate_cancellation(cancellation: &CancelledDelivery) -> Result<(), String> {
     validate_product(cancellation.product)?;
-    if !valid_id(&cancellation.job_id)
-        || !valid_id(&cancellation.dispatch_id)
+    if !valid_identifier(&cancellation.job_id)
+        || !valid_identifier(&cancellation.dispatch_id)
         || !valid_fingerprint(&cancellation.request_fingerprint)
         || cancellation.output_name.is_empty()
         || cancellation.output_name.len() > 255
@@ -123,14 +140,6 @@ pub(super) fn validate_product(product: &str) -> Result<(), String> {
         .ok_or_else(|| "Creation delivery product is invalid.".to_string())
 }
 
-fn valid_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_ID_BYTES
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
 fn valid_fingerprint(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
@@ -150,5 +159,5 @@ fn valid_product_output_name(product: &str, output_name: &str) -> bool {
 }
 
 pub(super) fn same_path(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+    crate::overlay::creation_path::same(left, right).unwrap_or(false)
 }

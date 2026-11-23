@@ -1,4 +1,5 @@
 import type { BackgroundConfig } from '@/types/video';
+import type { Translations } from '@/i18n';
 import sharedBackgroundPresets from '@/config/shared-background-presets.json';
 
 export type BuiltInBackgroundId = Exclude<BackgroundConfig['backgroundType'], 'custom'>;
@@ -275,3 +276,27 @@ export function getBuiltInBackgroundPreset(id: BuiltInBackgroundId): BuiltInBack
 export function isBuiltInBackgroundId(value: string): value is BuiltInBackgroundId {
   return value in backgroundCatalog.backgrounds;
 }
+
+/** Translation key of each built-in background's accessible name. */
+export const BUILT_IN_BACKGROUND_NAME_KEYS: Record<
+  BuiltInBackgroundId,
+  Extract<keyof Translations, `backgroundPreset${string}`>
+> = {
+  solid: 'backgroundPresetSolid',
+  white: 'backgroundPresetWhite',
+  gradient1: 'backgroundPresetGradient1',
+  gradient2: 'backgroundPresetGradient2',
+  gradient3: 'backgroundPresetGradient3',
+  gradient4: 'backgroundPresetGradient4',
+  gradient5: 'backgroundPresetGradient5',
+  gradient6: 'backgroundPresetGradient6',
+  gradient7: 'backgroundPresetGradient7',
+  gradient8: 'backgroundPresetGradient8',
+  gradient9: 'backgroundPresetGradient9',
+  gradient10: 'backgroundPresetGradient10',
+  gradient11: 'backgroundPresetGradient11',
+  gradient12: 'backgroundPresetGradient12',
+  gradient13: 'backgroundPresetGradient13',
+  gradient14: 'backgroundPresetGradient14',
+  gradient15: 'backgroundPresetGradient15',
+};

@@ -1,8 +1,11 @@
-import { useEffect, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
 import { BackgroundConfig, VideoSegment, ProjectComposition } from "@/types/video";
 import { LAST_BG_CONFIG_KEY } from "@/lib/appUtils";
 import { saveCropPref } from "@/hooks/useVideoState";
 import type { PersistOptions } from "@/hooks/useSequenceComposition";
+
+const AUTOSAVE_DEBOUNCE_MS = 3000;
+const AUTOSAVE_BUSY_RETRY_MS = 1000;
 
 export interface UseAppEffectsParams {
   // Segment ref sync
@@ -48,6 +51,10 @@ export function useAppEffects({
   videoRef,
   isProcessing,
 }: UseAppEffectsParams) {
+  // Read when a deferred autosave fires, so it sees the current export/recording state.
+  const busyRef = useRef({ isProcessing, isRecording });
+  busyRef.current = { isProcessing, isRecording };
+
   // Keep segmentRef current so event handlers always read latest segment
   useEffect(() => {
     segmentRef.current = segment;
@@ -107,17 +114,22 @@ export function useAppEffects({
     return () => window.removeEventListener("toggle-recording", handleToggle);
   }, [isRecording, showHotkeyDialog, onStopRecording, handleStartRecording]);
 
-  // Auto-save — debounced, skips during playback/export/recording to avoid jank
+  // Auto-save — debounced, deferred (not dropped) during playback/export/recording to avoid jank
   useEffect(() => {
     if (!currentProjectId || !segment) return;
     if (!currentVideo) return;
-    const timer = setTimeout(() => {
-      // Skip save during activities that need smooth performance
-      if (videoRef.current && !videoRef.current.paused) return;
-      if (isProcessing) return;
-      if (isRecording) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const attemptSave = () => {
+      const isBusy = (videoRef.current && !videoRef.current.paused) ||
+        busyRef.current.isProcessing || busyRef.current.isRecording;
+      if (isBusy) {
+        // The edit is still unsaved; nothing re-arms this effect until the next edit.
+        timer = setTimeout(attemptSave, AUTOSAVE_BUSY_RETRY_MS);
+        return;
+      }
       void persistRef.current?.({ refreshList: true, includeMedia: true });
-    }, 3000);
+    };
+    timer = setTimeout(attemptSave, AUTOSAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

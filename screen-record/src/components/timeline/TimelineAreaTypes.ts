@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import type { ClipAudioView } from "@/hooks/useClipAudioView";
 import type {
   AudioDownloadTrackKind,
   AudioGainPoint,
@@ -28,7 +29,7 @@ export interface TimelineAreaProps {
   setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
   setActivePanel: (panel: ActivePanel) => void;
-  setSegment: (segment: VideoSegment | null) => void;
+  setSegment: (segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null)) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
   onClearTimelineFocus?: () => void;
@@ -76,6 +77,8 @@ export interface TimelineAreaProps {
   audioTrackVolumePoints?: AudioGainPoint[];
   onUpdateAudioTrackVolumePoints?: (points: AudioGainPoint[]) => void;
   narrationSegments?: NarrationSegment[];
+  /** Multi-clip projects: maps project-time audio and narration onto the loaded clip's timeline. */
+  audioTimeView?: ClipAudioView | null;
   liveNarrationProjectId?: string | null;
   onNarrationSegmentClick?: (id: string) => void;
   onUpdateNarrationSegment?: (id: string, patch: Partial<NarrationSegment>) => void;

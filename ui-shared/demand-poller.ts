@@ -11,8 +11,11 @@ export class DemandPoller {
   private presentTimer: number | undefined;
   private pollActive = false;
   private disposed = false;
+  private readonly options: DemandPollerOptions;
 
-  constructor(private readonly options: DemandPollerOptions) {}
+  constructor(options: DemandPollerOptions) {
+    this.options = options;
+  }
 
   start() {
     if (this.disposed || !this.options.hasWork()) return;

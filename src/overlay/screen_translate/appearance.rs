@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use super::contract::DetectedTextRegion;
 use super::geometry::PixelRegion;
 
 const BACKGROUND_BUCKETS: usize = 512;
@@ -13,21 +12,6 @@ pub(crate) struct VisualSignature {
     pub background_confidence: u8,
     pub foreground_rgb: Option<[u8; 3]>,
     pub foreground_confidence: u8,
-}
-
-pub(crate) fn annotate_backgrounds(image: &image::RgbaImage, regions: &mut [DetectedTextRegion]) {
-    for region in regions {
-        let pixels =
-            super::geometry::normalized_region(region.bounds, image.width(), image.height());
-        region.appearance = clipped(pixels, image.width(), image.height())
-            .and_then(|pixels| strongest_background(image, pixels))
-            .map(|(background_rgb, background_confidence)| VisualSignature {
-                background_rgb,
-                background_confidence,
-                foreground_rgb: None,
-                foreground_confidence: 0,
-            });
-    }
 }
 
 pub(crate) fn analyze_region(
@@ -392,37 +376,5 @@ mod tests {
         .unwrap();
         assert_eq!(signature.background_rgb, [18, 20, 22]);
         assert!(signature.foreground_rgb.is_some());
-    }
-
-    #[test]
-    fn grouping_background_is_identical_to_full_render_analysis() {
-        let image = image::RgbaImage::from_fn(80, 40, |x, y| {
-            image::Rgba([
-                ((x * 17 + y * 7) % 256) as u8,
-                (x * 3) as u8,
-                (y * 5) as u8,
-                255,
-            ])
-        });
-        let mut regions = vec![DetectedTextRegion {
-            id: 1,
-            bounds: super::super::contract::NormalizedBounds {
-                left: 100,
-                top: 100,
-                right: 900,
-                bottom: 900,
-            },
-            source_text: String::new(),
-            source_alternatives: Vec::new(),
-            recognition: Default::default(),
-            appearance: None,
-        }];
-        annotate_backgrounds(&image, &mut regions);
-        let pixels = super::super::geometry::normalized_region(regions[0].bounds, 80, 40);
-        let full = analyze_region(&image, pixels).unwrap();
-        let grouping = regions[0].appearance.unwrap();
-        assert_eq!(grouping.background_rgb, full.background_rgb);
-        assert_eq!(grouping.background_confidence, full.background_confidence);
-        assert_eq!(grouping.foreground_rgb, None);
     }
 }

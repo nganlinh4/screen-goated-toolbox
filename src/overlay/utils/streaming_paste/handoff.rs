@@ -1,17 +1,14 @@
 //! Verify the captured input destination, not just its outer foreground window.
-use super::{GENERATION, Shared, Target};
+use super::{Shared, Target};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub(super) fn ready(target: &Target, shared: &Shared, generation: u64, abort: &AtomicBool) -> bool {
+pub(super) fn ready(target: &Target, shared: &Shared, abort: &AtomicBool) -> bool {
     let start = Instant::now();
     settle(
         || {
             let state = shared.state.lock().unwrap();
-            let active = !state.expired
-                && !state.overflow
-                && !abort.load(Ordering::SeqCst)
-                && GENERATION.load(Ordering::SeqCst) == generation;
+            let active = !state.expired && !state.overflow && !abort.load(Ordering::SeqCst);
             drop(state);
             active && target.check().is_ok()
         },

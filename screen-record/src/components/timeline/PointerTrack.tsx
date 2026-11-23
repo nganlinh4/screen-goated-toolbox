@@ -7,12 +7,15 @@ import {
   isTimeNearRangeBoundary,
 } from "./trackHoverUtils";
 import { useTrackRangeSelect } from './useTrackRangeSelect';
+import { useSettings } from '@/hooks/useSettings';
+import { rangeLaneKeys, type TimelineKeyboardEdits } from './useTimelineKeyboardEdits';
 
 interface PointerTrackProps {
   segment: VideoSegment;
   duration: number;
   onPointerClick: (id: string, splitTime: number) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
+  keyboardEdits?: TimelineKeyboardEdits;
   onAddPointerSegment?: (atTime?: number) => void;
   onPointerHover?: (id: string | null) => void;
   onDeletePointerSegments?: (ids: string[]) => void;
@@ -26,6 +29,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
   duration,
   onPointerClick,
   onHandleDragStart,
+  keyboardEdits,
   onAddPointerSegment,
   onPointerHover,
   onDeletePointerSegments,
@@ -33,6 +37,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
   clearSignal,
   onEmptyClick,
 }) => {
+  const { t } = useSettings();
   const [hoverState, setHoverState] = useState<
     | { type: 'split'; x: number; time: number; seg: CursorVisibilitySegment }
     | { type: 'add'; x: number }
@@ -44,7 +49,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
 
   const {
     selectedIds, rangeSelect, trackRef, isDraggingRange,
-    onSegmentPointerDown,
+    onSegmentPointerDown, addSegmentSelection,
     handleTrackPointerDown, handleTrackPointerMove, handleTrackPointerUp,
   } = useTrackRangeSelect(
     segments,
@@ -78,6 +83,12 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
     setHoverState({ type: 'add', x });
   };
 
+  const segmentKeys = rangeLaneKeys({
+    lane: 'pointer', name: t.trackPointer, startLabel: t.timelineSegmentStart, endLabel: t.timelineSegmentEnd,
+    duration: safeDuration, keyboardEdits, selectedIds, onSelect: (id) => addSegmentSelection(id),
+    onDelete: onDeletePointerSegments, onSplit: onPointerClick, onAdd: onAddPointerSegment,
+  });
+
   const rangeLeft = rangeSelect ? Math.min(rangeSelect.startX, rangeSelect.endX) : 0;
   const rangeWidth = rangeSelect ? Math.abs(rangeSelect.endX - rangeSelect.startX) : 0;
 
@@ -91,9 +102,12 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
       onPointerMove={handleTrackPointerMove}
       onPointerUp={handleTrackPointerUp}
     >
-      {segments.map((seg) => (
+      {segments.map((seg, segIndex) => {
+        const keys = segmentKeys(seg, segIndex);
+        return (
         <div
           key={seg.id}
+          {...keys.body}
           onPointerDown={(e) => {
             e.stopPropagation();
             onSegmentPointerDown();
@@ -115,16 +129,19 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
           <div className="pointer-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
             <span className="pointer-segment-icon text-[10px] text-[var(--timeline-warning-color)] truncate">●</span>
           </div>
-          <div className="pointer-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="pointer-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.start}
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}>
             <div className="pointer-handle-bar timeline-handle-pill" />
           </div>
-          <div className="pointer-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+          <div className="pointer-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 z-10"
+            {...keys.end}
             onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}>
             <div className="pointer-handle-bar timeline-handle-pill" />
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {rangeSelect && rangeWidth > 2 && (
         <div className="pointer-range-select timeline-range-select absolute pointer-events-none z-5"

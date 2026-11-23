@@ -1,6 +1,7 @@
 //! Bounded trusted content returned after a verified text-file commit.
 
 use super::Replacement;
+use crate::crypto::sha256_hex;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -155,9 +156,4 @@ fn previous_boundary(text: &str, mut index: usize, floor: usize) -> usize {
         index -= 1;
     }
     index
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }

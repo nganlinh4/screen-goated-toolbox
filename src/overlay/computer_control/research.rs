@@ -12,6 +12,7 @@ mod diagnostics;
 mod direct_sources;
 mod followups;
 mod link_ranking;
+mod query_terms;
 mod readiness;
 mod result;
 mod search_provider;

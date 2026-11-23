@@ -9,10 +9,10 @@ internal fun refreshCreationNativeItems(
     current: CreationNativeUiState,
     byJob: Map<String, CreationJobStatus>,
     verifiedHistory: List<CreationHistoryEntry>?,
-    tool: CreationTool,
 ): CreationNativeStatusRefresh {
     var reachedTerminal = false
     val items = current.items.map { item ->
+        if (item.stage.isTerminal()) return@map item
         val jobId = item.status?.jobId ?: return@map item
         val status = byJob[jobId] ?: if (
             verifiedHistory != null && item.stage == CreationNativeStage.RUNNING
@@ -41,7 +41,7 @@ internal fun refreshCreationNativeItems(
                         stage = "failed",
                         progressText = "Could not create result.",
                         phase = "failed",
-                        error = publicCreationFailure(tool),
+                        error = publicCreationFailure(),
                     ),
                 )
             }

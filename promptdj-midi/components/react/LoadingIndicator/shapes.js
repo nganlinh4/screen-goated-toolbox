@@ -46,7 +46,7 @@ export const createFallbackShape = (index, RoundedPolygon) => {
   }
 };
 
-export const createCirclePolygon = (radius, sides, RoundedPolygon) => {
+const createCirclePolygon = (radius, sides, RoundedPolygon) => {
   const vertices = new Float32Array(sides * 2);
   for (let i = 0; i < sides; i++) {
     const angle = (i / sides) * 2 * Math.PI;
@@ -56,7 +56,7 @@ export const createCirclePolygon = (radius, sides, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3); // 3px rounding for smooth circle
 };
 
-export const createStarPolygon = (radius, points, RoundedPolygon) => {
+const createStarPolygon = (radius, points, RoundedPolygon) => {
   const vertices = new Float32Array(points * 4);
   const innerRadius = radius * 0.4;
   let vertexIndex = 0;
@@ -73,12 +73,12 @@ export const createStarPolygon = (radius, points, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 2); // 2px rounding for smooth star points
 };
 
-export const createDiamondShape = (size, RoundedPolygon) => {
+const createDiamondShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([0, -size, size, 0, 0, size, -size, 0]);
   return new RoundedPolygon(vertices, 4);
 };
 
-export const createCrossShape = (size, RoundedPolygon) => {
+const createCrossShape = (size, RoundedPolygon) => {
   const thickness = size * 0.3;
   const vertices = new Float32Array([
     -thickness, -size, thickness, -size, thickness, -thickness,
@@ -89,7 +89,7 @@ export const createCrossShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3);
 };
 
-export const createArrowShape = (size, RoundedPolygon) => {
+const createArrowShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     0, -size, size * 0.5, -size * 0.3, size * 0.2, -size * 0.3,
     size * 0.2, size, -size * 0.2, size, -size * 0.2, -size * 0.3,
@@ -98,7 +98,7 @@ export const createArrowShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3);
 };
 
-export const createOvalShape = (width, height, RoundedPolygon) => {
+const createOvalShape = (width, height, RoundedPolygon) => {
   const sides = 24; // More sides for smoother oval
   const vertices = new Float32Array(sides * 2);
   for (let i = 0; i < sides; i++) {
@@ -109,7 +109,7 @@ export const createOvalShape = (width, height, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 1); // Less rounding for smoother curves
 };
 
-export const createTearDropShape = (size, RoundedPolygon) => {
+const createTearDropShape = (size, RoundedPolygon) => {
   // Realistic teardrop shape with smooth curves
   const vertices = new Float32Array([
     0, -size, // Sharp point at top
@@ -128,7 +128,7 @@ export const createTearDropShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 6); // Higher rounding for smooth teardrop
 };
 
-export const createMoonShape = (size, RoundedPolygon) => {
+const createMoonShape = (size, RoundedPolygon) => {
   // Crescent moon approximation
   const vertices = new Float32Array([
     size * 0.5, -size * 0.8, size * 0.8, -size * 0.3, size * 0.6, 0,
@@ -139,7 +139,7 @@ export const createMoonShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 5);
 };
 
-export const createFlowerShape = (size, RoundedPolygon) => {
+const createFlowerShape = (size, RoundedPolygon) => {
   // 8-petal flower
   const petals = 8;
   const vertices = new Float32Array(petals * 4);
@@ -160,7 +160,7 @@ export const createFlowerShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 6);
 };
 
-export const createHouseShape = (size, RoundedPolygon) => {
+const createHouseShape = (size, RoundedPolygon) => {
   // Simple house silhouette
   const vertices = new Float32Array([
     0, -size, size * 0.7, -size * 0.3, size * 0.7, size * 0.2,
@@ -170,7 +170,7 @@ export const createHouseShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 5);
 };
 
-export const createSpadeShape = (size, RoundedPolygon) => {
+const createSpadeShape = (size, RoundedPolygon) => {
   // Smooth spade card suit
   const vertices = new Float32Array([
     0, -size, // Top point
@@ -195,7 +195,7 @@ export const createSpadeShape = (size, RoundedPolygon) => {
 
 
 
-export const createInfinityShape = (size, RoundedPolygon) => {
+const createInfinityShape = (size, RoundedPolygon) => {
   // Smooth infinity symbol (figure-8) with more natural curves
   const vertices = new Float32Array([
     -size * 0.9, 0, // Left outer point
@@ -218,7 +218,7 @@ export const createInfinityShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 8); // High rounding for smooth infinity curves
 };
 
-export const createGearShape = (size, RoundedPolygon) => {
+const createGearShape = (size, RoundedPolygon) => {
   // Gear with 8 teeth
   const teeth = 8;
   const innerRadius = size * 0.6;
@@ -241,7 +241,7 @@ export const createGearShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 2);
 };
 
-export const createSunShape = (size, RoundedPolygon) => {
+const createSunShape = (size, RoundedPolygon) => {
   const rays = 12;
   const innerRadius = size * 0.5;
   const outerRadius = size;
@@ -263,7 +263,7 @@ export const createSunShape = (size, RoundedPolygon) => {
 
 
 
-export const createBoltShape = (size, RoundedPolygon) => {
+const createBoltShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     0, -size, // Top
     size * 0.3, -size * 0.7, // Top right
@@ -286,41 +286,7 @@ export const createBoltShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 2);
 };
 
-export const createLeafShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    0, -size, // Tip
-    size * 0.3, -size * 0.7, // Right upper
-    size * 0.6, -size * 0.3, // Right side
-    size * 0.8, size * 0.1, // Right bulge
-    size * 0.6, size * 0.5, // Right lower
-    size * 0.2, size * 0.8, // Right bottom
-    0, size, // Bottom point
-    -size * 0.2, size * 0.8, // Left bottom
-    -size * 0.6, size * 0.5, // Left lower
-    -size * 0.8, size * 0.1, // Left bulge
-    -size * 0.6, -size * 0.3, // Left side
-    -size * 0.3, -size * 0.7 // Left upper
-  ]);
-  return new RoundedPolygon(vertices, 5);
-};
-
-export const createEyeShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    -size * 0.9, 0, // Left corner
-    -size * 0.6, -size * 0.4, // Left top
-    -size * 0.2, -size * 0.6, // Upper left
-    size * 0.2, -size * 0.6, // Upper right
-    size * 0.6, -size * 0.4, // Right top
-    size * 0.9, 0, // Right corner
-    size * 0.6, size * 0.4, // Right bottom
-    size * 0.2, size * 0.6, // Lower right
-    -size * 0.2, size * 0.6, // Lower left
-    -size * 0.6, size * 0.4 // Left bottom
-  ]);
-  return new RoundedPolygon(vertices, 6);
-};
-
-export const createWaveShape = (size, RoundedPolygon) => {
+const createWaveShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size, 0, // Start
     -size * 0.7, -size * 0.5, // First peak
@@ -338,7 +304,7 @@ export const createWaveShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 7);
 };
 
-export const createRingShape = (size, RoundedPolygon) => {
+const createRingShape = (size, RoundedPolygon) => {
   const outerSides = 20;
   const innerSides = 16;
   const outerRadius = size;
@@ -363,23 +329,7 @@ export const createRingShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 2);
 };
 
-export const createCrescentShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    size * 0.6, -size * 0.8, // Top outer
-    size * 0.9, -size * 0.3, // Right outer
-    size * 0.8, 0, // Right middle
-    size * 0.9, size * 0.3, // Right outer bottom
-    size * 0.6, size * 0.8, // Bottom outer
-    size * 0.2, size * 0.6, // Inner bottom
-    0, size * 0.3, // Inner right
-    -size * 0.2, 0, // Inner middle
-    0, -size * 0.3, // Inner left
-    size * 0.2, -size * 0.6 // Inner top
-  ]);
-  return new RoundedPolygon(vertices, 6);
-};
-
-export const createPillShape = (size, RoundedPolygon) => {
+const createPillShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.5, -size, // Top left
     size * 0.5, -size, // Top right
@@ -393,7 +343,7 @@ export const createPillShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 8);
 };
 
-export const createBoneShape = (size, RoundedPolygon) => {
+const createBoneShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.8, -size * 0.3, // Left top
     -size * 0.6, -size * 0.6, // Left top bulge
@@ -415,43 +365,9 @@ export const createBoneShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 4);
 };
 
-export const createKeyShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    -size * 0.8, -size * 0.2, // Handle left
-    -size * 0.8, size * 0.2, // Handle left bottom
-    -size * 0.2, size * 0.2, // Handle right bottom
-    -size * 0.2, size * 0.1, // Shaft start
-    size * 0.6, size * 0.1, // Shaft end
-    size * 0.8, size * 0.3, // Tooth 1
-    size * 0.9, size * 0.1, // Tooth 1 end
-    size * 0.9, -size * 0.1, // Tooth 2 start
-    size * 0.8, -size * 0.3, // Tooth 2
-    size * 0.6, -size * 0.1, // Shaft end top
-    -size * 0.2, -size * 0.1, // Shaft start top
-    -size * 0.2, -size * 0.2 // Handle right top
-  ]);
-  return new RoundedPolygon(vertices, 3);
-};
-
-export const createLockShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    -size * 0.6, -size * 0.2, // Body left
-    -size * 0.6, size * 0.8, // Body left bottom
-    size * 0.6, size * 0.8, // Body right bottom
-    size * 0.6, -size * 0.2, // Body right
-    size * 0.4, -size * 0.2, // Shackle right bottom
-    size * 0.4, -size * 0.6, // Shackle right
-    size * 0.2, -size * 0.8, // Shackle right top
-    -size * 0.2, -size * 0.8, // Shackle left top
-    -size * 0.4, -size * 0.6, // Shackle left
-    -size * 0.4, -size * 0.2 // Shackle left bottom
-  ]);
-  return new RoundedPolygon(vertices, 4);
-};
 
 
-
-export const createMountainShape = (size, RoundedPolygon) => {
+const createMountainShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size, size, // Left base
     -size * 0.6, size * 0.2, // Left slope
@@ -464,7 +380,7 @@ export const createMountainShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3);
 };
 
-export const createFishShape = (size, RoundedPolygon) => {
+const createFishShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size, 0, // Tail center
     -size * 0.7, -size * 0.3, // Tail top
@@ -480,25 +396,7 @@ export const createFishShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 4);
 };
 
-export const createBirdShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    -size * 0.8, size * 0.2, // Tail
-    -size * 0.4, 0, // Body back
-    -size * 0.2, -size * 0.3, // Body top
-    size * 0.2, -size * 0.4, // Neck
-    size * 0.6, -size * 0.2, // Head back
-    size * 0.9, -size * 0.1, // Beak top
-    size, 0, // Beak tip
-    size * 0.9, size * 0.1, // Beak bottom
-    size * 0.6, size * 0.2, // Head bottom
-    size * 0.2, size * 0.4, // Neck bottom
-    -size * 0.2, size * 0.5, // Body bottom
-    -size * 0.6, size * 0.4 // Wing
-  ]);
-  return new RoundedPolygon(vertices, 4);
-};
-
-export const createTreeShape = (size, RoundedPolygon) => {
+const createTreeShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.1, size, // Trunk left bottom
     -size * 0.1, size * 0.3, // Trunk left top
@@ -516,7 +414,7 @@ export const createTreeShape = (size, RoundedPolygon) => {
 };
 
 // Create remaining shapes (simplified versions for performance)
-export const createCactusShape = (size, RoundedPolygon) => {
+const createCactusShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.2, size, -size * 0.2, -size * 0.2, -size * 0.6, -size * 0.4,
     -size * 0.6, -size * 0.8, -size * 0.4, -size * 0.8, -size * 0.4, -size * 0.4,
@@ -530,7 +428,7 @@ export const createCactusShape = (size, RoundedPolygon) => {
 
 
 
-export const createCupShape = (size, RoundedPolygon) => {
+const createCupShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.4, -size, // Top left (narrower)
     size * 0.4, -size, // Top right (narrower)
@@ -540,7 +438,7 @@ export const createCupShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 6);
 };
 
-export const createBottleShape = (size, RoundedPolygon) => {
+const createBottleShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.2, -size, size * 0.2, -size, size * 0.2, -size * 0.7,
     size * 0.4, -size * 0.7, size * 0.4, size * 0.8, -size * 0.4, size * 0.8,
@@ -549,7 +447,7 @@ export const createBottleShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 4);
 };
 
-export const createBookShape = (size, RoundedPolygon) => {
+const createBookShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.8, -size * 0.6, size * 0.8, -size * 0.6, size * 0.8, size * 0.6,
     -size * 0.8, size * 0.6
@@ -557,7 +455,7 @@ export const createBookShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3);
 };
 
-export const createPhoneShape = (size, RoundedPolygon) => {
+const createPhoneShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.4, -size, size * 0.4, -size, size * 0.4, size,
     -size * 0.4, size
@@ -567,7 +465,7 @@ export const createPhoneShape = (size, RoundedPolygon) => {
 
 
 
-export const createCameraShape = (size, RoundedPolygon) => {
+const createCameraShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.8, -size * 0.2, size * 0.8, -size * 0.2, size * 0.8, size * 0.6,
     -size * 0.8, size * 0.6
@@ -577,7 +475,7 @@ export const createCameraShape = (size, RoundedPolygon) => {
 
 
 
-export const createPuzzlePieceShape = (size, RoundedPolygon) => {
+const createPuzzlePieceShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     // Main square outline with one corner cut out
     -size * 0.8, -size * 0.8, // Top left
@@ -593,16 +491,7 @@ export const createPuzzlePieceShape = (size, RoundedPolygon) => {
 
 
 
-export const createRocketShape = (size, RoundedPolygon) => {
-  const vertices = new Float32Array([
-    0, -size, size * 0.3, -size * 0.6, size * 0.3, size * 0.4,
-    size * 0.6, size * 0.8, -size * 0.6, size * 0.8, -size * 0.3, size * 0.4,
-    -size * 0.3, -size * 0.6
-  ]);
-  return new RoundedPolygon(vertices, 4);
-};
-
-export const createAnchorShape = (size, RoundedPolygon) => {
+const createAnchorShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     0, -size, size * 0.2, -size * 0.6, size * 0.2, 0,
     size * 0.6, size * 0.4, size * 0.8, size * 0.8, size * 0.4, size * 0.6,
@@ -613,7 +502,7 @@ export const createAnchorShape = (size, RoundedPolygon) => {
   return new RoundedPolygon(vertices, 3);
 };
 
-export const createCrownShape = (size, RoundedPolygon) => {
+const createCrownShape = (size, RoundedPolygon) => {
   const vertices = new Float32Array([
     -size * 0.8, size * 0.2, -size * 0.6, -size * 0.4, -size * 0.3, size * 0.2,
     0, -size * 0.8, size * 0.3, size * 0.2, size * 0.6, -size * 0.4,

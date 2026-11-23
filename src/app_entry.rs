@@ -1,6 +1,7 @@
 mod arguments;
 mod headless;
 mod replay;
+mod reset_webview;
 mod settings_window;
 mod single_instance;
 
@@ -12,6 +13,10 @@ use single_instance::InstanceOutcome;
 use std::process::ExitCode;
 
 pub(crate) fn run() -> eframe::Result<ExitCode> {
+    if let Err(error) = crate::runtime_support::await_previous_process() {
+        eprintln!("Could not wait for the previous application instance: {error:#}");
+        return Ok(ExitCode::FAILURE);
+    }
     if let Some(code) = crate::crash_report::run_monitor_if_requested() {
         return Ok(if code == 0 {
             ExitCode::SUCCESS
@@ -20,15 +25,9 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         });
     }
     let startup_args = StartupArgs::collect();
-    let child_process = crate::overlay::realtime_webview::is_child_process()
-        || crate::overlay::status_compositor::is_child_process()
-        || crate::overlay::result::scene_compositor::is_child_process();
-    let crash_report_mode = if child_process || headless::is_requested(&startup_args) {
-        crate::initialization::CrashReportMode::NonInteractive
-    } else {
-        crate::initialization::CrashReportMode::Interactive
-    };
-    crate::initialization::setup_crash_handler(crash_report_mode);
+    crate::initialization::setup_crash_handler();
+    // Before any window, so every one of this process's windows is DPI-aware.
+    crate::initialization::set_process_dpi_awareness();
 
     if crate::overlay::realtime_webview::is_child_process() {
         crate::initialization::init_com_and_dpi();
@@ -62,10 +61,6 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         eprintln!("[Console] WARNING: failed to enable UTF-8 input/output");
     }
 
-    if let Some(exit_code) = headless::run_pre_boot(&startup_args) {
-        crate::crash_report::exit(exit_code, "headless-pre-boot");
-    }
-
     crate::log_info!("========================================");
     crate::log_info!(
         "Screen Goated Toolbox v{} STARTUP",
@@ -85,15 +80,13 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     let result_compositor_smoke = startup_args.result_compositor_smoke();
     let status_compositor_smoke = startup_args.status_compositor_smoke();
     let realtime_compositor_smoke = startup_args.realtime_compositor_smoke();
-    let realtime_first_use_smoke = startup_args.realtime_first_use_smoke();
     let isolated_ui_test = screen_record_wry_smoke
         || creation_ui_test.is_some()
         || screen_translate_ui_test
         || screen_translate_lab_queue.is_some()
         || result_compositor_smoke
         || status_compositor_smoke
-        || realtime_compositor_smoke
-        || realtime_first_use_smoke.is_some();
+        || realtime_compositor_smoke;
 
     let _ = crate::RESTORE_EVENT.as_ref();
     // Establish process ownership before cleanup, installation, registry edits,
@@ -103,8 +96,14 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     let primary_instance = match single_instance::acquire(&startup_args, isolated_ui_test) {
         InstanceOutcome::Primary(instance) => instance,
         InstanceOutcome::SecondaryNotified => return Ok(ExitCode::SUCCESS),
+        InstanceOutcome::SecondaryFailed => return Ok(ExitCode::FAILURE),
     };
     let _single_instance_mutex = primary_instance.guard;
+    if let Err(error) = reset_webview::clear_pending_webview(primary_instance.owns_activation) {
+        crate::log_info!("[WebViewReset] reset remains pending: {error}");
+        reset_webview::report_failure();
+        return Ok(ExitCode::FAILURE);
+    }
     if primary_instance.owns_activation {
         crate::app_activation::start_listener();
     }
@@ -122,7 +121,6 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
 
     crate::startup_launch::maybe_delay_for_windows_autostart(startup_args.raw());
 
-    crate::initialization::cleanup_temporary_files();
     if let Err(error) = crate::component_registry::resume_pending_removals() {
         crate::log_info!("[Components] Pending removal maintenance failed: {error}");
     }
@@ -130,6 +128,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     {
         crate::log_info!("[Components] External-tool staging maintenance failed: {error}");
     }
+    crate::component_registry::reconcile_interrupted_installs_in_background();
     crate::component_registry::update_catalog::refresh_in_background();
     crate::model_feed::store::refresh_in_background();
 
@@ -143,7 +142,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         crate::overlay::result::scene_compositor::warmup();
     }
 
-    if !isolated_ui_test {
+    if !isolated_ui_test && crate::paths::runtime_state_root().is_none() {
         crate::log_info!("Ensuring context menu entry...");
         crate::registry_integration::ensure_context_menu_entry();
         crate::log_info!("Context menu entry ensured.");
@@ -151,7 +150,6 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
 
     crate::initialization::init_com_and_dpi();
     crate::initialization::enable_dark_mode_for_app();
-    crate::initialization::apply_pending_updates();
 
     if !isolated_ui_test {
         std::thread::spawn(crate::hotkey::run_hotkey_listener);
@@ -159,8 +157,16 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
 
     crate::api::tts::init_tts();
     crate::api::gemini_live::init_gemini_live();
+    crate::app_activation::mark_app_ready();
 
-    let pending_file_path = startup_args.process_with_sgt_file();
+    let pending_file_path = match startup_args.validated_process_with_sgt_file() {
+        Ok(path) => path,
+        Err(error) => {
+            crate::log_info!("[Activation] Could not open requested file: {error}");
+            single_instance::report_activation_failure();
+            None
+        }
+    };
 
     if startup_args.has("--restarted") {
         std::thread::spawn(|| {
@@ -181,14 +187,7 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
         crate::log_info!("Check arguments: Process with SGT flag present but no valid file path");
     }
 
-    {
-        let mut app = crate::APP.lock().unwrap();
-        if app.config.clear_webview_on_startup {
-            crate::overlay::clear_webview_permissions();
-            app.config.clear_webview_on_startup = false;
-            crate::config::save_config(&app.config);
-        }
-    }
+    crate::model_config::trigger_ollama_model_scan();
 
     if result_compositor_smoke {
         let exit = smoke_exit_code(crate::overlay::result::smoke::run());
@@ -202,14 +201,6 @@ pub(crate) fn run() -> eframe::Result<ExitCode> {
     }
     if realtime_compositor_smoke {
         let exit = smoke_exit_code(crate::overlay::realtime_webview::smoke::run());
-        shutdown_compositors();
-        return Ok(exit);
-    }
-    if let Some(path) = realtime_first_use_smoke {
-        let exit = smoke_exit_code(crate::overlay::realtime_webview::smoke::run_first_use(
-            &path,
-            !startup_args.realtime_continuation_smoke(),
-        ));
         shutdown_compositors();
         return Ok(exit);
     }

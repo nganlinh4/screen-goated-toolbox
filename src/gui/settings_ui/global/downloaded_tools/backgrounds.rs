@@ -7,11 +7,27 @@ use std::time::Duration;
 
 use super::utils::{format_size, removal_in_progress, start_removal, tool_card};
 
+#[path = "pack_status.rs"]
+pub(super) mod pack_status;
+
 static BADGE_MONITOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 const REMOVE_BACKGROUNDS: &str = "downloaded-tools:remove-backgrounds";
 
 pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
-    let summary = bg_download::downloadable_background_summary();
+    let summary = pack_status::backgrounds(ui.ctx());
+    let statuses = bg_download::BG_DOWNLOAD_STATUS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let downloading_count = bg_download::downloadable_backgrounds()
+        .iter()
+        .filter(|item| {
+            matches!(
+                statuses.get(&item.id),
+                Some(bg_download::BgDownloadStatus::Downloading { .. })
+            )
+        })
+        .count();
+    drop(statuses);
     let theme = AppTheme::from_ui(ui);
 
     tool_card(ui, |ui| {
@@ -30,21 +46,29 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     ui.label(text.auxiliary.managed_tools.tool_status_removing);
                     return;
                 }
-                if summary.total_count == 0 {
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                    return;
-                }
-
-                if summary.downloading_count > 0 {
+                if downloading_count > 0 {
                     ui.spinner();
                     ui.label(
                         text.auxiliary
                             .managed_tools
                             .tool_bg_downloading_fmt
-                            .replace("{}", &summary.downloading_count.to_string()),
+                            .replace("{}", &downloading_count.to_string()),
+                    );
+                    return;
+                }
+                let Some(summary) = summary else {
+                    if pack_status::background_unavailable() {
+                        ui.label(text.auxiliary.managed_tools.tool_status_unavailable);
+                    } else {
+                        ui.spinner();
+                        ui.label(text.auxiliary.download.download_status_checking);
+                    }
+                    return;
+                };
+                if summary.total_count == 0 {
+                    ui.label(
+                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
+                            .color(egui::Color32::GRAY),
                     );
                     return;
                 }
@@ -90,6 +114,9 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
 
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let Some(summary) = summary else {
+                    return;
+                };
                 let count_text = text
                     .auxiliary
                     .managed_tools
@@ -126,11 +153,12 @@ fn start_background_removal(text: &LocaleText) {
                 .map_err(anyhow::Error::msg)?;
             Ok(())
         },
-        || {},
+        pack_status::invalidate_backgrounds,
     );
 }
 
 fn start_missing_with_badge(text: &LocaleText) {
+    pack_status::invalidate_backgrounds();
     if bg_download::start_download_all_missing() == 0
         || BADGE_MONITOR_ACTIVE.swap(true, Ordering::AcqRel)
     {
@@ -152,5 +180,7 @@ fn start_missing_with_badge(text: &LocaleText) {
             std::thread::sleep(Duration::from_millis(150));
         }
         BADGE_MONITOR_ACTIVE.store(false, Ordering::Release);
+        pack_status::invalidate_backgrounds();
+        pack_status::repaint();
     });
 }

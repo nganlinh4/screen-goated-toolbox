@@ -1,5 +1,5 @@
 use super::super::contract::DetectedTextRegion;
-use super::super::geometry::{PixelRegion, normalized_region};
+use super::super::geometry::PixelRegion;
 use sgt_screen_text_detector_protocol::stream::{LayoutKind, LayoutRegion};
 
 struct Feature {
@@ -18,7 +18,7 @@ pub(super) fn partition(
     let mut features = sources
         .iter()
         .map(|source| {
-            let box_ = normalized_region(source.bounds, image.width(), image.height());
+            let box_ = source.bounds.pixels();
             let cx = box_.x as f32 + box_.width as f32 / 2.0;
             let cy = box_.y as f32 + box_.height as f32 / 2.0;
             let containing = |kind: bool| {

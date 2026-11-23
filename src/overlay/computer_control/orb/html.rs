@@ -1,7 +1,7 @@
 //! The Computer Control orb page: the canvas/JS asset (`orb.html`) with the
 //! Google Sans Flex `@font-face` (served same-origin by the local font server)
-//! injected so the caption text matches the app font. Material Symbols glyphs
-//! load from the Google Fonts CDN (CC requires internet anyway).
+//! injected so the caption text matches the app font, and its Material Symbols
+//! glyph slots filled from the downloaded catalog (`glyphs.rs`).
 
 /// Build the orb HTML to load into the overlay WebView.
 pub(super) fn generate_orb_html() -> String {
@@ -18,7 +18,8 @@ pub(super) fn generate_orb_html() -> String {
         "vi" => "Nhập lệnh…",
         _ => "Type a command…",
     };
-    include_str!("orb.html")
+    let html = include_str!("orb.html")
         .replace("/*FONT_CSS*/", &font_css)
-        .replace("/*CMD_PLACEHOLDER*/", placeholder)
+        .replace("/*CMD_PLACEHOLDER*/", placeholder);
+    super::glyphs::fill_glyph_slots(&html)
 }

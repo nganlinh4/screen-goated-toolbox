@@ -4,16 +4,14 @@ use super::html::DOCUMENT;
 
 static COMPOSITOR_DOCUMENT: LazyLock<String> = LazyLock::new(build_compositor_document);
 
-pub(super) fn compositor_document(isolated_origin: &str) -> String {
-    COMPOSITOR_DOCUMENT.replace(
-        "__SGT_ISOLATED_ORIGIN_JSON__",
-        &serde_json::to_string(isolated_origin).expect("isolated origin must serialize"),
-    )
+pub(super) fn compositor_document() -> String {
+    COMPOSITOR_DOCUMENT.clone()
 }
 
 fn build_compositor_document() -> String {
     let scene_runtime = [
         include_str!("scene_runtime.js"),
+        include_str!("scene_frame_runtime.js"),
         include_str!("scene_command_helpers.js"),
         include_str!("scene_batch_runtime.js"),
     ]
@@ -27,19 +25,22 @@ fn build_compositor_document() -> String {
 text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
 {}
 {}
+{}
 "#,
         crate::overlay::result::markdown_view::css::MARKDOWN_CSS
             .replace(":root", ":host")
             .replace("body", ".result-body"),
         crate::overlay::html_components::grid_js::get_css(),
+        crate::overlay::html_components::grid_js::get_lib_css(),
     );
     let card_css_json = serde_json::to_string(&card_css).expect("card CSS must serialize");
-    let (grid_css_url, grid_js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
-    let direct_runtime = include_str!("direct_runtime.js")
-        .replace("__SGT_GRID_CSS_URL__", grid_css_url)
-        .replace("__SGT_GRID_JS_URL__", grid_js_url);
+    let direct_runtime = include_str!("direct_runtime.js");
 
     DOCUMENT
+        .replace(
+            "__SGT_GRID_RUNTIME__",
+            crate::overlay::html_components::grid_js::get_lib_js(),
+        )
         // Inlined first: the scene runtime carries placeholders of its own
         // (`__SGT_CARD_CSS_JSON__`, `__SGT_BOX_RADIUS_PX__`), so it has to be
         // in the document before the substitution pass reaches them.
@@ -52,7 +53,7 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             ]
             .concat(),
         )
-        .replace("__SGT_FONT_FACE__", &super::font::face_css("/font.woff2"))
+        .replace("__SGT_FONT_FACE__", &super::font::face_css("font.woff2"))
         .replace("__SGT_BUTTON_CSS__", super::control_surface::document_css())
         .replace(
             "__SGT_BUTTON_SCRIPT__",
@@ -73,7 +74,7 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
             include_str!("dom_patch_runtime.js"),
         )
         .replace("__SGT_REVEAL_RUNTIME__", include_str!("reveal_runtime.js"))
-        .replace("__SGT_DIRECT_RUNTIME__", &direct_runtime)
+        .replace("__SGT_DIRECT_RUNTIME__", direct_runtime)
         .replace(
             "__SGT_PROCESSING_RUNTIME__",
             &[
@@ -128,124 +129,69 @@ text-align:center;padding:12px;font-style:italic;color:#aaa;font-size:16px}}
 #[cfg(test)]
 mod tests {
     use super::compositor_document;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
 
-    #[test]
-    fn compositor_document_owns_one_font_and_one_shared_card_runtime() {
-        let document = compositor_document("http://127.0.0.1:32123");
-
-        assert!(document.contains("Google Sans Flex"));
-        assert!(document.contains("window.__SGT_CREATE_DIRECT_RUNTIME__"));
-        assert!(document.contains("window.__SGT_PATCH_BODY__"));
-        assert!(document.contains("window.__SGT_CREATE_REVEAL_RUNTIME__"));
-        assert!(document.contains("window.__SGT_RUN_FIT__"));
-        assert!(document.contains("attachShadow"));
-        assert!(document.contains("src:url('/font.woff2')"));
-        assert!(!document.contains("Segoe UI"));
-        assert!(!document.contains("__SGT_FONT_FACE__"));
-        assert!(!document.contains("__SGT_BOX_RADIUS_PX__"));
-        assert!(document.contains("border-radius:var(--sgt-box-radius,8px)"));
-        assert!(document.contains("('--sgt-box-radius', (8 / scale) + 'px')"));
-        assert!(document.contains("inset 0 0 0 1px var(--result-outline)"));
-        assert!(!document.contains("__SGT_CARD_CSS_JSON__"));
-        assert!(!document.contains("__SGT_DIRECT_RUNTIME__"));
-        assert!(!document.contains("__SGT_PROCESSING_RUNTIME__"));
-        assert!(!document.contains("__SGT_RESIZE_RUNTIME__"));
-        assert!(!document.contains("__SGT_MIN_WINDOW_WIDTH_PX__"));
-        assert!(!document.contains("__SGT_MIN_WINDOW_HEIGHT_PX__"));
-        assert!(!document.contains("__SGT_DOM_PATCH_RUNTIME__"));
-        assert!(!document.contains("__SGT_REVEAL_RUNTIME__"));
-        assert!(!document.contains("__SGT_HOST_COMMAND_RUNTIME__"));
-        assert!(!document.contains("__SGT_SETTLED_REVEAL_RUNTIME__"));
-        assert!(!document.contains("__SGT_FIT_RUNTIME__"));
-        assert!(!document.contains("__SGT_RENDERER_BOOTSTRAP__"));
-        assert!(!document.contains("__SGT_ISOLATED_ORIGIN_JSON__"));
-        assert!(!document.contains("__SGT_BUTTON_CSS__"));
-        assert!(!document.contains("__SGT_BUTTON_SCRIPT__"));
-        assert!(!document.contains("__SGT_BUTTON_SCENE_RUNTIME__"));
+    /// `__SGT_NAME__` tokens left in the document. Runtime globals are always
+    /// reached as `window.__SGT_NAME__`; the export font URL is substituted at
+    /// export time.
+    fn unsubstituted_placeholders(document: &str) -> Vec<&str> {
+        let mut found = Vec::new();
+        for (start, _) in document.match_indices("__SGT_") {
+            if document[..start].ends_with('.') {
+                continue;
+            }
+            let tail = &document[start + "__SGT_".len()..];
+            let length = tail
+                .find(|c: char| !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
+                .unwrap_or(tail.len());
+            let token = &document[start..start + "__SGT_".len() + length];
+            if token.ends_with("__") && token != "__SGT_EXPORT_FONT_URL__" {
+                found.push(token);
+            }
+        }
+        found
     }
 
     #[test]
-    fn result_controls_share_the_single_compositor_document() {
-        let document = compositor_document("http://127.0.0.1:32123");
-
-        assert!(document.contains("id=\"button-container\""));
-        assert!(document.contains("window.updateWindows = updateWindows"));
-        assert!(document.contains("result_drag_start"));
-        assert!(document.contains("command.type === 'controls'"));
-        assert!(document.contains("command.type === 'opacity'"));
-        assert!(document.contains("entry.card.style.opacity = entry.visible"));
-        assert!(document.contains("sgt-controls-theme-css"));
-        assert!(document.contains("window.__SGT_BUTTON_SCENE__"));
-        assert!(document.contains("Unified result controls did not initialize"));
-        assert!(document.contains("hideControlsForDrag"));
-        assert!(document.contains("releaseDragPreview"));
-        assert!(document.contains("isGeometryPreviewActive"));
-        assert!(document.contains("awaitingDragSettle = id"));
-        assert!(document.contains("gesture_id: drag.gestureId"));
-        assert!(document.contains("style.visibility = 'hidden'"));
-        assert!(document.contains("window.clearResultDragControlPreview?.();"));
-        assert!(!document.contains("window.updateWindows({});"));
-        assert!(document.contains("setPointerCapture(e.pointerId)"));
-        assert!(document.contains("requestAnimationFrame(renderResultDragPreview)"));
-        assert!(document.contains("action: 'result_drag_finish'"));
-        assert!(!document.contains("onmousedown=\"handleResultDrag"));
+    fn every_document_placeholder_is_substituted() {
+        assert_eq!(
+            unsubstituted_placeholders(&compositor_document()),
+            Vec::<&str>::new()
+        );
+        assert_eq!(
+            unsubstituted_placeholders("a __SGT_LEFT__ window.__SGT_GLOBAL__ b"),
+            vec!["__SGT_LEFT__"]
+        );
     }
 
+    /// Boots the composed document in a DOM and drives it through host
+    /// commands and pointer input (`compositor_document_probe.cjs`).
     #[test]
-    fn ordinary_card_css_is_scoped_to_each_shadow_root() {
-        let document = compositor_document("http://127.0.0.1:32123");
-
-        assert!(document.contains(".result-body"));
-        assert!(document.contains(":host"));
-        assert!(document.contains(".result-body > *:first-child"));
-    }
-
-    #[test]
-    fn non_streaming_content_is_revealed_only_after_its_final_fit() {
-        let document = compositor_document("http://127.0.0.1:32123");
-        let reveal = include_str!("settled_reveal_runtime.js");
-
-        assert!(document.contains("type === 'finalize' && !entry.streamingEnabled"));
-        assert!(document.contains("prepareSettledReveal(entry, entry.contentRevision)"));
-        assert!(document.contains("revealSettledContent(entry, completed.contentRevision)"));
-        assert!(document.contains("setSettledSurfaceVisibility(entry, false)"));
-        assert!(document.contains("entry.contentRevision !== contentRevision"));
-        assert!(document.contains("if (!String(entry.body || '').trim()) return false"));
-        assert!(document.contains("settle_before_reveal: settleBeforeReveal"));
-        assert!(document.contains("settleBeforeReveal: Boolean(message.settle_before_reveal)"));
-        assert!(document.contains("finishBodyPresentation()"));
-        assert!(document.contains("sourceReplacementReveal.enqueue(entry, reportPendingPaint)"));
-        assert!(reveal.contains("[{ opacity: 0 }, { opacity: 1 }]"));
-        assert!(reveal.contains("value.entry.directHost.animate(["));
-        assert!(reveal.contains("blur(8px)"));
-        assert!(document.contains("entry.visualSurface.style.visibility = 'hidden'"));
-        assert!(reveal.contains("entry.visualSurface.style.opacity = '0'"));
-        assert!(reveal.contains("value.surface.style.opacity = '1'"));
-        assert!(reveal.contains("value.entry.backdrop.style.opacity = '1'"));
-        assert!(document.contains("background.appendChild(entry.backdrop)"));
-        assert!(!document.contains("surface.appendChild(entry.backdrop)"));
-        assert!(document.contains("surface.appendChild(entry.directHost)"));
-        assert!(document.contains("entry.card.dataset.sourceReplacement"));
-        assert!(document.contains("entry.sourceReplacementReveal = value"));
-        assert!(reveal.contains("prefers-reduced-motion: reduce"));
-        assert!(document.contains("backdrop.decode()"));
-        assert!(document.contains("entry.directState.sourceLayoutReady"));
-        assert!(reveal.contains("value.entry.contentRevision !== value.revision"));
-        assert!(reveal.contains("value.backdropAnimation.startTime = startTime"));
-        assert!(reveal.contains("value.textAnimation.startTime = startTime"));
-        assert!(document.contains("value.ready = Promise.all(readiness)"));
-        assert!(!reveal.contains("Promise.all(cohort.map("));
-        assert!(reveal.contains("value.ready.then(function()"));
-        assert!(!reveal.contains("let ready = []"));
-        assert!(!reveal.contains("requestAnimationFrame(startReady)"));
-        assert!(!document.contains("{ opacity: 0, filter: 'blur(8px)'"));
-        assert!(!document.contains("layer.appendChild(host)"));
-        assert!(!document.contains("source-replacement-reveal-batch"));
-        assert!(document.contains("if (options.sourceReplacement) finishBodyPresentation()"));
-        assert!(document.contains("body.style.setProperty('animation', 'none', 'important')"));
-        assert!(document.contains("body.style.setProperty('opacity', '1', 'important')"));
+    fn composed_document_boots_renders_cards_and_controls_and_handles_gestures() {
+        let probe = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/overlay/result/scene_compositor/compositor_document_probe.cjs"
+        );
+        let mut child = Command::new("node")
+            .arg(probe)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Node.js is required for the compositor document test");
+        child
+            .stdin
+            .take()
+            .expect("probe stdin")
+            .write_all(compositor_document().as_bytes())
+            .expect("document must reach the probe");
+        let output = child.wait_with_output().expect("probe must finish");
         assert!(
-            document.contains("body.style.setProperty('transform', 'translateY(0)', 'important')")
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 }

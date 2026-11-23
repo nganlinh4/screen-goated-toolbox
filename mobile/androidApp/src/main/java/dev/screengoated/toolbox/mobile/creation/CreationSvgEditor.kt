@@ -146,6 +146,7 @@ internal fun CreationSvgEditorControls(
     common: CreationCommonLocale,
     strings: CreationSvgLocale,
     accent: Color,
+    saving: Boolean,
     onSave: () -> Unit,
 ) {
     val swatches = listOf(
@@ -172,7 +173,7 @@ internal fun CreationSvgEditorControls(
             ViewerIconButton(R.drawable.ms_arrow_back, strings.undo, controller::undo)
             ViewerIconButton(R.drawable.ms_arrow_forward, strings.redo, controller::redo)
             ViewerIconButton(R.drawable.ms_delete, common.delete, controller::deleteSelected)
-            FilledTonalButton(onClick = onSave) {
+            FilledTonalButton(onClick = onSave, enabled = !saving) {
                 Icon(painterResource(R.drawable.ms_check), null, Modifier.size(18.dp))
                 androidx.compose.foundation.layout.Spacer(Modifier.size(6.dp))
                 Text(strings.saveEdits)

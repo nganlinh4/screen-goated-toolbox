@@ -303,7 +303,7 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
     }
     if not isinstance(contract, dict) or set(contract) != expected_fields:
         raise ValueError("orb contract has unsupported top-level fields")
-    if contract["schemaVersion"] != 5 or contract["feature"] != "phone-control-orb":
+    if contract["schemaVersion"] != 6 or contract["feature"] != "phone-control-orb":
         raise ValueError("orb contract identity is invalid")
     if contract["canonicalAsset"] != "src/overlay/computer_control/orb/orb.html":
         raise ValueError("orb contract must point at the Windows canonical renderer")
@@ -357,19 +357,16 @@ def load_orb_contract(source: Path, renderer_source: Path) -> tuple[dict[str, An
         or audio_reaction.get("affectsSemantics") is not False
     ):
         raise ValueError("orb audio reaction must match the Windows PCM16 mapping")
-    emotion = invariants.get("respondingEmotionClassifier")
+    emotion = invariants.get("respondingPresentation")
     if (
         not isinstance(emotion, dict)
-        or emotion.get("provider") != "taalas"
-        or emotion.get("cadenceMs") != 1000
-        or emotion.get("maximumInputCharacters") != 600
-        or emotion.get("failurePresentation") != "keep_current_icon_silently"
+        or emotion.get("icon") != "sentiment_neutral"
+        or emotion.get("replyTextSentToClassifier") is not False
         or emotion.get("doesNotBlockSpeechOrTools") is not True
-        or not isinstance(emotion.get("labels"), list)
-        or len(emotion["labels"]) != 13
-        or len(set(emotion["labels"])) != 13
     ):
-        raise ValueError("responding emotion classifier contract is incomplete")
+        raise ValueError("responding presentation must not send reply text to a classifier")
+    if "{label:'responding', icon:'sentiment_neutral'" not in renderer:
+        raise ValueError("responding state must use the canonical neutral glyph")
     if (
         invariants.get("sameCaptionRenderer") is not True
         or invariants.get("sameIncrementalCaptionMotion") is not True

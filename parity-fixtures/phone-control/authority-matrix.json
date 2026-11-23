@@ -63,6 +63,12 @@
     "inFlightPlatformDispatchCancellationCertainty": "effect_may_have_occurred"
   },
   "targetEffectAuthority": {
+    "commandPreflight": {
+      "sample": "fresh_after_provider_ready_before_dispatch",
+      "protectedWindow": "os_owned_confirmation",
+      "observationUnavailable": "proven_no_effect",
+      "parseCommandText": false
+    },
     "states": [
       "routine",
       "consequential",

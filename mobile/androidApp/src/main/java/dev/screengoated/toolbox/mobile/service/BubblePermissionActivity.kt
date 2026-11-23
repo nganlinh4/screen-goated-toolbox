@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import androidx.core.net.toUri
+import dev.screengoated.toolbox.mobile.SgtMobileApplication
 
 class BubblePermissionActivity : Activity() {
     private var permissionScreenOpened = false
@@ -22,6 +23,10 @@ class BubblePermissionActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            finish()
+            return
+        }
         when {
             Settings.canDrawOverlays(this) -> {
                 Log.i(TAG, "overlay_permission_result granted=true")

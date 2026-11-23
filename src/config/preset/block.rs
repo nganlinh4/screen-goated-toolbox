@@ -12,7 +12,7 @@ use crate::model_config::DEFAULT_TEXT_MODEL_ID;
 // PROCESSING BLOCK
 // ============================================================================
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ProcessingBlock {
     /// Unique identifier for this block
     #[serde(default = "generate_block_id")]

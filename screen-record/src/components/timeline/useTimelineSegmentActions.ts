@@ -11,6 +11,7 @@ import {
   updateSubtitleSourceGroupAcrossTracks,
 } from "@/lib/subtitleTrackMutations";
 import { getVisibleSubtitleSegments } from "@/lib/subtitleTracks";
+import { findDuplicateSlot } from "@/lib/timelineSegmentSelection";
 
 interface UseTimelineSegmentActionsOptions {
   duration: number;
@@ -53,7 +54,7 @@ export function useTimelineSegmentActions({
     beginBatch();
     const idSet = new Set(ids);
     const remaining = (segment.cursorVisibilitySegments || []).filter(s => !idSet.has(s.id));
-    setSegment({ ...segment, cursorVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+    setSegment({ ...segment, cursorVisibilitySegments: remaining });
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 
@@ -108,20 +109,12 @@ export function useTimelineSegmentActions({
     const texts = segment.textSegments ?? [];
     const source = texts.find((t) => t.id === id);
     if (!source) return;
-    const length = source.endTime - source.startTime;
-    if (length <= 0) return;
-    const next = texts
-      .filter((t) => t.startTime > source.endTime)
-      .sort((a, b) => a.startTime - b.startTime)[0];
-    const desiredStart = source.endTime;
-    const maxEnd = next ? next.startTime - 0.01 : duration;
-    const clampedEnd = Math.min(desiredStart + length, maxEnd);
-    if (clampedEnd - desiredStart < 0.05) return;
+    const slot = findDuplicateSlot(texts, source, duration);
+    if (!slot) return;
     const duplicate = {
       ...JSON.parse(JSON.stringify(source)),
       id: crypto.randomUUID(),
-      startTime: desiredStart,
-      endTime: clampedEnd,
+      ...slot,
     };
     beginBatch();
     setSegment({ ...segment, textSegments: [...texts, duplicate] });
@@ -182,10 +175,10 @@ export function useTimelineSegmentActions({
     const mode = segment.keystrokeMode ?? 'off';
     if (mode === 'keyboard') {
       const remaining = (segment.keyboardVisibilitySegments || []).filter(s => !idSet.has(s.id));
-      setSegment({ ...segment, keyboardVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+      setSegment({ ...segment, keyboardVisibilitySegments: remaining });
     } else if (mode === 'keyboardMouse') {
       const remaining = (segment.keyboardMouseVisibilitySegments || []).filter(s => !idSet.has(s.id));
-      setSegment({ ...segment, keyboardMouseVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+      setSegment({ ...segment, keyboardMouseVisibilitySegments: remaining });
     }
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
@@ -195,7 +188,7 @@ export function useTimelineSegmentActions({
     beginBatch();
     const idSet = new Set(ids);
     const remaining = (segment.webcamVisibilitySegments || []).filter(s => !idSet.has(s.id));
-    setSegment({ ...segment, webcamVisibilitySegments: remaining.length > 0 ? remaining : undefined });
+    setSegment({ ...segment, webcamVisibilitySegments: remaining });
     commitBatch();
   }, [segment, setSegment, beginBatch, commitBatch]);
 

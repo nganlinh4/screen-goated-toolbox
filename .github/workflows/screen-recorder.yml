@@ -9,6 +9,7 @@ on:
       - "scripts/setup-egui-snarl.ps1"
       - "scripts/package_recorder_components.py"
       - "scripts/build-recorder-component-packs.ps1"
+      - "scripts/check-recorder-worker-format.ps1"
       - "scripts/dev_cache_paths.py"
       - "scripts/tests/test_package_recorder_components.py"
       - ".github/workflows/screen-recorder.yml"
@@ -20,6 +21,7 @@ on:
       - "scripts/setup-egui-snarl.ps1"
       - "scripts/package_recorder_components.py"
       - "scripts/build-recorder-component-packs.ps1"
+      - "scripts/check-recorder-worker-format.ps1"
       - "scripts/dev_cache_paths.py"
       - "scripts/tests/test_package_recorder_components.py"
       - ".github/workflows/screen-recorder.yml"
@@ -55,6 +57,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Check worker formatting
+        shell: pwsh
+        run: ./scripts/check-recorder-worker-format.ps1
       - name: Restore pinned egui dependencies
         shell: pwsh
         run: ./scripts/setup-egui-snarl.ps1

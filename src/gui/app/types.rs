@@ -1,17 +1,13 @@
 use crate::config::{Config, HotkeyConflict};
 use crate::gui::settings_ui::ViewMode;
 use crate::gui::settings_ui::node_graph::ChainNode;
-use crate::updater::{UpdateStatus, Updater};
-use auto_launch::AutoLaunch;
+use crate::updater::{UpdateEvent, UpdateStatus, Updater};
 use eframe::egui;
 use egui_snarl::Snarl;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, LazyLock, Mutex};
-use tray_icon::{
-    TrayIcon, TrayIconEvent,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
-};
+use tray_icon::{TrayIcon, TrayIconEvent};
 
 pub use crate::hotkey::{MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 
@@ -32,26 +28,22 @@ pub static REQUEST_OPEN_DOWNLOADED_TOOLS: AtomicBool = AtomicBool::new(false);
 
 pub enum UserEvent {
     Tray(TrayIconEvent),
-    Menu(MenuEvent),
 }
 
 pub struct SettingsApp {
     pub(crate) config: Config,
+    pub(crate) config_baseline: Config,
+    pub(super) config_conflict: Option<super::config_merge::ConfigConflict>,
+    pub(super) config_save: super::config_save::ConfigSaveQueue,
     pub(crate) app_state_ref: Arc<Mutex<crate::AppState>>,
     pub(crate) search_query: String,
     pub(crate) tray_icon: Option<TrayIcon>,
-    pub(crate) _tray_menu: Menu,
-
-    pub(crate) tray_settings_item: MenuItem, // Store for dynamic i18n update
-    pub(crate) tray_quit_item: MenuItem,     // Store for dynamic i18n update
-    pub(crate) tray_favorite_bubble_item: CheckMenuItem, // Store for favorite bubble toggle
-    pub(crate) last_ui_language: String,     // Track language to detect changes
-    pub(crate) tray_retry_timer: f64,        // Timer for lazy tray icon creation
+    pub(crate) last_ui_language: String, // Track language to detect changes
+    pub(crate) tray_retry_timer: f64,    // Timer for lazy tray icon creation
     pub(crate) tray_startup_wait_frames: u16, // Bounds hidden-start wait for tray readiness
     pub(crate) event_rx: Receiver<UserEvent>,
-    pub(crate) is_quitting: bool,
     pub(crate) run_at_startup: bool,
-    pub(crate) auto_launcher: Option<AutoLaunch>,
+    pub(crate) startup: crate::gui::startup::Startup,
     pub(crate) show_api_key: bool,
     pub(crate) show_gemini_api_key: bool,
     pub(crate) show_openrouter_api_key: bool,
@@ -67,7 +59,6 @@ pub struct SettingsApp {
     pub(crate) current_preset_idx: Option<usize>,
     pub(crate) recording_hotkey_for_preset: Option<usize>,
     pub(crate) hotkey_conflict_msg: Option<HotkeyConflict>,
-    pub(crate) recording_sr_hotkey: bool,
     pub(crate) recording_computer_control_hotkey: bool,
     pub(crate) computer_control_hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) recording_screen_translate_hotkey: bool,
@@ -79,7 +70,6 @@ pub struct SettingsApp {
     pub(crate) recording_live_translate_hotkey: bool,
     pub(crate) live_translate_hotkey_conflict_msg: Option<HotkeyConflict>,
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
-    pub(crate) fade_in_start: Option<f64>,
 
     // 0 = Init/Offscreen, 1 = Early init, 2..34 = Wait, 35 = Create splash,
     // 36 = Show native window, 37 = Re-enable custom chrome, 38 = Ready
@@ -92,17 +82,17 @@ pub struct SettingsApp {
     pub(crate) window_geometry_changed_at: Option<std::time::Instant>,
     pub(crate) custom_chrome_restore_size: Option<(i32, i32)>,
 
-    pub(crate) cached_audio_devices: Arc<Mutex<Vec<(String, String)>>>,
-
     pub(crate) updater: Option<Updater>,
-    pub(crate) update_rx: Receiver<UpdateStatus>,
+    pub(crate) update_rx: Receiver<UpdateEvent>,
     pub(crate) update_status: UpdateStatus,
 
     // --- NEW FIELDS ---
     pub(crate) current_admin_state: bool, // Track runtime admin status
     pub(crate) last_effective_theme_dark: bool, // Effective dark mode (considering System/Dark/Light)
     pub(crate) last_system_theme_dark: bool,    // Track Windows system theme for icon switching
-    pub(crate) theme_check_timer: f64,          // Timer for polling system theme
+    pub(crate) last_taskbar_dark: bool,
+    pub(crate) last_tray_icon_dark: bool,
+    pub(crate) theme_check_timer: f64, // Timer for polling system theme
     // ------------------
 
     // --- TIP UI STATE ---
@@ -129,6 +119,7 @@ pub struct SettingsApp {
     // --- FAVORITE BUBBLE STATE TRACKING ---
     pub(crate) last_bubble_enabled: bool,
     pub(crate) last_has_favorites: bool,
+    /// Tray bubble label last written to the native menu.
     // --------------------------------------
 
     // --- DOWNLOAD MANAGER ---

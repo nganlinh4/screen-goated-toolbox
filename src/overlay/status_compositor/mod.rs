@@ -36,7 +36,7 @@ pub(super) struct DisplayMetrics {
 }
 
 pub(crate) fn is_child_process() -> bool {
-    std::env::args().any(|argument| argument == CHILD_FLAG)
+    std::env::args_os().any(|argument| argument == CHILD_FLAG)
 }
 
 pub(crate) fn run_child() -> anyhow::Result<()> {
@@ -52,8 +52,9 @@ pub(crate) fn update_theme(is_dark: bool) {
     parent::send_if_running(HostCommand::Theme { is_dark });
 }
 
-pub(crate) fn recording_prepare(rect: PhysicalRect, subtext: String) {
+pub(crate) fn recording_prepare(rect: PhysicalRect, subtext: String, session_id: usize) {
     let scene = RecordingScene {
+        session_id: session_id.to_string(),
         rect,
         visible: false,
         state: "warmup".to_string(),
@@ -67,6 +68,7 @@ pub(crate) fn recording_prepare(rect: PhysicalRect, subtext: String) {
 pub(crate) fn recording_show(rect: PhysicalRect) {
     let mut snapshot = parent::SNAPSHOT.lock().unwrap();
     let scene = snapshot.recording.get_or_insert_with(|| RecordingScene {
+        session_id: String::new(),
         rect,
         visible: true,
         state: "warmup".to_string(),

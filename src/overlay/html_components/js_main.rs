@@ -438,45 +438,17 @@ pub fn get(font_size: u32) -> String {
             }});
         }}
 
-        // Legacy icon handlers (backward compat)
-        const modelIcons = document.querySelectorAll('.model-icon');
-        if (modelIcons.length) {{
-            modelIcons.forEach(icon => {{
-                icon.addEventListener('click', (e) => {{
-                    e.stopPropagation();
-                    modelIcons.forEach(i => i.classList.remove('active'));
-                    icon.classList.add('active');
-                    window.realtimePostMessage('translationModel:' + icon.getAttribute('data-value'));
-                }});
-            }});
-        }}
-        const transModelIcons = document.querySelectorAll('.trans-model-icon');
-        if (transModelIcons.length) {{
-            transModelIcons.forEach(icon => {{
-                icon.addEventListener('click', (e) => {{
-                    e.stopPropagation();
-                    transModelIcons.forEach(i => i.classList.remove('active'));
-                    icon.classList.add('active');
-                    window.realtimePostMessage('transcriptionModel:' + icon.getAttribute('data-value'));
-                }});
-            }});
-        }}
-
         // Transcription Language Dropdown
         const transLangSelect = document.getElementById('transcription-lang-select');
 
         function updateTransLangSelectState(modelName) {{
             if (!transLangSelect) return;
-            if (modelName === 'zipformer') {{
+            if (window.REALTIME_L10N.sourceLanguageModelIds.includes(modelName)) {{
                 transLangSelect.disabled = false;
                 transLangSelect.hidden = false;
                 if (transLangSelect.value === 'all') transLangSelect.value = 'en';
-            }} else if (modelName === 'parakeet') {{
-                transLangSelect.disabled = true;
-                transLangSelect.hidden = true;
-                transLangSelect.value = 'en';
             }} else {{
-                // Gemini, Qwen, or any language-agnostic model
+                // Language-agnostic models transcribe every language.
                 transLangSelect.disabled = true;
                 transLangSelect.hidden = true;
                 transLangSelect.value = 'all';
@@ -538,8 +510,8 @@ pub fn get(font_size: u32) -> String {
         {tail}
 "###,
         font_size = font_size,
-        check_svg = crate::overlay::html_components::icons::get_icon_svg("check"),
-        copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
+        check_svg = crate::overlay::html_components::icons::OverlayIcon::Check.svg(),
+        copy_svg = crate::overlay::html_components::icons::OverlayIcon::ContentCopy.svg(),
         drag_runtime = drag_runtime,
         vocabulary_editor = vocabulary_editor,
         tail = tail::get()

@@ -400,15 +400,19 @@ fn parse(text: &str, delimiter: char) -> Result<Profile, &'static str> {
     let mut records = Vec::<Vec<String>>::new();
     let mut record = Vec::<String>::new();
     let mut field = String::new();
+    let mut raw_field = String::new();
+    let mut formulas = Vec::new();
     let mut chars = text.chars().peekable();
     let mut in_quotes = false;
     let mut record_started = false;
 
     while let Some(ch) = chars.next() {
         if in_quotes {
+            raw_field.push(ch);
             if ch == '"' {
                 if chars.peek() == Some(&'"') {
                     chars.next();
+                    raw_field.push('"');
                     field.push('"');
                 } else {
                     in_quotes = false;
@@ -422,22 +426,36 @@ fn parse(text: &str, delimiter: char) -> Result<Profile, &'static str> {
         match ch {
             '"' if field.is_empty() => {
                 in_quotes = true;
+                raw_field.push(ch);
                 record_started = true;
             }
             value if value == delimiter => {
-                record.push(std::mem::take(&mut field));
+                finish_field(
+                    &mut record,
+                    &mut field,
+                    &mut raw_field,
+                    &mut formulas,
+                    records.len(),
+                );
                 record_started = true;
             }
             '\r' | '\n' => {
                 if ch == '\r' && chars.peek() == Some(&'\n') {
                     chars.next();
                 }
-                record.push(std::mem::take(&mut field));
+                finish_field(
+                    &mut record,
+                    &mut field,
+                    &mut raw_field,
+                    &mut formulas,
+                    records.len(),
+                );
                 records.push(std::mem::take(&mut record));
                 record_started = false;
             }
             value => {
                 field.push(value);
+                raw_field.push(value);
                 record_started = true;
             }
         }
@@ -446,32 +464,41 @@ fn parse(text: &str, delimiter: char) -> Result<Profile, &'static str> {
         return Err("unterminated quoted field");
     }
     if record_started || !field.is_empty() || !record.is_empty() {
-        record.push(field);
+        finish_field(
+            &mut record,
+            &mut field,
+            &mut raw_field,
+            &mut formulas,
+            records.len(),
+        );
         records.push(record);
     }
 
-    let mut formulas = Vec::new();
-    let field_counts = records
-        .iter()
-        .enumerate()
-        .map(|(record_index, fields)| {
-            for (field_index, value) in fields.iter().enumerate() {
-                if value.trim_start().starts_with('=') {
-                    formulas.push(FormulaCell {
-                        record: record_index,
-                        field: field_index,
-                        value: value.clone(),
-                    });
-                }
-            }
-            fields.len()
-        })
-        .collect();
+    let field_counts = records.iter().map(Vec::len).collect();
     Ok(Profile {
         records,
         field_counts,
         formulas,
     })
+}
+
+fn finish_field(
+    record: &mut Vec<String>,
+    field: &mut String,
+    raw: &mut String,
+    formulas: &mut Vec<FormulaCell>,
+    record_index: usize,
+) {
+    if field.trim_start().starts_with('=') {
+        formulas.push(FormulaCell {
+            record: record_index,
+            field: record.len(),
+            value: std::mem::take(raw),
+        });
+    } else {
+        raw.clear();
+    }
+    record.push(std::mem::take(field));
 }
 
 #[cfg(test)]

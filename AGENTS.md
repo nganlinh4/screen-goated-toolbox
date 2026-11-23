@@ -39,9 +39,16 @@
   <material-symbol-name> <RustIconVariant>`. Screen recorder: `node
   screen-record/scripts/add_material_icon.mjs <material-symbol-name>`. Shared
   Android/offline-web catalog: `bash scripts/download_material_symbols.sh <name>`.
-- Public creation code, docs, fixtures, and tests contain only product behavior,
-  stable public contracts, and delivery invariants. Do not document non-public
-  implementation details, compatibility evidence, or real-run artifacts.
+- Creation (Image to 3D, Image to SVG): the creation backend is external. This
+  repo owns the creation frontend (`3d-generator-ui/`, `image-to-svg-ui/`, the
+  overlay windows, the host client/IPC side) and the delivery steps: the app's
+  download-and-verify path, the delivery contract, and the staging, packaging
+  and publish scripts the backend repo uses to update and publish. Backend
+  internals (its browser/CDP use, HTTP clients, model decoding, preparation and
+  retry policy) are out of scope: do not implement, test, document, or audit
+  them here. Creation code, docs, fixtures, and tests contain only product
+  behavior, stable public contracts, and delivery invariants; no real-run
+  artifacts.
 - `libs/egui-snarl` and `libs/egui-scale` are disposable ignored checkouts. Never
   edit them as source of truth; update their tracked patch files under `scripts/`,
   then recreate and validate them with `scripts/setup-egui-snarl.ps1`.
@@ -54,6 +61,11 @@
   suites once at a development checkpoint when the changed subsystem requires
   them.
 - Rust development checkpoint: `cargo test`; `cargo clippy --all-targets -- -D warnings`.
+- CI (`.github/workflows/development.yml`) runs root fmt/clippy/tests, JS and
+  Python unit suites, recorder UI lint/typecheck/tests, Android unit tests, and
+  unused-dependency checks. Keep it green; it never publishes or uses secrets.
+- Native package checkpoint: `python -m scripts.check_native`; ownership and
+  selection are documented in `native/README.md`.
 - Development hygiene: `cargo fmt`; inspect `git diff --check`.
 - Target-sensitive development: `scripts/validate-windows-targets.ps1`.
 - Frontend development: run package typecheck/tests named in subsystem README.
@@ -84,6 +96,9 @@
 - Port Windows state/HTML contract; thin platform shim only. No guessed mobile redesign or duplicated core logic.
 - Divergent glue, repeated fixes, or parity monolith: rewrite from canonical Windows architecture.
 - Android rules: `mobile/AGENTS.md`. Workflow and machine paths: `mobile/README.md`.
+- For Android Video Downloader, follow the dependency routing in
+  [mobile/AGENTS.md](mobile/AGENTS.md#owned-downloader-dependency) before
+  choosing where to fix the issue.
 
 ## Screen Recorder
 
@@ -118,12 +133,25 @@
   contract from an isolated runtime-state root.
 - Staging candidate uploads/replacements, read-back verification, and isolated
   debug contract selection are authorized development steps. Do not request
-  separate approval for them. This does not authorize production promotion,
-  application releases, or uploading private/customer data.
+  separate approval for them. Building and promoting component artifacts to
+  append-only `sgt-runtime-bundles`, verifying read-back, and updating tracked
+  delivery contracts are also authorized without separate approval, including
+  hosting component assets on a GitHub release. Only publishing, promoting, or
+  uploading a new production SGT application version requires explicit user
+  authorization. Component delivery is not an application release. Uploading
+  private/customer data is not authorized.
 - Promote tested bytes once to append-only `sgt-runtime-bundles`. Production
   promotion must download and hash staging, upload without overwrite, read back
   and hash production, then update the reviewed tracked contract. Release builds
   must fail if any staging channel or URL is selected.
+- A tracked contract change also increments `sequence` in
+  `component-delivery/update-catalog-v1.sources.json`. A downloaded catalog
+  overrides compiled contracts only at an equal or higher sequence, so without
+  the bump a dev build keeps running the old catalog's components.
+- A component that changes a host protocol (for example recorder settings
+  protocol 2) must never reach hosts that speak the old one. The catalog that
+  first offers it sets `minHostVersion` to the first host version speaking the
+  new protocol; released hosts keep their compatible component.
 - First use/update must verify, install, and then open automatically. Removal
   must stop the owning UI/process, wait for leases, and delete only receipt-owned
   unchanged files.

@@ -16,8 +16,8 @@ import java.nio.file.Paths
  *
  * Windows (Rust, `src/config/tts_catalog_gemini.rs`) is canonical. The same shared
  * fixture is asserted by the Rust test in that file, so the Android catalog cannot
- * silently drift from Windows. Kokoro/Supertonic voices are intentionally excluded on
- * Android (Gemini only). See `.claude/parity/gemini-voice-catalog.md`.
+ * silently drift from Windows. Android offers Gemini voices only.
+ * See `.claude/parity/gemini-voice-catalog.md`.
  */
 class GeminiVoiceCatalogParityTest {
     private val json = Json { ignoreUnknownKeys = true }

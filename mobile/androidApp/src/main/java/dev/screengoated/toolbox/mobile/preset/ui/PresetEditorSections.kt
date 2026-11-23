@@ -75,7 +75,6 @@ internal fun HeaderSection(
     editState: Preset,
     lang: String,
     isBuiltIn: Boolean,
-    onNameChanged: (String) -> Unit,
     onTypeGroupChanged: (EditorTypeGroup) -> Unit,
     onControllerToggled: (Boolean) -> Unit,
 ) {

@@ -8,22 +8,22 @@ import dev.screengoated.toolbox.mobile.shared.preset.ProcessingBlock
  */
 interface PresetPostProcessActions {
     /** Copy result text to clipboard. Called if block.autoCopy is true. */
-    fun handleAutoCopy(block: ProcessingBlock, resultText: String)
+    fun handleAutoCopy(block: ProcessingBlock, resultText: String, lease: PresetEffectLease)
 
     /** Copy image input to clipboard. Used for image input_adapter blocks like Quick Screenshot. */
-    fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray)
+    fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray, lease: PresetEffectLease)
 
     /** Speak result text via TTS. Called if block.autoSpeak is true. */
-    fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int)
+    fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int, lease: PresetEffectLease)
 
     /** Paste clipboard into source app. Called after all blocks if preset.autoPaste is true. */
-    fun handleAutoPaste()
+    fun handleAutoPaste(lease: PresetEffectLease)
 }
 
 /** No-op implementation for contexts without TTS/clipboard (e.g., tests). */
 object NoOpPostProcessActions : PresetPostProcessActions {
-    override fun handleAutoCopy(block: ProcessingBlock, resultText: String) {}
-    override fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray) {}
-    override fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int) {}
-    override fun handleAutoPaste() {}
+    override fun handleAutoCopy(block: ProcessingBlock, resultText: String, lease: PresetEffectLease) {}
+    override fun handleAutoCopyImage(block: ProcessingBlock, pngBytes: ByteArray, lease: PresetEffectLease) {}
+    override fun handleAutoSpeak(block: ProcessingBlock, resultText: String, blockIdx: Int, lease: PresetEffectLease) {}
+    override fun handleAutoPaste(lease: PresetEffectLease) {}
 }

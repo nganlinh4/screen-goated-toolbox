@@ -7,6 +7,8 @@ import react from "@vitejs/plugin-react";
 // server.
 export default defineConfig({
   plugins: [react()],
+  // Shared modules (ui-shared Material Symbols, drag-hold) live one level up.
+  server: { fs: { allow: [".."] } },
   build: {
     minify: "terser",
     terserOptions: { compress: { passes: 2 } },

@@ -205,3 +205,28 @@ fn out_of_bounds_drag_and_finish_completes_cleanly() {
     assert!(!is_gesture_active());
     assert_eq!(active_gesture_id(), None);
 }
+
+#[test]
+fn restoring_button_regions_settles_only_the_awaited_drag() {
+    use super::super::button_input::{RendererInput, await_settlement, handle_renderer_message};
+    let _guard = TEST_LOCK.lock().unwrap();
+    let cards = HashMap::new();
+    // No `regions` key: the shared hit-region list is left to its own test.
+    let restore = |gesture_id: u64| {
+        handle_renderer_message(
+            &format!(r#"{{"action":"restore_clickable_regions","gesture_id":{gesture_id}}}"#),
+            HWND::default(),
+            &cards,
+        )
+    };
+    let settle = super::super::button_input::settle_drag;
+    await_settlement(7001);
+    assert_eq!(restore(7000), RendererInput::RefreshRegion);
+    assert!(
+        settle(Some(7001)),
+        "a stale restore leaves the drag awaiting"
+    );
+    await_settlement(7002);
+    assert_eq!(restore(7002), RendererInput::RefreshRegion);
+    assert!(!settle(Some(7002)), "the matching restore settled the drag");
+}

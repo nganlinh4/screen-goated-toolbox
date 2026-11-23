@@ -36,12 +36,14 @@ internal object RootCommandBridge {
     }
 
     suspend fun requestAuthorization(): RootBridgeProbe = withContext(Dispatchers.IO) {
+        // The probe's process group is the app-uid `su` client, so it is
+        // signalled and probed with kill(2), not through the root it is testing.
         val receipt = defaultBoundedProcessRunner.run(
             operationId = nextInternalOperationId("authorization"),
             command = listOf("su", "-c", "test \"$(id -u)\" = 0"),
             cwd = null,
             timeoutMs = AUTH_TIMEOUT_MS,
-            authorityUid = 0,
+            authorityUid = android.os.Process.myUid(),
         )
         authorized = receipt["exit_code"]?.jsonPrimitive?.intOrNull == 0 &&
             receipt["timed_out"]?.jsonPrimitive?.booleanOrNull != true
@@ -55,6 +57,7 @@ internal object RootCommandBridge {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean = true,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult = execute(
         effectOwner,
         program,
@@ -62,6 +65,7 @@ internal object RootCommandBridge {
         cwd,
         timeoutMs,
         effectMayChangeUserState,
+        beforeDispatch,
     )
 
     suspend fun verifyAuthority(timeoutMs: Long): PrivilegedCommandResult =
@@ -81,6 +85,7 @@ internal object RootCommandBridge {
         cwd: String?,
         timeoutMs: Long,
         effectMayChangeUserState: Boolean,
+        beforeDispatch: suspend () -> PrivilegedCommandResult.Failure? = { null },
     ): PrivilegedCommandResult = withContext(Dispatchers.IO) {
         if (!authorized) {
             return@withContext PrivilegedCommandResult.Failure(
@@ -91,12 +96,12 @@ internal object RootCommandBridge {
                 effectMayHaveOccurred = false,
             )
         }
-        val invocation = (listOf(program) + args).joinToString(" ", transform = ::shellQuote)
+        val invocation = (listOf(program) + args).joinToString(" ", transform = ::rootShellQuote)
         val guarded = "test \"$(id -u)\" = 0 || exit 126; exec $invocation"
         val operationId = effectOwner?.operationId?.wireValue
             ?: nextInternalOperationId("authority-probe")
         val cancellation = effectOwner?.registerCancellationHandler {
-            defaultBoundedProcessRunner.requestCancellation(operationId)
+            rootBoundedProcessRunner.requestCancellation(operationId)
         }
         if (effectOwner != null && cancellation == null) throw CancellationException()
         val effectLease = effectOwner?.beginEffect()
@@ -105,9 +110,10 @@ internal object RootCommandBridge {
             throw CancellationException()
         }
         val receipt = try {
-            defaultBoundedProcessRunner.run(
+            beforeDispatch()?.let { return@withContext it }
+            rootBoundedProcessRunner.run(
                 operationId = operationId,
-                command = listOf("su", "-c", guarded),
+                command = listOf(SHELL_PROGRAM, "-c", guarded),
                 cwd = cwd,
                 timeoutMs = timeoutMs,
                 authorityUid = 0,
@@ -133,9 +139,6 @@ internal object RootCommandBridge {
     }
 
     private fun hasSu(): Boolean = SU_PATHS.any { File(it).exists() }
-
-    private fun shellQuote(value: String): String =
-        "'${value.replace("'", "'\\''")}'"
 
     private fun nextInternalOperationId(kind: String): String =
         "root-$kind-${internalOperations.incrementAndGet()}"

@@ -1,111 +1,25 @@
 use std::sync::{Arc, atomic::Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::super::manager::TtsManager;
-use super::super::types::{AudioEvent, SOURCE_SAMPLE_RATE, TtsCollectedAudio, TtsRequestProfile};
-use super::super::utils::{
-    clear_tts_loading_state, clear_tts_state, get_language_instruction_for_code,
-    get_language_instruction_for_text,
-};
+use super::super::types::{AudioEvent, TtsRequestProfile};
+use super::super::utils::{get_language_instruction_for_code, get_language_instruction_for_text};
 use super::super::websocket::{build_tts_setup, build_tts_text, connect_tts_websocket};
+use super::open_weights::fail_request;
 use super::{acquire_warm_socket, start_warm_up};
 
 use crate::APP;
 use crate::api::gemini_live::ready_session::{
-    ConnectedLiveSocket, LivePoll, LiveSetupServerError, OpenOptions,
+    ConnectedLiveSocket, LiveCloseInfo, LivePoll, LiveSetupServerError, OpenOptions,
 };
+use crate::api::gemini_live::setup_failure::live_api_key_error_code;
 
-pub fn synthesize_gemini_live_to_wav_cancel(
-    text: &str,
-    profile: TtsRequestProfile,
-    cancel: Arc<std::sync::atomic::AtomicBool>,
-) -> anyhow::Result<TtsCollectedAudio> {
-    let api_key = {
-        let app = APP
-            .lock()
-            .map_err(|_| anyhow::anyhow!("APP config lock poisoned"))?;
-        app.config.gemini_api_key.trim().to_string()
-    };
-    if api_key.is_empty() {
-        return Err(anyhow::anyhow!("NO_API_KEY:google"));
-    }
+#[cfg(feature = "recorder-worker")]
+mod narration_wav;
+#[cfg(feature = "recorder-worker")]
+pub use narration_wav::synthesize_gemini_live_to_wav_cancel;
 
-    let model = crate::model_config::normalize_tts_gemini_model(&profile.gemini_model).to_string();
-    let instruction = playground_language_instruction(text, &profile);
-    let setup = build_tts_setup(
-        &model,
-        &profile.gemini_voice,
-        &profile.gemini_speed,
-        instruction.as_deref(),
-    );
-    let session = ConnectedLiveSocket::connect(&api_key)?.activate_with(
-        setup,
-        tts_open_options(Duration::from_secs(15)),
-        || cancel.load(Ordering::SeqCst),
-    );
-    if cancel.load(Ordering::SeqCst) {
-        return Err(anyhow::anyhow!("Generation cancelled"));
-    }
-    let mut session = session?;
-
-    if let Err(error) = session.send_json(&build_tts_text(text)) {
-        let _ = session.close();
-        return Err(error);
-    }
-    let read_started = Instant::now();
-    let mut audio_bytes = Vec::new();
-    while !cancel.load(Ordering::SeqCst) {
-        if read_started.elapsed() > Duration::from_secs(90) {
-            let _ = session.close();
-            return Err(anyhow::anyhow!("TTS generation timed out"));
-        }
-        match session.poll() {
-            Ok(LivePoll::Frame(frame)) => {
-                let response_complete = frame.response_complete();
-                for audio_data in frame.audio_chunks {
-                    audio_bytes.extend_from_slice(&audio_data);
-                }
-                if response_complete {
-                    break;
-                }
-            }
-            Ok(LivePoll::ServerError(error)) => {
-                let _ = session.close();
-                return Err(anyhow::anyhow!("Gemini TTS error: {error}"));
-            }
-            Ok(LivePoll::PeerClosed(_)) => break,
-            Ok(LivePoll::Unparsed { .. }) => {}
-            Ok(LivePoll::Idle) => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(error) => {
-                let _ = session.close();
-                return Err(error);
-            }
-        }
-    }
-    let _ = session.close();
-    if cancel.load(Ordering::SeqCst) {
-        return Err(anyhow::anyhow!("Generation cancelled"));
-    }
-    if audio_bytes.is_empty() {
-        return Err(anyhow::anyhow!("TTS generated no audio"));
-    }
-    let pcm_samples: Vec<i16> = audio_bytes
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect();
-    let duration_ms = ((pcm_samples.len() as u64) * 1000) / SOURCE_SAMPLE_RATE as u64;
-    let wav_data = crate::api::audio::encode_wav(&pcm_samples, SOURCE_SAMPLE_RATE, 1);
-    Ok(TtsCollectedAudio {
-        pcm_samples,
-        wav_data,
-        sample_rate: SOURCE_SAMPLE_RATE,
-        duration_ms,
-    })
-}
+const PROVIDER: &str = "Gemini";
 
 pub(super) fn handle_gemini_tts(
     manager: &Arc<TtsManager>,
@@ -117,11 +31,12 @@ pub(super) fn handle_gemini_tts(
         match APP.lock() {
             Ok(app) => app.config.gemini_api_key.clone(),
             Err(e) => {
-                eprintln!(
-                    "[TTS Worker] ERROR: Failed to lock APP for API key: {:?}",
-                    e
+                fail_request(
+                    PROVIDER,
+                    request.req.hwnd,
+                    &tx,
+                    format!("Failed to lock APP for API key: {e:?}"),
                 );
-                let _ = tx.send(AudioEvent::End);
                 std::thread::sleep(Duration::from_secs(1));
                 return;
             }
@@ -135,9 +50,7 @@ pub(super) fn handle_gemini_tts(
             Err(_) => "en".to_string(),
         };
         crate::overlay::utils::show_api_key_error_notification("NO_API_KEY:gemini", &lang);
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_loading_state(request.req.hwnd);
-        clear_tts_state(request.req.hwnd);
+        fail_request(PROVIDER, request.req.hwnd, &tx, "NO_API_KEY:gemini");
         std::thread::sleep(Duration::from_secs(5));
         return;
     }
@@ -154,10 +67,12 @@ pub(super) fn handle_gemini_tts(
                 (s, false)
             }
             Err(e) => {
-                eprintln!("[TTS Worker] ERROR: WebSocket connection failed: {}", e);
-                let _ = tx.send(AudioEvent::End);
-                clear_tts_loading_state(request.req.hwnd);
-                clear_tts_state(request.req.hwnd);
+                fail_request(
+                    PROVIDER,
+                    request.req.hwnd,
+                    &tx,
+                    format!("Gemini TTS connection failed: {e}"),
+                );
                 std::thread::sleep(Duration::from_secs(3));
                 return;
             }
@@ -172,17 +87,11 @@ pub(super) fn handle_gemini_tts(
                 playground_language_instruction(&request.req.text, profile),
             )
         } else {
-            let app = APP.lock().unwrap();
-            let voice = app.config.tts_voice.clone();
-            let conditions = app.config.tts_language_conditions.clone();
-
-            let instruction = get_language_instruction_for_text(&request.req.text, &conditions);
-
-            if request.req.is_realtime {
-                (voice, "Normal".to_string(), instruction)
-            } else {
-                (voice, app.config.tts_speed.clone(), instruction)
-            }
+            app_voice_settings(
+                &request.req.text,
+                request.req.is_realtime,
+                get_language_instruction_for_text,
+            )
         };
     let current_model = if let Some(profile) = request.req.profile.as_ref() {
         crate::model_config::normalize_tts_gemini_model(&profile.gemini_model).to_string()
@@ -198,10 +107,7 @@ pub(super) fn handle_gemini_tts(
         &current_speed,
         language_instruction.as_deref(),
     );
-    let cancelled = || {
-        request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
-            || manager.shutdown.load(Ordering::SeqCst)
-    };
+    let cancelled = || request.is_cancelled(manager);
     let activate = |socket| {
         ConnectedLiveSocket::from_socket(socket).activate_with(
             setup.clone(),
@@ -226,36 +132,42 @@ pub(super) fn handle_gemini_tts(
         return;
     }
 
-    let mut session = match session {
+    let mut session = match session.map_err(classify_setup_error) {
         Ok(session) => session,
         Err(error) => {
-            eprintln!("TTS: Setup failed: {error}");
-            let _ = tx.send(AudioEvent::End);
-            clear_tts_state(request.req.hwnd);
+            let message = error.to_string();
+            if live_api_key_error_code(&error).is_some() {
+                let lang = APP
+                    .lock()
+                    .map(|app| app.config.ui_language.clone())
+                    .unwrap_or_else(|_| "en".to_string());
+                crate::overlay::utils::show_api_key_error_notification(&message, &lang);
+            }
+            fail_request(PROVIDER, request.req.hwnd, &tx, message);
             return;
         }
     };
     if cancelled() {
         let _ = session.close();
         let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
         return;
     }
 
     // Send request text
     if let Err(e) = session.send_json(&build_tts_text(&request.req.text)) {
-        eprintln!("TTS: Failed to send text: {}", e);
-        let _ = tx.send(AudioEvent::End);
-        clear_tts_state(request.req.hwnd);
+        fail_request(
+            PROVIDER,
+            request.req.hwnd,
+            &tx,
+            format!("Gemini TTS failed to send text: {e}"),
+        );
         let _ = session.close();
         return;
     }
 
     // Read loop
     loop {
-        if request.generation < manager.interrupt_generation.load(Ordering::SeqCst)
-            || manager.shutdown.load(Ordering::SeqCst)
-        {
+        if cancelled() {
             let _ = session.close();
             let _ = tx.send(AudioEvent::End);
             break;
@@ -265,21 +177,32 @@ pub(super) fn handle_gemini_tts(
             Ok(LivePoll::Frame(frame)) => {
                 let response_complete = frame.response_complete();
                 for audio_data in frame.audio_chunks {
-                    let _ = tx.send(AudioEvent::Data(audio_data));
+                    if tx.send(AudioEvent::Data(audio_data)).is_err() {
+                        let _ = session.close();
+                        return;
+                    }
                 }
                 if response_complete {
                     let _ = tx.send(AudioEvent::End);
                     break;
                 }
             }
-            Ok(LivePoll::PeerClosed(_)) => {
-                let _ = tx.send(AudioEvent::End);
+            Ok(LivePoll::PeerClosed(close)) => {
+                fail_request(
+                    PROVIDER,
+                    request.req.hwnd,
+                    &tx,
+                    premature_close_message(close.as_ref()),
+                );
                 break;
             }
             Ok(LivePoll::ServerError(error)) => {
-                eprintln!("TTS: Server error: {error}");
-                let _ = tx.send(AudioEvent::End);
-                clear_tts_state(request.req.hwnd);
+                fail_request(
+                    PROVIDER,
+                    request.req.hwnd,
+                    &tx,
+                    format!("Gemini TTS error: {error}"),
+                );
                 break;
             }
             Ok(LivePoll::Unparsed { .. }) => {}
@@ -287,9 +210,12 @@ pub(super) fn handle_gemini_tts(
                 std::thread::sleep(Duration::from_millis(5));
             }
             Err(e) => {
-                eprintln!("TTS: Read error: {}", e);
-                let _ = tx.send(AudioEvent::End);
-                clear_tts_state(request.req.hwnd);
+                fail_request(
+                    PROVIDER,
+                    request.req.hwnd,
+                    &tx,
+                    format!("Gemini TTS read error: {e}"),
+                );
                 break;
             }
         }
@@ -309,6 +235,49 @@ fn tts_open_options(setup_timeout: Duration) -> OpenOptions {
         setup_read_timeout: Duration::from_millis(200),
         active_read_timeout: Duration::from_millis(50),
     }
+}
+
+/// Maps an explicit credential rejection during Live setup to the shared
+/// `INVALID_API_KEY:gemini` code; other setup failures keep their detail.
+fn classify_setup_error(error: anyhow::Error) -> anyhow::Error {
+    match live_api_key_error_code(&error) {
+        Some(code) => anyhow::anyhow!(code),
+        None => error,
+    }
+}
+
+/// A close before `turnComplete` truncates the clip, so it is a failure.
+fn premature_close_message(close: Option<&LiveCloseInfo>) -> String {
+    let detail = close.map_or_else(
+        || "no close details".to_string(),
+        |close| format!("code {}: {}", close.code, close.reason),
+    );
+    format!("Gemini TTS connection closed before turn completion ({detail})")
+}
+
+/// Voice, speed and language instruction from the app settings. The
+/// instruction may wait on remote language detection, so the settings are
+/// copied first and the lock is released before it runs.
+fn app_voice_settings(
+    text: &str,
+    is_realtime: bool,
+    language_instruction: impl FnOnce(&str, &[crate::config::TtsLanguageCondition]) -> Option<String>,
+) -> (String, String, Option<String>) {
+    let (voice, speed, conditions) = {
+        let app = APP.lock().unwrap();
+        (
+            app.config.tts_voice.clone(),
+            app.config.tts_speed.clone(),
+            app.config.tts_language_conditions.clone(),
+        )
+    };
+    let instruction = language_instruction(text, &conditions);
+    let speed = if is_realtime {
+        "Normal".to_string()
+    } else {
+        speed
+    };
+    (voice, speed, instruction)
 }
 
 fn retryable_before_content(error: &anyhow::Error) -> bool {
@@ -359,5 +328,50 @@ mod tests {
         assert!(!retryable_before_content(&fatal));
         assert!(retryable_before_content(&transient));
         assert!(retryable_before_content(&anyhow::anyhow!("stale socket")));
+    }
+
+    #[test]
+    fn setup_key_rejection_becomes_the_shared_invalid_key_code() {
+        let rejected = anyhow::anyhow!(
+            "Gemini Live peer closed during setup (code 1007: API key not valid. Please pass a valid API key.)"
+        );
+        assert_eq!(
+            classify_setup_error(rejected).to_string(),
+            "INVALID_API_KEY:gemini"
+        );
+        let quota = anyhow::anyhow!("Gemini Live setup error: RESOURCE_EXHAUSTED");
+        assert!(
+            classify_setup_error(quota)
+                .to_string()
+                .contains("RESOURCE_EXHAUSTED")
+        );
+    }
+
+    #[test]
+    fn premature_close_names_the_close_detail() {
+        let close = LiveCloseInfo {
+            code: 1011,
+            reason: "internal".to_string(),
+        };
+        assert_eq!(
+            premature_close_message(Some(&close)),
+            "Gemini TTS connection closed before turn completion (code 1011: internal)"
+        );
+    }
+
+    #[test]
+    fn app_settings_are_not_locked_while_the_language_is_detected() {
+        let mut detected = false;
+        let (_, speed, instruction) = app_voice_settings("xin chào", true, |text, _| {
+            assert!(
+                super::super::worker_edge::settings_tests::app_lock_is_free(),
+                "the app settings lock is held during detection"
+            );
+            detected = text == "xin chào";
+            Some("Speak Vietnamese.".to_string())
+        });
+        assert!(detected);
+        assert_eq!(speed, "Normal");
+        assert_eq!(instruction.as_deref(), Some("Speak Vietnamese."));
     }
 }

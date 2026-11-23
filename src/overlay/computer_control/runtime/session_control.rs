@@ -3,6 +3,8 @@
 use super::*;
 
 const STARTUP_CATALOG_WAIT: Duration = Duration::from_secs(12);
+/// DNS, TCP, TLS and WebSocket upgrade for one initial connection attempt.
+const INITIAL_CONNECT_BUDGET: Duration = Duration::from_secs(15);
 
 /// Wait only long enough to know the installed catalog's startup outcome. The
 /// microphone keeps buffering on its worker while this runs; unresolved workers
@@ -15,7 +17,8 @@ pub(super) fn await_startup_catalog(
     let started = Instant::now();
     let report = catalog.wait(STARTUP_CATALOG_WAIT, stop);
     if report.stopped {
-        anyhow::bail!("stopped while activating the installed integration catalog");
+        return Err(anyhow::Error::new(session::SessionStopped)
+            .context("stopped while activating the installed integration catalog"));
     }
     // Connections settled before this edge are represented in the initial
     // setup. Any connection that settles after it sets the flag again.
@@ -93,26 +96,59 @@ pub(super) fn configured_target() -> anyhow::Result<Option<String>> {
 }
 
 pub(super) fn connect_initial_session(key: &str, stop: &Arc<AtomicBool>) -> anyhow::Result<Sock> {
-    let mut socket = connect_ws(key)?;
-    let setup_with_search = uia_task::build_setup(None, true, true)?;
-    telemetry::record_model_setup(&setup_with_search, "initial_search");
-    send(&mut socket, setup_with_search)?;
-    if let Err(error) = wait_for_setup(&mut socket, stop) {
-        if session::api_key_error_code(&error).is_some() {
-            return Err(error);
-        }
-        let _ = socket.close(None);
-        overlay::push_log(
-            "(Google Search unavailable on this key; starting without it)".to_string(),
-        );
-        socket = connect_ws(key)?;
-        let setup_without_search = uia_task::build_setup(None, true, false)?;
-        telemetry::record_model_setup(&setup_without_search, "initial_fallback");
-        send(&mut socket, setup_without_search)?;
+    let setup = uia_task::build_normal_setup(None)?;
+    telemetry::record_model_setup(&setup, "initial_complete");
+    initial_setup_with_one_retry(&setup, stop, |setup| {
+        let mut socket = connect_ws(key, stop, None, Instant::now() + INITIAL_CONNECT_BUDGET)?;
+        socket
+            .get_mut()
+            .get_mut()
+            .set_write_timeout(Some(Duration::from_secs(2)))?;
+        super::control::reconnect_effect(stop, || send(&mut socket, setup.clone()))?;
         wait_for_setup(&mut socket, stop)?;
+        set_socket_nonblocking(&mut socket)?;
+        Ok(socket)
+    })
+}
+
+fn initial_setup_with_one_retry<T>(
+    setup: &Value,
+    stop: &AtomicBool,
+    mut connect: impl FnMut(&Value) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let mut attempt = || {
+        if stop.load(Ordering::SeqCst) {
+            anyhow::bail!(session::SessionStopped);
+        }
+        let result = connect(setup);
+        if stop.load(Ordering::SeqCst) {
+            anyhow::bail!(session::SessionStopped);
+        }
+        result
+    };
+    match attempt() {
+        Err(error)
+            if !stop.load(Ordering::SeqCst)
+                && !matches!(
+                    session::failure_kind(&error),
+                    session::SessionFailureKind::Stopped | session::SessionFailureKind::Credential
+                ) =>
+        {
+            overlay::push_log(
+                "(setup failed; retrying once with the complete catalog)".to_string(),
+            );
+            telemetry::event(
+                "session_setup_retry",
+                "runtime",
+                Privacy::Sensitive,
+                serde_json::json!({"catalog_policy": "complete", "search_enabled": true, "error": error.to_string()}),
+            );
+            attempt().map_err(|error| {
+                error.context("initial setup failed twice with the complete catalog")
+            })
+        }
+        result => result,
     }
-    set_socket_nonblocking(&mut socket)?;
-    Ok(socket)
 }
 
 fn complete_catalog_with_one_retry<T, E>(
@@ -134,6 +170,7 @@ pub(super) fn activate_integrations(
     target: Option<&str>,
     reconnects: &mut u32,
     state: &mut Reader,
+    stop: &Arc<AtomicBool>,
 ) -> anyhow::Result<bool> {
     super::super::mcp::clear_tools_changed();
     overlay::push_log("(mcp) health passed - reconnecting now to activate tools".to_string());
@@ -143,6 +180,7 @@ pub(super) fn activate_integrations(
         target,
         reconnects,
         state,
+        stop,
         "integration_activation",
     )
 }
@@ -154,10 +192,30 @@ pub(super) fn reconnect_session(
     target: Option<&str>,
     reconnects: &mut u32,
     state: &mut Reader,
+    stop: &Arc<AtomicBool>,
     trigger: &str,
 ) -> anyhow::Result<bool> {
+    super::write_recovery::retry_reseed(|| {
+        reconnect_session_once(socket, key, target, reconnects, state, stop, trigger)
+    })
+}
+
+fn reconnect_session_once(
+    socket: &mut Sock,
+    key: &str,
+    target: Option<&str>,
+    reconnects: &mut u32,
+    state: &mut Reader,
+    stop: &Arc<AtomicBool>,
+    trigger: &str,
+) -> anyhow::Result<bool> {
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
     let started = Instant::now();
-    *reconnects += 1;
+    cancel_pending_for_transport_replacement(state);
+    state.connection_health.retire(reconnects, started);
+    *reconnects = reconnects.saturating_add(1);
     state.reconnect_total = state.reconnect_total.saturating_add(1);
     if *reconnects > MAX_RECONNECTS {
         overlay::push_log(format!("giving up after {MAX_RECONNECTS} reconnects"));
@@ -167,7 +225,7 @@ pub(super) fn reconnect_session(
             "session reconnect limit reached",
             serde_json::json!({"max_reconnects": MAX_RECONNECTS}),
         );
-        return Ok(false);
+        anyhow::bail!("session reconnect limit reached after {MAX_RECONNECTS} attempts");
     }
     overlay::set_status("reconnecting...");
     telemetry::event(
@@ -183,19 +241,13 @@ pub(super) fn reconnect_session(
             "trigger": trigger,
         }),
     );
-    cancel_pending_for_transport_replacement(state);
     flush_reply(state);
+    if !super::reconnect_gate::wait_before_attempt(*reconnects, stop) {
+        return Ok(false);
+    }
     let reconnect_context = reconnect_setup_context(state);
     let replacement = match complete_catalog_with_one_retry(
-        || {
-            uia_task::reconnect(
-                key,
-                None,
-                true,
-                false,
-                (!reconnect_context.is_empty()).then_some(reconnect_context.as_str()),
-            )
-        },
+        || super::write_recovery::connect_replacement(key, &reconnect_context, stop),
         |first_error| {
             overlay::push_log(format!(
                 "reconnect failed: {first_error} - retrying once with the complete tool catalog"
@@ -215,6 +267,9 @@ pub(super) fn reconnect_session(
     ) {
         Ok(replacement) => replacement,
         Err((first_error, retry_error)) => {
+            if stop.load(Ordering::SeqCst) {
+                return Ok(false);
+            }
             overlay::push_log(format!("reconnect failed again: {retry_error}"));
             telemetry::typed_error(
                 "ERR_SESSION_RECONNECT_FAILED",
@@ -228,10 +283,16 @@ pub(super) fn reconnect_session(
                     "retry_error": retry_error.to_string(),
                 }),
             );
-            return Ok(false);
+            return Err(retry_error.context(
+                "session reconnect failed after one retry with the complete tool catalog",
+            ));
         }
     };
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
     *socket = replacement;
+    state.connection_health.connected(Instant::now());
     state.connection_generation = state.connection_generation.saturating_add(1);
     let terminal_response_open = state.terminal_response.is_open();
     if super::terminal_drain::retire_for_connection_replacement(state) {
@@ -249,13 +310,25 @@ pub(super) fn reconnect_session(
     }
     state.ignore_stale_boundary = false;
     state.nudged = false;
+    state.source_frame = None;
     super::speech_events::discard_generation_audio(state, "connection_replaced");
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
     match uia_task::snapshot(target) {
         Ok(frame) => {
-            super::frames::send_snapshot(socket, &frame, "reconnect_reseed")?;
+            super::control::reconnect_effect(stop, || {
+                super::frames::send_snapshot(socket, &frame, "reconnect_reseed")
+            })?;
+            state
+                .memory
+                .snapshot(&frame, state.active && !state.terminal_drain, false);
             state.source_frame = Some(frame.source);
         }
         Err(error) => super::frames::capture_failed("reconnect_reseed", target, &error),
+    }
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
     }
     if !state.active {
         state.awaiting = false;
@@ -281,7 +354,7 @@ pub(super) fn reconnect_session(
     let msg = format!(
         "(transport reconnected; this is not a new user request)\n{recap}\nContinue only the committed task from current tool and screen evidence. Never infer task completion from receipt or delivery status alone."
     );
-    send(socket, realtime_text(&msg))?;
+    super::control::reconnect_effect(stop, || send(socket, realtime_text(&msg)))?;
     state.awaiting = true;
     state.recovery_owed = true;
     state.think_start = Some(Instant::now());
@@ -330,11 +403,12 @@ fn active_reconnect_context(state: &Reader) -> String {
     const OUTCOME_BUDGET: usize = 220;
     let goal: String = state.last_cmd.trim().chars().take(500).collect();
     let mut parts = vec![format!("Committed task: {goal}")];
-    if state.reconciliation_required {
-        parts.push(
-            "A transport-replaced action has an unknown effect; inspect current state before deciding whether any retry is safe."
-                .to_string(),
-        );
+    if state.reconciliation.required() {
+        parts.push(if state.reconciliation.unresolved() {
+            "An earlier action may have taken effect. Automatic reconciliation is unavailable in this session; the user must inspect affected state before starting another session.".to_string()
+        } else {
+            "An interrupted action is still settling; do not retry or claim completion before its terminal receipt.".to_string()
+        });
     }
     let outcomes = state.turn_outcomes.reconnect_summary(OUTCOME_BUDGET);
     if !outcomes.is_empty() {
@@ -347,19 +421,22 @@ fn active_reconnect_context(state: &Reader) -> String {
 }
 
 fn cancel_pending_for_transport_replacement(state: &mut Reader) -> bool {
+    // Tool call IDs belong to the old connection, even when no action is pending.
+    state.immediate_tool_responses.clear();
     let first_cancel_request = state.pending.id.is_some() && !state.pending.cancelled;
     let pending_tool = state.pending.tool.clone();
     let cancelled = state.pending.request_cancel();
     if cancelled && let Some(pending_tool) = pending_tool {
         let mutating = super::super::turn_policy::is_mutating_tool(&pending_tool);
-        let newly_reconciling = mutating && !state.reconciliation_required;
-        if mutating {
-            state.reconciliation_required = true;
+        let newly_reconciling = mutating && !state.reconciliation.required();
+        if mutating && state.reconciliation.require_pending(&state.pending) {
+            super::reconciliation::warn_unresolved();
         }
         if first_cancel_request || newly_reconciling {
-            state
-                .turn_outcomes
-                .record_transport_interruption(&pending_tool);
+            state.turn_outcomes.record_transport_interruption_for(
+                &pending_tool,
+                super::reconciliation::JobIdentity::from_pending(&state.pending),
+            );
             telemetry::event(
                 "pending_action_transport_interrupted",
                 "runtime",
@@ -374,6 +451,10 @@ fn cancel_pending_for_transport_replacement(state: &mut Reader) -> bool {
     }
     cancelled
 }
+
+#[cfg(test)]
+#[path = "response_cancellation_tests.rs"]
+mod response_cancellation_tests;
 
 pub(super) fn wait_for_setup(socket: &mut Sock, stop: &Arc<AtomicBool>) -> anyhow::Result<()> {
     set_socket_short_timeout(socket)?;
@@ -393,168 +474,13 @@ pub(super) fn wait_for_setup(socket: &mut Sock, stop: &Arc<AtomicBool>) -> anyho
             Err(e) if is_transient_socket_read_error(&e) => continue,
             Err(e) => anyhow::bail!("setup read error: {e}"),
         };
-        if parse_server_message(&text)?
-            .into_iter()
-            .any(|ev| matches!(ev, ServerEvent::SetupComplete))
-        {
+        if session::setup_frame_ready(&text)? {
             return Ok(());
         }
     }
-    anyhow::bail!("stopped")
+    anyhow::bail!(session::SessionStopped)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reconnect_setup_keeps_recent_conversation_without_creating_a_turn() {
-        let state = Reader {
-            history: vec![
-                "User: earlier subject".to_string(),
-                "Assistant: earlier answer".to_string(),
-                "User: latest follow-up".to_string(),
-            ],
-            ..Reader::default()
-        };
-        let context = reconnect_setup_context(&state);
-        assert!(context.contains("earlier subject"));
-        assert!(context.ends_with("User: latest follow-up"));
-        assert!(context.chars().count() <= 6000);
-    }
-
-    #[test]
-    fn one_large_entry_cannot_evict_the_prior_turn_context() {
-        let state = Reader {
-            history: vec![
-                "User: current subject and constraints".to_string(),
-                format!("Assistant: {}", "x".repeat(10_000)),
-            ],
-            ..Reader::default()
-        };
-        let context = reconnect_setup_context(&state);
-        assert!(context.contains("current subject and constraints"));
-        assert!(context.chars().count() <= 6000);
-    }
-
-    #[test]
-    fn reconnect_context_keeps_only_goal_and_structural_outcomes() {
-        let mut state = Reader {
-            last_cmd: "current committed task".into(),
-            history: vec![
-                "User: old task".into(),
-                "Assistant: misleading old narration".into(),
-                "User: current committed task".into(),
-                "Observed (future_reader): current evidence".into(),
-                "Assistant: untrusted draft".into(),
-            ],
-            turn_tools: vec!["received_but_not_delivered".into()],
-            ..Reader::default()
-        };
-        state.turn_outcomes.record_delivered(
-            "delivered_reader",
-            &serde_json::json!({"ok": true, "content": "sensitive-result"}),
-        );
-        state.turn_outcomes.record_delivered(
-            "failed_writer",
-            &serde_json::json!({"ok": false, "error": "sensitive-error"}),
-        );
-        let context = active_reconnect_context(&state);
-        assert!(context.contains("current committed task"));
-        assert!(context.contains("delivered_reader=delivered_ok"));
-        assert!(context.contains("failed_writer=delivered_failed"));
-        assert!(!context.contains("received_but_not_delivered"));
-        assert!(!context.contains("sensitive-result"));
-        assert!(!context.contains("sensitive-error"));
-        assert!(!context.contains("current evidence"));
-        assert!(!context.contains("old task"));
-        assert!(!context.contains("narration"));
-        assert!(!context.contains("untrusted draft"));
-    }
-
-    #[test]
-    fn transport_replacement_records_uncertainty_and_cancels_pending_work() {
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut state = Reader {
-            pending: Pending {
-                id: Some("pending-id".to_string()),
-                tool: Some("future_operation".to_string()),
-                turn_id: Some(1),
-                cancelled: false,
-                cancel: Some(cancel.clone()),
-            },
-            ..Reader::default()
-        };
-
-        assert!(cancel_pending_for_transport_replacement(&mut state));
-        assert!(cancel.load(Ordering::SeqCst));
-        assert!(cancel_pending_for_transport_replacement(&mut state));
-        assert_eq!(state.pending.id.as_deref(), Some("pending-id"));
-        assert_eq!(state.pending.tool.as_deref(), Some("future_operation"));
-        assert!(state.reconciliation_required);
-        let context = active_reconnect_context(&state);
-        assert!(context.contains("future_operation=transport_interrupted_result_unknown"));
-        assert!(context.contains("inspect current state"));
-        assert!(!context.contains("completed"));
-        assert_eq!(
-            context
-                .matches("future_operation=transport_interrupted_result_unknown")
-                .count(),
-            1
-        );
-
-        let mut already_cancelled = Reader {
-            pending: Pending {
-                id: Some("barge-in-id".to_string()),
-                tool: Some("future_operation".to_string()),
-                turn_id: Some(1),
-                cancelled: true,
-                cancel: Some(Arc::new(AtomicBool::new(true))),
-            },
-            ..Reader::default()
-        };
-        assert!(cancel_pending_for_transport_replacement(
-            &mut already_cancelled
-        ));
-        assert!(already_cancelled.reconciliation_required);
-        assert!(
-            active_reconnect_context(&already_cancelled)
-                .contains("transport_interrupted_result_unknown")
-        );
-    }
-
-    #[test]
-    fn complete_catalog_retry_is_bounded_to_two_identical_attempts() {
-        let mut attempts = 0;
-        let mut retry_notices = 0;
-        let result = complete_catalog_with_one_retry(
-            || {
-                attempts += 1;
-                Err::<(), _>(format!("failure-{attempts}"))
-            },
-            |_| retry_notices += 1,
-        );
-
-        assert_eq!(attempts, 2);
-        assert_eq!(retry_notices, 1);
-        assert_eq!(
-            result,
-            Err(("failure-1".to_string(), "failure-2".to_string()))
-        );
-    }
-
-    #[test]
-    fn complete_catalog_retry_recovers_without_a_third_attempt() {
-        let mut attempts = 0;
-        let result = complete_catalog_with_one_retry(
-            || {
-                attempts += 1;
-                if attempts == 1 { Err("first") } else { Ok(()) }
-            },
-            |_| {},
-        );
-
-        assert_eq!(result, Ok(()));
-        assert_eq!(attempts, 2);
-    }
-}
+#[path = "session_control_tests.rs"]
+mod tests;

@@ -11,6 +11,14 @@ use super::{ConnSnapshot, ToolRoute, ToolSnapshot};
 pub(super) fn engine_declarations(
     snapshot: &ConnSnapshot,
 ) -> anyhow::Result<(Vec<Value>, HashMap<String, ToolRoute>)> {
+    let plan =
+        crate::overlay::computer_control::engine::normalize_mcp_catalog(catalog_request(snapshot))?;
+    apply_normalized_catalog(snapshot, plan)
+}
+
+/// The engine request for a connection snapshot, shared by production and by
+/// tests that run the engine's normalization in-process.
+pub(super) fn catalog_request(snapshot: &ConnSnapshot) -> McpCatalogRequest {
     let integrations = snapshot
         .iter()
         .map(|(id, _, tools)| McpIntegrationSnapshot {
@@ -29,11 +37,7 @@ pub(super) fn engine_declarations(
                 .collect(),
         })
         .collect();
-    let plan =
-        crate::overlay::computer_control::engine::normalize_mcp_catalog(McpCatalogRequest {
-            integrations,
-        })?;
-    apply_normalized_catalog(snapshot, plan)
+    McpCatalogRequest { integrations }
 }
 
 pub(super) fn apply_normalized_catalog(

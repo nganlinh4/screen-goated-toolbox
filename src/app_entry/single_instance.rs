@@ -1,17 +1,20 @@
-use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
-use windows::Win32::System::Threading::CreateMutexW;
-use windows::core::PCWSTR;
+use std::os::windows::io::OwnedHandle;
+use std::time::Duration;
+
+#[path = "instance_channel.rs"]
+mod instance_channel;
+#[path = "instance_security.rs"]
+mod instance_security;
 
 use super::arguments::StartupArgs;
+use instance_security::{InstanceNames, ObjectSecurity};
 
-pub(super) struct SingleInstanceGuard(HANDLE);
+/// Covers a running instance that is still between taking the singleton and
+/// serving its activation pipe, plus admission into its activation queue.
+const HANDOFF_TIMEOUT: Duration = Duration::from_secs(10);
 
-impl Drop for SingleInstanceGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
-    }
+pub(super) struct SingleInstanceGuard {
+    _mutex: OwnedHandle,
 }
 
 pub(super) struct PrimaryInstance {
@@ -22,76 +25,208 @@ pub(super) struct PrimaryInstance {
 pub(super) enum InstanceOutcome {
     Primary(PrimaryInstance),
     SecondaryNotified,
+    SecondaryFailed,
 }
 
-pub(super) fn acquire(args: &StartupArgs, bypass_existing: bool) -> InstanceOutcome {
-    unsafe {
-        let mutex_name = crate::app_activation::single_instance_mutex_name_wide();
-        let instance = CreateMutexW(None, true, PCWSTR(mutex_name.as_ptr()));
-        // Capture this immediately: another Win32 call would overwrite the
-        // creation status used to identify the singleton owner.
-        let already_exists = instance.is_ok() && GetLastError() == ERROR_ALREADY_EXISTS;
+enum MutexDecision<G, E> {
+    Primary {
+        guard: Option<G>,
+        owns_activation: bool,
+    },
+    Existing(G),
+    Unavailable(E),
+}
 
-        if bypass_existing {
-            return match instance {
-                Ok(handle) if already_exists => {
-                    drop(SingleInstanceGuard(handle));
-                    InstanceOutcome::Primary(PrimaryInstance {
-                        guard: None,
-                        owns_activation: false,
-                    })
-                }
-                Ok(handle) => InstanceOutcome::Primary(PrimaryInstance {
-                    guard: Some(SingleInstanceGuard(handle)),
-                    owns_activation: true,
-                }),
-                Err(error) => coordination_unavailable(error),
-            };
-        }
-
-        let handle = match instance {
-            Ok(handle) => handle,
-            Err(error) => return coordination_unavailable(error),
-        };
-        if !already_exists {
-            return InstanceOutcome::Primary(PrimaryInstance {
-                guard: Some(SingleInstanceGuard(handle)),
-                owns_activation: true,
-            });
-        }
-
-        let pending_file = args.process_with_sgt_file();
-        crate::app_activation::notify_primary_instance(pending_file.as_deref());
-        drop(SingleInstanceGuard(handle));
-        InstanceOutcome::SecondaryNotified
+fn decide_mutex<G, E>(created: Result<(G, bool), E>, bypass_existing: bool) -> MutexDecision<G, E> {
+    match created {
+        Ok((_guard, true)) if bypass_existing => MutexDecision::Primary {
+            guard: None,
+            owns_activation: false,
+        },
+        Ok((guard, true)) => MutexDecision::Existing(guard),
+        Ok((guard, false)) => MutexDecision::Primary {
+            guard: Some(guard),
+            owns_activation: true,
+        },
+        Err(_error) if bypass_existing => MutexDecision::Primary {
+            guard: None,
+            owns_activation: false,
+        },
+        Err(error) => MutexDecision::Unavailable(error),
     }
 }
 
-fn coordination_unavailable(error: windows::core::Error) -> InstanceOutcome {
-    crate::log_info!(
-        "[Activation] Single-instance mutex unavailable; cross-process activation disabled: {error}"
-    );
-    primary_without_coordination()
+fn current_names() -> anyhow::Result<(InstanceNames, String)> {
+    let sid = instance_security::current_user_sid()?;
+    let base = crate::app_activation::single_instance_mutex_name_wide();
+    Ok((instance_security::instance_names(&base, &sid)?, sid))
 }
 
-fn primary_without_coordination() -> InstanceOutcome {
-    InstanceOutcome::Primary(PrimaryInstance {
-        guard: None,
-        owns_activation: false,
-    })
+pub(super) fn acquire(args: &StartupArgs, bypass_existing: bool) -> InstanceOutcome {
+    let coordination = current_names();
+    let created = coordination
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error:#}"))
+        .and_then(|(names, sid)| {
+            let security = ObjectSecurity::for_mutex(sid)?;
+            instance_security::create_singleton_mutex(&names.mutex, &security)
+                .map(|(mutex, existed)| (SingleInstanceGuard { _mutex: mutex }, existed))
+        });
+    let _existing_guard = match decide_mutex(created, bypass_existing) {
+        MutexDecision::Primary {
+            guard,
+            owns_activation,
+        } => {
+            if owns_activation && let Ok((names, sid)) = &coordination {
+                serve_activations(names, sid);
+            }
+            return InstanceOutcome::Primary(PrimaryInstance {
+                guard,
+                owns_activation,
+            });
+        }
+        MutexDecision::Unavailable(error) => return coordination_unavailable(error),
+        MutexDecision::Existing(guard) => guard,
+    };
+    let Ok((names, _)) = &coordination else {
+        return coordination_unavailable(anyhow::anyhow!("singleton names are unavailable"));
+    };
+
+    let delivery = args
+        .validated_process_with_sgt_file()
+        .and_then(|path| instance_channel::encode_request(path.as_deref()))
+        .and_then(|request| instance_channel::deliver(&names.pipe, request, HANDOFF_TIMEOUT));
+    match delivery {
+        Ok(()) => InstanceOutcome::SecondaryNotified,
+        Err(error) => {
+            crate::log_info!("[Activation] Could not deliver request: {error}");
+            report_activation_failure();
+            InstanceOutcome::SecondaryFailed
+        }
+    }
+}
+
+/// The owner admits handed-off requests through its own activation queue and
+/// restore event, which no other process needs to open.
+fn serve_activations(names: &InstanceNames, sid: &str) {
+    let started = ObjectSecurity::for_pipe(sid).and_then(|security| {
+        instance_channel::start_server(&names.pipe, &security, |request| {
+            match crate::app_activation::admit_activation(request.as_deref()) {
+                Ok(()) => true,
+                Err(error) => {
+                    crate::log_info!("[Activation] Could not admit handed-off request: {error}");
+                    false
+                }
+            }
+        })
+    });
+    if let Err(error) = started {
+        crate::log_info!("[Activation] Later launches cannot reach this instance: {error:#}");
+    }
+}
+
+pub(super) fn report_activation_failure() {
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+            None,
+            windows::core::w!(
+                "The file or window request could not be confirmed. It may still be processed; check the running app before retrying."
+            ),
+            windows::core::w!("Screen Goated Toolbox"),
+            windows::Win32::UI::WindowsAndMessaging::MB_OK
+                | windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+        );
+    }
+}
+
+fn coordination_unavailable(error: anyhow::Error) -> InstanceOutcome {
+    crate::log_info!(
+        "[Activation] Single-instance mutex unavailable; refusing uncoordinated startup: {error:#}"
+    );
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
+            None,
+            windows::core::w!(
+                "Screen Goated Toolbox could not establish single-instance coordination. It did not start or deliver the request. Close any running copy or resolve the Windows permissions issue, then try again."
+            ),
+            windows::core::w!("Screen Goated Toolbox"),
+            windows::Win32::UI::WindowsAndMessaging::MB_OK
+                | windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
+        );
+    }
+    InstanceOutcome::SecondaryFailed
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InstanceOutcome, primary_without_coordination};
+    use super::{MutexDecision, decide_mutex};
 
     #[test]
-    fn mutex_failure_never_claims_restore_listener_ownership() {
-        let InstanceOutcome::Primary(instance) = primary_without_coordination() else {
-            panic!("mutex failure must keep the process running without coordination");
-        };
+    fn denied_mutex_stops_normal_startup_without_claiming_delivery() {
+        assert!(matches!(
+            decide_mutex::<(), _>(Err("access denied"), false),
+            MutexDecision::Unavailable("access denied")
+        ));
+        assert!(matches!(
+            decide_mutex::<(), _>(Err("resource unavailable"), false),
+            MutexDecision::Unavailable("resource unavailable")
+        ));
+    }
 
-        assert!(instance.guard.is_none());
-        assert!(!instance.owns_activation);
+    #[test]
+    fn isolated_bypass_remains_uncoordinated_on_denial_or_existing_mutex() {
+        assert!(matches!(
+            decide_mutex::<(), _>(Err("access denied"), true),
+            MutexDecision::Primary {
+                guard: None,
+                owns_activation: false
+            }
+        ));
+        assert!(matches!(
+            decide_mutex::<_, ()>(Ok(((), true)), true),
+            MutexDecision::Primary {
+                guard: None,
+                owns_activation: false
+            }
+        ));
+    }
+
+    #[test]
+    fn a_created_mutex_is_owned_and_an_existing_one_requests_delivery() {
+        assert!(matches!(
+            decide_mutex::<_, ()>(Ok(((), false)), false),
+            MutexDecision::Primary {
+                guard: Some(()),
+                owns_activation: true
+            }
+        ));
+        assert!(matches!(
+            decide_mutex::<_, ()>(Ok(((), true)), false),
+            MutexDecision::Existing(())
+        ));
+    }
+
+    #[test]
+    fn existing_mutex_guard_is_retained_through_delivery() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct Guard(Rc<Cell<bool>>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.0.set(true);
+            }
+        }
+
+        let dropped = Rc::new(Cell::new(false));
+        {
+            let MutexDecision::Existing(_guard) =
+                decide_mutex::<_, ()>(Ok((Guard(dropped.clone()), true)), false)
+            else {
+                panic!("existing mutex should retain its handle");
+            };
+            assert!(!dropped.get(), "handle must remain open during delivery");
+        }
+        assert!(dropped.get());
     }
 }

@@ -142,6 +142,17 @@ class GeminiS2sProtocolTest {
         assertEquals("fil", targetLanguageCode("Filipino"))
     }
 
+    @Test
+    fun `short language names use their shortest bcp47 code`() {
+        // Mirrors Windows short_language_names_use_their_shortest_bcp47_code.
+        for ((name, code) in listOf("Lao" to "lo", "Ewe" to "ee", "Twi" to "tw", "Ido" to "io")) {
+            assertEquals(name, code, targetLanguageCode(name))
+        }
+        assertEquals("ko", targetLanguageCode("ko"))
+        assertEquals("ko", targetLanguageCode("Korean"))
+        assertEquals("en", targetLanguageCode("Klingonish"))
+    }
+
     private fun settings() = GeminiS2sRuntimeSettings(
         targetLanguage = "Vietnamese",
         customInstruction = "",

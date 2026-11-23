@@ -36,21 +36,13 @@ pub fn start_text_processing(
     preset: Preset,
     localized_preset_name: String, // Already localized by caller
     cancel_hotkey_name: String,    // The actual hotkey name like "Ctrl+Shift+D"
+    auto_paste_destination: super::chain::AutoPasteDestination,
 ) {
-    println!(
-        "[DEBUG start_text_processing] preset_id={} text_input_mode={} prompt_mode={} blocks_count={} initial_text_len={}",
-        preset.id,
-        preset.text_input_mode,
-        preset.prompt_mode,
-        preset.blocks.len(),
-        initial_text_content.len()
-    );
     if preset.text_input_mode == "type" {
         // Use first processing block's prompt (skip input_adapter)
         let first_processing_block = preset
-            .blocks
-            .iter()
-            .find(|b| b.block_type != "input_adapter");
+            .first_reachable_processing_index()
+            .and_then(|index| preset.blocks.get(index));
 
         let first_block_prompt = first_processing_block
             .map(|b| b.prompt.as_str())
@@ -85,11 +77,11 @@ pub fn start_text_processing(
         // Check if this is a MASTER preset
         let is_master = preset.is_master;
 
-        // CRITICAL: For MASTER presets, store the selected preset index after first wheel selection.
+        // For MASTER presets, retain the selected identity after first wheel selection.
         // Subsequent Enter presses will use this stored preset directly (no wheel).
         // The text input window "transfers" to the selected preset.
-        let selected_preset_idx: Arc<Mutex<Option<usize>>> = Arc::new(Mutex::new(None));
-        let selected_preset_idx_clone = selected_preset_idx.clone();
+        let selected_preset_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let selected_preset_id_clone = selected_preset_id.clone();
 
         // Reset snaking state for new session
         *LAST_RESULT_RECT.lock().unwrap() = None;
@@ -99,15 +91,25 @@ pub fn start_text_processing(
             ui_lang,
             cancel_hotkey_name,
             continuous_mode,
-            move |user_text, input_hwnd| {
+            move |user_text, input_hwnd, session| {
+                if !text_input::is_callback_owner(session) {
+                    return;
+                }
                 // Check if we already selected a preset from the wheel (subsequent submissions)
-                let already_selected = *selected_preset_idx_clone.lock().unwrap();
+                let already_selected = selected_preset_id_clone.lock().unwrap().clone();
 
-                let (final_preset, final_config, is_continuous) = if let Some(preset_idx) =
+                let (final_preset, final_config, is_continuous) = if let Some(preset_id) =
                     already_selected
                 {
                     // Already selected from wheel previously - use that preset directly (no wheel)
-                    let app = crate::APP.lock().unwrap();
+                    let mut app = crate::APP.lock().unwrap();
+                    let Some(preset_idx) = preset_index_by_id(&app.config.presets, &preset_id)
+                    else {
+                        drop(app);
+                        text_input::close_for_session(session);
+                        return;
+                    };
+                    app.config.active_preset_idx = preset_idx;
                     let p = app.config.presets[preset_idx].clone();
                     let c = app.config.clone();
                     let continuous = p.continuous_input;
@@ -115,7 +117,7 @@ pub fn start_text_processing(
                     // Update UI header just in case (e.g. if it reverted or missed an update)
                     let localized_name =
                         crate::gui::settings_ui::get_localized_preset_name(&p.id, &c.ui_language);
-                    text_input::update_ui_text(localized_name);
+                    text_input::update_ui_text_for_session(session, localized_name);
 
                     (p, c, continuous)
                 } else if is_master {
@@ -127,17 +129,27 @@ pub fn start_text_processing(
 
                     // Show preset wheel - this blocks until user makes selection
                     let selected =
-                        preset_wheel::show_preset_wheel("text", Some("type"), cursor_pos);
+                        preset_wheel::show_preset_wheel_id("text", Some("type"), cursor_pos);
 
-                    if let Some(idx) = selected {
-                        // Store the selected preset index for subsequent submissions
-                        *selected_preset_idx_clone.lock().unwrap() = Some(idx);
+                    if !text_input::is_callback_owner(session) {
+                        return;
+                    }
 
+                    if let Some(preset_id) = selected {
                         // Refocus the text input window and editor after wheel closes
-                        text_input::refocus_editor();
+                        text_input::refocus_editor_for_session(session);
+                        if !text_input::is_callback_owner(session) {
+                            return;
+                        }
 
                         // Get the selected preset from config AND update active_preset_idx
                         let mut app = crate::APP.lock().unwrap();
+                        let Some(idx) = preset_index_by_id(&app.config.presets, &preset_id) else {
+                            drop(app);
+                            text_input::close_for_session(session);
+                            return;
+                        };
+                        *selected_preset_id_clone.lock().unwrap() = Some(preset_id);
                         // CRITICAL: Update active_preset_idx so auto_paste logic works!
                         app.config.active_preset_idx = idx;
                         let p = app.config.presets[idx].clone();
@@ -161,12 +173,12 @@ pub fn start_text_processing(
                         } else {
                             localized_name
                         };
-                        text_input::update_ui_text(new_guide_text);
+                        text_input::update_ui_text_for_session(session, new_guide_text);
 
                         (p, c, continuous)
                     } else {
                         // User dismissed wheel - refocus and allow retry
-                        text_input::refocus_editor();
+                        text_input::refocus_editor_for_session(session);
                         return;
                     }
                 } else {
@@ -181,9 +193,7 @@ pub fn start_text_processing(
 
                 if !is_continuous {
                     // Normal mode: close input window
-                    unsafe {
-                        let _ = PostMessageW(Some(input_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+                    text_input::close_for_session(session);
                 } else {
                     // Continuous mode: close previous result overlays before spawning new ones
                     if let Ok(id_guard) = last_chain_id_clone.lock()
@@ -193,6 +203,12 @@ pub fn start_text_processing(
                         result::close_chain_windows(old_id);
                     }
                 }
+
+                let auto_paste_destination = if is_continuous {
+                    super::chain::AutoPasteDestination::TextInput(session)
+                } else {
+                    auto_paste_destination
+                };
 
                 let overlay_rect = if is_continuous {
                     if let Some(input_rect) = text_input::get_window_rect() {
@@ -290,8 +306,9 @@ pub fn start_text_processing(
                         preset: preset_clone,
                         context: RefineContext::None,
                         cancel_token: new_token,
-                        input_hwnd_refocus: Some(input_hwnd_send),
+                        input_hwnd_refocus: Some((input_hwnd_send, session)),
                         chain_id,
+                        auto_paste_destination,
                     });
                 });
             },
@@ -315,20 +332,11 @@ pub fn start_text_processing(
             text_input::ShowOptions {
                 activation_mode: text_input::ActivationMode::Passive,
             },
-            move |user_prompt, input_hwnd| {
-                println!("[DEBUG dynamic] user_prompt=«{}»", user_prompt);
-
-                // Close the input window
-                unsafe {
-                    let _ = PostMessageW(Some(input_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-
+            move |user_prompt, _input_hwnd, _session| {
                 // Clone preset and modify the first actual processing block's prompt
                 let mut modified_preset = (*preset).clone();
-                if let Some(target_block) = modified_preset
-                    .blocks
-                    .iter_mut()
-                    .find(|b| b.block_type != "input_adapter")
+                if let Some(index) = modified_preset.first_reachable_processing_index()
+                    && let Some(target_block) = modified_preset.blocks.get_mut(index)
                 {
                     if target_block.prompt.is_empty() {
                         target_block.prompt = user_prompt.clone();
@@ -336,12 +344,6 @@ pub fn start_text_processing(
                         target_block.prompt =
                             format!("{}\n\nUser request: {}", target_block.prompt, user_prompt);
                     }
-                    println!(
-                        "[DEBUG dynamic] final target_block.prompt=«{}»",
-                        target_block.prompt
-                    );
-                } else {
-                    println!("[DEBUG dynamic] WARNING: no processing block found in preset!");
                 }
 
                 let config_clone = (*config).clone();
@@ -355,6 +357,7 @@ pub fn start_text_processing(
                         config_clone,
                         modified_preset,
                         RefineContext::None,
+                        auto_paste_destination,
                     );
                 });
             },
@@ -366,8 +369,23 @@ pub fn start_text_processing(
             config,
             preset,
             RefineContext::None,
+            auto_paste_destination,
         );
     }
+}
+
+fn preset_index_by_id(presets: &[Preset], id: &str) -> Option<usize> {
+    presets.iter().position(|preset| {
+        preset.id == id && preset_wheel::should_show_preset(preset, "text", Some("type"))
+    })
+}
+
+pub enum AudioResultMode {
+    Streaming(Arc<ChainCancelToken>),
+    Recorded(
+        Option<Arc<ChainCancelToken>>,
+        super::chain::AutoPasteDestination,
+    ),
 }
 
 pub fn show_audio_result(
@@ -377,16 +395,22 @@ pub fn show_audio_result(
     rect: RECT,
     _unused_rect: Option<RECT>,
     recording_hwnd: HWND, // Recording overlay window - keep alive until first visible block
-    is_streaming_result: bool, // Explicit flag: if true, we disable auto-paste (real-time typing assumed)
+    mode: AudioResultMode,
 ) {
+    let (is_streaming_result, recording_token, auto_paste_destination) = match mode {
+        AudioResultMode::Streaming(token) => (
+            true,
+            Some(token),
+            super::chain::AutoPasteDestination::External(None),
+        ),
+        AudioResultMode::Recorded(token, destination) => (false, token, destination),
+    };
     let config = {
         let app = crate::APP.lock().unwrap();
         app.config.clone()
     };
 
-    // Audio processing already completed Block 0 (audio recording/transcription).
-    // Start at block 0 with skip_execution=true so it can display its overlay (if configured),
-    // then the chain naturally continues to block 1, 2, etc.
+    // Only the audio block that produced this transcript should reuse it.
     //
     // Pass the recording_hwnd as processing_indicator_hwnd - it will keep animating
     // until the first visible block appears (same behavior as image pipeline).
@@ -401,25 +425,71 @@ pub fn show_audio_result(
     // Generate unique chain ID for this processing chain
     let chain_id = generate_chain_id();
 
+    let preprocessed_audio = super::chain::streaming_audio_result(
+        &preset.blocks,
+        &preset.block_connections,
+        preset.graph_explicit,
+        is_streaming_result,
+        transcription_text,
+    );
     run_chain_step(ChainStepRequest {
         block_idx: 0,
-        input_text: transcription_text,
+        input_text: String::new(),
         current_rect: rect,
         blocks: preset.blocks.clone(),
         connections: preset.block_connections.clone(),
+        graph_explicit: preset.graph_explicit,
         config,
         parent_hwnd: Arc::new(Mutex::new(None)),
         context: if wav_data.is_empty() {
             RefineContext::None
         } else {
-            RefineContext::Audio(wav_data)
+            RefineContext::Audio(wav_data.into())
         },
-        skip_execution: true,
-        processing_indicator_hwnd: processing_hwnd.map(SendHwnd),
-        cancel_token: ChainCancelToken::new(),
+        skip_execution: false,
+        preprocessed_audio,
+        visited_blocks: Vec::new(),
+        processing_indicator_hwnd: processing_hwnd.map(|hwnd| {
+            let session_id = recording_token
+                .as_ref()
+                .and_then(crate::overlay::recording::recording_session_id);
+            super::chain::ProcessingIndicator::recording(SendHwnd(hwnd), session_id)
+        }),
+        cancel_token: recording_token.unwrap_or_else(ChainCancelToken::new),
         preset_id: preset.id.clone(),
         disable_auto_paste: is_streaming_result,
+        auto_paste_destination,
         chain_id,
         input_hwnd_refocus: None,
     });
+}
+
+#[cfg(test)]
+mod preset_identity_tests {
+    use super::*;
+
+    #[test]
+    fn selected_identity_survives_reordering_and_fails_if_removed() {
+        let a = Preset {
+            id: "a".into(),
+            preset_type: "text".into(),
+            text_input_mode: "type".into(),
+            ..Preset::default()
+        };
+        let b = Preset {
+            id: "b".into(),
+            preset_type: "text".into(),
+            text_input_mode: "type".into(),
+            ..Preset::default()
+        };
+        assert_eq!(preset_index_by_id(&[a.clone(), b.clone()], "b"), Some(1));
+        assert_eq!(preset_index_by_id(&[b, a.clone()], "b"), Some(0));
+        assert_eq!(preset_index_by_id(&[a], "b"), None);
+        let changed = Preset {
+            id: "b".into(),
+            preset_type: "image".into(),
+            ..Preset::default()
+        };
+        assert_eq!(preset_index_by_id(&[changed], "b"), None);
+    }
 }

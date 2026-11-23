@@ -81,24 +81,6 @@ export function getSequenceClipById(
   return timeline.clipById[clipId] ?? null;
 }
 
-export function findSequenceClipAtTime(
-  timeline: SequenceTimelineModel | null | undefined,
-  time: number,
-): SequenceTimelineClip | null {
-  if (!timeline || timeline.clips.length === 0) return null;
-  const clampedTime = clamp(
-    time,
-    0,
-    Math.max(0, timeline.totalDuration - 0.0001),
-  );
-  return (
-    timeline.clips.find(
-      (clip) =>
-        clampedTime >= clip.sequenceStart && clampedTime < clip.sequenceEnd,
-    ) ?? timeline.clips[timeline.clips.length - 1]
-  );
-}
-
 export function sequenceTimeToClipSourceTime(
   time: number,
   timelineClip: SequenceTimelineClip,
@@ -123,6 +105,33 @@ export function clipSourceTimeToSequenceTime(
     timelineClip.sequenceStart +
     toCompactTime(time, timelineClip.clip.segment, timelineClip.sourceDuration)
   );
+}
+
+/** The first kept start and last kept end of a clip, in its source time. */
+function clipKeptBounds(timelineClip: SequenceTimelineClip): { first: number; last: number } {
+  const kept = getTrimSegments(timelineClip.clip.segment, timelineClip.sourceDuration);
+  return { first: kept[0].startTime, last: kept[kept.length - 1].endTime };
+}
+
+/**
+ * Where a sequence time sits on one clip's source-time timeline. Inside the
+ * clip this is sequenceTimeToClipSourceTime; before or after the clip the
+ * offset continues linearly from the clip's first or last kept edge, so
+ * project audio that starts before the clip is drawn running into it.
+ */
+export function sequenceTimeToClipViewTime(time: number, timelineClip: SequenceTimelineClip): number {
+  const { first, last } = clipKeptBounds(timelineClip);
+  if (time < timelineClip.sequenceStart) return first - (timelineClip.sequenceStart - time);
+  if (time > timelineClip.sequenceEnd) return last + (time - timelineClip.sequenceEnd);
+  return sequenceTimeToClipSourceTime(time, timelineClip);
+}
+
+/** Inverse of sequenceTimeToClipViewTime (a time inside a cut maps to the next kept range). */
+export function clipViewTimeToSequenceTime(time: number, timelineClip: SequenceTimelineClip): number {
+  const { first, last } = clipKeptBounds(timelineClip);
+  if (time < first) return timelineClip.sequenceStart - (first - time);
+  if (time > last) return timelineClip.sequenceEnd + (time - last);
+  return clipSourceTimeToSequenceTime(time, timelineClip);
 }
 
 function withSequenceBounds(
@@ -452,6 +461,7 @@ export function replaceSequenceClipSegmentInGlobal(
   clipSegment: VideoSegment,
   timelineClip: SequenceTimelineClip,
   sequenceDuration: number,
+  sequenceAudioIds: ReadonlySet<string> = new Set(),
 ): VideoSegment {
   const projectedClipSegment = projectClipSegmentToSequence(
     clipSegment,
@@ -465,6 +475,10 @@ export function replaceSequenceClipSegmentInGlobal(
     globalSegment,
     projectedClipSegment,
     overlapsClip,
+    (subtitle) => {
+      const sourceId = subtitle.sourceGroup?.audioSegmentId ?? subtitle.provenance?.audioSegmentId;
+      return Boolean(sourceId && sequenceAudioIds.has(sourceId));
+    },
   );
 
   const result: VideoSegment = {

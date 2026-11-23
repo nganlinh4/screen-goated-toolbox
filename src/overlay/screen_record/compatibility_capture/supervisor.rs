@@ -15,6 +15,49 @@ const RESTART_RETRY_DELAY: Duration = Duration::from_millis(120);
 const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const CONCAT_COPY_TIMEOUT: Duration = Duration::from_secs(120);
 const CONCAT_REENCODE_TIMEOUT: Duration = Duration::from_secs(600);
+/// A segment ending this soon after it started counts as an encoder failure.
+const QUICK_EXIT_WINDOW: Duration = Duration::from_secs(5);
+const QUICK_EXITS_BEFORE_FALLBACK: u32 = 3;
+
+/// Switches to the next encoder after repeated quick segment failures, at any
+/// point in the recording (not only during the first segment's startup).
+struct EncoderFailover {
+    encoder: CaptureEncoder,
+    quick_exits: u32,
+}
+
+impl EncoderFailover {
+    fn new(encoder: CaptureEncoder) -> Self {
+        Self {
+            encoder,
+            quick_exits: 0,
+        }
+    }
+
+    fn encoder(&self) -> CaptureEncoder {
+        self.encoder
+    }
+
+    fn record_exit(&mut self, ran_for: Duration, config: &CaptureProcessConfig) {
+        if ran_for >= QUICK_EXIT_WINDOW {
+            self.quick_exits = 0;
+            return;
+        }
+        self.quick_exits += 1;
+        if self.quick_exits < QUICK_EXITS_BEFORE_FALLBACK {
+            return;
+        }
+        if let Some(next) = self.encoder.fallback(config) {
+            eprintln!(
+                "[CompatibilityCapture] encoder {} keeps failing; switching to {}",
+                self.encoder.label(),
+                next.label()
+            );
+            self.encoder = next;
+        }
+        self.quick_exits = 0;
+    }
+}
 
 struct ActiveSegment {
     process: ManagedCaptureProcess,
@@ -31,9 +74,10 @@ struct CompletedSegment {
 
 pub(super) struct CaptureSupervisor {
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<Vec<CompletedSegment>>>,
+    thread: Option<JoinHandle<Result<Vec<CompletedSegment>>>>,
     ffmpeg: ResolvedFfmpeg,
     final_video: PathBuf,
+    started_at: Instant,
 }
 
 impl CaptureSupervisor {
@@ -43,8 +87,12 @@ impl CaptureSupervisor {
         final_video: PathBuf,
         session_started: Instant,
     ) -> Result<Self> {
-        let (first, encoder) =
+        let (mut first, encoder) =
             spawn_first_segment(&ffmpeg, &config, &final_video, session_started)?;
+        // Failed encoder probes precede the video timeline and must not shift
+        // sidecars or later segment offsets.
+        let started_at = first.started_at;
+        first.started_offset = Duration::ZERO;
         eprintln!(
             "[DisplayCapture] encoder selected={} fps={} size={}x{}",
             encoder.label(),
@@ -54,7 +102,7 @@ impl CaptureSupervisor {
         );
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
-        let thread_ffmpeg = ffmpeg.to_path_buf();
+        let thread_ffmpeg = ffmpeg.clone();
         let thread_final_video = final_video.clone();
         let thread = std::thread::spawn(move || {
             supervise_segments(
@@ -64,7 +112,7 @@ impl CaptureSupervisor {
                 encoder,
                 thread_final_video,
                 thread_stop,
-                session_started,
+                started_at,
             )
         });
 
@@ -73,7 +121,12 @@ impl CaptureSupervisor {
             thread: Some(thread),
             ffmpeg,
             final_video,
+            started_at,
         })
+    }
+
+    pub(super) fn started_at(&self) -> Instant {
+        self.started_at
     }
 
     pub(super) fn stop(&mut self, total_duration: Duration) -> Result<usize> {
@@ -99,7 +152,7 @@ impl CaptureSupervisor {
             .context("compatibility capture supervisor is not running")?;
         thread
             .join()
-            .map_err(|_| anyhow::anyhow!("compatibility capture supervisor panicked"))
+            .map_err(|_| anyhow::anyhow!("compatibility capture supervisor panicked"))?
     }
 }
 
@@ -113,16 +166,17 @@ impl Drop for CaptureSupervisor {
 
 fn supervise_segments(
     first: ActiveSegment,
-    ffmpeg: PathBuf,
+    ffmpeg: ResolvedFfmpeg,
     config: CaptureProcessConfig,
     encoder: CaptureEncoder,
     final_video: PathBuf,
     stop: Arc<AtomicBool>,
     session_started: Instant,
-) -> Vec<CompletedSegment> {
+) -> Result<Vec<CompletedSegment>> {
     let mut active = Some(first);
     let mut segments = Vec::new();
     let mut next_index = 1usize;
+    let mut failover = EncoderFailover::new(encoder);
 
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -133,8 +187,9 @@ fn supervise_segments(
                         outcome.encoded_duration
                     }
                     Err(error) => {
-                        eprintln!("[CompatibilityCapture] segment stop failed: {error:#}");
-                        segment.started_at.elapsed()
+                        return Err(
+                            error.context("compatibility segment preserved after stop failure")
+                        );
                     }
                 };
                 retain_segment(segment, encoded_duration, &mut segments);
@@ -147,6 +202,7 @@ fn supervise_segments(
                 Ok(Some(outcome)) => {
                     log_process_outcome("unexpected-exit", &outcome);
                     let ended = active.take().expect("active segment disappeared");
+                    failover.record_exit(ended.started_at.elapsed(), &config);
                     retain_segment(ended, outcome.encoded_duration, &mut segments);
                 }
                 Ok(None) => {
@@ -154,10 +210,9 @@ fn supervise_segments(
                     continue;
                 }
                 Err(error) => {
-                    eprintln!("[CompatibilityCapture] process polling failed: {error:#}");
-                    let ended = active.take().expect("active segment disappeared");
-                    let fallback_duration = ended.started_at.elapsed();
-                    retain_segment(ended, fallback_duration, &mut segments);
+                    return Err(
+                        error.context("compatibility segment preserved after process failure")
+                    );
                 }
             }
         }
@@ -166,7 +221,7 @@ fn supervise_segments(
             match spawn_segment(
                 &ffmpeg,
                 &config,
-                encoder,
+                failover.encoder(),
                 &final_video,
                 next_index,
                 session_started,
@@ -181,17 +236,18 @@ fn supervise_segments(
                 }
                 Err(error) => {
                     eprintln!("[CompatibilityCapture] capture restart pending: {error:#}");
+                    failover.record_exit(Duration::ZERO, &config);
                     sleep_until_retry_or_stop(&stop);
                 }
             }
         }
     }
 
-    segments
+    Ok(segments)
 }
 
 fn spawn_first_segment(
-    ffmpeg: &Path,
+    ffmpeg: &ResolvedFfmpeg,
     config: &CaptureProcessConfig,
     final_video: &Path,
     session_started: Instant,
@@ -216,7 +272,7 @@ fn spawn_first_segment(
 }
 
 fn spawn_segment(
-    ffmpeg: &Path,
+    ffmpeg: &ResolvedFfmpeg,
     config: &CaptureProcessConfig,
     encoder: CaptureEncoder,
     final_video: &Path,
@@ -224,16 +280,19 @@ fn spawn_segment(
     session_started: Instant,
 ) -> Result<ActiveSegment> {
     let path = segment_path(final_video, index);
+    super::super::recording_journal::track(&path).map_err(anyhow::Error::msg)?;
     let _ = std::fs::remove_file(&path);
     let args = build_ffmpeg_args(config, encoder, &path);
-    let started_at = Instant::now();
-    let started_offset = started_at.saturating_duration_since(session_started);
     let mut process = ManagedCaptureProcess::spawn(ffmpeg, &args)?;
     if let Err(error) = process.verify_started() {
         drop(process);
         let _ = std::fs::remove_file(&path);
         return Err(error);
     }
+    let started_at = process
+        .started_at()
+        .context("capture frame clock is unavailable")?;
+    let started_offset = started_at.saturating_duration_since(session_started);
     Ok(ActiveSegment {
         process,
         path,
@@ -285,15 +344,25 @@ fn log_process_outcome(kind: &str, outcome: &ProcessOutcome) {
     );
 }
 
+fn validate_segments(segments: &[CompletedSegment]) -> Result<()> {
+    if segments.is_empty() {
+        bail!("Compatibility capture produced no video segments");
+    }
+    if !segments[0].started_offset.is_zero() {
+        bail!(
+            "Compatibility capture lost its initial video segment; recorded segments were retained"
+        );
+    }
+    Ok(())
+}
+
 fn finalize_segments(
-    ffmpeg: &Path,
+    ffmpeg: &ResolvedFfmpeg,
     segments: &[CompletedSegment],
     final_video: &Path,
     total_duration: Duration,
 ) -> Result<()> {
-    if segments.is_empty() {
-        bail!("Compatibility capture produced no video segments");
-    }
+    validate_segments(segments)?;
     let _ = std::fs::remove_file(final_video);
 
     if segments.len() == 1 {
@@ -416,7 +485,7 @@ fn concat_args(list_path: &Path, output: &Path, stream_copy: bool) -> Vec<String
     args
 }
 
-fn run_concat(ffmpeg: &Path, args: &[String], timeout: Duration) -> Result<()> {
+fn run_concat(ffmpeg: &ResolvedFfmpeg, args: &[String], timeout: Duration) -> Result<()> {
     let mut process = ManagedCaptureProcess::spawn(ffmpeg, args)?;
     let outcome = process.wait_for_exit(timeout)?;
     if !outcome.status.success() {
@@ -442,41 +511,5 @@ fn remove_segments(segments: &[CompletedSegment]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn segment_paths_are_session_owned() {
-        let final_path = Path::new(r"C:\recordings\recording_1_compat.mp4");
-        assert_eq!(
-            segment_path(final_path, 7),
-            PathBuf::from(r"C:\recordings\recording_1_compat.part007.mp4")
-        );
-        assert_eq!(
-            concat_list_path(final_path),
-            PathBuf::from(r"C:\recordings\recording_1_compat.concat.txt")
-        );
-    }
-
-    #[test]
-    fn concat_manifest_normalizes_windows_paths() {
-        let segments = [
-            CompletedSegment {
-                path: PathBuf::from(r"C:\recordings\one.mp4"),
-                started_offset: Duration::ZERO,
-                encoded_duration: Duration::from_millis(500),
-            },
-            CompletedSegment {
-                path: PathBuf::from(r"C:\recordings\two.mp4"),
-                started_offset: Duration::from_secs(1),
-                encoded_duration: Duration::from_millis(500),
-            },
-        ];
-        let manifest = concat_manifest(&segments, Duration::from_secs(2));
-        assert_eq!(
-            manifest,
-            "file 'C:/recordings/one.mp4'\nduration 1.000000\n\
-             file 'C:/recordings/two.mp4'\nduration 1.000000\n"
-        );
-    }
-}
+#[path = "supervisor_tests.rs"]
+mod tests;

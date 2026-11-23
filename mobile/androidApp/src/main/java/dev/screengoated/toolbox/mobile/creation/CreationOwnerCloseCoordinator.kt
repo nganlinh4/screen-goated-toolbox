@@ -84,7 +84,7 @@ internal class CreationOwnerCloseCoordinator(
                 }
                 recoveryLeases.release(request.jobId, tool)
             } else {
-                check(files.releaseJobInputs(request.imagePaths)) {
+                check(files.releaseJobInputs(listOf(request.imagePath))) {
                     CREATION_STORAGE_UNAVAILABLE_ERROR_KEY
                 }
             }

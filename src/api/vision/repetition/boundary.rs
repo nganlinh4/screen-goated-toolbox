@@ -1,4 +1,4 @@
-use super::{snap_to_token_end, squeeze};
+use super::snap_to_token_end;
 
 /// Resolves a scan hit to the start of the restarted output.
 ///
@@ -46,11 +46,12 @@ fn line_restarts_prefix(text: &str, line_start: usize) -> bool {
     !line.is_empty() && prefix.starts_with(&line)
 }
 
+/// Lowercased, without whitespace, and otherwise as written. Folding doubled
+/// characters here made a row such as `11. Item 11` read as `1. Item 1`, a
+/// replay of the reply's first row, so a list was cut at its eleventh row.
 fn normalized_scan_text(text: &str) -> String {
-    let folded: String = text
-        .chars()
+    text.chars()
         .filter(|ch| !ch.is_whitespace())
         .flat_map(char::to_lowercase)
-        .collect();
-    squeeze(&folded)
+        .collect()
 }

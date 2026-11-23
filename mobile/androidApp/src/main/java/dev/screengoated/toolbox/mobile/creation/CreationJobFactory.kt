@@ -4,7 +4,6 @@ import java.security.MessageDigest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -26,41 +25,19 @@ internal object CreationJobFactory {
         destination: String?,
         optionalInstructionAllowed: Boolean = false,
     ): CreationJobDraft {
-        val requestedPaths = args.strings("imagePaths")
-        val legacyPath = args.string("imagePath")
-        val sources = normalizeCreationImagePaths(tool, requestedPaths, legacyPath)
-        val prompt = args.string("prompt")?.trim().orEmpty().takeIf {
-            tool == CreationTool.IMAGE_CREATOR
-        }
-        if (tool == CreationTool.IMAGE_CREATOR) {
-            require(!prompt.isNullOrBlank()) { "Describe the image you want to create" }
-            require(prompt.length <= CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS) {
-                "Image instructions are too long"
-            }
-        }
+        val sources = normalizeCreationImagePaths(tool, emptyList(), args.string("imagePath"))
         val extension = when (tool) {
             CreationTool.IMAGE_TO_3D -> "glb"
             CreationTool.IMAGE_TO_SVG -> "svg"
-            CreationTool.IMAGE_CREATOR -> "png"
         }
         val model = if (args.string("model") == "detail") "detail" else "simple"
         val backgroundMode = normalizeSvgBackgroundMode(args.string("backgroundMode"))
-        val polycount = (args.int("polycount") ?: CreationContract.DEFAULT_POLYCOUNT).coerceIn(
-            CreationContract.MINIMUM_POLYCOUNT,
-            CreationContract.MAXIMUM_POLYCOUNT,
-        )
-        val requestedAutoSegment = args.boolean("autoSegment") == true &&
-            args.string("segmentationMode") != "none"
+        val polycount = args.int("polycount") ?: CreationContract.DEFAULT_POLYCOUNT
         val segmentationLevel = args.string("segmentationLevel")
             ?.takeIf { it == "simple" || it == "balanced" || it == "detailed" }
             ?: "detailed"
-        val requestedMode = CreationGenerationMode.fromWireName(args.string("generationMode"))
         val modeRoute = if (tool == CreationTool.IMAGE_TO_3D) {
-            CreationContract.route3dMode(
-                requestedMode,
-                polycount,
-                requestedAutoSegment,
-            )
+            newCreation3dRoute(args)
         } else {
             null
         }
@@ -88,13 +65,6 @@ internal object CreationJobFactory {
                 sha256 = files.sha256(path),
             )
         }
-        if (tool == CreationTool.IMAGE_CREATOR) {
-            require(
-                descriptors.fold(0L) { total, source ->
-                    creationSaturatingBytes(total, source.sizeBytes)
-                } <= CreationContract.MAXIMUM_IMAGE_REFERENCE_AGGREGATE_BYTES,
-            ) { "Reference images reached the size limit" }
-        }
         val output = files.stagingFile(tool, source, extension)
         val acceptedAtMs = System.currentTimeMillis()
         val unsignedRequest = CreationWorkerRequest(
@@ -107,14 +77,8 @@ internal object CreationJobFactory {
             tool = tool.wireName,
             generationMode = modeRoute?.mode?.wireName,
             topology = modeRoute?.let { CreationContract.initialTopology(it.mode, it.autoSegment, args.string("topology")) },
-            operation = if (tool == CreationTool.IMAGE_CREATOR) {
-                CreationContract.IMAGE_CREATOR_OPERATION
-            } else {
-                "generate"
-            },
+            operation = "generate",
             imagePath = source,
-            imagePaths = runtimeSources,
-            prompt = prompt,
             instruction = instruction,
             outputPath = output.absolutePath,
             outputName = output.name,
@@ -139,7 +103,7 @@ internal object CreationJobFactory {
     fun initialStatus(
         tool: CreationTool,
         request: CreationWorkerRequest,
-        sourceHandles: List<String> = request.imagePaths,
+        sourceHandles: List<String> = listOf(request.imagePath),
     ) = CreationJobStatus(
         jobId = request.jobId,
         dispatchId = request.dispatchId,
@@ -152,15 +116,10 @@ internal object CreationJobFactory {
             tool == CreationTool.IMAGE_TO_3D
         },
         stage = "preparing",
-        progressText = if (tool == CreationTool.IMAGE_CREATOR) {
-            "Getting ready"
-        } else {
-            "Preparing creation."
-        },
+        progressText = "Preparing creation.",
         phase = "preparing",
         elapsedMs = 0,
         estimatedTotalMs = when {
-            tool == CreationTool.IMAGE_CREATOR -> 180_000
             tool == CreationTool.IMAGE_TO_SVG && request.model == "detail" -> 70_000
             tool == CreationTool.IMAGE_TO_SVG -> 45_000
             request.generationMode == CreationGenerationMode.FAST.wireName -> 90_000
@@ -171,9 +130,6 @@ internal object CreationJobFactory {
         progressRatio = 0.0,
         sourceImagePath = sourceHandles.firstOrNull().orEmpty(),
         sourceImagePaths = sourceHandles,
-        prompt = request.prompt,
-        instruction = request.instruction,
-        mimeType = "image/png".takeIf { tool == CreationTool.IMAGE_CREATOR },
         model = request.model.takeIf { tool == CreationTool.IMAGE_TO_SVG },
         backgroundMode = request.backgroundMode.takeIf { tool == CreationTool.IMAGE_TO_SVG },
         projectId = request.projectId,
@@ -203,6 +159,7 @@ internal object CreationJobFactory {
         )
         val unsigned = refinement.request.copy(
             operation = "segment",
+            segmentationLevel = segmentationLevel,
             refinementKind = null,
             requestFingerprint = "",
         )
@@ -263,13 +220,10 @@ internal object CreationJobFactory {
                 ),
             ),
             tool = CreationTool.IMAGE_TO_3D.wireName,
-            generationMode = CreationGenerationMode.QUALITY.wireName,
             operation = "refine",
             imagePath = runtimeSource,
-            imagePaths = runtimeSources,
             outputPath = output.absolutePath,
             outputName = output.name,
-            autoSegment = true,
             continuationToken = continuation.token,
             previousOutputPath = continuation.outputPath,
             projectId = continuation.projectId,
@@ -278,7 +232,7 @@ internal object CreationJobFactory {
             refinementKind = refinementKind,
             targetFaces = targetFaces,
             animationPreset = animationPreset,
-        )
+        ).withFrozenGeneration(continuation, refinementKind)
             val request = unsigned.copy(requestFingerprint = creationRequestFingerprint(unsigned))
             val status = initialStatus(
                 CreationTool.IMAGE_TO_3D,
@@ -288,6 +242,7 @@ internal object CreationJobFactory {
                 stage = "refining",
                 progressText = "Creating a new version.",
                 phase = "refinement",
+                segmentationLevel = continuation.segmentationLevel,
                 outputPath = continuation.outputPath,
                 outputName = continuation.outputName,
             )
@@ -302,16 +257,18 @@ internal object CreationJobFactory {
         generationMode = CreationGenerationMode.QUALITY.wireName.takeIf {
             tool == CreationTool.IMAGE_TO_3D
         },
-        operation = CreationContract.IMAGE_CREATOR_OPERATION.takeIf {
-            tool == CreationTool.IMAGE_CREATOR
-        },
         stage = if (tool == CreationTool.IMAGE_TO_3D) "idle" else "draft",
         progressText = "Ready to create.",
         sourceImagePath = "".takeIf { tool != CreationTool.IMAGE_TO_3D },
-        prompt = "".takeIf { tool == CreationTool.IMAGE_CREATOR },
-        mimeType = "image/png".takeIf { tool == CreationTool.IMAGE_CREATOR },
         model = "simple".takeIf { tool == CreationTool.IMAGE_TO_SVG },
     )
+}
+
+internal fun creationRefinementSegmentationLevel(kind: String, generationLevel: String): String = when (kind) {
+    "separate_simple" -> "simple"
+    "separate_balanced" -> "balanced"
+    "separate_detailed" -> "detailed"
+    else -> generationLevel
 }
 
 internal fun normalizedCreationInstruction(value: String?, allowed: Boolean): String? {
@@ -332,7 +289,6 @@ private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.
 private fun JsonObject.strings(key: String): List<String> =
     this[key]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
 private fun JsonObject.int(key: String): Int? = this[key]?.jsonPrimitive?.intOrNull
-private fun JsonObject.boolean(key: String): Boolean? = this[key]?.jsonPrimitive?.booleanOrNull
 
 internal fun normalizeCreationImagePaths(
     tool: CreationTool,
@@ -344,11 +300,6 @@ internal fun normalizeCreationImagePaths(
         .map { it.trim() }
         .filter { it.isNotEmpty() }
     return when (tool) {
-        CreationTool.IMAGE_CREATOR -> sources.also {
-            require(it.size <= CreationContract.IMAGE_CREATOR_MAXIMUM_REFERENCE_IMAGES) {
-                "Too many reference images"
-            }
-        }
         CreationTool.IMAGE_TO_3D,
         CreationTool.IMAGE_TO_SVG,
         -> sources.also {
@@ -372,9 +323,7 @@ internal fun creationRequestFingerprint(request: CreationWorkerRequest): String 
 }
 
 internal fun creationRequestHasValidDeliveryIdentity(request: CreationWorkerRequest): Boolean {
-    val sourcePaths = request.imagePaths.ifEmpty {
-        request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
-    }
+    val sourcePaths = request.imagePath.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
     return request.dispatchId.isNotBlank() &&
         request.dispatchId != request.jobId &&
         SHA256_HEX.matches(request.requestFingerprint) &&

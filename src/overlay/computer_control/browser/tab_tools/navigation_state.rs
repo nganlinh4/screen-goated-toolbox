@@ -1,3 +1,4 @@
+use super::super::frame_url::equivalent as urls_equivalent;
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,11 +37,7 @@ pub(super) fn main_frame_from_tree(tree: &Value) -> anyhow::Result<MainFrameStat
     let frame = tree
         .pointer("/frameTree/frame")
         .ok_or_else(|| anyhow::anyhow!("browser did not return a main-frame state"))?;
-    let url = frame
-        .get("url")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("browser main frame omitted its URL"))?
-        .to_string();
+    let url = super::super::frame_url::from_frame(frame)?;
     Ok(MainFrameState {
         url,
         unreachable_url: nonempty_string(frame.get("unreachableUrl")),
@@ -87,12 +84,18 @@ pub(super) fn classify_navigation(
     before: Option<&MainFrameState>,
     current: &MainFrameState,
     transition_seen: bool,
+    has_dispatch_loader: bool,
 ) -> Option<NavigationOutcome> {
     let committed_url = current.committed_url();
     if !super::super::tab_lifecycle::bindable_document_url(committed_url) {
         return None;
     }
     let direct = urls_equivalent(requested_url, committed_url);
+    // Without a dispatch loader, an unrelated navigation on the same tab is
+    // not evidence of a redirect from this request. Require the actual target.
+    if !has_dispatch_loader && !direct {
+        return None;
+    }
     let already_at_destination = before
         .is_some_and(|before| urls_equivalent(requested_url, before.committed_url()) && direct);
     if !transition_seen && !already_at_destination && before.is_some() {
@@ -108,16 +111,6 @@ pub(super) fn classify_navigation(
         Some(NavigationOutcome::Redirect)
     } else {
         None
-    }
-}
-
-fn urls_equivalent(left: &str, right: &str) -> bool {
-    if left == right {
-        return true;
-    }
-    match (url::Url::parse(left), url::Url::parse(right)) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => false,
     }
 }
 
@@ -137,7 +130,13 @@ mod tests {
     fn requires_exact_tab_transition_before_claiming_a_new_destination() {
         let before = frame("https://example.invalid/old", "loader-old");
         assert_eq!(
-            classify_navigation("https://example.invalid/new", Some(&before), &before, false),
+            classify_navigation(
+                "https://example.invalid/new",
+                Some(&before),
+                &before,
+                false,
+                true
+            ),
             None
         );
 
@@ -148,6 +147,7 @@ mod tests {
                 Some(&before),
                 &after,
                 commit_transition(Some(&before), &after, Some("loader-new")),
+                true,
             ),
             Some(NavigationOutcome::Direct)
         );
@@ -163,6 +163,7 @@ mod tests {
                 Some(&before),
                 &redirected,
                 true,
+                true,
             ),
             Some(NavigationOutcome::Redirect)
         );
@@ -172,6 +173,7 @@ mod tests {
                 Some(&before),
                 &redirected,
                 false,
+                true,
             ),
             None
         );
@@ -182,6 +184,7 @@ mod tests {
                 "http://source.invalid/article",
                 Some(&before),
                 &synthetic,
+                true,
                 true,
             ),
             None
@@ -203,6 +206,7 @@ mod tests {
                 Some(&before),
                 &unrelated,
                 false,
+                true,
             ),
             None
         );
@@ -219,6 +223,7 @@ mod tests {
                 Some(&current),
                 &current,
                 false,
+                false,
             ),
             Some(NavigationOutcome::AlreadyAtDestination)
         );
@@ -233,6 +238,7 @@ mod tests {
                 "https://example.invalid/path",
                 Some(&current),
                 &unreachable,
+                true,
                 true,
             ),
             Some(NavigationOutcome::LoadFailed)
@@ -254,5 +260,49 @@ mod tests {
             "https://example.invalid",
             "https://example.invalid/"
         ));
+    }
+
+    #[test]
+    fn fragment_navigation_and_history_require_the_requested_fragment() {
+        let tree = |fragment| {
+            serde_json::json!({"frameTree":{"frame":{
+                "url":"https://example.test/path", "urlFragment":fragment, "loaderId":"loader"
+            }}})
+        };
+        let before = main_frame_from_tree(&tree("#one")).unwrap();
+        let after = main_frame_from_tree(&tree("#two")).unwrap();
+        assert!(commit_transition(Some(&before), &after, None));
+        assert_eq!(
+            classify_navigation(
+                "https://example.test/path#two",
+                Some(&before),
+                &after,
+                true,
+                false
+            ),
+            Some(NavigationOutcome::Direct)
+        );
+        assert_eq!(
+            classify_navigation(
+                "https://example.test/path#two",
+                Some(&before),
+                &before,
+                false,
+                false,
+            ),
+            None
+        );
+        let competing = main_frame_from_tree(&tree("#other")).unwrap();
+        assert!(commit_transition(Some(&before), &competing, None));
+        assert_eq!(
+            classify_navigation(
+                "https://example.test/path#two",
+                Some(&before),
+                &competing,
+                true,
+                false
+            ),
+            None
+        );
     }
 }

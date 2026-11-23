@@ -4,17 +4,15 @@ import type {
 } from '@/lib/subtitleGenerationPlan';
 import type { Translations } from '@/i18n';
 import type { PersistOptions } from '@/hooks/useSequenceComposition';
-import type { ProjectComposition, VideoSegment } from '@/types/video';
+import type { Project, ProjectComposition, VideoSegment } from '@/types/video';
 import type { BaseAsyncJobStatus } from '@/hooks/asyncJobTypes';
+import type { SubtitleSourceOwner } from './subtitleSourceOwnership';
 
 export type SubtitleMethod =
   | 'groq-whisper-accurate'
   | 'groq-whisper-large-v3-turbo'
   | 'gemini-3-1-flash-lite'
-  | 'gemini-3-flash-preview'
-  | 'qwen-local-0-6b'
-  | 'qwen-local-1-7b'
-  | 'parakeet-tdt-0-6b-v3';
+  | 'gemini-3-flash-preview';
 
 export interface SubtitleClipResultSegment {
   startTime: number;
@@ -49,18 +47,6 @@ export interface SubtitleGenerationCapabilities {
   methods: SubtitleMethodCapability[];
 }
 
-export interface PrepareQwenLocalResult {
-  available: boolean;
-  startedDownloads: boolean;
-  reason?: string | null;
-}
-
-export interface PrepareParakeetTdtResult {
-  available: boolean;
-  startedDownloads: boolean;
-  reason?: string | null;
-}
-
 export interface SubtitleJobStatus extends BaseAsyncJobStatus {
   activeClipId?: string | null;
   totalClips: number;
@@ -72,7 +58,21 @@ export interface SubtitleJobStatus extends BaseAsyncJobStatus {
 
 export type SubtitleJobViewStatus = Omit<SubtitleJobStatus, 'results'>;
 
+export interface ResumableSubtitleGenerationRun {
+  projectEpoch: number;
+  jobId: string;
+  projectKey: string | null;
+  jobContext: SubtitleJobContext | null;
+  status: SubtitleJobViewStatus | null;
+  lastKnownResultsRevision: number;
+  lastAppliedResultsKey: string;
+  lastStatusViewKey: string;
+  staleResults?: boolean;
+  pendingResults?: SubtitleClipResult[];
+}
+
 export interface SubtitleJobContext {
+  projectKey: string | null;
   replacementRangesByClip: Record<
     string,
     Array<{ startTime: number; endTime: number }>
@@ -80,18 +80,26 @@ export interface SubtitleJobContext {
   indicator: SubtitleGenerationIndicator;
   sourceTypeForNative: 'video' | 'mic' | 'audio';
   clipTransformsByClip: Record<string, AudioSubtitleClipTransform>;
+  sourceOwnersByClip: Record<string, SubtitleSourceOwner>;
 }
 
 export interface UseSubtitleGenerationParams {
   t: Translations;
   projectResetKey?: string | null;
   segment: VideoSegment | null;
+  segmentRef: React.MutableRefObject<VideoSegment | null>;
+  currentProjectDataRef: React.MutableRefObject<Project | null>;
+  currentProjectIdRef: React.MutableRefObject<string | null>;
+  currentRawVideoPathRef: React.MutableRefObject<string>;
+  currentRawMicAudioPathRef: React.MutableRefObject<string>;
   setSegment: (
     segment:
       | VideoSegment
       | null
       | ((prev: VideoSegment | null) => VideoSegment | null),
-    withHistory?: boolean,
+  ) => void;
+  setSegmentSilently: (
+    segment: VideoSegment | null | ((prev: VideoSegment | null) => VideoSegment | null),
   ) => void;
   composition: ProjectComposition | null;
   setComposition: (
@@ -100,7 +108,14 @@ export interface UseSubtitleGenerationParams {
       | null
       | ((prev: ProjectComposition | null) => ProjectComposition | null),
   ) => void;
+  setCompositionSilently: (
+    composition:
+      | ProjectComposition
+      | null
+      | ((prev: ProjectComposition | null) => ProjectComposition | null),
+  ) => void;
   activeClipId: string | null | undefined;
+  loadedClipIdRef: React.MutableRefObject<string | null>;
   currentRawVideoPath: string;
   currentRawMicAudioPath: string;
   duration: number;

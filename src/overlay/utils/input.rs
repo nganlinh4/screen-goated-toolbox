@@ -19,10 +19,20 @@ pub fn get_target_window_for_paste() -> Option<HWND> {
     }
 }
 
-pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
+pub fn force_focus_and_paste(
+    hwnd_target: HWND,
+    diagnostic_id: u64,
+    clipboard_sequence: u32,
+    cancel_token: &crate::overlay::result::ChainCancelToken,
+) {
+    if cancel_token.is_cancelled() {
+        return;
+    }
     unsafe {
         paste_diagnostics::focus(diagnostic_id, "before_focus", Some(hwnd_target));
-        // 1. Force focus back to the target window
+        // Serialize the focus effect with cancellation, but never hold the
+        // admission lock while waiting for focus to settle.
+        let focused = cancel_token.run_if_active(|| {
         if IsWindow(Some(hwnd_target)).as_bool() {
             let cur_thread = GetCurrentThreadId();
             let target_thread = GetWindowThreadProcessId(hwnd_target, None);
@@ -47,8 +57,13 @@ pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
                     );
                 }
             }
+            true
         } else {
             paste_diagnostics::focus(diagnostic_id, "invalid_target", Some(hwnd_target));
+            false
+        }
+        });
+        if focused != Some(true) {
             return;
         }
 
@@ -68,36 +83,55 @@ pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
             // Don't return — proceed with paste anyway since detection can be wrong
         }
 
+        if cancel_token.is_cancelled() {
+            return;
+        }
+
         // 3. CLEANUP MODIFIERS SMARTLY
         // Only send KeyUp if the key is actually physically pressed to avoid side effects
-        let mut released_modifiers = 0;
-        let mut release_if_pressed = |vk: u16| {
-            let state = GetAsyncKeyState(vk as i32);
-            if (state as u16 & 0x8000) != 0 {
-                let input = INPUT {
-                    r#type: INPUT_KEYBOARD,
-                    Anonymous: INPUT_0 {
-                        ki: KEYBDINPUT {
-                            wVk: VIRTUAL_KEY(vk),
-                            dwFlags: KEYEVENTF_KEYUP,
-                            ..Default::default()
+        let Some(released_modifiers) = cancel_token.run_if_active(|| {
+            let mut released_modifiers = 0;
+            let mut release_if_pressed = |vk: u16| {
+                let state = GetAsyncKeyState(vk as i32);
+                if (state as u16 & 0x8000) != 0 {
+                    let input = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(vk),
+                                dwFlags: KEYEVENTF_KEYUP,
+                                ..Default::default()
+                            },
                         },
-                    },
-                };
-                released_modifiers += SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-            }
-        };
+                    };
+                    released_modifiers += SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+            };
 
-        release_if_pressed(VK_MENU.0); // Alt
-        release_if_pressed(VK_SHIFT.0); // Shift
-        release_if_pressed(VK_LWIN.0); // Win Left
-        release_if_pressed(VK_RWIN.0); // Win Right
-        release_if_pressed(VK_CONTROL.0); // Ctrl
+            release_if_pressed(VK_MENU.0); // Alt
+            release_if_pressed(VK_SHIFT.0); // Shift
+            release_if_pressed(VK_LWIN.0); // Win Left
+            release_if_pressed(VK_RWIN.0); // Win Right
+            release_if_pressed(VK_CONTROL.0); // Ctrl
+            released_modifiers
+        }) else {
+            return;
+        };
 
         std::thread::sleep(std::time::Duration::from_millis(50));
         paste_diagnostics::focus(diagnostic_id, "before_keys", Some(hwnd_target));
 
-        // 4. Send Ctrl+V Sequence
+        if !paste_target_is_current(
+            clipboard_sequence,
+            paste_diagnostics::clipboard_sequence(),
+            hwnd_target == GetForegroundWindow(),
+        ) {
+            crate::log_info!("[AutoPasteBatch] id={diagnostic_id} stage=stale_before_keys");
+            return;
+        }
+
+        // 4. Admit the Ctrl+V sequence only if the chain is still active.
+        let _ = cancel_token.run_if_active(|| {
         let send_input_event = |vk: u16, flags: KEYBD_EVENT_FLAGS| {
             let input = INPUT {
                 r#type: INPUT_KEYBOARD,
@@ -118,6 +152,16 @@ pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
         let ctrl_down = send_input_event(VK_CONTROL.0, KEYBD_EVENT_FLAGS(0));
         std::thread::sleep(std::time::Duration::from_millis(50));
 
+        if !paste_target_is_current(
+            clipboard_sequence,
+            paste_diagnostics::clipboard_sequence(),
+            hwnd_target == GetForegroundWindow(),
+        ) {
+            let _ = send_input_event(VK_CONTROL.0, KEYEVENTF_KEYUP);
+            crate::log_info!("[AutoPasteBatch] id={diagnostic_id} stage=stale_before_paste");
+            return;
+        }
+
         // V Down
         let v_down = send_input_event(VK_V.0, KEYBD_EVENT_FLAGS(0));
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -134,5 +178,23 @@ pub fn force_focus_and_paste(hwnd_target: HWND, diagnostic_id: u64) {
             );
         }
         paste_diagnostics::focus(diagnostic_id, "after_keys", Some(hwnd_target));
+        });
+    }
+}
+
+fn paste_target_is_current(expected: u32, current: u32, target_is_foreground: bool) -> bool {
+    expected != 0 && current == expected && target_is_foreground
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paste_target_is_current;
+
+    #[test]
+    fn paste_requires_unchanged_clipboard_and_foreground() {
+        assert!(paste_target_is_current(123, 123, true));
+        assert!(!paste_target_is_current(123, 124, true));
+        assert!(!paste_target_is_current(0, 0, true));
+        assert!(!paste_target_is_current(123, 123, false));
     }
 }

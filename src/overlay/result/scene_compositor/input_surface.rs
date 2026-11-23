@@ -102,6 +102,26 @@ unsafe extern "system" fn input_surface_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     unsafe {
+        if super::child::topology_transition::active()
+            && matches!(
+                message,
+                WM_CAPTURECHANGED
+                    | WM_CANCELMODE
+                    | WM_MOUSEMOVE
+                    | WM_LBUTTONDOWN
+                    | WM_LBUTTONUP
+                    | WM_RBUTTONDOWN
+                    | WM_RBUTTONUP
+                    | WM_MBUTTONDOWN
+                    | WM_MBUTTONUP
+                    | WM_MOUSEWHEEL
+                    | WM_MOUSEHWHEEL
+                    | super::gesture::WM_APP_GESTURE_DISPATCH
+                    | super::pointer_input::WM_APP_POINTER_DISPATCH
+            )
+        {
+            return LRESULT(0);
+        }
         match message {
             WM_MOUSEACTIVATE => {
                 if is_refine_text_active() {
@@ -286,7 +306,9 @@ pub(super) fn update_input_regions(
                     card.rect.y,
                     card.rect.width,
                     card.rect.height,
-                    super::region::resize_edge_width(96),
+                    super::region::resize_edge_width(super::control_surface::monitor_dpi_for_rect(
+                        &card.rect,
+                    )),
                 );
                 for edge in edges {
                     let left = edge.left.clamp(0, display_w);
@@ -345,7 +367,25 @@ pub(super) fn update_input_regions(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 return AppliedInputState::hidden();
             }
+            if super::child::INPUT_SURFACE_HWND.load(Ordering::SeqCst) == hwnd.0 as isize
+                && !super::visual_region::first_scene_painted()
+            {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                return AppliedInputState {
+                    visible_cards,
+                    input_region_count,
+                    is_hidden: true,
+                };
+            }
             let showing = !IsWindowVisible(hwnd).as_bool();
+            if !showing
+                && !super::child::topology::native_bounds_match(
+                    hwnd, display_x, display_y, display_w, display_h,
+                )
+            {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                crate::crash_report::exit(1, "renderer-input-bounds-mismatch");
+            }
             if showing {
                 if SetWindowPos(
                     hwnd,
@@ -361,7 +401,20 @@ pub(super) fn update_input_regions(
                     super::visual_region::hide(hwnd);
                     return AppliedInputState::hidden();
                 }
+                if !super::child::topology::native_bounds_match(
+                    hwnd, display_x, display_y, display_w, display_h,
+                ) {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    crate::crash_report::exit(1, "renderer-input-bounds-mismatch");
+                }
+                if super::child::topology_transition::active() {
+                    return AppliedInputState::hidden();
+                }
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                if super::child::topology_transition::active() {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    return AppliedInputState::hidden();
+                }
             }
             if (showing || !unchanged)
                 && SetWindowPos(
@@ -396,9 +449,15 @@ pub(super) fn restore_nonactivating(hwnd: HWND) {
     super::activation::restore_nonactivating_style(hwnd);
 }
 
-pub(super) fn sync_input_surface_bounds(input_hwnd: HWND, x: i32, y: i32, width: i32, height: i32) {
+pub(super) fn sync_input_surface_bounds(
+    input_hwnd: HWND,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> windows::core::Result<()> {
     unsafe {
-        let _ = SetWindowPos(
+        SetWindowPos(
             input_hwnd,
             Some(HWND_TOPMOST),
             x,
@@ -406,7 +465,7 @@ pub(super) fn sync_input_surface_bounds(input_hwnd: HWND, x: i32, y: i32, width:
             width,
             height,
             SWP_NOACTIVATE,
-        );
+        )
     }
 }
 
@@ -423,176 +482,5 @@ unsafe fn union_rect(region: HRGN, x: i32, y: i32, width: i32, height: i32) -> b
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_cards_with_stale_regions_hides_window_and_returns_hidden() {
-        let _lock = REGION_LOCK.lock().unwrap();
-        let hwnd = create_input_surface(0, 0, 800, 600).expect("create test surface");
-        assert_eq!(unsafe { GetPropW(hwnd, w!("NonRudeHWND")) }.0 as usize, 1);
-        let cards: HashMap<isize, SceneCard> = HashMap::new();
-        let stale_regions = vec![SceneRect {
-            x: 10,
-            y: 10,
-            width: 100,
-            height: 100,
-        }];
-
-        let state = update_input_regions(hwnd, &cards, &stale_regions, 0, 0, 800, 600);
-        assert_eq!(state.visible_cards, 0);
-        assert_eq!(state.input_region_count, 0);
-        assert!(state.is_hidden);
-
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
-    }
-
-    fn test_card(id: isize, rect: SceneRect) -> SceneCard {
-        SceneCard {
-            id,
-            rect: rect.clone(),
-            control_rect: rect,
-            body: "result".to_string(),
-            document: Some("test".to_string()),
-            external_navigation: false,
-            navigation_loading: false,
-            refining: false,
-            background: "#ffffff".to_string(),
-            opacity: 100,
-            visible: true,
-            streaming: false,
-            streaming_enabled: false,
-            stack_order: 1,
-            controls: Default::default(),
-            presentation: crate::overlay::result::ResultPresentation::Standard,
-            backdrop_data_url: None,
-            foreground_color: None,
-            preferred_font_size: None,
-            source_vertical: false,
-            source_regions: Vec::new(),
-            source_segments: Vec::new(),
-            source_replacement: false,
-        }
-    }
-
-    #[test]
-    fn input_surface_region_aligns_on_negative_origin_desktop() {
-        let _lock = REGION_LOCK.lock().unwrap();
-        let hwnd = create_input_surface(-1920, 0, 3840, 1080).expect("create test surface");
-        let mut cards = HashMap::new();
-        cards.insert(
-            1,
-            test_card(
-                1,
-                SceneRect {
-                    x: 500,
-                    y: 100,
-                    width: 400,
-                    height: 300,
-                },
-            ),
-        );
-
-        let state = update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080);
-        assert_eq!(state.visible_cards, 1);
-        assert_eq!(state.input_region_count, 1);
-        assert!(!state.is_hidden);
-
-        unsafe {
-            assert_eq!(
-                update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080),
-                state
-            );
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            assert_eq!(
-                update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080),
-                state
-            );
-            assert!(IsWindowVisible(hwnd).as_bool());
-            cards.get_mut(&1).unwrap().rect.x = 900;
-            let _ = update_input_regions(hwnd, &cards, &[], -1920, 0, 3840, 1080);
-            let actual = CreateRectRgn(0, 0, 0, 0);
-            let expected = CreateRectRgn(900, 100, 1300, 400);
-            assert_ne!(GetWindowRgn(hwnd, actual).0, 0);
-            assert!(EqualRgn(actual, expected).as_bool());
-            let _ = DeleteObject(actual.into());
-            let _ = DeleteObject(expected.into());
-            let _ = DestroyWindow(hwnd);
-        }
-    }
-
-    #[test]
-    fn passive_results_never_own_input_even_with_stale_control_regions() {
-        let _lock = REGION_LOCK.lock().unwrap();
-        let hwnd = create_input_surface(0, 0, 800, 600).expect("create test surface");
-        let rect = SceneRect {
-            x: 50,
-            y: 50,
-            width: 200,
-            height: 100,
-        };
-        let mut passive = test_card(1, rect.clone());
-        passive.controls.input_passthrough = true;
-        let mut cards = HashMap::from([(1, passive)]);
-        let state = update_input_regions(hwnd, &cards, &[rect], 0, 0, 800, 600);
-        assert!(state.is_hidden);
-        assert_eq!(state.input_region_count, 0);
-        assert!(!state.blocks_visuals(&cards));
-        cards.insert(
-            2,
-            test_card(
-                2,
-                SceneRect {
-                    x: 400,
-                    y: 100,
-                    width: 100,
-                    height: 100,
-                },
-            ),
-        );
-        let state = update_input_regions(hwnd, &cards, &[], 0, 0, 800, 600);
-        assert!(!state.is_hidden);
-        assert_eq!(state.input_region_count, 1);
-        unsafe {
-            let actual = CreateRectRgn(0, 0, 0, 0);
-            let expected = CreateRectRgn(400, 100, 500, 200);
-            assert_ne!(GetWindowRgn(hwnd, actual).0, 0);
-            assert!(EqualRgn(actual, expected).as_bool());
-            let _ = DeleteObject(actual.into());
-            let _ = DeleteObject(expected.into());
-            let _ = DestroyWindow(hwnd);
-        }
-    }
-
-    #[test]
-    fn fault_injected_region_failure_immediately_hides_surface() {
-        let _lock = REGION_LOCK.lock().unwrap();
-        let hwnd = create_input_surface(0, 0, 800, 600).expect("create test surface");
-        let mut cards = HashMap::new();
-        cards.insert(
-            1,
-            test_card(
-                1,
-                SceneRect {
-                    x: 50,
-                    y: 50,
-                    width: 200,
-                    height: 200,
-                },
-            ),
-        );
-
-        INJECT_REGION_FAILURE.store(true, Ordering::SeqCst);
-        let state = update_input_regions(hwnd, &cards, &[], 0, 0, 800, 600);
-        INJECT_REGION_FAILURE.store(false, Ordering::SeqCst);
-
-        assert!(state.is_hidden);
-        assert_eq!(state.visible_cards, 0);
-
-        unsafe {
-            let _ = DestroyWindow(hwnd);
-        }
-    }
-}
+#[path = "input_surface_tests.rs"]
+mod tests;

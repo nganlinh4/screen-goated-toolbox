@@ -24,10 +24,12 @@ internal class SgtAdbBridgeService : Service() {
     private var manager: SgtAdbConnectionManager? = null
     private var runner: SgtAdbCommandRunner? = null
     private var browserTunnel: SgtAdbBrowserTunnel? = null
+    private val authorityCache = SgtAdbAuthorityCache()
 
     private val binder = object : IPhoneControlAdbService.Stub() {
         override fun connectAndVerify(timeoutMs: Long): String =
             runBlocking(Dispatchers.IO) {
+                if (!SgtAdbPeerTrust.isAvailable()) return@runBlocking unavailableProbe()
                 val startedAt = SystemClock.elapsedRealtime()
                 val attempt = runCatching {
                     manager().connectDiscovered(timeoutMs)
@@ -44,11 +46,12 @@ internal class SgtAdbBridgeService : Service() {
                 if (!connection.connected) {
                     connection.toProbeResult()
                 } else {
-                    verifyAuthority(timeoutMs)
+                    cachedOrVerifiedAuthority(timeoutMs)
                 }
             }.toString()
 
         override fun pairAndVerify(pairingCode: String, timeoutMs: Long): String {
+            if (!SgtAdbPeerTrust.isAvailable()) return unavailableProbe().toString()
             if (!pairingCode.isAsciiPairingCode()) {
                 PhoneControlLog.i(
                     TAG,
@@ -73,6 +76,7 @@ internal class SgtAdbBridgeService : Service() {
                     attempt.exceptionOrNull(),
                 )
                 when (result.status) {
+                    SgtAdbPairStatus.PEER_AUTHENTICATION_UNAVAILABLE -> unavailableProbe()
                     SgtAdbPairStatus.PAIRING_ENDPOINT_UNAVAILABLE ->
                         probeResult("needs_user_step", "pairing_endpoint_unavailable")
                     SgtAdbPairStatus.PAIRING_FAILED ->
@@ -106,13 +110,32 @@ internal class SgtAdbBridgeService : Service() {
             args: Array<out String>,
             cwd: String?,
             timeoutMs: Long,
-        ): String = runner().run(operationId, program, args.toList(), cwd, timeoutMs).toString()
+        ): String = if (!SgtAdbPeerTrust.isAvailable()) {
+            buildJsonObject {
+                put("ok", false)
+                put("code", "peer_authentication_unavailable")
+                put("state", "unsupported")
+                put("process_started", false)
+                put("effect_may_have_occurred", false)
+                put("operation_id", operationId)
+            }.toString()
+        } else {
+            runner().run(operationId, program, args.toList(), cwd, timeoutMs).toString()
+        }
 
         override fun cancelCommand(operationId: String): String =
-            runner().cancel(operationId).toString()
+            if (!SgtAdbPeerTrust.isAvailable()) {
+                buildJsonObject {
+                    put("ok", true)
+                    put("code", "no_operation")
+                    put("operation_id", operationId)
+                    put("process_started", false)
+                }.toString()
+            } else runner().cancel(operationId).toString()
 
         override fun openBrowserTunnel(timeoutMs: Long): String =
             runBlocking(Dispatchers.IO) {
+                if (!SgtAdbPeerTrust.isAvailable()) return@runBlocking unavailableProbe().toString()
                 val startedAt = SystemClock.elapsedRealtime()
                 val attempt = runCatching {
                     manager().connectDiscovered(timeoutMs)
@@ -168,6 +191,7 @@ internal class SgtAdbBridgeService : Service() {
         }
 
         override fun forget(): String {
+            authorityCache.clear()
             synchronized(lock) {
                 browserTunnel?.close()
                 browserTunnel = null
@@ -234,6 +258,18 @@ internal class SgtAdbBridgeService : Service() {
         runner ?: SgtAdbCommandRunner(manager()).also { runner = it }
     }
 
+    private fun cachedOrVerifiedAuthority(timeoutMs: Long): JsonObject {
+        val generation = manager().connectionGeneration
+        authorityCache.current(generation, SystemClock.elapsedRealtime())?.let { return it }
+        val probe = verifyAuthority(timeoutMs)
+        if (probe["state"]?.jsonPrimitive?.content == "ready") {
+            authorityCache.remember(generation, SystemClock.elapsedRealtime(), probe)
+        } else {
+            authorityCache.clear()
+        }
+        return probe
+    }
+
     private fun verifyAuthority(
         timeoutMs: Long,
         pairingEstablished: Boolean = false,
@@ -291,7 +327,11 @@ internal class SgtAdbBridgeService : Service() {
         }
     }
 
+    private fun unavailableProbe(): JsonObject =
+        probeResult("unsupported", "peer_authentication_unavailable")
+
     private fun SgtAdbConnectResult.toProbeResult(): JsonObject = when (status) {
+        SgtAdbConnectStatus.PEER_AUTHENTICATION_UNAVAILABLE -> unavailableProbe()
         SgtAdbConnectStatus.CONNECTED -> probeResult("ready", "ready")
         SgtAdbConnectStatus.PAIRING_STATE_MISSING ->
             probeResult("needs_user_step", "pairing_state_missing")

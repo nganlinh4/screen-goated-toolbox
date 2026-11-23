@@ -74,7 +74,10 @@ impl Completion {
                     part.is_object(),
                     "PROVIDER_RESPONSE_INVALID:Malformed provider part"
                 );
-                if let Some(value) = part.get("text") {
+                if let Some(value) = part.get("text").or_else(|| {
+                    part.get("audioTranscription")
+                        .and_then(|transcription| transcription.get("text"))
+                }) {
                     let value = value
                         .as_str()
                         .context("PROVIDER_RESPONSE_INVALID:Provider content is not text")?;

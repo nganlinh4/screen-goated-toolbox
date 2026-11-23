@@ -16,12 +16,11 @@ describe("TTS Playground UI smoke", () => {
     expect(screen.getByText("TTS Playground")).toBeInTheDocument();
   });
 
-  it("renders the four mode tabs", () => {
+  it("renders the two mode tabs", () => {
     render(<App />);
     expect(screen.getByText("S2S")).toBeInTheDocument();
     expect(screen.getByText("TTS / Clone")).toBeInTheDocument();
-    expect(screen.getByText("Audio Edit")).toBeInTheDocument();
-    expect(screen.getByText("Reference Library")).toBeInTheDocument();
+    expect(screen.queryByText("Audio Edit")).not.toBeInTheDocument();
   });
 
   it("shows the method picker dropdown in TtsClone mode", () => {

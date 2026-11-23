@@ -98,7 +98,22 @@ class HelpAssistantClientTest {
 
     @Test
     fun searchRankingUsesWindowsNonOverlappingMatchCount() {
-        val case = fixtureCase("search_ranking_uses_non_overlapping_matches")
+        assertRankingCase("search_ranking_uses_non_overlapping_matches")
+    }
+
+    @Test
+    fun koreanQuestion_keepsHangulTerms() {
+        assertRankingCase("search_terms_keep_hangul_letters")
+    }
+
+    @Test
+    fun accentedQuestion_keepsWholeTerms() {
+        assertRankingCase("search_terms_keep_accented_letters")
+        assertEquals(listOf("làm", "sao", "đổi", "giọng", "đọc"), helpAssistantSearchTerms("Làm sao đổi giọng đọc?"))
+    }
+
+    private fun assertRankingCase(name: String) {
+        val case = fixtureCase(name)
         val chunksById = case.getValue("chunks").jsonArray.map { element ->
             val chunk = element.jsonObject
             chunk.getValue("id").jsonPrimitive.content to ChunkEntry(

@@ -2,7 +2,10 @@ package dev.screengoated.toolbox.mobile.preset
 
 import dev.screengoated.toolbox.mobile.service.overlay.overlayFontCss
 import dev.screengoated.toolbox.mobile.shared.preset.PresetInput
+import dev.screengoated.toolbox.mobile.ui.icons.MaterialSymbolSvgs
 import java.util.Base64
+
+internal const val INPUT_AUDIO_PREVIEW_PLACEHOLDER = "https://sgt-result.invalid/input-audio-placeholder"
 
 internal fun inputAdapterOverlayContent(
     input: PresetInput,
@@ -75,7 +78,6 @@ private fun generateImageDisplayHtml(imageBytes: ByteArray): String {
 }
 
 private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): String {
-    val base64Audio = Base64.getEncoder().encodeToString(audioBytes)
     val mimeType = sniffAudioMimeType(audioBytes)
     val downloadedToast = when (uiLanguage) {
         "vi" -> "Đã tải xuống"
@@ -159,13 +161,20 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
                 flex-shrink: 0;
             }
             .play-btn svg {
-                fill: #1e1e1e;
+                color: #1e1e1e;
                 width: 18px;
                 height: 18px;
+            }
+            .play-btn .play-icon {
+                display: flex;
                 margin-left: 2px;
             }
-            .play-btn.playing svg {
-                margin-left: 0;
+            .play-btn .pause-icon,
+            .play-btn.playing .play-icon {
+                display: none;
+            }
+            .play-btn.playing .pause-icon {
+                display: flex;
             }
             .download-btn {
                 width: 36px;
@@ -182,13 +191,13 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
                 margin-left: 4px;
             }
             .download-btn svg {
-                fill: #9aa0a6;
+                color: #9aa0a6;
                 width: 20px;
                 height: 20px;
-                transition: fill 0.2s;
+                transition: color 0.2s;
             }
             .download-btn.success svg {
-                fill: #4CAF50;
+                color: #4CAF50;
             }
             .progress-container {
                 flex: 1;
@@ -250,7 +259,8 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
                 <div class="waveform" id="waveform"></div>
                 <div class="controls">
                     <button class="play-btn" id="playBtn">
-                        <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <span class="play-icon">${MaterialSymbolSvgs.slot("play_arrow")}</span>
+                        <span class="pause-icon">${MaterialSymbolSvgs.slot("pause")}</span>
                     </button>
                     <div class="progress-container">
                         <div class="progress-bar" id="progressBar">
@@ -262,17 +272,16 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
                         </div>
                     </div>
                     <button class="download-btn" id="downloadBtn" title="$downloadTooltip">
-                        <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+                        ${MaterialSymbolSvgs.slot("download")}
                     </button>
                 </div>
             </div>
             <audio id="audio">
-                <source src="data:$mimeType;base64,$base64Audio" type="$mimeType">
+                <source src="$INPUT_AUDIO_PREVIEW_PLACEHOLDER" type="$mimeType">
             </audio>
             <script>
             const audio = document.getElementById('audio');
             const progress = document.getElementById('progress');
-            const playIcon = document.getElementById('playIcon');
             const playBtn = document.getElementById('playBtn');
             const downloadBtn = document.getElementById('downloadBtn');
             const toast = document.getElementById('toast');
@@ -335,7 +344,6 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
             };
 
             audio.onended = function() {
-                playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
                 playBtn.classList.remove('playing');
                 bars.forEach(function(bar) { bar.style.height = '4px'; });
             };
@@ -344,38 +352,19 @@ private fun generateAudioPlayerHtml(audioBytes: ByteArray, uiLanguage: String): 
                 setupAudio();
                 if (audio.paused) {
                     audio.play();
-                    playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
                     playBtn.classList.add('playing');
                     visualize();
                 } else {
                     audio.pause();
-                    playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
                     playBtn.classList.remove('playing');
                 }
             };
 
             downloadBtn.onclick = function() {
-                if (window.sgtAndroid && window.sgtAndroid.postMessage) {
-                    window.sgtAndroid.postMessage(JSON.stringify({
-                        type: 'saveMediaToDownloads',
-                        filename: 'recording.wav',
-                        mimeType: '$mimeType',
-                        base64: '$base64Audio',
-                        successMessage: '$downloadedToast',
-                        failureMessage: '$downloadFailedToast'
-                    }));
-                }
-
-                const originalIcon = downloadBtn.innerHTML;
-                downloadBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
-                downloadBtn.classList.add('success');
+                if (document.documentElement.hasAttribute('data-sgt-native-audio-download')) return;
+                toast.textContent = '$downloadFailedToast';
                 toast.classList.add('show');
-
-                setTimeout(function() {
-                    downloadBtn.innerHTML = originalIcon;
-                    downloadBtn.classList.remove('success');
-                    toast.classList.remove('show');
-                }, 2500);
+                setTimeout(function() { toast.classList.remove('show'); }, 2500);
             };
 
             progressBar.onclick = function(event) {
@@ -402,7 +391,7 @@ private fun sniffImageMimeType(imageBytes: ByteArray): String {
     }
 }
 
-private fun sniffAudioMimeType(audioBytes: ByteArray): String {
+internal fun sniffAudioMimeType(audioBytes: ByteArray): String {
     return when {
         audioBytes.size >= 12 &&
             audioBytes.copyOfRange(0, 4).contentEquals(byteArrayOf('R'.code.toByte(), 'I'.code.toByte(), 'F'.code.toByte(), 'F'.code.toByte())) &&

@@ -25,6 +25,7 @@ import { calculateCurrentZoomStateInternal } from './cameraZoom';
 import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
 import { drawFrame as drawFrameImpl } from './drawFrame';
 import type { RendererState } from './rendererState';
+import { resolveRenderScale, type RenderReference } from './renderScale';
 import {
   cloneWebcamConfig,
   iterateBakedWebcamFrames,
@@ -149,8 +150,8 @@ class VideoRenderer {
       lastCursorPreviewDebugSignature: '',
       lastCursorPreviewDebugBucket: -1,
       lastCursorPreviewDebugPoint: null,
-      calculateCurrentZoomState: (currentTime, segment, viewW, viewH, srcCropW?, srcCropH?, videoScale?) =>
-        this.calculateCurrentZoomState(currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale),
+      calculateCurrentZoomState: calculateCurrentZoomStateInternal,
+      recordPresentedZoomState: (state) => { this.lastCalculatedState = state; },
       requestRedraw: () => {
         if (this.activeRenderContext) this.drawFrame(this.activeRenderContext);
       },
@@ -183,6 +184,7 @@ class VideoRenderer {
     webcamConfig: WebcamConfig | null | undefined,
     outputWidth: number,
     outputHeight: number,
+    reference: RenderReference,
     webcamAspectRatio: number | null | undefined,
     fps: number = 60,
   ): Iterable<BakedWebcamFrame> {
@@ -193,13 +195,14 @@ class VideoRenderer {
       outputHeight,
       webcamAspectRatio,
       (time) =>
-        this.calculateCurrentZoomState(
+        calculateCurrentZoomStateInternal(
           time,
           segment,
           outputWidth,
           outputHeight,
         ).zoomFactor,
       fps,
+      resolveRenderScale(outputHeight, reference),
     );
   }
 
@@ -285,26 +288,6 @@ class VideoRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Caching wrappers (instance-level cache management)
-  // ---------------------------------------------------------------------------
-
-  private calculateCurrentZoomState(
-    currentTime: number,
-    segment: VideoSegment,
-    viewW: number,
-    viewH: number,
-    srcCropW?: number,
-    srcCropH?: number,
-    videoScale?: number,
-  ): ZoomKeyframe {
-    const state = calculateCurrentZoomStateInternal(
-      currentTime, segment, viewW, viewH, srcCropW, srcCropH, videoScale,
-    );
-    this.lastCalculatedState = state;
-    return state;
-  }
-
-  // ---------------------------------------------------------------------------
   // drawFrame - delegates to extracted drawFrame module
   // ---------------------------------------------------------------------------
 
@@ -370,9 +353,10 @@ class VideoRenderer {
     segment: VideoSegment,
     outputWidth: number,
     outputHeight: number,
+    reference: RenderReference,
     fps: number = 60
   ): Promise<BakedOverlayPayload | undefined> {
-    return bakeOverlayAtlasAndPaths(segment, outputWidth, outputHeight, fps, this.state.keystrokeState);
+    return bakeOverlayAtlasAndPaths(segment, outputWidth, outputHeight, reference, fps, this.state.keystrokeState);
   }
 }
 

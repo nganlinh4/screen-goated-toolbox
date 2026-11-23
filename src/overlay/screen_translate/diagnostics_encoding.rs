@@ -1,5 +1,5 @@
 use super::super::contract::DetectedTextRegion;
-use super::super::geometry::{PixelRegion, normalized_region};
+use super::super::geometry::PixelRegion;
 use anyhow::{Context, Result};
 use image::{ExtendedColorType, ImageEncoder as _, codecs::jpeg::JpegEncoder};
 use std::path::Path;
@@ -8,15 +8,15 @@ pub(super) fn save_detector_preview(
     path: &Path,
     source_jpeg: &[u8],
     candidates: &[DetectedTextRegion],
-    size: (u32, u32),
 ) -> Result<()> {
     let mut image = image::load_from_memory(source_jpeg)
         .context("decode detector evidence source")?
         .to_rgba8();
+    let (width, height) = image.dimensions();
     for candidate in candidates {
         draw_box(
             &mut image,
-            normalized_region(candidate.bounds, size.0, size.1),
+            candidate.bounds.rescale(width, height)?.pixels(),
         );
     }
     save_jpeg(path, &image)

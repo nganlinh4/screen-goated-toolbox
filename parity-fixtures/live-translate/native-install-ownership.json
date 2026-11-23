@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"event":"cancel_before_platform_session","result":"late_session_cancelled"},
+    {"event":"listener_before_start_result","result":"correct_session_settled"},
+    {"event":"late_status_query_after_listener","result":"newer_listener_state_preserved"},
+    {"event":"older_status_query_after_newer_query","result":"newer_query_state_preserved"},
+    {"event":"older_cancellation_failure_after_newer_attempt","result":"newer_attempt_state_preserved"},
+    {"event":"retry_during_cancellation","result":"replacement_waits_for_settlement"},
+    {"event":"cancel_queued_retry","result":"no_replacement_after_settlement"},
+    {"event":"retry_during_removal","result":"no_replacement_after_removal"},
+    {"event":"cancel_session_with_unrelated_install","result":"unrelated_install_continues"},
+    {"event":"cancel_session_with_shared_install","result":"other_requester_keeps_install"},
+    {"event":"cancel_last_install_request","result":"owned_install_cancels"},
+    {"event":"platform_cancel_failure","result":"uncertainty_and_lease_preserved"},
+    {"event":"retry_after_platform_error","result":"wait_for_reconciliation"},
+    {"event":"cancel_unknown_start_without_session","result":"error_and_lease_preserved"},
+    {"event":"already_installed_without_session","result":"settled_installed"},
+    {"event":"late_already_installed_result","result":"replacement_lease_preserved"},
+    {"event":"late_start_failure_after_replacement","result":"replacement_lease_preserved"},
+    {"event":"current_start_failure","result":"failure_reported_and_lease_released"},
+    {"event":"late_completion_after_replacement","result":"replacement_preserved"},
+    {"event":"late_progress_after_cancellation","result":"not_published"},
+    {"event":"late_terminal_after_replacement","result":"replacement_lease_preserved"},
+    {"event":"cancel_before_publication","result":"no_install_publication"},
+    {"event":"successful_current_install","result":"installed_and_opened"}
+  ]
+}

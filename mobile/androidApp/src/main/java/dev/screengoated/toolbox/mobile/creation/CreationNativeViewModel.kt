@@ -57,7 +57,6 @@ internal class CreationNativeViewModel(
                 refreshHistory()
             }
         }
-        if (tool == CreationTool.IMAGE_CREATOR) addImageSession()
     }
 
     fun activateSurface() {
@@ -67,8 +66,9 @@ internal class CreationNativeViewModel(
             while (!lifetime.isClosed) {
                 val readiness = manager.preparationStatus(tool)
                 val modes = manager.generationModes()
+                val capabilities = runtimeCapabilitiesForTick()
                 mutableState.update { current ->
-                    current.copy(preparationStatus = readiness, generationModes = modes, items = current.items.map(::withRuntimeCapabilities))
+                    current.copy(preparationStatus = readiness, generationModes = modes, items = current.items.map(capabilities))
                 }
                 delay(2_000)
             }
@@ -77,15 +77,11 @@ internal class CreationNativeViewModel(
 
     fun addImages(paths: List<String>) {
         if (paths.isEmpty()) return
-        if (tool == CreationTool.IMAGE_CREATOR) {
-            addImageReferences(paths)
-            return
-        }
         val batchId = "batch_${UUID.randomUUID()}"
         val additions = creationDraftsForImport(paths, batchId) {
             "image_${UUID.randomUUID()}"
         }
-        mutableState.update {
+        inputPreflight.updateInput {
             it.copy(
                 tab = CreationNativeTab.JOBS,
                 items = it.items + additions,
@@ -97,44 +93,20 @@ internal class CreationNativeViewModel(
         syncSourceHandles()
     }
 
-    fun addImageSession() {
-        if (tool != CreationTool.IMAGE_CREATOR) return
-        val item = CreationImageSessions.new()
-        mutableState.update {
-            it.copy(
-                tab = CreationNativeTab.JOBS,
-                items = it.items + item,
-                selectedItemId = item.id,
-                selectedHistoryId = null,
-                transientError = null,
-            )
-        }
-    }
-
-    fun removeImageReference(index: Int) {
-        val selected = mutableState.value.selectedItem ?: return
-        if (tool != CreationTool.IMAGE_CREATOR ||
-            selected.submitted ||
-            selected.stage != CreationNativeStage.DRAFT
-        ) return
-        updateItem(selected.id) { CreationImageSessions.removeReference(it, index) }
-        syncSourceHandles()
-    }
-
     fun selectItem(id: String) {
-        mutableState.update {
+        inputPreflight.updateInput {
             it.copy(tab = CreationNativeTab.JOBS, selectedItemId = id, selectedHistoryId = null)
         }
     }
 
     fun selectHistory(id: String) {
-        mutableState.update {
+        inputPreflight.updateInput {
             it.copy(tab = CreationNativeTab.RESULTS, selectedHistoryId = id, selectedItemId = null)
         }
     }
 
     fun showTab(tab: CreationNativeTab) {
-        mutableState.update { current ->
+        inputPreflight.updateInput { current ->
             current.copy(
                 tab = tab,
                 selectedItemId = if (tab == CreationNativeTab.JOBS) {
@@ -149,9 +121,9 @@ internal class CreationNativeViewModel(
     }
 
     fun removeDraft(id: String) {
-        mutableState.update { current ->
+        inputPreflight.updateInput { current ->
             val item = current.items.firstOrNull { it.id == id }
-            if (item?.stage == CreationNativeStage.RUNNING) return@update current
+            if (item?.stage == CreationNativeStage.RUNNING) return@updateInput current
             val remaining = current.items.filterNot { it.id == id }
             current.copy(
                 items = remaining,
@@ -176,7 +148,7 @@ internal class CreationNativeViewModel(
     fun setGenerationMode(mode: String) = updateSelectedConfigurable { item ->
         route3dItem(
             item.copy(
-                generationMode = CreationGenerationMode.fromWireName(mode).wireName,
+                generationMode = CreationContract.newGenerationMode(mode).wireName,
             ),
         )
     }
@@ -217,47 +189,35 @@ internal class CreationNativeViewModel(
         it.copy(backgroundMode = normalizeSvgBackgroundMode(mode))
     }
 
-    fun setPrompt(prompt: String) = updateSelectedConfigurable {
-        it.copy(prompt = prompt.take(CreationContract.IMAGE_CREATOR_MAXIMUM_PROMPT_CHARACTERS))
-    }
+    fun submitSelected() = submitCreationSelection(tool, mutableState, inputPreflight, ::showError)
 
-    fun submitSelected() {
-        val selected = mutableState.value.selectedItem ?: return
-        if (tool == CreationTool.IMAGE_TO_3D && mutableState.value.generationModes?.contains(selected.generationMode) == false) {
-            showError(IllegalStateException("This generation mode is unavailable. Choose an available mode."))
-            return
-        }
-        if (tool == CreationTool.IMAGE_CREATOR && selected.prompt.isBlank()) {
-            showError(IllegalArgumentException("Describe the image you want to create"))
-            return
-        }
-        inputPreflight.submit()
-    }
+    fun dismissInputValidation(validation: CreationInputValidation): Boolean = inputPreflight.dismiss(validation)
+    fun retryInputValidation(validation: CreationInputValidation) = inputPreflight.retry(validation)
 
-    fun dismissInputValidation() { mutableState.update { it.copy(inputValidation = null) } }
-
+    // manager.cancel takes the mutation lock and fsyncs the journal; never on Main.
     fun cancelSelected() {
-        val selected = mutableState.value.selectedItem ?: return
-        val jobId = selected.status?.jobId
-        if (selected.stage == CreationNativeStage.RUNNING && jobId != null) {
-            manager.cancel(ownerId, tool, jobId)
+        viewModelScope.launch(Dispatchers.IO) {
+            cancelCreationSelection(mutableState, inputPreflight,
+                { jobId -> manager.cancel(ownerId, tool, jobId) }, ::showError,
+                { ensureStatusMonitor(); schedule() })
         }
-        updateItem(selected.id) {
-            it.copy(stage = CreationNativeStage.CANCELLED, submitted = true)
-        }
-        schedule()
     }
 
     fun closeMiniApp() {
+        inputPreflight.close()
         lifetime.close {
             mutableState.update(CreationNativeUiState::cancelActiveItems)
-            try {
-                manager.closeOwner(tool, ownerId)
-            } finally {
-                try {
-                    manager.files.releaseSurfaceSources(ownerId)
-                } finally {
-                    if (surfaceAcquired.get()) manager.releaseSurface(tool, ownerId)
+            // Runs from onDestroy/onCleared: hand the locked, disk-bound teardown to a
+            // scope that outlives this ViewModel instead of blocking Main.
+            creationSurfaceIoScope.launch {
+                runCatching {
+                    releaseCreationOwner(
+                        closeOwner = { manager.closeOwner(tool, ownerId) },
+                        releaseSources = { manager.files.releaseSurfaceSources(ownerId) },
+                        releaseSurface = {
+                            if (surfaceAcquired.get()) manager.releaseSurface(tool, ownerId)
+                        },
+                    )
                 }
             }
         }
@@ -276,9 +236,10 @@ internal class CreationNativeViewModel(
     }
 
     fun rememberOutputDirectory(uri: Uri) {
+        inputPreflight.invalidate()
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { manager.files.rememberOutputDirectory(uri) }
-                .onSuccess { label -> mutableState.update { it.copy(outputDirectory = label) } }
+                .onSuccess { label -> inputPreflight.updateInput { it.copy(outputDirectory = label) } }
                 .onFailure(::showError)
         }
     }
@@ -321,7 +282,11 @@ internal class CreationNativeViewModel(
                         current.copy(history = emptyList(), selectedHistoryId = null)
                     }
                 }
-                .onFailure(::showError)
+                .onFailure { error ->
+                    // A partial clear deleted some entries; show what remains.
+                    showError(error)
+                    runCatching { refreshHistoryNow() }
+                }
         }
     }
 
@@ -335,7 +300,13 @@ internal class CreationNativeViewModel(
     suspend fun viewerModelFile(path: String) = previews.viewerModel(path)
     fun releaseViewerModelFile(file: java.io.File) = previews.releaseViewerModel(file)
     suspend fun readSvg(path: String) = previews.readSvg(path)
-    suspend fun saveSvg(path: String, svg: String) = previews.saveSvg(path, svg)
+    suspend fun saveSvg(path: String, svg: String) {
+        withContext(Dispatchers.IO) {
+            val updated = manager.history.saveSvgEdit(path, svg)
+            val history = runCatching { manager.history.list(tool) }.getOrNull()
+            mutableState.update { it.withSavedSvgEdit(path, updated, history) }
+        }
+    }
 
     fun dismissError() {
         mutableState.update { it.copy(transientError = null) }
@@ -345,7 +316,7 @@ internal class CreationNativeViewModel(
         val selected = mutableState.value.selectedItem ?: return
         val draft = !selected.submitted && selected.stage == CreationNativeStage.DRAFT
         if (!selected.isConfigurable()) return
-        mutableState.update { current ->
+        inputPreflight.updateInput { current ->
             current.copy(
                 items = current.items.map { item ->
                     val matches = if (draft) {
@@ -365,7 +336,7 @@ internal class CreationNativeViewModel(
             schedulerMutex.withLock {
                 while (!lifetime.isClosed) {
                     val next = mutableState.value.items.firstOrNull {
-                        it.submitted && it.stage == CreationNativeStage.QUEUED
+                        it.submitted && it.stage == CreationNativeStage.QUEUED && it.status?.jobId.isNullOrBlank()
                     } ?: break
                     val routed = if (tool == CreationTool.IMAGE_TO_3D) route3dItem(next) else next
                     if (routed != next) {
@@ -402,20 +373,10 @@ internal class CreationNativeViewModel(
                                     ) {
                                         CREATION_SOURCE_UNAVAILABLE_ERROR_KEY
                                     } else {
-                                        publicCreationFailure(tool)
+                                        publicCreationFailure()
                                     },
                                     sourceImagePath = routed.sourcePath,
                                     sourceImagePaths = routed.referencePaths,
-                                    operation = CreationContract.IMAGE_CREATOR_OPERATION.takeIf {
-                                        tool == CreationTool.IMAGE_CREATOR
-                                    },
-                                    prompt = routed.prompt.takeIf {
-                                        tool == CreationTool.IMAGE_CREATOR
-                                    },
-                                    instruction = routed.instruction.takeIf {
-                                        tool == CreationTool.IMAGE_TO_3D &&
-                                            routed.allowsInstruction
-                                    },
                                     generationMode = routed.generationMode,
                                     polycount = routed.polycount,
                                     autoSegment = routed.autoSegment,
@@ -426,37 +387,15 @@ internal class CreationNativeViewModel(
                         continue
                         }
                     }
-                    var accepted = false
                     val published = lifetime.computeIfOpen {
-                        mutableState.update { current ->
-                            current.copy(
-                                items = current.items.map { item ->
-                                    if (item.id == next.id &&
-                                        item.stage == CreationNativeStage.QUEUED &&
-                                        item.submissionToken == next.submissionToken
-                                    ) {
-                                        accepted = true
-                                        item.copy(
-                                            stage = CreationNativeStage.RUNNING,
-                                            status = status,
-                                            generationMode = status.generationMode
-                                                ?: routed.generationMode,
-                                            autoSegment = status.autoSegment ?: routed.autoSegment,
-                                            segmentationLevel = status.segmentationLevel
-                                                ?: routed.segmentationLevel,
-                                        )
-                                    } else {
-                                        item
-                                    }
-                                },
-                            )
-                        }
-                        true
+                        publishCreationSubmission(mutableState, next, routed, status)
                     }
                     if (published == null) break
-                    if (!accepted) {
-                        manager.cancel(ownerId, tool, status.jobId)
-                        continue
+                    if (!published) {
+                        lifetime.computeIfOpen {
+                            reconcileRetiredCreationSubmission(mutableState, next, status,
+                                { jobId -> manager.cancel(ownerId, tool, jobId) }, ::showError)
+                        }
                     }
                     ensureStatusMonitor()
                 }
@@ -474,10 +413,12 @@ internal class CreationNativeViewModel(
                         creationSurfaceHasActiveWork(mutableState.value.items)
                     ) {
                         refreshLiveStatuses()
+                        val readiness = manager.preparationStatus(tool)
+                        val capabilities = runtimeCapabilitiesForTick()
                         mutableState.update { current ->
                             current.copy(
-                                preparationStatus = manager.preparationStatus(tool),
-                                items = current.items.map(::withRuntimeCapabilities),
+                                preparationStatus = readiness,
+                                items = current.items.map(capabilities),
                             )
                         }
                         if (creationSurfaceHasActiveWork(mutableState.value.items)) delay(1_000)
@@ -504,7 +445,7 @@ internal class CreationNativeViewModel(
         val verifiedHistory = if (missingRunning) manager.history.list(tool) else null
         var reachedTerminal = false
         mutableState.update { current ->
-            refreshCreationNativeItems(current, byJob, verifiedHistory, tool).also {
+            refreshCreationNativeItems(current, byJob, verifiedHistory).also {
                 reachedTerminal = it.reachedTerminal
             }.state
         }
@@ -518,7 +459,7 @@ internal class CreationNativeViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val recovered = manager.statuses(ownerId, tool).filter {
                 it.toNativeStage() != CreationNativeStage.CANCELLED &&
-                    (tool == CreationTool.IMAGE_CREATOR || !it.sourceImagePath.isNullOrBlank())
+                    !it.sourceImagePath.isNullOrBlank()
             }
             if (recovered.isEmpty()) return@launch
             val items = recovered.map { recoverCreationNativeItem(tool, it, manager::supportsOptionalInstruction) }
@@ -542,9 +483,11 @@ internal class CreationNativeViewModel(
 
     private fun refreshHistoryNow() {
         val entries = manager.history.list(tool)
+        val pendingEdits = manager.history.hasUnresolvedSvgEdits()
         mutableState.update { current ->
             current.copy(
                 history = entries,
+                svgRecoveryPending = pendingEdits,
                 selectedHistoryId = current.selectedHistoryId?.takeIf { selected ->
                     entries.any { it.id == selected }
                 } ?: if (current.tab == CreationNativeTab.RESULTS) entries.firstOrNull()?.id else null,
@@ -561,25 +504,26 @@ internal class CreationNativeViewModel(
 
     private fun syncSourceHandles() {
         val retained = creationVisibleSessionSourceHandles(mutableState.value.items)
-        manager.files.updateSurfaceSources(ownerId, retained)
-    }
-
-    private fun addImageReferences(paths: List<String>) {
-        mutableState.update { CreationImageSessions.addReferences(it, paths) }
-        syncSourceHandles()
+        val cleanup = manager.files.updateSurfaceSourceLeases(ownerId, retained)
+        creationSurfaceIoScope.launch { runCatching { cleanup.run() } }
     }
 
     private fun route3dItem(item: CreationNativeItem): CreationNativeItem {
         return routeCreationNativeItem(tool, item, manager::supportsOptionalInstruction)
     }
 
-    private fun withRuntimeCapabilities(item: CreationNativeItem): CreationNativeItem {
-        return applyCreationRuntimeCapabilities(tool, item, manager::supportsOptionalInstruction)
+    /**
+     * Built once per status tick, outside the StateFlow update lambda: the runtime
+     * capability read parses the runtime manifest, so it is memoized per mode.
+     */
+    private fun runtimeCapabilitiesForTick(): (CreationNativeItem) -> CreationNativeItem {
+        val supports = creationMemoizedInstructionSupport(manager::supportsOptionalInstruction)
+        return { item -> applyCreationRuntimeCapabilities(tool, item, supports) }
     }
 
     internal fun showError(error: Throwable) {
         if (lifetime.isClosed) return
-        mutableState.update { it.copy(transientError = publicCreationThrowable(error, tool)) }
+        mutableState.update { it.copy(transientError = publicCreationThrowable(error)) }
     }
 
     override fun onCleared() {

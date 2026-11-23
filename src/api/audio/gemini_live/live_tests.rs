@@ -126,7 +126,7 @@ fn continuous_preset_finalization_provider_acceptance() -> anyhow::Result<()> {
     );
     let api_key = APP.lock().unwrap().config.gemini_api_key.clone();
     anyhow::ensure!(!api_key.trim().is_empty(), "Gemini credentials required");
-    let mut session = open_ready_session(&api_key, &model, &[], || false)?;
+    let mut session = open_ready_session(&api_key, &model, &[], None, || false)?;
     let audio_buffer = Arc::new(Mutex::new(Vec::new()));
     let committed = Arc::new(Mutex::new(String::new()));
     let stop = Arc::new(AtomicBool::new(false));
@@ -165,9 +165,10 @@ fn continuous_preset_finalization_provider_acceptance() -> anyhow::Result<()> {
     stream_loop::run_streaming_loop(stream_loop::StreamingLoopContext {
         preset: &preset,
         session: &mut session,
-        api_key: &api_key,
+        reopen: &mut |handle, cancelled| {
+            open_ready_session(&api_key, &model, &[], handle, cancelled)
+        },
         model: &model,
-        vocabulary: &[],
         audio_buffer: &audio_buffer,
         accumulated_text: &committed,
         transcribe_text: &mut transcript,
@@ -177,6 +178,7 @@ fn continuous_preset_finalization_provider_acceptance() -> anyhow::Result<()> {
         abort_signal: &abort,
         overlay_hwnd: HWND::default(),
         update_stream_text: &|_: &str| {},
+        clock: &stream_loop::SystemClock,
     });
     auto_paste.begin_drain();
     let _ = session.close();

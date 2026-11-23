@@ -8,9 +8,8 @@ use std::sync::{
 use std::time::Duration;
 
 use crate::api::{TranslateTextRequest, translate_text_streaming};
-use crate::model_config::{get_model_by_id_with_custom, model_is_non_llm};
 
-use super::{CandidateAttempt, CandidateReport, circuit, key_for};
+use super::{CandidateAttempt, CandidateReport, circuit, request_keys, usable_model};
 
 pub(in crate::overlay::computer_control) fn read_text_pref_where(
     instruction: &str,
@@ -20,9 +19,8 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
     mut on_attempt: impl FnMut(&CandidateAttempt),
     mut accept: impl FnMut(&str) -> bool,
 ) -> CandidateReport {
-    let config = crate::load_config();
-    let gemini_key = key_for("google", &config).unwrap_or_default();
-    let groq_key = key_for("groq", &config).unwrap_or_default();
+    let config = super::super::app_config::snapshot();
+    let (gemini_key, groq_key) = request_keys(&config);
     let mut attempts = Vec::new();
     let mut last_error = None;
     let mut candidates = Vec::new();
@@ -51,21 +49,16 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
             ));
             continue;
         }
-        let Some(model) = get_model_by_id_with_custom(&id, &config.custom_models) else {
+        let Some(model) = usable_model(&id, &config) else {
             continue;
         };
-        if model_is_non_llm(&model.id) {
-            continue;
-        }
-        let provider_needs_no_key = matches!(model.provider.as_str(), "ollama" | "taalas");
-        if !provider_needs_no_key && key_for(&model.provider, &config).is_none() {
-            continue;
-        }
 
         let response = translate_text_streaming(
             TranslateTextRequest {
                 max_output_tokens: None,
                 search_enabled: false,
+                search_capability: None,
+                search_tool_enabled_by_default: None,
                 groq_api_key: &groq_key,
                 gemini_api_key: &gemini_key,
                 text: context.to_string(),
@@ -135,7 +128,8 @@ pub(in crate::overlay::computer_control) fn read_text_pref_where(
 mod tests {
     #[test]
     fn effective_text_chain_remains_distinct_from_image_chain() {
-        let config = crate::load_config();
+        // A fixture config, not the developer's saved chains.
+        let config = crate::config::Config::default();
         let text_chain =
             crate::retry_model_chain::RetryChainKind::TextToText.effective_chain(&config);
         assert!(!text_chain.is_empty());

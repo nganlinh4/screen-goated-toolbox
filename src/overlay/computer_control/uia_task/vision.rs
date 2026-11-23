@@ -12,6 +12,8 @@ mod browser;
 pub(super) use browser::{browser_click, browser_drag, browser_vision_target};
 mod candidate_artifacts;
 mod frozen_read;
+#[cfg(test)]
+mod geometry_tests;
 
 pub(super) fn write_artifact(
     kind: &str,
@@ -42,10 +44,36 @@ pub(super) const GROUNDING_SIGNATURE_HALF: i32 = 48;
 
 #[derive(Clone, Debug)]
 pub(super) struct VisualLocation {
+    pub view: View,
     pub x: f64,
     pub y: f64,
     pub note: Option<String>,
     pub signature: Vec<u8>,
+}
+
+impl VisualLocation {
+    pub fn screen_point(&self) -> (i32, i32) {
+        self.view.to_screen_px(self.x, self.y)
+    }
+}
+
+fn visual_location(cap: &session::Capture, view: View, point: Located) -> VisualLocation {
+    let (x, y) = view.to_screen_px(point.x, point.y);
+    VisualLocation {
+        view,
+        x: point.x,
+        y: point.y,
+        note: point.note,
+        signature: session::target_region_fingerprint(cap, x, y, GROUNDING_SIGNATURE_HALF),
+    }
+}
+
+fn require_same_view(expected: View, actual: View) -> Result<()> {
+    anyhow::ensure!(
+        expected == actual,
+        "the image region changed while the target was being verified"
+    );
+    Ok(())
 }
 
 /// Read the current view with the aux vision stack (clean crop, no grid overlay).
@@ -110,9 +138,9 @@ where
     F: FnOnce() -> Result<T> + Send + 'static,
 {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    std::thread::spawn(super::super::session_retention::inherit(move || {
         let _ = tx.send(work());
-    });
+    }));
     loop {
         if cancel.load(Ordering::SeqCst) {
             anyhow::bail!("cancelled by user");
@@ -143,9 +171,9 @@ where
     let (tx, rx) = mpsc::channel();
     let child_cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = Arc::clone(&child_cancel);
-    std::thread::spawn(move || {
+    std::thread::spawn(super::super::session_retention::inherit(move || {
         let _ = tx.send(work(worker_cancel));
-    });
+    }));
     let started = Instant::now();
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -167,6 +195,20 @@ where
     }
 }
 
+/// Wall-clock budget for one grounding call site: two providers at their
+/// per-request cap, after which the single action worker is released.
+const GROUNDING_BUDGET: Duration = Duration::from_secs(60);
+
+/// Run a grounding call with user cancellation and [`GROUNDING_BUDGET`]; the
+/// child flag aborts the in-flight provider request on either outcome.
+pub(super) fn run_grounding<T, F>(cancel: &AtomicBool, work: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(Arc<AtomicBool>) -> Result<T> + Send + 'static,
+{
+    run_cancellable_with_timeout(cancel, GROUNDING_BUDGET, work)
+}
+
 /// Ask the aux vision stack for the click point of `description`, returned as
 /// 0-1000 over `view` (+ what's there). DEFAULT: a SINGLE point call (fast, and
 /// point-based so it's accurate for normal targets). `CC_LOCATE_MODE=refine` adds
@@ -179,19 +221,19 @@ pub(super) fn locate_in_view(
     cancel: &AtomicBool,
 ) -> Result<VisualLocation> {
     let cap = session::capture_virtual()?;
-    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
+    let (jpeg, view) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let located = match std::env::var("CC_LOCATE_MODE").as_deref() {
         Ok("refine") => refine_in_view(&cap, view, &jpeg, description, ctx, cancel),
         Ok("box") => {
             let (j, d, c) = (jpeg.clone(), description.to_string(), ctx.to_string());
-            match run_cancellable(cancel, move || {
-                super::super::vision_reader::locate_box(&j, &d, &c)
+            match run_grounding(cancel, move |child| {
+                super::super::vision_reader::locate_box(&j, &d, &c, child)
             }) {
                 Ok(p) => Ok(p),
                 Err(_) => {
                     let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
-                    run_cancellable(cancel, move || {
-                        super::super::vision_reader::locate_point(&j, &d, &c)
+                    run_grounding(cancel, move |child| {
+                        super::super::vision_reader::locate_point(&j, &d, &c, child)
                     })
                 }
             }
@@ -200,28 +242,19 @@ pub(super) fn locate_in_view(
         // normal UI; opt into refine for tiny adjacent cells (game boards).
         _ => {
             let (j, d, c) = (jpeg, description.to_string(), ctx.to_string());
-            run_cancellable(cancel, move || {
-                super::super::vision_reader::locate_point(&j, &d, &c)
+            run_grounding(cancel, move |child| {
+                super::super::vision_reader::locate_point(&j, &d, &c, child)
             })
         }
     }?;
     // Re-capture after the potentially slow locate call. This both detects a
     // stale/moving UI and verifies the exact proposed point on a marked crop.
     let fresh = session::capture_virtual()?;
-    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
+    let (fresh_jpeg, fresh_view) =
+        session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
+    require_same_view(view, fresh_view)?;
     let verified = verify_located(&fresh_jpeg, located, description, ctx, cancel)?;
-    let (screen_x, screen_y) = view.to_screen_px(verified.x, verified.y);
-    Ok(VisualLocation {
-        x: verified.x,
-        y: verified.y,
-        note: verified.note,
-        signature: session::target_region_fingerprint(
-            &fresh,
-            screen_x,
-            screen_y,
-            GROUNDING_SIGNATURE_HALF,
-        ),
-    })
+    Ok(visual_location(&fresh, view, verified))
 }
 
 /// Ask the aux vision stack to map EVERY target matching `description` to a list
@@ -234,27 +267,14 @@ pub(super) fn map_in_view(
     cancel: &AtomicBool,
 ) -> Result<Vec<VisualLocation>> {
     let cap = session::capture_virtual()?;
-    let (jpeg, _s) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
+    let (jpeg, view) = session::encode_view(&cap, view, VISION_SHORT, None, None, None)?;
     let (d, c) = (description.to_string(), ctx.to_string());
-    let points = run_cancellable(cancel, move || {
-        super::super::vision_reader::locate_points(&jpeg, &d, &c)
+    let points = run_grounding(cancel, move |child| {
+        super::super::vision_reader::locate_points(&jpeg, &d, &c, child)
     })?;
     Ok(points
         .into_iter()
-        .map(|point| {
-            let (screen_x, screen_y) = view.to_screen_px(point.x, point.y);
-            VisualLocation {
-                x: point.x,
-                y: point.y,
-                note: point.note,
-                signature: session::target_region_fingerprint(
-                    &cap,
-                    screen_x,
-                    screen_y,
-                    GROUNDING_SIGNATURE_HALF,
-                ),
-            }
-        })
+        .map(|point| visual_location(&cap, view, point))
         .collect())
 }
 
@@ -266,51 +286,46 @@ pub(super) fn drag_in_view(
     cancel: &AtomicBool,
 ) -> Result<(VisualLocation, VisualLocation)> {
     let capture = session::capture_virtual()?;
-    let (jpeg, _) = session::encode_view(&capture, view, VISION_SHORT, None, None, None)?;
+    let (jpeg, view) = session::encode_view(&capture, view, VISION_SHORT, None, None, None)?;
     let (from_owned, to_owned, context_owned) = (
         from_description.to_string(),
         to_description.to_string(),
         ctx.to_string(),
     );
-    let (from, to) = run_cancellable(cancel, move || {
+    let (from, to) = run_grounding(cancel, move |child| {
         super::super::vision_reader::locate_drag_points(
             &jpeg,
             &from_owned,
             &to_owned,
             &context_owned,
+            child,
         )
     })?;
     let fresh = session::capture_virtual()?;
-    let (fresh_jpeg, _) = session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
+    let (fresh_jpeg, fresh_view) =
+        session::encode_view(&fresh, view, VISION_SHORT, None, None, None)?;
+    require_same_view(view, fresh_view)?;
     let from = verify_located(&fresh_jpeg, from, from_description, ctx, cancel)?;
     let to = verify_located(&fresh_jpeg, to, to_description, ctx, cancel)?;
-    let convert = |point: Located| {
-        let (screen_x, screen_y) = view.to_screen_px(point.x, point.y);
-        VisualLocation {
-            x: point.x,
-            y: point.y,
-            note: point.note,
-            signature: session::target_region_fingerprint(
-                &fresh,
-                screen_x,
-                screen_y,
-                GROUNDING_SIGNATURE_HALF,
-            ),
-        }
-    };
+    let convert = |point| visual_location(&fresh, view, point);
     Ok((convert(from), convert(to)))
 }
 
-pub(super) fn revalidate_visual_locations(view: View, locations: &[&VisualLocation]) -> Result<()> {
+pub(super) fn revalidate_visual_locations(locations: &[&VisualLocation]) -> Result<()> {
     let fresh = session::capture_virtual()?;
+    validate_visual_locations(&fresh, locations)
+}
+
+fn validate_visual_locations(
+    fresh: &session::Capture,
+    locations: &[&VisualLocation],
+) -> Result<()> {
+    let bounds = fresh.bounds()?;
     for location in locations {
-        let (screen_x, screen_y) = view.to_screen_px(location.x, location.y);
-        let current = session::target_region_fingerprint(
-            &fresh,
-            screen_x,
-            screen_y,
-            GROUNDING_SIGNATURE_HALF,
-        );
+        require_same_view(location.view, location.view.clamped_to(bounds))?;
+        let (screen_x, screen_y) = location.screen_point();
+        let current =
+            session::target_region_fingerprint(fresh, screen_x, screen_y, GROUNDING_SIGNATURE_HALF);
         if !session::target_fingerprint_matches(&location.signature, &current) {
             anyhow::bail!("the target pixels changed before input dispatch");
         }
@@ -334,19 +349,20 @@ pub(super) fn refine_in_view(
             description.to_string(),
             ctx.to_string(),
         );
-        run_cancellable(cancel, move || {
-            super::super::vision_reader::locate_point(&j, &d, &c)
+        run_grounding(cancel, move |child| {
+            super::super::vision_reader::locate_point(&j, &d, &c, child)
         })?
     };
     let (csx, csy) = view.to_screen_px(coarse.x, coarse.y);
     let zw = (view.w / 4).max(160);
     let zh = (view.h / 4).max(120);
     let zoom = View {
-        x: csx - zw / 2,
-        y: csy - zh / 2,
+        x: csx.saturating_sub(zw / 2),
+        y: csy.saturating_sub(zh / 2),
         w: zw,
         h: zh,
-    };
+    }
+    .clamped_to(view);
     let Ok((fine_jpeg, shown)) = session::encode_view(cap, zoom, VISION_SHORT, None, None, None)
     else {
         return Ok(coarse);
@@ -355,18 +371,18 @@ pub(super) fn refine_in_view(
     // improves localization without granting a general image model click authority.
     let fine = {
         let (d, c) = (description.to_string(), ctx.to_string());
-        run_cancellable(cancel, move || {
-            super::super::vision_reader::locate_point(&fine_jpeg, &d, &c)
+        run_grounding(cancel, move |child| {
+            super::super::vision_reader::locate_point(&fine_jpeg, &d, &c, child)
         })
     };
     match fine {
         Ok(f) => {
             let (fsx, fsy) = shown.to_screen_px(f.x, f.y);
-            let mx = ((fsx - view.x) as f64 / view.w.max(1) as f64 * 1000.0).clamp(0.0, 1000.0);
-            let my = ((fsy - view.y) as f64 / view.h.max(1) as f64 * 1000.0).clamp(0.0, 1000.0);
-            eprintln!(
+            let (mx, my) = view.screen_to_norm(fsx, fsy);
+            cc_diagnostic!(
                 "[cc] locate refine: coarse({:.0},{:.0}) -> fine({mx:.0},{my:.0})",
-                coarse.x, coarse.y
+                coarse.x,
+                coarse.y
             );
             Ok(Located {
                 x: mx,
@@ -414,13 +430,15 @@ pub(super) fn append_click(dir: &str, action: super::super::telemetry::ActionTra
         "view_rect": "screen pixels [x,y,width,height]",
     });
     let path = std::path::Path::new(dir).join("clicks.jsonl");
-    let result = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut file| writeln!(file, "{record}"));
+    let result = super::super::session_retention::persist(|| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| writeln!(file, "{record}"))
+    });
     match result {
-        Ok(()) => telemetry::event_for_action(
+        Some(Ok(())) => telemetry::event_for_action(
             "click_recorded",
             "artifact",
             super::super::telemetry::Privacy::Safe,
@@ -433,7 +451,8 @@ pub(super) fn append_click(dir: &str, action: super::super::telemetry::ActionTra
                 "screen_px": record.get("screen_px"),
             }),
         ),
-        Err(error) => telemetry::artifact_write_failed("click", &path, Some(action), &error),
+        Some(Err(error)) => telemetry::artifact_write_failed("click", &path, Some(action), &error),
+        None => {}
     }
 }
 

@@ -20,7 +20,7 @@ export class MidiDispatcher extends EventTarget {
   async getMidiAccess(): Promise<string[]> {
 
     if (this.access) {
-      return [...this.access.inputs.keys()];
+      return this.connectInputs(this.access);
     }
 
     if (!navigator.requestMIDIAccess) {
@@ -47,13 +47,22 @@ export class MidiDispatcher extends EventTarget {
       throw new Error('MIDI access unavailable. Please ensure a MIDI device is connected and restart the application.');
     }
 
-    const inputIds = [...this.access.inputs.keys()];
+    return this.connectInputs(this.access);
+  }
 
-    if (inputIds.length > 0 && this.activeMidiInputId === null) {
-      this.activeMidiInputId = inputIds[0];
+  /**
+   * Wires every currently connected input and keeps a valid active input.
+   * Runs on each access so devices plugged in after MIDI was first opened
+   * work after a refresh.
+   */
+  private connectInputs(access: MIDIAccess): string[] {
+    const inputIds = [...access.inputs.keys()];
+
+    if (this.activeMidiInputId === null || !inputIds.includes(this.activeMidiInputId)) {
+      this.activeMidiInputId = inputIds[0] ?? null;
     }
 
-    for (const input of this.access.inputs.values()) {
+    for (const input of access.inputs.values()) {
       input.onmidimessage = (event: MIDIMessageEvent) => {
         if (input.id !== this.activeMidiInputId) return;
 

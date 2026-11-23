@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "save_finalized_rows_only",
+      "items": [
+        { "id": 1, "role": "input", "text": "first <part>", "isFinal": true, "lang": "" },
+        { "id": 2, "role": "output", "text": "second & part", "isFinal": true, "lang": "eng" },
+        { "id": 3, "role": "input", "text": "unfinished", "isFinal": false, "lang": "" }
+      ],
+      "persisted": [
+        { "role": "input", "text": "first <part>", "lang": "" },
+        { "role": "output", "text": "second & part", "lang": "eng" }
+      ]
+    },
+    { "name": "cleared_history_replaces_previous_snapshot", "items": [], "persisted": [] }
+  ],
+  "windowsReplacement": {
+    "failedReplacementPreservesOldBytes": true,
+    "retryAfterFailureSucceeds": true,
+    "temporaryFilesRemainAfterHandledFailure": false
+  }
+}

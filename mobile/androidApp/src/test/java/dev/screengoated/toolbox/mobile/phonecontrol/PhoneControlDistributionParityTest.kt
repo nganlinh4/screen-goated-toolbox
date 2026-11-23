@@ -46,7 +46,7 @@ class PhoneControlDistributionParityTest {
         assertEquals("false", service.androidAttribute("exported"))
         assertEquals("true", service.androidAttribute("enabled"))
         assertEquals(
-            setOf("specialUse", "microphone", "mediaPlayback", "mediaProjection"),
+            setOf("specialUse", "microphone", "mediaPlayback", "mediaProjection", "shortService"),
             service.androidAttribute("foregroundServiceType").split('|').toSet(),
         )
         val property = service.getElementsByTagName("property").elements().single()
@@ -66,7 +66,9 @@ class PhoneControlDistributionParityTest {
             "mobile/androidApp/src/main/res/xml/accessibility_service_config.xml",
         ).documentElement
 
-        assertEquals("typeAllMask", service.androidAttribute("accessibilityEventTypes"))
+        // Event types are a runtime profile, not a structural capability: the
+        // declaration starts idle and Phone Control widens it while it runs
+        // (AccessibilityEventDemandTest).
         assertEquals("true", service.androidAttribute("canPerformGestures"))
         assertEquals("true", service.androidAttribute("canRetrieveWindowContent"))
         assertEquals("true", service.androidAttribute("canTakeScreenshot"))

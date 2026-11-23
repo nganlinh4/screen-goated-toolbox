@@ -99,6 +99,7 @@ impl Config {
         self.use_groq |= recommended.use_groq;
         self.use_gemini |= recommended.use_gemini;
         self.use_openrouter |= recommended.use_openrouter;
+        self.use_nvidia |= recommended.use_nvidia;
         self.use_ollama |= recommended.use_ollama;
     }
 
@@ -579,6 +580,7 @@ mod tests {
         expected_applied.use_groq |= recommended.use_groq;
         expected_applied.use_gemini |= recommended.use_gemini;
         expected_applied.use_openrouter |= recommended.use_openrouter;
+        expected_applied.use_nvidia |= recommended.use_nvidia;
         expected_applied.use_ollama |= recommended.use_ollama;
         assert!(
             expected_applied.use_ollama,

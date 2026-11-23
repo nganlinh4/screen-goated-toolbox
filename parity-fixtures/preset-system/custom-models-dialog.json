@@ -22,6 +22,28 @@
     "scan_openrouter",
     "scan_ollama"
   ],
+  "openrouter_import_types": [
+    {
+      "model": {"id": "vendor/text", "architecture": {"input_modalities": ["text"]}, "pricing": {"image": "0"}},
+      "expected": "TEXT"
+    },
+    {
+      "model": {"id": "vendor/multimodal", "architecture": {"input_modalities": ["text", "image"]}},
+      "expected": "VISION"
+    },
+    {
+      "model": {"id": "vendor/vision-name", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]}},
+      "expected": "TEXT"
+    },
+    {
+      "model": {"id": "vendor/unknown", "description": "image", "architecture": {}},
+      "expected": "TEXT"
+    },
+    {
+      "model": {"id": "vendor/malformed", "architecture": {"input_modalities": "image"}},
+      "expected": "TEXT"
+    }
+  ],
   "layout_contract": {
     "header_actions": "close_only",
     "commit_behavior": "immediate",

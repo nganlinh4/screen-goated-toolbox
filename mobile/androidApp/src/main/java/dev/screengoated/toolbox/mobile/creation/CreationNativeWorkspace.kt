@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -43,16 +44,11 @@ internal fun CreationActiveSettings(
     locale: MobileLocaleText,
     accent: Color,
     viewModel: CreationNativeViewModel,
-    onPickImages: () -> Unit,
 ) {
     val item = state.selectedItem
     if (state.tab != CreationNativeTab.JOBS || item == null) return
     if (tool == CreationTool.IMAGE_TO_3D) CreationSharedSettingsCaption(state, locale)
-    val enabled = if (tool == CreationTool.IMAGE_CREATOR) {
-        !item.submitted && item.stage == CreationNativeStage.DRAFT
-    } else {
-        item.isConfigurable()
-    }
+    val enabled = item.isConfigurable()
     when (tool) {
         CreationTool.IMAGE_TO_3D -> if (item.status?.outputPath != null) {
             Creation3dRefinementPanel(
@@ -84,15 +80,6 @@ internal fun CreationActiveSettings(
             onModel = viewModel::setModel,
             onBackgroundMode = viewModel::setSvgBackgroundMode,
         )
-        CreationTool.IMAGE_CREATOR -> CreationImageSettings(
-            item = item,
-            strings = locale.creationApps.image,
-            accent = accent,
-            enabled = enabled,
-            onPrompt = viewModel::setPrompt,
-            onAddReferences = onPickImages,
-            onRemoveReference = viewModel::removeImageReference,
-        )
     }
 }
 
@@ -111,29 +98,25 @@ internal fun CreationActiveWorkbench(
     val outputPath = if (state.tab == CreationNativeTab.RESULTS) {
         history?.outputPath
     } else {
-        item?.status?.outputPath
+        val status = item?.status
+        state.history.firstOrNull { it.dispatchId != null && it.dispatchId == status?.dispatchId }
+            ?.outputPath ?: status?.outputPath
     }
     val outputName = if (state.tab == CreationNativeTab.RESULTS) {
         history?.outputName
     } else {
-        item?.status?.outputName
+        val status = item?.status
+        state.history.firstOrNull { it.dispatchId != null && it.dispatchId == status?.dispatchId }
+            ?.outputName ?: status?.outputName
     }
     val outputSegmented = if (state.tab == CreationNativeTab.RESULTS) {
         history?.metadata?.get("isSegmented")?.jsonPrimitive?.booleanOrNull
     } else {
         item?.status?.isSegmented
     } ?: false
-    val referencePaths = if (tool == CreationTool.IMAGE_CREATOR) {
-        if (state.tab == CreationNativeTab.RESULTS && history != null) {
-            CreationImageSessions.historyReferences(history)
-        } else {
-            item?.referencePaths.orEmpty()
-        }
-    } else {
-        emptyList()
-    }
     val controller = remember(outputPath) { CreationSvgDocumentController() }
     var svgEditingRequested by remember(outputPath) { mutableStateOf(false) }
+    val svgSaves = remember { mutableStateMapOf<String, Boolean>() }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -174,34 +157,6 @@ internal fun CreationActiveWorkbench(
                         controller = controller,
                         editingRequested = svgEditingRequested,
                     )
-                }
-                outputPath != null && tool == CreationTool.IMAGE_CREATOR -> {
-                    CreationImageResult(
-                        referencePaths = referencePaths,
-                        outputPath = outputPath,
-                        viewModel = viewModel,
-                        strings = locale.creationApps.image,
-                    )
-                }
-                item != null && tool == CreationTool.IMAGE_CREATOR -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CreationImageSource(
-                            referencePaths = item.referencePaths,
-                            strings = locale.creationApps.image,
-                            accent = accent,
-                        )
-                        if (item.stage in setOf(
-                                CreationNativeStage.QUEUED,
-                                CreationNativeStage.RUNNING,
-                            )
-                        ) {
-                            CreationProgressOverlay(
-                                status = item.status,
-                                common = locale.creationApps.common,
-                                accent = accent,
-                            )
-                        }
-                    }
                 }
                 item != null -> {
                     CreationSourceWorkbench(item)
@@ -250,10 +205,20 @@ internal fun CreationActiveWorkbench(
                 common = locale.creationApps.common,
                 strings = locale.creationApps.svg,
                 accent = accent,
+                saving = svgSaves[outputPath] == true,
                 onSave = {
+                    if (svgSaves[outputPath] == true) return@CreationSvgEditorControls
+                    svgSaves[outputPath] = true
                     scope.launch {
-                        val updated = controller.serialize()
-                        if (updated.isNotBlank()) viewModel.saveSvg(outputPath, updated)
+                        try {
+                            saveCreationSvgDraft(
+                                serialize = controller::serialize,
+                                persist = { viewModel.saveSvg(outputPath, it) },
+                                reportFailure = viewModel::showError,
+                            )
+                        } finally {
+                            svgSaves.remove(outputPath)
+                        }
                     }
                 },
             )
@@ -290,8 +255,6 @@ private fun CreationResultSummary(
     val quads = item?.status?.quads ?: history.longMetadata("quads")
     val downloadPath = item?.status?.downloadPath ?: history.downloadMetadata("path")
     val downloadName = item?.status?.downloadName ?: history.downloadMetadata("name")
-    val width = item?.status?.width ?: history.intMetadata("width")
-    val height = item?.status?.height ?: history.intMetadata("height")
     val segmented = item?.status?.isSegmented
         ?: history?.metadata?.get("isSegmented")?.jsonPrimitive?.booleanOrNull
         ?: false
@@ -334,13 +297,6 @@ private fun CreationResultSummary(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    tool == CreationTool.IMAGE_CREATOR && width != null && height != null -> {
-                        Text(
-                            "$width × $height px",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
             }
             UtilityStatusChip(
@@ -350,7 +306,6 @@ private fun CreationResultSummary(
                         else locale.creationApps.model3d.modelReady
                     }
                     CreationTool.IMAGE_TO_SVG -> locale.creationApps.svg.vectorReady
-                    CreationTool.IMAGE_CREATOR -> locale.creationApps.image.imageReady
                 },
                 accent = accent,
             )

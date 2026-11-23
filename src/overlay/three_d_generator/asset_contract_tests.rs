@@ -7,7 +7,32 @@ fn model_safety_fixture_matches_windows_limits() {
         "../../../parity-fixtures/image-to-3d/state-contract.json"
     ))
     .unwrap();
-    assert_eq!(fixture["schemaVersion"].as_u64(), Some(73));
+    assert_eq!(fixture["schemaVersion"].as_u64(), Some(75));
+    let cancellation = &fixture["hostLifecycle"]["cancellationCommit"];
+    assert_eq!(
+        cancellation["pendingDecisionStopsWorker"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        cancellation["failedDecisionRestoresOldStatus"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        cancellation["failedDecisionPreservesLatestWorkerState"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        cancellation["durableCancellationStopsLatePublication"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        cancellation["publicationWinnerRemainsDelivered"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        cancellation["closeRequiresDurableDecisionBeforeComplete"].as_bool(),
+        Some(true)
+    );
     let safety = fixture["modelSafety"].as_object().unwrap();
     for (field, expected) in [
         ("maximumGlbBytes", MAX_GLB_BYTES),

@@ -8,6 +8,10 @@ let lastVisibleState = new Map();
 let lastSentRegions = new Map();
 let highestButtonStackOrder = 0;
 let cursorX = 0, cursorY = 0;
+const sourceRevealHoldMs = 1000;
+let sourceRevealTimer = null, sourceRevealDeadline = 0;
+let sourceRevealEpoch = '';
+let proximityUpdatePending = false;
 const activeGrabbingSources = new Set();
 window.raiseWindowButtons = function(hwnd) {
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
@@ -72,6 +76,7 @@ window.updateOpacity = function(hwnd, value) {
     value = parseInt(value);
     window.ipc.postMessage(JSON.stringify({
         action: "set_opacity",
+        topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
         hwnd: hwnd,
         value: value
     }));
@@ -85,16 +90,35 @@ window.updateOpacity = function(hwnd, value) {
 window.updateCursorPosition = (x, y) => {
     cursorX = x;
     cursorY = y;
+    window.__SGT_CONTROL_TOOLTIP__?.checkPointer(x, y);
     updateButtonOpacity();
 };
 window.invalidateButtonRegions = () => {
+    window.__SGT_CONTROL_TOOLTIP__?.hide();
     lastVisibleState.clear();
     lastSentRegions.clear();
 };
 window.restoreButtonRegionsAfterDrag = gestureId => updateButtonOpacity(true, true, gestureId);
+function scheduleSourceReveal(deadline) {
+    const epoch = window.__SGT_TOPOLOGY_EPOCH__ || '1';
+    if (sourceRevealTimer !== null && sourceRevealDeadline === deadline && sourceRevealEpoch === epoch) return;
+    if (sourceRevealTimer !== null) clearTimeout(sourceRevealTimer);
+    sourceRevealTimer = null;
+    sourceRevealDeadline = deadline;
+    sourceRevealEpoch = epoch;
+    if (!Number.isFinite(deadline)) return;
+    sourceRevealTimer = setTimeout(() => {
+        sourceRevealTimer = null;
+        sourceRevealDeadline = 0;
+        if (epoch === (window.__SGT_TOPOLOGY_EPOCH__ || '1')) updateButtonOpacity();
+    }, Math.max(1, Math.ceil(deadline - performance.now())));
+}
 function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gestureId = 0) {
+    if (window.__SGT_BUTTON_SCENE__?.isGeometryPreviewActive()) return;
     const groups = document.querySelectorAll('.button-group');
     let needsUpdate = forceUpdate;
+    const now = performance.now();
+    let nextReveal = Infinity;
 
     groups.forEach(group => {
         const rect = group.getBoundingClientRect();
@@ -110,9 +134,14 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
 
         const maxRadius = 150;
         const geometry = window.registeredWindows[group.dataset.hwnd]?.sourceGeometry;
-        const now = performance.now();
-        if (window.__SGT_SOURCE_NEAR__?.(geometry, cursorX, cursorY, 40)) group.sourceRevealUntil = now + 1000;
-        const heldVisible = geometry?.source && (now < (group.sourceRevealUntil || 0)
+        const sourceNear = Boolean(window.__SGT_SOURCE_NEAR__?.(geometry, cursorX, cursorY, 40));
+        if (!geometry?.source) group.sourceRevealUntil = 0;
+        else if (sourceNear || group.sourceNear) group.sourceRevealUntil = now + sourceRevealHoldMs;
+        group.sourceNear = sourceNear;
+        if (geometry?.source && !sourceNear && now < (group.sourceRevealUntil || 0)) {
+            nextReveal = Math.min(nextReveal, group.sourceRevealUntil);
+        }
+        const heldVisible = geometry?.source && (sourceNear || now < (group.sourceRevealUntil || 0)
             || group.contains(document.activeElement) || group.matches(':hover'));
         const proximityOpacity = heldVisible || group.classList.contains('proximity-pinned')
             ? 1 : Math.max(0, Math.min(1, 1 - (dist / maxRadius)));
@@ -144,6 +173,7 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
         }
     });
 
+    scheduleSourceReveal(nextReveal);
     if (needsUpdate) {
         const regions = [];
         const padding = 5;
@@ -189,6 +219,7 @@ function updateButtonOpacity(forceUpdate = false, restoreAfterDrag = false, gest
             action: restoreAfterDrag
                 ? "restore_clickable_regions"
                 : "update_clickable_regions",
+            topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
             gesture_id: restoreAfterDrag ? gestureId : undefined,
             scale: window.devicePixelRatio || 1,
             regions: regions
@@ -215,23 +246,23 @@ function generateButtonsHTML(hwnd, state, isVertical) {
 
     if (!state.groupActions) {
         const backHideClass = canGoBack ? '' : 'hidden';
-        buttons += `<div class="btn ${backHideClass}" onclick="action('${hwnd}', 'back')" title="${window.L10N.back}">
+        buttons += `<div class="btn ${backHideClass}" onclick="action('${hwnd}', 'back')" data-l10n-title="back" aria-label="${escapeAttribute(window.L10N.back)}">
             ${window.iconSvgs.arrow_back}
         </div>`;
 
         const forwardHideClass = canGoForward ? '' : 'hidden';
-        buttons += `<div class="btn ${forwardHideClass}" onclick="action('${hwnd}', 'forward')" title="${window.L10N.forward}">
+        buttons += `<div class="btn ${forwardHideClass}" onclick="action('${hwnd}', 'forward')" data-l10n-title="forward" aria-label="${escapeAttribute(window.L10N.forward)}">
             ${window.iconSvgs.arrow_forward}
         </div>`;
     }
 
     if (!isBrowsing && !state.groupActions && state.modelLabel) {
-        buttons += `<div class="model-badge" title="${escapeAttribute(state.modelLabel)}">${escapeText(state.modelLabel)}</div>`;
+        buttons += `<div class="model-badge">${escapeText(state.modelLabel)}</div>`;
     }
 
     const opacityValue = state.opacityPercent || 100;
     const verticalClass = isVertical ? 'vertical-slider' : '';
-    buttons += `<div class="btn opacity-btn-expandable ${verticalClass} ${hideClass}" title="${window.L10N.opacity}">
+    buttons += `<div class="btn opacity-btn-expandable ${verticalClass} ${hideClass}" data-l10n-title="opacity" aria-label="${escapeAttribute(window.L10N.opacity)}">
         <div class="opacity-slider-wrapper">
             <input type="range" class="opacity-slider-inline" min="10" max="100" value="${opacityValue}"
                 oninput="updateOpacity('${hwnd}', this.value)" />
@@ -242,46 +273,43 @@ function generateButtonsHTML(hwnd, state, isVertical) {
         </div>
     </div>`;
 
-    buttons += `<div class="btn ${state.copySuccess ? 'success' : ''} ${hideClass}" onclick="action('${hwnd}', 'copy')" title="${window.L10N.copy}">
+    buttons += `<div class="btn ${state.copySuccess ? 'success' : ''} ${hideClass}" onclick="action('${hwnd}', 'copy')" data-l10n-title="copy" aria-label="${escapeAttribute(window.L10N.copy)}">
         ${window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}
     </div>`;
 
     if (!state.groupActions && state.hasUndo) {
-        buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'undo')" title="${window.L10N.undo}">
+        buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'undo')" data-l10n-title="undo" aria-label="${escapeAttribute(window.L10N.undo)}">
             ${window.iconSvgs.undo}
         </div>`;
     }
 
     if (!state.groupActions && state.hasRedo) {
-        buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'redo')" title="${window.L10N.redo}">
+        buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'redo')" data-l10n-title="redo" aria-label="${escapeAttribute(window.L10N.redo)}">
             ${window.iconSvgs.redo}
         </div>`;
     }
 
-    if (state.editEnabled !== false) buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'edit')" title="${window.L10N.edit}">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 258" width="14" height="14" style="fill: currentColor; stroke: currentColor; stroke-width: 20; stroke-linejoin: round; opacity: 0.9;">
-            <path d="m122.062 172.77l-10.27 23.52c-3.947 9.042-16.459 9.042-20.406 0l-10.27-23.52c-9.14-20.933-25.59-37.595-46.108-46.703L6.74 113.52c-8.987-3.99-8.987-17.064 0-21.053l27.385-12.156C55.172 70.97 71.917 53.69 80.9 32.043L91.303 6.977c3.86-9.303 16.712-9.303 20.573 0l10.403 25.066c8.983 21.646 25.728 38.926 46.775 48.268l27.384 12.156c8.987 3.99 8.987 17.063 0 21.053l-28.267 12.547c-20.52 9.108-36.97 25.77-46.109 46.703"/>
-            <path d="m217.5 246.937l-2.888 6.62c-2.114 4.845-8.824 4.845-10.937 0l-2.889-6.62c-5.148-11.803-14.42-21.2-25.992-26.34l-8.898-3.954c-4.811-2.137-4.811-9.131 0-11.269l8.4-3.733c11.87-5.273 21.308-15.017 26.368-27.22l2.966-7.154c2.067-4.985 8.96-4.985 11.027 0l2.966 7.153c5.06 12.204 14.499 21.948 26.368 27.221l8.4 3.733c4.812 2.138 4.812 9.132 0 11.27l-8.898 3.953c-11.571 5.14-20.844 14.537-25.992 26.34"/>
-        </svg>
+    if (state.editEnabled !== false) buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'edit')" data-l10n-title="edit" aria-label="${escapeAttribute(window.L10N.edit)}">
+        ${window.iconSvgs.auto_awesome}
     </div>`;
 
-    if (state.copyImage) buttons += `<div class="btn copy-image-btn ${hideClass}" onclick="window.__SGT_SOURCE_IMAGE__.request('${hwnd}')" title="${window.L10N.copy_image}">
+    if (state.copyImage) buttons += `<div class="btn copy-image-btn ${hideClass}" onclick="window.__SGT_SOURCE_IMAGE__.request('${hwnd}')" data-l10n-title="copy_image" aria-label="${escapeAttribute(window.L10N.copy_image)}">
         ${window.iconSvgs.filter}
     </div>`;
-    else buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'download')" title="${window.L10N.download}">
+    else buttons += `<div class="btn ${hideClass}" onclick="action('${hwnd}', 'download')" data-l10n-title="download" aria-label="${escapeAttribute(window.L10N.download)}">
         ${window.iconSvgs.download}
     </div>`;
 
     const speakerIcon = state.ttsLoading ? 'hourglass_empty' : (state.ttsSpeaking ? 'stop' : 'volume_up');
     const speakerClass = state.ttsLoading ? 'loading' : (state.ttsSpeaking ? 'active' : '');
-    buttons += `<div class="btn ${speakerClass} ${hideClass}" onclick="action('${hwnd}', 'speaker')" title="${window.L10N.speaker}">
+    buttons += `<div class="btn ${speakerClass} ${hideClass}" onclick="action('${hwnd}', 'speaker')" data-l10n-title="speaker" aria-label="${escapeAttribute(window.L10N.speaker)}">
         ${window.iconSvgs[speakerIcon]}
     </div>`;
 
     buttons += `<div class="btn result-handle"
         onpointerdown="handleResultDrag(event, '${hwnd}', ${Boolean(state.groupActions)})"
         oncontextmenu="return false;"
-        title="${window.L10N.result_handle}">
+        data-l10n-title="result_handle" aria-label="${escapeAttribute(window.L10N.result_handle)}">
         ${window.iconSvgs.cleaning_services}
     </div>`;
 
@@ -293,6 +321,17 @@ window.addEventListener("blur", () => setOpacityDraggingCursor(false));
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) setOpacityDraggingCursor(false);
 });
+for (const name of ['focusin', 'focusout', 'pointerover', 'pointerout']) {
+    document.addEventListener(name, event => {
+        if (!(event.target instanceof Element) || !event.target.closest('#button-container')
+            || proximityUpdatePending) return;
+        proximityUpdatePending = true;
+        queueMicrotask(() => {
+            proximityUpdatePending = false;
+            if (window.document?.getElementById('button-container')) updateButtonOpacity();
+        });
+    });
+}
 document.addEventListener("pointerdown", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -301,6 +340,7 @@ document.addEventListener("pointerdown", (event) => {
         window.raiseWindowButtons(group.dataset.hwnd);
         window.ipc.postMessage(JSON.stringify({
             action: "interact",
+            topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1',
             hwnd: group.dataset.hwnd
         }));
     }
@@ -310,7 +350,7 @@ document.addEventListener("pointerdown", (event) => {
 });
 
 function action(hwnd, cmd) {
-    window.ipc.postMessage(JSON.stringify({ action: cmd, hwnd: hwnd }));
+    window.ipc.postMessage(JSON.stringify({ action: cmd, hwnd: hwnd, topology_epoch: window.__SGT_TOPOLOGY_EPOCH__ || '1' }));
 }
 
 window.updateButtonOpacity = updateButtonOpacity;

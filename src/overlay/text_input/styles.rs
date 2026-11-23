@@ -209,8 +209,9 @@ pub fn get_editor_css(is_dark: bool) -> String {
         height: 22px;
     }}
 
-    .mic-btn svg {{ fill: var(--mic-fill); }}
-    .send-btn svg {{ fill: var(--send-fill); }}
+    /* Symbols paint with currentColor, so the icon tint is the svg's color. */
+    .mic-btn svg {{ color: var(--mic-fill); }}
+    .send-btn svg {{ color: var(--send-fill); }}
 
     .close-btn:hover {{
         background: var(--close-hover-bg);
@@ -286,7 +287,7 @@ pub fn get_editor_css(is_dark: bool) -> String {
     .mic-btn svg, .send-btn svg {{
         width: 28px; /* Bigger icons */
         height: 28px;
-        transition: transform 0.2s, fill 0.2s;
+        transition: transform 0.2s, color 0.2s;
     }}
 
     .mic-btn:active, .send-btn:active {{
@@ -295,8 +296,8 @@ pub fn get_editor_css(is_dark: bool) -> String {
 
 
 
-    .mic-btn svg {{ fill: var(--mic-fill); }}
-    .send-btn svg {{ fill: var(--send-fill); }}
+    .mic-btn svg {{ color: var(--mic-fill); }}
+    .send-btn svg {{ color: var(--send-fill); }}
 
     .mic-btn:hover {{
         background: var(--mic-hover-bg);
@@ -313,7 +314,7 @@ pub fn get_editor_css(is_dark: bool) -> String {
 }
 
 /// Generate HTML for the text input webview
-pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
+pub fn get_editor_html(placeholder: &str, is_dark: bool, initial_title: &str) -> String {
     let css = get_editor_css(is_dark);
     let theme_attr = if is_dark {
         "data-theme=\"dark\""
@@ -321,10 +322,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         "data-theme=\"light\""
     };
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
-    let escaped_placeholder = placeholder
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n");
+    let escaped_placeholder = crate::overlay::utils::escape_html(placeholder);
 
     // Locale text
     let (submit_txt, newline_txt, cancel_txt, close_title, mic_title, send_title) = {
@@ -344,13 +342,12 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         crate::hotkey::names::with_escape(&sub)
     };
     let title_text = {
-        let t = CFG_TITLE.lock().unwrap();
-        if t.is_empty() {
+        if initial_title.is_empty() {
             let lang = CFG_LANG.lock().unwrap().clone();
             let locale = crate::gui::locale::LocaleText::get(&lang);
             locale.preset_editor.text_input_placeholder.to_string()
         } else {
-            t.clone()
+            initial_title.to_string()
         }
     };
 
@@ -359,6 +356,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
 <html {theme_attr}>
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; object-src 'none'; base-uri 'none'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>{font_css}</style>
     <style id="theme-style">{css}</style>
@@ -372,7 +370,7 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
             </div>
         </div>
 
-        <textarea id="editor" placeholder="{placeholder}" autofocus></textarea>
+        <textarea id="editor" placeholder="{placeholder}"></textarea>
 
         <div class="btn-container">
             <button class="mic-btn" id="micBtn" title="{mic_title}">
@@ -393,6 +391,10 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         const closeBtn = document.getElementById('closeBtn');
         const micBtn = document.getElementById('micBtn');
         const sendBtn = document.getElementById('sendBtn');
+        const postInput = message => window.ipc.postMessage(String(window.__sgtTextSession ?? '') + ':' + message);
+        editor.addEventListener('input', () => {{
+            window.__sgtTextRevision = (BigInt(window.__sgtTextRevision || '0') + 1n).toString();
+        }});
 
         // Drag window logic - Entire container except interactive elements
         container.addEventListener('mousedown', (e) => {{
@@ -404,18 +406,14 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
 
             // Only left click
             if (e.button === 0) {{
-                window.ipc.postMessage('drag_window');
+                postInput('drag_window');
             }}
         }});
 
         // Close button
         closeBtn.addEventListener('click', (e) => {{
-            window.ipc.postMessage('close_window');
+            postInput('close_window');
         }});
-
-        window.onload = () => {{
-            setTimeout(() => editor.focus(), 50);
-        }};
 
         // ... keydown handles ...
         editor.addEventListener('keydown', (e) => {{
@@ -423,20 +421,20 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
                 e.preventDefault();
                 const text = editor.value.trim();
                 if (text) {{
-                    window.ipc.postMessage('submit:' + text);
+                    postInput('submit:' + window.__sgtTextRevision + ':' + text);
                 }}
             }}
 
             if (e.key === 'Escape') {{
                 e.preventDefault();
-                window.ipc.postMessage('cancel');
+                postInput('cancel');
             }}
 
             if (e.key === 'ArrowUp') {{
                 const isSingleLine = !editor.value.includes('\n');
                 if ((isSingleLine || editor.selectionStart === 0) && !e.shiftKey) {{
                     e.preventDefault();
-                    window.ipc.postMessage('history_up:' + editor.value);
+                    postInput('history_up:' + editor.value);
                 }}
             }}
 
@@ -444,31 +442,25 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
                 const isSingleLine = !editor.value.includes('\n');
                 if ((isSingleLine || editor.selectionStart === editor.value.length) && !e.shiftKey) {{
                     e.preventDefault();
-                    window.ipc.postMessage('history_down:' + editor.value);
+                    postInput('history_down:' + editor.value);
                 }}
             }}
         }});
 
         micBtn.addEventListener('click', (e) => {{
             e.preventDefault();
-            window.ipc.postMessage('mic');
+            postInput('mic');
         }});
 
         sendBtn.addEventListener('click', (e) => {{
             e.preventDefault();
             const text = editor.value.trim();
             if (text) {{
-                window.ipc.postMessage('submit:' + text);
+                postInput('submit:' + window.__sgtTextRevision + ':' + text);
             }}
         }});
 
         document.addEventListener('contextmenu', e => e.preventDefault());
-
-        window.setEditorText = (text) => {{
-            editor.value = text;
-            editor.selectionStart = editor.selectionEnd = text.length;
-            editor.focus();
-        }};
 
         window.updateTheme = (isDark) => {{
             document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -512,14 +504,31 @@ pub fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         theme_attr = theme_attr,
         font_css = font_css,
         css = css,
-        title_text = title_text,
+        title_text = crate::overlay::utils::escape_html(&title_text),
         placeholder = escaped_placeholder,
         submit_txt = submit_txt,
         newline_txt = newline_txt,
         cancel_hint = crate::overlay::utils::escape_html(&cancel_hint),
         cancel_txt = cancel_txt,
-        close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
-        mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
-        send_svg = crate::overlay::html_components::icons::get_icon_svg("send")
+        close_svg = crate::overlay::html_components::icons::OverlayIcon::Close.svg(),
+        mic_svg = crate::overlay::html_components::icons::OverlayIcon::Mic.svg(),
+        send_svg = crate::overlay::html_components::icons::OverlayIcon::Send.svg()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_editor_html;
+
+    #[test]
+    fn initial_title_and_placeholder_cannot_inject_markup() {
+        let html = get_editor_html(
+            "\" autofocus onfocus=\"alert(1)",
+            false,
+            "<img src=x onerror=alert(1)>",
+        );
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(html.contains("&quot; autofocus onfocus=&quot;alert(1)"));
+        assert!(!html.contains("<img src=x onerror=alert(1)>"));
+    }
 }

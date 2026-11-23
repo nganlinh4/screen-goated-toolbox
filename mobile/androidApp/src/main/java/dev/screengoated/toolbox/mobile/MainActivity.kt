@@ -21,7 +21,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collect
 import dev.screengoated.toolbox.mobile.helpassistant.HelpAssistantPendingLaunchStore
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
-import dev.screengoated.toolbox.mobile.preset.AudioPresetLaunchKind
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
 import dev.screengoated.toolbox.mobile.preset.PresetModelProvider
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
@@ -29,7 +28,6 @@ import dev.screengoated.toolbox.mobile.shared.live.LiveSessionConfig
 import dev.screengoated.toolbox.mobile.shared.live.ProviderDescriptor
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
-import dev.screengoated.toolbox.mobile.service.BubbleService
 import dev.screengoated.toolbox.mobile.service.helpassistant.HelpAssistantOverlayService
 import dev.screengoated.toolbox.mobile.ui.HistoryUiBundle
 import dev.screengoated.toolbox.mobile.ui.ProviderKeysState
@@ -46,14 +44,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private var pendingStart = false
-    private var autoStartOnResume = false
-    private var resumePendingAudioPreset = false
     private var shellSectionRequest by mutableStateOf<ShellSectionRequest?>(null)
     private var shellSectionRequestSerial = 0L
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            pendingStart = false
+            return@registerForActivityResult
+        }
         viewModel.refreshPermissions()
         if (pendingStart) {
             if (viewModel.sessionState.value.permissions.recordAudioGranted &&
@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
     private val overlayLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) {
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            pendingStart = false
+            return@registerForActivityResult
+        }
         viewModel.refreshPermissions()
         if (pendingStart) {
             if (viewModel.sessionState.value.permissions.overlayGranted) {
@@ -84,6 +88,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        if ((application as SgtMobileApplication).appContainerOrNull == null) {
+            setContent { SecureStoreRecoveryScreen(this) }
+            return
+        }
         handleIntent(intent)
         enableEdgeToEdge()
 
@@ -97,7 +105,7 @@ class MainActivity : ComponentActivity() {
             val globalTtsSettings by viewModel.globalTtsSettings.collectAsStateWithLifecycle()
             val uiPreferences by viewModel.uiPreferences.collectAsStateWithLifecycle()
             val presetRuntimeSettings by viewModel.presetRuntimeSettings.collectAsStateWithLifecycle()
-            val customModels by viewModel.customModels.collectAsStateWithLifecycle()
+            val customModelEditor by viewModel.customModelEditor.collectAsStateWithLifecycle()
             val edgeVoiceCatalogState by viewModel.edgeVoiceCatalogState.collectAsStateWithLifecycle()
             val historyState by viewModel.historyState.collectAsStateWithLifecycle()
             val historySearchQuery by viewModel.historySearchQuery.collectAsStateWithLifecycle()
@@ -130,11 +138,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(appUpdateState.notificationSerial) {
-                if (appUpdateState.notificationSerial > 0 && appUpdateState.latestVersion != null) {
+            LaunchedEffect(appUpdateState.notification) {
+                val updateVersion=viewModel.consumeUpdateNotification(appUpdateState.notification)
+                if (updateVersion!=null) {
                     Toast.makeText(
                         context,
-                        "${locale.updateAvailableNotification} v${appUpdateState.latestVersion}",
+                        "${locale.updateAvailableNotification} v$updateVersion",
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -157,7 +166,7 @@ class MainActivity : ComponentActivity() {
                     ),
                     globalTtsSettings = globalTtsSettings,
                     presetRuntimeSettings = presetRuntimeSettings,
-                    customModels = customModels,
+                    customModelEditor = customModelEditor,
                     uiPreferences = uiPreferences,
                     locale = locale,
                     historyBundle = HistoryUiBundle(
@@ -167,12 +176,16 @@ class MainActivity : ComponentActivity() {
                         onClearSearchQuery = viewModel::clearHistorySearchQuery,
                         onMaxItemsChanged = viewModel::onHistoryMaxItemsChanged,
                         onDeleteItem = viewModel::deleteHistoryItem,
+                        mediaProofForOpen = viewModel::historyMediaProofForOpen,
                         onClearItems = viewModel::clearHistoryItems,
                     ),
                     appUpdateState = appUpdateState,
                     shellSectionRequest = shellSectionRequest,
                     onPresetRuntimeSettingsChanged = viewModel::onPresetRuntimeSettingsChanged,
                     onCustomModelsChanged = viewModel::onCustomModelsChanged,
+                    onCustomModelEdited = viewModel::onCustomModelEdited,
+                    onCustomModelDeleted = viewModel::onCustomModelDeleted,
+                    onRetryCustomModels = viewModel::retryCustomModels,
                     onUiLanguageSelected = viewModel::onUiLanguageSelected,
                     onThemeCycleRequested = viewModel::onThemeCycleRequested,
                     edgeVoiceCatalogState = edgeVoiceCatalogState,
@@ -191,6 +204,7 @@ class MainActivity : ComponentActivity() {
                     onSessionToggle = onSessionToggle,
                     onOverlayOpacityChanged = viewModel::onOverlayOpacityChanged,
                     onResetHistoryDefaults = viewModel::resetHistoryDefaults,
+                    onRestoreAppSettingsDefaults = viewModel::restoreAppSettingsDefaults,
                     onCheckForAppUpdates = viewModel::checkForAppUpdates,
                 )
             }
@@ -199,35 +213,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if ((application as SgtMobileApplication).appContainerOrNull == null) return
         viewModel.refreshPermissions()
         maybeRunPendingHelpAssistant()
-        maybeRunDeferredStartFlow(source = "onResume")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if ((application as SgtMobileApplication).appContainerOrNull == null) return
         handleIntent(intent)
-        window.decorView.post {
-            maybeRunDeferredStartFlow(source = "onNewIntent")
-        }
     }
 
     private fun continueStartFlow() {
         val appContainer = (application as SgtMobileApplication).appContainer
-        val pendingAudioPreset = appContainer.audioPresetLaunchStore.peek()
-        val pendingResolvedPreset = pendingAudioPreset?.let { appContainer.presetRepository.getResolvedPreset(it.presetId) }
         viewModel.refreshPermissions()
         val state = viewModel.sessionState.value
         // Only Gemini-backed transcription needs a key: the on-device engines never call
         // out, and translation always falls back to the keyless GTX provider.
-        val transcriptionModelId = if (pendingAudioPreset == null) {
-            state.config.transcriptionProvider.id
-        } else {
-            null
-        }
-        val requiresGeminiApiKey = transcriptionModelId != null &&
-            !RealtimeModelIds.isOfflineTranscriptionModelId(transcriptionModelId)
+        val transcriptionModelId = state.config.transcriptionProvider.id
+        val requiresGeminiApiKey = RealtimeModelIds.requiresGeminiApiKey(transcriptionModelId)
         if (requiresGeminiApiKey && !viewModel.hasApiKey()) {
             pendingStart = false
             apiKeyErrorToastText("NO_API_KEY:google", appContainer.repository.currentUiPreferences().uiLanguage)
@@ -240,31 +245,18 @@ class MainActivity : ComponentActivity() {
             if (!state.permissions.recordAudioGranted) {
                 add(android.Manifest.permission.RECORD_AUDIO)
             }
-            if (pendingAudioPreset == null &&
-                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
                 !state.permissions.notificationsGranted
             ) {
                 add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        val effectiveSourceMode = when {
-            pendingResolvedPreset?.preset?.audioSource == "device" -> SourceMode.DEVICE
-            pendingResolvedPreset != null -> SourceMode.MIC
-            else -> state.config.sourceMode
-        }
-        val hasProjectionConsent = when {
-            pendingAudioPreset?.kind == AudioPresetLaunchKind.CAPTURE && effectiveSourceMode == SourceMode.DEVICE ->
-                appContainer.projectionConsentStore.hasConsent()
-            else -> state.permissions.mediaProjectionGranted
-        }
-
         when {
             missingRuntimePermissions.isNotEmpty() -> {
                 permissionLauncher.launch(missingRuntimePermissions.toTypedArray())
             }
 
-            pendingAudioPreset == null &&
-                state.config.displayMode == DisplayMode.OVERLAY &&
+            state.config.displayMode == DisplayMode.OVERLAY &&
                 BuildConfig.OVERLAY_SUPPORTED &&
                 !state.permissions.overlayGranted -> {
                 overlayLauncher.launch(
@@ -275,26 +267,15 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            effectiveSourceMode == SourceMode.DEVICE &&
-                !hasProjectionConsent -> {
+            state.config.sourceMode == SourceMode.DEVICE &&
+                !state.permissions.mediaProjectionGranted -> {
                 pendingStart = false
-                val intent = if (pendingAudioPreset != null) {
-                    ProjectionConsentProxyActivity.resumeCapturePresetIntent(this)
-                } else {
-                    ProjectionConsentProxyActivity.startSessionIntent(this)
-                }
-                startActivity(intent)
+                startActivity(ProjectionConsentProxyActivity.startSessionIntent(this))
             }
 
             else -> {
                 pendingStart = false
-                if (resumePendingAudioPreset && pendingAudioPreset != null) {
-                    BubbleService.resumePendingAudioPreset(this)
-                    resumePendingAudioPreset = false
-                    return
-                } else {
-                    viewModel.startSession(this)
-                }
+                viewModel.startSession(this)
             }
         }
     }
@@ -322,35 +303,9 @@ class MainActivity : ComponentActivity() {
             }
             intent.removeExtra(EXTRA_SHELL_SECTION)
         }
-        if (intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true) {
-            autoStartOnResume = true
-            intent.removeExtra(EXTRA_AUTO_START)
-        }
-        if (intent?.getBooleanExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET, false) == true) {
-            autoStartOnResume = true
-            resumePendingAudioPreset = true
-            Toast.makeText(
-                this,
-                "Reacquiring device-audio capture permission...",
-                Toast.LENGTH_SHORT,
-            ).show()
-            intent.removeExtra(EXTRA_RESUME_PENDING_AUDIO_PRESET)
-        }
-    }
-
-    private fun maybeRunDeferredStartFlow(source: String) {
-        if (!autoStartOnResume) {
-            return
-        }
-        autoStartOnResume = false
-        pendingStart = true
-        continueStartFlow()
     }
 
     companion object {
-        const val EXTRA_AUTO_START = "dev.screengoated.toolbox.mobile.extra.AUTO_START"
-        const val EXTRA_RESUME_PENDING_AUDIO_PRESET =
-            "dev.screengoated.toolbox.mobile.extra.RESUME_PENDING_AUDIO_PRESET"
         private const val EXTRA_SHELL_SECTION =
             "dev.screengoated.toolbox.mobile.extra.SHELL_SECTION"
 

@@ -21,7 +21,12 @@ export function isNativeMediaUrl(url: string | null | undefined): boolean {
  */
 export async function getMediaServerInfo(): Promise<MediaServerInfo> {
   if (!mediaServerInfoPromise) {
-    mediaServerInfoPromise = invoke<MediaServerInfo>("get_media_server_port");
+    const pending = invoke<MediaServerInfo>("get_media_server_port");
+    mediaServerInfoPromise = pending;
+    // A transient IPC failure must not be cached: the next call retries.
+    pending.catch(() => {
+      if (mediaServerInfoPromise === pending) mediaServerInfoPromise = null;
+    });
   }
   const info = await mediaServerInfoPromise;
   if (!info || !info.port) {
@@ -30,11 +35,6 @@ export async function getMediaServerInfo(): Promise<MediaServerInfo> {
     throw new Error("Media server unavailable");
   }
   return info;
-}
-
-export async function getMediaServerPort(): Promise<number> {
-  const { port } = await getMediaServerInfo();
-  return port;
 }
 
 /** Header object carrying the gate token for POST/fetch calls. */
@@ -192,5 +192,28 @@ export function isManagedCompositionSnapshotPath(
   const normalizedPath = path.replace(/\\/g, "/").toLowerCase();
   return normalizedPath.includes(
     "/screen-goated-toolbox/composition-snapshots/",
+  );
+}
+
+/** Every per-clip media path a composition snapshot copies and later owns. */
+export const SNAPSHOT_CLIP_MEDIA_PATH_KEYS = [
+  "rawVideoPath",
+  "rawMicAudioPath",
+  "rawWebcamVideoPath",
+] as const;
+
+export type SnapshotClipMediaPaths = Partial<
+  Record<(typeof SNAPSHOT_CLIP_MEDIA_PATH_KEYS)[number], string>
+>;
+
+/** Managed snapshot copies a clip owns, excluding paths the project root still uses. */
+export function ownedSnapshotClipMediaPaths(
+  clip: SnapshotClipMediaPaths,
+  rootPaths: ReadonlyArray<string | null | undefined>,
+): string[] {
+  const roots = new Set(rootPaths.filter(Boolean));
+  return SNAPSHOT_CLIP_MEDIA_PATH_KEYS.map((key) => clip[key]).filter(
+    (path): path is string =>
+      Boolean(path) && !roots.has(path) && isManagedCompositionSnapshotPath(path),
   );
 }

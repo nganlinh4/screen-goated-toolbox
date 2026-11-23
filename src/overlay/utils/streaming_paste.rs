@@ -1,5 +1,7 @@
 //! Session-bound automatic insertion. Provider polling never waits for editor I/O.
 
+mod admission;
+mod capture;
 mod diagnostics;
 mod editor;
 mod handoff;
@@ -10,19 +12,19 @@ mod routing;
 
 use std::collections::VecDeque;
 use std::sync::{
-    Arc, Condvar, Mutex,
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    Arc, Condvar, LazyLock, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
+use capture::{report_failure, report_unavailable};
 use editor::{AppendTarget, BestEffortTarget, Editor};
 use policy::{Event, Policy};
-
-static GENERATION: AtomicU64 = AtomicU64::new(0);
-static WORKERS: AtomicUsize = AtomicUsize::new(0);
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(0);
+static SESSION_GATE: LazyLock<admission::Gate> = LazyLock::new(admission::Gate::default);
 static INPUT_LEASE: Mutex<()> = Mutex::new(());
 const MAX_EVENTS: usize = 128;
 const MAX_TEXT_BYTES: usize = 128 * 1024;
@@ -32,11 +34,11 @@ struct Mailbox {
     received: u64,
     queue: VecDeque<Event>,
     accepting: bool,
-    ready: bool,
     done: bool,
     overflow: bool,
     draining: bool,
     expired: bool,
+    capture_pending: bool,
 }
 
 #[derive(Default)]
@@ -44,6 +46,8 @@ struct Shared {
     generation: u64,
     state: Mutex<Mailbox>,
     changed: Condvar,
+    abort: Arc<AtomicBool>,
+    failure_reported: AtomicBool,
 }
 
 /// One owner per preset audio session; disabled auto-paste allocates no worker.
@@ -52,30 +56,58 @@ pub(crate) struct StreamingAutoPaste {
 }
 
 impl StreamingAutoPaste {
+    #[cfg(test)]
     pub(crate) fn new(enabled: bool, abort: Arc<AtomicBool>) -> Self {
         if !enabled {
             return Self { shared: None };
         }
-        let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-        if WORKERS
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n < 2).then_some(n + 1)
-            })
-            .is_err()
-        {
-            crate::log_info!("[AutoPaste] suspended reason=worker_capacity");
+        let target = unsafe { GetForegroundWindow() };
+        Self::for_recording(enabled, abort, Some(target))
+    }
+
+    pub(crate) fn for_recording(
+        enabled: bool,
+        abort: Arc<AtomicBool>,
+        target: Option<HWND>,
+    ) -> Self {
+        if !enabled || abort.load(Ordering::SeqCst) {
             return Self { shared: None };
         }
-        let foreground = unsafe { GetForegroundWindow() }.0 as usize;
+        let Some(foreground) = target.and_then(capture::WindowIdentity::capture) else {
+            report_unavailable(&abort);
+            return Self { shared: None };
+        };
+        let generation = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst) + 1;
+        let Some(ticket) = SESSION_GATE.reserve(generation, &abort) else {
+            crate::log_info!("[AutoPaste] suspended reason=worker_capacity_or_cancelled");
+            report_unavailable(&abort);
+            return Self { shared: None };
+        };
         let shared = Arc::new(Shared {
             generation,
+            abort: abort.clone(),
             ..Default::default()
         });
-        shared.state.lock().unwrap().accepting = true;
+        {
+            let mut state = shared.state.lock().unwrap();
+            state.accepting = true;
+            state.capture_pending = true;
+        }
         let worker_shared = shared.clone();
+        let capture_deadline = Instant::now() + Duration::from_secs(2);
+        let monitor_shared = shared.clone();
+        if std::thread::Builder::new()
+            .name("preset-capture-watchdog".into())
+            .spawn(move || capture::monitor(monitor_shared, capture_deadline))
+            .is_err()
+        {
+            report_failure(&shared);
+            return Self { shared: None };
+        }
         if std::thread::Builder::new()
             .name("preset-auto-paste".into())
             .spawn(move || {
+                let _ticket = ticket;
                 let _completion = Completion(worker_shared.clone());
                 let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
                 if initialized {
@@ -83,30 +115,28 @@ impl StreamingAutoPaste {
                         &worker_shared,
                         generation,
                         abort,
-                        HWND(foreground as *mut _),
+                        foreground,
+                        &_ticket,
+                        capture_deadline,
                     );
                     unsafe {
                         CoUninitialize();
                     }
+                } else {
+                    report_failure(&worker_shared);
                 }
             })
             .is_err()
         {
-            WORKERS.fetch_sub(1, Ordering::SeqCst);
+            {
+                let mut state = shared.state.lock().unwrap();
+                state.done = true;
+                state.accepting = false;
+                shared.changed.notify_all();
+            }
+            report_failure(&shared);
             return Self { shared: None };
         }
-        // Refuse late target capture; do not bind to a field selected much later.
-        let state = shared.state.lock().unwrap();
-        let (mut state, _) = shared
-            .changed
-            .wait_timeout_while(state, Duration::from_secs(2), |s| !s.ready && !s.done)
-            .unwrap();
-        if !state.ready {
-            state.accepting = false;
-            state.overflow = true;
-            crate::log_info!("[AutoPaste] suspended reason=target_capture_unavailable");
-        }
-        drop(state);
         Self {
             shared: Some(shared),
         }
@@ -151,6 +181,9 @@ impl StreamingAutoPaste {
             state.queue.len()
         );
         enqueue(&mut state, event);
+        if state.overflow {
+            report_failure(shared);
+        }
         shared.changed.notify_one();
     }
 
@@ -167,6 +200,7 @@ impl StreamingAutoPaste {
                 state.queue.clear();
                 shared.changed.notify_all();
                 crate::log_info!("[AutoPaste] suspended reason=finish_deadline");
+                report_failure(shared);
             }
         }
     }
@@ -183,6 +217,10 @@ impl StreamingAutoPaste {
     }
 }
 
+fn capture_allowed(now: Instant, deadline: Instant, aborted: bool) -> bool {
+    !aborted && now < deadline
+}
+
 impl Drop for StreamingAutoPaste {
     fn drop(&mut self) {
         self.close();
@@ -197,7 +235,6 @@ impl Drop for Completion {
         state.accepting = false;
         state.queue.clear();
         self.0.changed.notify_all();
-        WORKERS.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -214,11 +251,16 @@ impl Target {
             Self::BestEffort(_) => "unverified_keyboard",
         }
     }
+    #[cfg(test)]
     fn capture(foreground: HWND) -> anyhow::Result<Self> {
-        Editor::capture(foreground)
+        Self::capture_guarded(foreground, &|| true)
+    }
+    fn capture_guarded(foreground: HWND, allowed: &dyn Fn() -> bool) -> anyhow::Result<Self> {
+        anyhow::ensure!(allowed(), editor::UnsafeCapture);
+        Editor::capture_guarded(foreground, allowed)
             .map(Self::Replace)
             .or_else(|error| {
-                if error.is::<editor::UnsafeCapture>() {
+                if !capture::may_fallback(&error, allowed()) {
                     return Err(error);
                 }
                 crate::log_info!(
@@ -227,7 +269,7 @@ impl Target {
                 BestEffortTarget::capture(foreground).map(Self::BestEffort)
             })
             .or_else(|error| {
-                if error.is::<editor::UnsafeCapture>() {
+                if !capture::may_fallback(&error, allowed()) {
                     return Err(error);
                 }
                 AppendTarget::capture(foreground).map(Self::Append)
@@ -252,28 +294,60 @@ impl Target {
     }
 }
 
-fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foreground: HWND) {
+fn run_worker(
+    shared: &Shared,
+    generation: u64,
+    abort: Arc<AtomicBool>,
+    foreground: capture::WindowIdentity,
+    ticket: &admission::Ticket<'_>,
+    capture_deadline: Instant,
+) {
     let mut target = {
         let _lease = INPUT_LEASE.lock().unwrap();
-        if abort.load(Ordering::SeqCst) || GENERATION.load(Ordering::SeqCst) != generation {
+        if !capture_allowed(
+            Instant::now(),
+            capture_deadline,
+            abort.load(Ordering::SeqCst),
+        ) {
+            report_failure(shared);
             return;
         }
-        match Target::capture(foreground) {
+        if !foreground.is_current_foreground() {
+            report_failure(shared);
+            return;
+        }
+        let allowed =
+            || capture::may_capture(shared, &abort, Some(capture_deadline), Some(foreground));
+        match Target::capture_guarded(foreground.hwnd(), &allowed) {
             Ok(target) => target,
             Err(_) => {
                 crate::log_info!("[AutoPaste] suspended reason=no_safe_target");
+                report_failure(shared);
                 return;
             }
         }
     };
+    if !foreground.is_current_foreground()
+        || !capture_allowed(
+            Instant::now(),
+            capture_deadline,
+            abort.load(Ordering::SeqCst),
+        )
+    {
+        report_failure(shared);
+        return;
+    }
     let mut policy = Policy::new(matches!(target, Target::Replace(_) | Target::BestEffort(_)));
     {
         let mut state = shared.state.lock().unwrap();
-        if state.overflow {
+        if state.overflow || state.expired {
             return;
         }
-        state.ready = true;
+        state.capture_pending = false;
         shared.changed.notify_all();
+    }
+    if !ticket.wait(&abort, || shared.state.lock().unwrap().expired) {
+        return;
     }
     crate::log_info!(
         "[AutoPaste] session={generation} ready backend={} replaceable={}",
@@ -315,9 +389,6 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
         };
         drop(state);
         let _lease = INPUT_LEASE.lock().unwrap();
-        if GENERATION.load(Ordering::SeqCst) != generation {
-            break;
-        }
         #[cfg(test)]
         if editor::require_test_target(unsafe { GetForegroundWindow() }).is_err() {
             crate::log_info!("[AutoPaste] UI test stopped: foreground left the test process");
@@ -342,9 +413,11 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
                 defer_event(shared, event);
                 continue;
             }
-            match Target::capture(foreground) {
+            let identity = capture::WindowIdentity::capture(foreground);
+            let allowed = || capture::may_capture(shared, &abort, None, identity);
+            match Target::capture_guarded(foreground, &allowed) {
                 Ok(next) => {
-                    if !handoff::ready(&next, shared, generation, &abort) {
+                    if !handoff::ready(&next, shared, &abort) {
                         defer_event(shared, event);
                         settled_target = (0, Instant::now());
                         crate::log_info!(
@@ -394,12 +467,7 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
         }
         let allowed = || {
             let state = shared.state.lock().unwrap();
-            permits(
-                &state,
-                &event,
-                GENERATION.load(Ordering::SeqCst) == generation,
-                abort.load(Ordering::SeqCst),
-            )
+            permits(&state, &event, abort.load(Ordering::SeqCst))
         };
         dispatched += 1;
         let (routed_event, cut) = routing.project(&event);
@@ -434,7 +502,7 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
             policy.suspend();
             handoff = true;
             settled_target = (0, Instant::now());
-            if error.is::<editor::BeforeMutation>() && !matches!(event, Event::Finish) {
+            if !capture::mutation_is_uncertain(&error, matches!(event, Event::Finish)) {
                 routing.detach();
                 defer_event(shared, Some(event));
                 crate::log_info!(
@@ -442,6 +510,7 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
                 );
                 continue;
             }
+            report_failure(shared);
             crate::log_info!(
                 "[AutoPaste] session={generation} dispatch={dispatched} suspended reason=unverified_mutation detail={error:#}"
             );
@@ -477,11 +546,10 @@ fn run_worker(shared: &Shared, generation: u64, abort: Arc<AtomicBool>, foregrou
     }
 }
 
-fn permits(state: &Mailbox, event: &Event, current: bool, aborted: bool) -> bool {
+fn permits(state: &Mailbox, event: &Event, aborted: bool) -> bool {
     !state.expired
         && (!state.overflow || matches!(event, Event::Finish))
         && !(state.draining && matches!(event, Event::Interim(_)))
-        && current
         && (matches!(event, Event::Finish) || !aborted)
 }
 
@@ -507,6 +575,9 @@ fn defer_event(shared: &Shared, event: Option<Event>) {
     }
     state.queue.push_front(event);
     enforce_capacity(&mut state);
+    if state.overflow {
+        report_failure(shared);
+    }
 }
 
 fn enforce_capacity(state: &mut Mailbox) {
@@ -526,64 +597,4 @@ fn enforce_capacity(state: &mut Mailbox) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mailbox_coalesces_only_adjacent_interims_and_preserves_final_order() {
-        let mut state = Mailbox::default();
-        for event in [
-            Event::Interim("old".into()),
-            Event::Interim("new".into()),
-            Event::Final("one".into()),
-            Event::Interim("next".into()),
-            Event::Final("two".into()),
-        ] {
-            enqueue(&mut state, event);
-        }
-        assert_eq!(
-            state.queue.into_iter().collect::<Vec<_>>(),
-            vec![
-                Event::Interim("new".into()),
-                Event::Final("one".into()),
-                Event::Interim("next".into()),
-                Event::Final("two".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn mailbox_overflow_discards_work_instead_of_growing_or_replaying() {
-        let mut state = Mailbox::default();
-        enqueue(&mut state, Event::Final("x".repeat(MAX_TEXT_BYTES + 1)));
-        assert!(state.overflow && state.queue.is_empty() && !state.accepting);
-    }
-
-    #[test]
-    fn disabled_auto_paste_never_claims_target_or_starts_worker() {
-        let writer = StreamingAutoPaste::new(false, Arc::new(AtomicBool::new(false)));
-        writer.interim("preview");
-        writer.final_text("final");
-        writer.finish();
-        assert!(writer.shared.is_none());
-    }
-
-    #[test]
-    fn dispatch_permit_rechecks_drain_abort_expiration_and_generation() {
-        let interim = Event::Interim("draft".into());
-        let final_text = Event::Final("final".into());
-        let mut state = Mailbox::default();
-        assert!(permits(&state, &interim, true, false));
-        state.draining = true;
-        assert!(!permits(&state, &interim, true, false));
-        assert!(permits(&state, &final_text, true, false));
-        assert!(!permits(&state, &final_text, true, true));
-        assert!(permits(&state, &Event::Finish, true, true));
-        assert!(!permits(&state, &Event::Finish, false, false));
-        state.overflow = true;
-        assert!(!permits(&state, &final_text, true, false));
-        assert!(permits(&state, &Event::Finish, true, false));
-        state.expired = true;
-        assert!(!permits(&state, &Event::Finish, true, true));
-    }
-}
+mod tests;

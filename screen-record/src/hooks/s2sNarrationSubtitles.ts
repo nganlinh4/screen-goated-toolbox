@@ -1,7 +1,9 @@
 import type { Translations } from "@/i18n";
 import { defaultSubtitleStyle } from "@/lib/subtitleDefaults";
 import { formatTemplate } from "@/lib/statusFormat";
-import type { SubtitleGenerationPlan } from "@/lib/subtitleGenerationPlan";
+import { audioSubtitleSourceToTimeline, type SubtitleGenerationPlan } from "@/lib/subtitleGenerationPlan";
+import { audioSegmentPlaybackRate } from "@/lib/audioSegmentTime";
+import { buildSequenceTimeline, clipSourceTimeToSequenceTime, getSequenceClipById } from '@/lib/sequenceTimeline';
 import {
   ORIGINAL_SUBTITLE_TRACK_ID,
   getTranslationSubtitleTrackId,
@@ -12,6 +14,7 @@ import {
 import type { BaseAsyncJobStatus } from "@/hooks/asyncJobTypes";
 import type {
   NarrationSegment,
+  ProjectComposition,
   SubtitleChainItem,
   SubtitleSegment,
   SubtitleTrack,
@@ -63,6 +66,7 @@ export interface S2sSubtitleStateSnapshot {
 }
 
 export interface PopulateS2sSubtitleTracksOptions {
+  coordinateSpace?: 'clip' | 'sequence';
   preserveExistingOutside?: boolean;
   baseSourceSegments?: SubtitleSegment[];
   baseTargetSegments?: SubtitleSegment[];
@@ -229,7 +233,7 @@ export function mappedTime(
 ) {
   const transform = plan.clipTransformsByClip[result.clipId];
   if (!transform) return result[field];
-  return result[field] + transform.timelineOffsetSec;
+  return audioSubtitleSourceToTimeline(result[field], transform);
 }
 
 export function s2sSubtitleId(
@@ -281,10 +285,15 @@ export function buildNarration(
   plan: SubtitleGenerationPlan,
   batchId: string,
   defaultTtsMethod: string,
+  composition?: ProjectComposition | null,
 ): NarrationSegment {
+  const timeline = composition ? buildSequenceTimeline(composition) : null;
+  const clip = timeline && getSequenceClipById(timeline, result.clipId);
+  const time = (value: number) => plan.clipTransformsByClip[result.clipId]
+    ? mappedTime({ ...result, startTime: value }, plan, 'startTime')
+    : clip ? clipSourceTimeToSequenceTime(value, clip) : value;
   const startTime = Number.isFinite(result.narrationStartTime)
-    ? mappedTime({ ...result, startTime: result.narrationStartTime! }, plan, "startTime")
-    : mappedTime(result, plan, "startTime");
+    ? time(result.narrationStartTime!) : time(result.startTime);
   const name = result.targetText.trim() || result.sourceText.trim() || "Gemini S2S";
   const targetSubtitleId = s2sSubtitleId(result, "target");
   const inPoint = Math.max(0, result.audioInPoint ?? 0);
@@ -297,18 +306,35 @@ export function buildNarration(
     startTime,
     inPoint,
     outPoint,
-    playbackRate: 1,
+    playbackRate: audioSegmentPlaybackRate(plan.clipTransformsByClip[result.clipId]?.playbackRate),
     addedAt: Date.now(),
     sourceSubtitleId: targetSubtitleId,
     sourceSubtitleIds: [targetSubtitleId],
     narrationBatchId: batchId,
     narrationGroupTakeId: result.narrationGroupTakeId,
-    narrationGroupSourceStartTime: result.narrationGroupSourceStartTime,
+    narrationGroupSourceStartTime: Number.isFinite(result.narrationGroupSourceStartTime)
+      ? time(result.narrationGroupSourceStartTime!)
+      : undefined,
     narrationAlignmentMode: result.alignmentMode ?? "single",
     narrationAlignmentConfidence: result.alignmentConfidence ?? 1,
     ttsProfileSnapshot: {
       method: result.ttsProfileMethod ?? defaultTtsMethod,
     },
+  };
+}
+
+export function collectS2sResults(
+  status: S2sNarrationStatus, plan: SubtitleGenerationPlan, batchId: string, method: string,
+  composition?: ProjectComposition | null,
+) {
+  const flat = status.results.flatMap((result) => result.segments);
+  const withTarget = flat.filter((result) => result.targetText.trim().length > 0);
+  return {
+    sourceSubtitles: flat.filter((result) => result.sourceText.trim().length > 0)
+      .map((result) => buildSubtitle(result, plan, 'source', result.sourceText)),
+    targetSubtitles: withTarget.map((result) => buildSubtitle(result, plan, 'target', result.targetText)),
+    narrations: withTarget.map((result) => buildNarration(result, plan, batchId, method, composition)),
+    replaceIds: withTarget.map((result) => s2sSubtitleId(result, 'target')),
   };
 }
 

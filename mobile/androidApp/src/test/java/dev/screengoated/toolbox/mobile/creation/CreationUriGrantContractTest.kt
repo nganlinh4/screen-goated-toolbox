@@ -8,6 +8,23 @@ import org.junit.Test
 
 class CreationUriGrantContractTest {
     @Test
+    fun `pending svg edit retains its destination grant without history`() {
+        val filesDir = createTempDirectory("creation-svg-grants").toFile()
+        try {
+            File(filesDir, "creation/state/svg-edits.json").apply {
+                parentFile?.mkdirs()
+                writeText("""[{"intent":{"destination":"content://storage/tree/selected"}}]""")
+            }
+            assertEquals(
+                setOf("content://storage/tree/selected"),
+                creationRequiredPersistedUriGrants(filesDir, emptySet()).output,
+            )
+        } finally {
+            filesDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `uri grants survive shared owners and restart then release at the last owner`() {
         val filesDir = createTempDirectory("creation-uri-grants").toFile()
         val history = File(filesDir, "creation/history.json").apply {

@@ -31,7 +31,7 @@ fn google_and_live_share_a_section_without_sharing_endpoint_identity() {
     let rows = endpoint_representatives(&models);
     let sections = group_rows(
         rows,
-        ProviderToggles {
+        ProviderEnabled {
             groq: true,
             gemini: true,
             openrouter: true,
@@ -44,7 +44,7 @@ fn google_and_live_share_a_section_without_sharing_endpoint_identity() {
 
 #[test]
 fn disabled_explicit_provider_is_hidden_but_future_provider_remains_visible() {
-    let toggles = ProviderToggles {
+    let toggles = ProviderEnabled {
         groq: false,
         gemini: true,
         openrouter: true,
@@ -53,22 +53,6 @@ fn disabled_explicit_provider_is_hidden_but_future_provider_remains_visible() {
     };
     assert!(!provider_enabled("groq", toggles));
     assert!(provider_enabled("future-provider", toggles));
-}
-
-#[test]
-fn qwen_asr_stays_catalogued_for_live_features_but_not_api_usage() {
-    let models = crate::model_config::get_all_models();
-    for id in [
-        crate::model_config::QWEN3_ASR_0_6B_MODEL_ID,
-        crate::model_config::QWEN3_ASR_1_7B_MODEL_ID,
-    ] {
-        assert!(models.iter().any(|model| model.id == id));
-    }
-    assert!(
-        endpoint_representatives(models)
-            .iter()
-            .all(|model| model.provider != "qwen3")
-    );
 }
 
 #[test]
@@ -206,8 +190,8 @@ fn missing_live_snapshot_shows_only_the_static_quota() {
     let theme = AppTheme::from_dark(true);
     let text = LocaleText::get("vi");
     let status = endpoint_status(None, &sample, false, &text, "vi", &theme);
-    assert_eq!(status.compact, "10 lượt/ngày");
-    assert!(status.rotation.is_empty());
+    assert_eq!(status.headlines.len(), 1);
+    assert_eq!(status.headlines[0].label, "10 lượt/ngày");
     assert!(status.detail.is_none());
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(include_str!(concat!(
@@ -217,6 +201,72 @@ fn missing_live_snapshot_shows_only_the_static_quota() {
         .unwrap()["presentation"]["missing_snapshot_marker"],
         "none"
     );
+}
+
+#[test]
+fn live_quota_labels_and_colors_match_the_shared_contract() {
+    use crate::usage_stats::UsageMetricKind;
+
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/parity-fixtures/usage-statistics/contract.json"
+    )))
+    .unwrap();
+    let quota = &fixture["presentation"]["live_quota"];
+    assert_eq!(
+        quota["warning_at_or_below_ratio"].as_f64(),
+        Some(LOW_QUOTA_RATIO)
+    );
+    let theme = AppTheme::from_dark(true);
+    let now = 10_000;
+    for case in quota["color_cases"].as_array().unwrap() {
+        let metric = UsageMetric {
+            kind: UsageMetricKind::TokensMinute,
+            remaining: case["remaining"].as_str().map(str::to_owned),
+            limit: case["limit"].as_str().map(str::to_owned),
+            reset: None,
+        };
+        let snapshot = UsageSnapshot {
+            metrics: vec![metric],
+            observed_at_unix_seconds: now - case["age_seconds"].as_u64().unwrap(),
+        };
+        let summary = snapshot_summary(&snapshot, &LocaleText::get("vi"), &theme, now);
+        let expected = match case["color"].as_str().unwrap() {
+            "green" => theme.success(),
+            "amber" => theme.warning(),
+            "neutral" => theme.on_surface_variant(),
+            other => panic!("unexpected fixture color {other}"),
+        };
+        assert_eq!(summary.headlines[0].color, expected, "{case}");
+    }
+
+    let metric = UsageMetric {
+        kind: UsageMetricKind::TokensMinute,
+        remaining: Some("9500".into()),
+        limit: Some("10000".into()),
+        reset: None,
+    };
+    let ctx = egui::Context::default();
+    crate::gui::utils::configure_fonts(&ctx);
+    let status_width = usage_stats_table::endpoint_columns(320.0).status;
+    let _ = crate::gui::test_support::run_ui(&ctx, egui::RawInput::default(), |ui| {
+        for (lang, expected) in quota["example_labels"].as_object().unwrap() {
+            let text = LocaleText::get(lang);
+            let label = metric_headline(&metric, text.desktop_settings.usage_quota_left);
+            assert_eq!(Some(label.as_str()), expected.as_str());
+            let width = ui.ctx().fonts_mut(|fonts| {
+                fonts
+                    .layout_no_wrap(
+                        label,
+                        egui::FontId::proportional(ENDPOINT_STATUS_FONT_SIZE),
+                        theme.on_surface_variant(),
+                    )
+                    .size()
+                    .x
+            });
+            assert!(width <= status_width, "{lang}: {width} > {status_width}");
+        }
+    });
 }
 
 #[test]
@@ -234,9 +284,9 @@ fn uneven_provider_groups_balance_across_the_two_desktop_lanes() {
         ("google".to_string(), vec![&sample; 12]),
         ("groq".to_string(), vec![&sample; 7]),
         ("openrouter".to_string(), vec![&sample; 2]),
-        ("qwen3".to_string(), vec![&sample; 2]),
+        ("nvidia".to_string(), vec![&sample; 2]),
         ("google-gtx".to_string(), vec![&sample]),
-        ("parakeet".to_string(), vec![&sample]),
+        ("ollama".to_string(), vec![&sample]),
         ("qrserver".to_string(), vec![&sample]),
         ("taalas".to_string(), vec![&sample]),
     ]);

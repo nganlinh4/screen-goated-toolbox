@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "token_cases": [
+    {"name":"two_character_and_deduplication", "query":"서울, 날씨! AI ai x", "terms":["서울","날씨","ai"]},
+    {"name":"mixed_punctuation_and_case", "query":"Ab/CD;ÉTÉ 42", "terms":["ab","cd","été","42"]},
+    {"name":"lowercase_expansion_preserves_term", "query":"İZ", "terms":["i̇z"]},
+    {"name":"single_scalar_lowercase_expansion", "query":"İ", "terms":["i̇"]},
+    {"name":"supplementary_scalar_count", "query":"𠀀 𠀀𠀁 XY", "terms":["𠀀𠀁","xy"]},
+    {"name":"one_scalar_and_punctuation", "query":"x 𠀀 !", "terms":[]}
+  ],
+  "excerpt_cases": [
+    {"name":"short_terms_find_early_middle_evidence", "query":"서울 날씨", "line":"서울 날씨 결과는 42 units.", "filler_before":45, "filler_after":150, "max_chars":300},
+    {"name":"short_latin_terms_find_evidence", "query":"AB CD", "line":"AB CD costs 12 units.", "filler_before":45, "filler_after":150, "max_chars":300}
+  ],
+  "scalar_budget_cases": [
+    {"name":"one_supplementary_scalar", "text":"𠀀𠀁𠀂", "query":"𠀀𠀁", "max_chars":1, "expected":"𠀀"},
+    {"name":"two_supplementary_scalars", "text":"𠀀𠀁𠀂", "query":"𠀀𠀁", "max_chars":2, "expected":"𠀀𠀁"}
+  ],
+  "match_cases": [
+    {"term":"ai", "text":"paid main sail", "matches":false},
+    {"term":"ai", "text":"AI systems", "matches":true},
+    {"term":"서울", "text":"서울의 정보", "matches":true}
+  ],
+  "long_line_cases": [
+    {"query":"서울 날씨", "prefix":"2020 neutral context ", "prefix_repetitions":50, "match":"서울 날씨 42 units", "suffix":" trailing context", "max_chars":120}
+  ],
+  "ranking_cases": [
+    {"query":"ai", "distractor":"airline update", "distractor_repetitions":40, "match":"AI evidence is available.", "max_chars":160}
+  ]
+}

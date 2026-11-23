@@ -90,7 +90,6 @@ data class TranslationGummyState(
     val isRunning: Boolean = false,
     val transcripts: List<TranslationGummyTranscriptItem> = emptyList(),
     val lastError: String? = null,
-    val visualizerLevel: Float = 0f,
     val volume: TranslationGummyVolumeState = TranslationGummyVolumeState(),
 )
 

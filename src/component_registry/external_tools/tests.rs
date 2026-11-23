@@ -118,6 +118,32 @@ fn zip_traversal_is_rejected_before_writing_outside_stage() {
 }
 
 #[test]
+fn archive_extraction_finishes_writing_before_native_inspection() {
+    let root = temp_root("archive-native");
+    let stage = root.join("stage");
+    std::fs::create_dir_all(&stage).unwrap();
+    let bytes = x64_pe();
+    let archive_path = root.join("fixture.zip");
+    let mut archive = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+    archive
+        .start_file("yt-dlp.exe", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(&bytes).unwrap();
+    drop(archive.finish().unwrap());
+    install::extract_zip_for_test(&test_delivery(&bytes), &archive_path, &stage).unwrap();
+    assert_eq!(
+        std::fs::read(stage.join("bin/x64/yt-dlp.exe")).unwrap(),
+        bytes
+    );
+    std::fs::remove_file(stage.join("bin/x64/yt-dlp.exe")).unwrap();
+    std::fs::remove_dir(stage.join("bin/x64")).unwrap();
+    std::fs::remove_dir(stage.join("bin")).unwrap();
+    std::fs::remove_dir(stage).unwrap();
+    std::fs::remove_file(archive_path).unwrap();
+    std::fs::remove_dir(root).unwrap();
+}
+
+#[test]
 fn staging_cleanup_preserves_unknown_files() {
     let root = temp_root("cleanup");
     std::fs::create_dir_all(root.join("bin/x64")).unwrap();
@@ -137,8 +163,10 @@ fn component_tree_rejects_an_unbounded_directory_forest() {
     for index in 0..65 {
         std::fs::create_dir(root.join(format!("dir-{index}"))).unwrap();
     }
-    let mut files = Vec::new();
-    assert!(staging::collect_regular_files(&root, &root, &mut files, 8).is_err());
+    assert!(
+        crate::component_registry::owned_tree::regular_files(&root, "external tool component", 8)
+            .is_err()
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -325,6 +353,23 @@ fn recovery_sidecar_is_durable_before_move_and_rolled_back_on_failure() {
     assert!(root.exists());
     assert!(recovery::list_for_test(&delivery).unwrap().is_empty());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn absent_version_quarantine_is_not_blocked_by_a_lease_on_the_tool() {
+    let bytes = x64_pe();
+    let mut delivery = test_delivery(&bytes);
+    delivery.id = "test-recovery-absent";
+    delivery.version = "absent-version";
+    let root = version_root(&delivery).unwrap();
+    if root.exists() {
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    let _lease = crate::component_registry::lease::acquire(delivery.id).unwrap();
+    let result = recovery::quarantine_with_rename_for_test(&delivery, "absent", |_, _| {
+        panic!("nothing exists to move")
+    });
+    assert!(matches!(result, Ok(None)), "{result:?}");
 }
 
 #[test]

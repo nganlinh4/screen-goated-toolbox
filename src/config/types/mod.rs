@@ -31,7 +31,10 @@ pub use translation_gummy::{MAX_TRANSCRIPT_ITEMS, MIN_TRANSCRIPT_ITEMS};
 
 pub use custom_models::{CustomModelDefinition, CustomModelType};
 
-pub use enums::{DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language};
+pub use enums::{
+    DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, MAX_HISTORY_LIMIT, MIN_HISTORY_LIMIT, ThemeMode,
+    get_system_ui_language,
+};
 
 pub use hotkey::Hotkey;
 
@@ -51,13 +54,9 @@ pub use result_overlay::{
     normalize_result_overlay_opacity_percent,
 };
 
-#[cfg(feature = "recorder-worker")]
-pub use tts::StepAudioVoiceConfig;
 #[cfg(not(feature = "recorder-worker"))]
 pub use tts::TtsPlaygroundMode;
 pub use tts::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, KokoroSettings, KokoroVoiceConfig, MagpieSettings,
-    MagpieVoiceConfig, StepAudioReferenceVoice, StepAudioSettings, SupertonicSettings,
-    SupertonicVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings, VieneuSettings,
-    VoxtralSettings, default_tts_language_conditions, step_audio_tts_text_issue,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod, TtsPlaygroundSettings,
+    default_tts_language_conditions,
 };

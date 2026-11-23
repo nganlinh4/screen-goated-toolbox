@@ -18,10 +18,6 @@ pub(super) fn start_generation() {
         Ok(app) => app.config.tts_playground.mode.clone(),
         Err(_) => return,
     };
-    if matches!(mode, crate::config::TtsPlaygroundMode::AudioEdit) {
-        start_audio_edit_generation();
-        return;
-    }
     if matches!(mode, crate::config::TtsPlaygroundMode::SpeechToSpeech) {
         start_s2s_generation();
         return;
@@ -37,16 +33,6 @@ pub(super) fn start_generation() {
     if text.trim().is_empty() {
         state::with_state(|s| {
             s.error = Some("Type some text first.".to_string());
-            s.status.clear();
-        });
-        state::sync_to_webview();
-        return;
-    }
-    if matches!(profile.method, TtsMethod::StepAudioEditX)
-        && let Some(issue) = crate::config::step_audio_tts_text_issue(&text)
-    {
-        state::with_state(|s| {
-            s.error = Some(issue.to_string());
             s.status.clear();
         });
         state::sync_to_webview();
@@ -79,9 +65,17 @@ pub(super) fn start_generation() {
             profile,
             cancel.clone(),
         );
+        let current = CANCEL_FLAG.lock().unwrap();
+        if cancel.load(Ordering::SeqCst)
+            || !current
+                .as_ref()
+                .is_some_and(|token| Arc::ptr_eq(token, &cancel))
+        {
+            return;
+        }
         match result {
             Ok(audio) => {
-                let id = next_clip_id();
+                let Some(id) = allocate_clip_id() else { return };
                 let clip = CurrentClip {
                     id: id.clone(),
                     text: text_for_thread.clone(),
@@ -134,118 +128,12 @@ pub(super) fn start_generation() {
     });
 }
 
-fn start_audio_edit_generation() {
-    let settings = match crate::APP.lock() {
-        Ok(app) => app.config.tts_playground.step_audio_edit_settings.clone(),
-        Err(_) => return,
-    };
-    if settings.source_audio_path.trim().is_empty() {
-        state::with_state(|s| {
-            s.error = Some("Pick a source audio file first.".to_string());
-            s.status.clear();
-        });
-        state::sync_to_webview();
-        return;
-    }
-    if settings.source_text.trim().is_empty() {
-        state::with_state(|s| {
-            s.error = Some("Type the source transcript first.".to_string());
-            s.status.clear();
-        });
-        state::sync_to_webview();
-        return;
-    }
-    if settings.edit_type == "paralinguistic" && settings.target_text.trim().is_empty() {
-        state::with_state(|s| {
-            s.error = Some("Type the target text first.".to_string());
-            s.status.clear();
-        });
-        state::sync_to_webview();
-        return;
-    }
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let mut slot = CANCEL_FLAG.lock().unwrap();
-        if let Some(prev) = slot.take() {
-            prev.store(true, Ordering::SeqCst);
-        }
-        *slot = Some(cancel.clone());
-    }
-    state::with_state(|s| {
-        s.is_generating = true;
-        s.error = None;
-        s.status = "Editing audio…".to_string();
-    });
-    state::sync_to_webview();
-
-    std::thread::spawn(move || {
-        let started_at = Instant::now();
-        let result = crate::api::tts::worker::synthesize_step_audio_edit_to_wav_cancel(
-            settings.source_audio_path.clone(),
-            settings.source_text.clone(),
-            settings.edit_type.clone(),
-            settings.edit_info.clone(),
-            settings.target_text.clone(),
-            cancel,
-        );
-        match result {
-            Ok(audio) => {
-                let id = next_clip_id();
-                let label = format!("Audio Edit · {}", settings.edit_type);
-                let clip = CurrentClip {
-                    id: id.clone(),
-                    text: settings.target_text.clone(),
-                    voice_label: label.clone(),
-                    created_label: chrono::Local::now().format("%H:%M:%S").to_string(),
-                    duration_sec: audio.duration_ms as f32 / 1000.0,
-                    sample_rate: audio.sample_rate,
-                };
-                cache_put(id.clone(), audio.clone());
-                cache_method(id.clone(), TtsMethod::StepAudioEditX);
-                let total = audio.pcm_samples.len();
-                let sample_rate = audio.sample_rate;
-                let recent_limit = recent_limit();
-                state::with_state(|s| {
-                    s.recent.retain(|item| item.id != id);
-                    s.recent.insert(
-                        0,
-                        RecentClip {
-                            id: clip.id.clone(),
-                            text: clip.text.clone(),
-                            voice_label: clip.voice_label.clone(),
-                            created_label: clip.created_label.clone(),
-                            duration_sec: clip.duration_sec,
-                        },
-                    );
-                    s.recent.truncate(recent_limit);
-                    s.current = Some(clip);
-                    s.is_generating = false;
-                    s.status = format!("Edited in {}ms", started_at.elapsed().as_millis());
-                    s.position_sec = 0.0;
-                    s.is_playing = true;
-                    s.paused = false;
-                });
-                persist_recent();
-                start_pcm_playback(audio.pcm_samples.clone(), sample_rate, total, 0);
-                state::sync_to_webview();
-            }
-            Err(err) => {
-                state::with_state(|s| {
-                    s.is_generating = false;
-                    s.error = Some(err.to_string());
-                });
-                state::sync_to_webview();
-            }
-        }
-    });
-}
-
 fn start_s2s_generation() {
     let (source_path, target_language, model, voice, speed) = match crate::APP.lock() {
         Ok(app) => (
             app.config
                 .tts_playground
-                .step_audio_edit_settings
+                .source_audio
                 .source_audio_path
                 .trim()
                 .to_string(),
@@ -298,7 +186,9 @@ fn start_s2s_generation() {
         let result = decode_audio_16k_mono(&source_path)
             .and_then(|samples| {
                 crate::api::realtime_audio::s2s::run_gemini_live_s2s_batch(
-                    samples, settings, cancel,
+                    samples,
+                    settings,
+                    cancel.clone(),
                 )
                 .map_err(|error| error.to_string())
             })
@@ -333,9 +223,17 @@ fn start_s2s_generation() {
                 )))
             });
 
+        let current = CANCEL_FLAG.lock().unwrap();
+        if cancel.load(Ordering::SeqCst)
+            || !current
+                .as_ref()
+                .is_some_and(|token| Arc::ptr_eq(token, &cancel))
+        {
+            return;
+        }
         match result {
             Ok((audio, text)) => {
-                let id = next_clip_id();
+                let Some(id) = allocate_clip_id() else { return };
                 let clip = CurrentClip {
                     id: id.clone(),
                     text,
@@ -385,6 +283,21 @@ fn start_s2s_generation() {
     });
 }
 
+fn allocate_clip_id() -> Option<String> {
+    match next_clip_id() {
+        Ok(id) => Some(id),
+        Err(error) => {
+            state::with_state(|s| {
+                s.is_generating = false;
+                s.error = Some(error);
+                s.status.clear();
+            });
+            state::sync_to_webview();
+            None
+        }
+    }
+}
+
 trait AudioWithText {
     fn with_text(self, text: String) -> (Self, String)
     where
@@ -424,7 +337,7 @@ pub(super) fn cancel_generation() {
     if let Some(cancel) = CANCEL_FLAG.lock().unwrap().as_ref() {
         cancel.store(true, Ordering::SeqCst);
     }
-    TTS_MANAGER.stop();
+    super::runtime_playback::stop_owned_playback();
     state::with_state(|s| {
         s.is_generating = false;
         s.is_playing = false;
@@ -434,11 +347,10 @@ pub(super) fn cancel_generation() {
     state::sync_to_webview();
 }
 
-pub(super) fn clear_current() {
-    if let Ok(mut app) = crate::APP.lock() {
-        app.config.tts_playground.draft_text.clear();
-        crate::config::save_config(&app.config);
-    }
+pub(super) fn clear_current() -> Result<(), String> {
+    super::draft_persistence::set_draft("")?;
+    super::draft_persistence::flush().map_err(|error| error.to_string())?;
     state::with_state(|s| s.error = None);
     state::sync_to_webview();
+    Ok(())
 }

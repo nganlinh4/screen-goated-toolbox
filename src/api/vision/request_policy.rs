@@ -1,4 +1,4 @@
-use crate::api::gemini_generate::GeminiMediaResolution;
+use crate::api::gemini_live::setup::MediaResolution;
 use crate::model_config::{
     VisionInputOrder, VisionMediaResolutionPolicy, VisionRequestProfile, VisionSamplingPolicy,
 };
@@ -44,7 +44,7 @@ fn ordered_parts(
     }
 }
 
-pub(super) fn media_resolution(profile: VisionRequestProfile) -> Option<GeminiMediaResolution> {
+pub(super) fn media_resolution(profile: VisionRequestProfile) -> Option<MediaResolution> {
     match profile.media_resolution {
         VisionMediaResolutionPolicy::ProviderDefault => None,
     }
@@ -159,7 +159,6 @@ mod tests {
     fn structured_output_name(value: StructuredOutputPolicy) -> &'static str {
         match value {
             StructuredOutputPolicy::Unsupported => "unsupported",
-            StructuredOutputPolicy::PromptOnly => "prompt-only",
             StructuredOutputPolicy::JsonObject => "json-object",
             StructuredOutputPolicy::StrictJsonSchema => "strict-json-schema",
         }

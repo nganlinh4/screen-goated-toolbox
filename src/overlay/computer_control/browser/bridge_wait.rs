@@ -15,6 +15,10 @@ pub(super) struct PendingReply {
     reply: Sender<Value>,
     cancel: Option<Arc<AtomicBool>>,
     deadline: Instant,
+    effect_token: Option<String>,
+    admitted: bool,
+    cancel_notified: bool,
+    terminal_seen: bool,
 }
 
 impl PendingReply {
@@ -22,11 +26,16 @@ impl PendingReply {
         reply: Sender<Value>,
         cancel: Option<Arc<AtomicBool>>,
         deadline: Instant,
+        effect_token: Option<String>,
     ) -> Self {
         Self {
             reply,
             cancel,
             deadline,
+            effect_token,
+            admitted: false,
+            cancel_notified: false,
+            terminal_seen: false,
         }
     }
 
@@ -37,10 +46,52 @@ impl PendingReply {
     fn inactive(&self, now: Instant) -> bool {
         now >= self.deadline || cancelled(self.cancel.as_deref())
     }
+
+    pub(super) fn admission_remaining(&self, now: Instant) -> Option<u64> {
+        if self.effect_token.is_none() || self.admitted || self.inactive(now) {
+            return None;
+        }
+        let remaining = self
+            .deadline
+            .saturating_duration_since(now)
+            .as_millis()
+            .min(15_000) as u64;
+        if remaining == 0 {
+            return None;
+        }
+        Some(remaining)
+    }
+
+    pub(super) fn token(&self) -> Option<&str> {
+        self.effect_token.as_deref()
+    }
+    pub(super) fn cancel_token(&self) -> Option<Arc<AtomicBool>> {
+        self.cancel.clone()
+    }
+    pub(super) fn mark_admitted(&mut self) {
+        self.admitted = true;
+    }
+    pub(super) fn was_admitted(&self) -> bool {
+        self.admitted
+    }
+    pub(super) fn mark_terminal(&mut self) {
+        self.terminal_seen = true;
+    }
 }
 
-pub(super) fn prune_inactive(pending: &mut HashMap<u64, PendingReply>, now: Instant) {
-    pending.retain(|_, reply| !reply.inactive(now));
+pub(super) fn prune_inactive(pending: &mut HashMap<u64, PendingReply>, now: Instant) -> Vec<u64> {
+    let mut inactive = Vec::new();
+    pending.retain(|id, reply| {
+        if !reply.inactive(now) {
+            return true;
+        }
+        if !reply.cancel_notified {
+            inactive.push(*id);
+            reply.cancel_notified = true;
+        }
+        reply.admitted && !reply.terminal_seen
+    });
+    inactive
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,12 +267,64 @@ mod tests {
             (3, Arc::clone(&active), now),
         ] {
             let (tx, _rx) = std::sync::mpsc::channel();
-            pending.insert(id, PendingReply::new(tx, Some(token), deadline));
+            pending.insert(id, PendingReply::new(tx, Some(token), deadline, None));
         }
 
-        prune_inactive(&mut pending, now);
+        let mut retired = prune_inactive(&mut pending, now);
+        retired.sort_unstable();
+        assert_eq!(retired, vec![2, 3]);
 
         assert_eq!(pending.len(), 1);
         assert!(pending.contains_key(&1));
+    }
+
+    #[test]
+    fn admission_is_single_use_and_rejects_cancelled_or_expired_requests() {
+        let now = Instant::now();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut pending = PendingReply::new(
+            tx,
+            Some(Arc::clone(&cancel)),
+            now + Duration::from_secs(1),
+            Some("token".to_string()),
+        );
+        assert!(pending.admission_remaining(now).is_some());
+        pending.mark_admitted();
+        assert!(pending.admission_remaining(now).is_none());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let pending = PendingReply::new(
+            tx,
+            Some(Arc::clone(&cancel)),
+            now + Duration::from_secs(1),
+            Some("token".to_string()),
+        );
+        cancel.store(true, Ordering::SeqCst);
+        assert!(pending.admission_remaining(now).is_none());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let pending = PendingReply::new(tx, None, now, Some("token".to_string()));
+        assert!(pending.admission_remaining(now).is_none());
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let non_cdp = PendingReply::new(tx, None, now + Duration::from_secs(1), None);
+        assert!(non_cdp.admission_remaining(now).is_none());
+    }
+
+    #[test]
+    fn cancelled_admitted_request_is_retained_until_terminal_receipt() {
+        let now = Instant::now();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut item = PendingReply::new(
+            tx,
+            Some(Arc::clone(&cancel)),
+            now + Duration::from_secs(1),
+            Some("token".to_string()),
+        );
+        item.mark_admitted();
+        let mut pending = HashMap::from([(7, item)]);
+        cancel.store(true, Ordering::SeqCst);
+        assert_eq!(prune_inactive(&mut pending, now), vec![7]);
+        assert!(pending.contains_key(&7));
+        assert!(prune_inactive(&mut pending, now).is_empty());
     }
 }

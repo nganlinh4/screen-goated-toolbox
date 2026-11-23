@@ -48,9 +48,10 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
     }
     let mut dispatch_ids = HashSet::new();
     let mut job_ids = HashSet::new();
-    let mut output_paths = HashSet::new();
+    let mut output_paths = Vec::new();
+    let mut file_ids = HashSet::new();
     if store.entries.iter().any(|entry| {
-        super::validate_input(&PublishedDelivery {
+        super::validate_input_structure(&PublishedDelivery {
             product: match entry.product.as_str() {
                 "3d" => "3d",
                 "svg" => "svg",
@@ -75,7 +76,26 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
             metadata: entry.metadata.clone(),
         })
         .is_err()
-            || super::publication::validate_paths(entry).is_err()
+            || super::publication::validate_saved_paths(entry).is_err()
+            || entry.artifact_size_bytes == 0
+            || entry
+                .artifact_size_bytes
+                .checked_add(
+                    entry
+                        .companion
+                        .as_ref()
+                        .map_or(0, |side| side.artifact_size_bytes),
+                )
+                .is_none()
+            || entry
+                .publication_file_identity
+                .as_ref()
+                .is_some_and(|identity| !file_ids.insert(identity.to_ascii_lowercase()))
+            || entry
+                .companion
+                .as_ref()
+                .and_then(|side| side.file_identity.as_ref())
+                .is_some_and(|identity| !file_ids.insert(identity.to_ascii_lowercase()))
             || entry.artifact_sha256.len() != 64
             || !entry
                 .artifact_sha256
@@ -83,12 +103,13 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
                 .all(|byte| byte.is_ascii_hexdigit())
             || !dispatch_ids.insert(entry.dispatch_id.clone())
             || !job_ids.insert((entry.product.clone(), entry.job_id.clone()))
-            || super::publication::output_identity(Path::new(&entry.output_path))
-                .map(|identity| !output_paths.insert(identity))
+            || crate::overlay::creation_path::normalized_absolute(Path::new(&entry.output_path))
+                .map(|path| path.to_string_lossy().to_string())
+                .map(|identity| !reserve_output(&mut output_paths, identity))
                 .unwrap_or(true)
             || entry.companion.as_ref().is_some_and(|companion| {
                 super::companion::validate_saved(companion)
-                    .map(|identity| !output_paths.insert(identity))
+                    .map(|identity| !reserve_output(&mut output_paths, identity))
                     .unwrap_or(true)
             })
     }) {
@@ -130,6 +151,39 @@ fn validate_store(store: &DeliveryStore) -> Result<(), String> {
         return Err("Creation delivery state is invalid.".to_string());
     }
     Ok(())
+}
+
+fn reserve_output(paths: &mut Vec<String>, identity: String) -> bool {
+    if paths
+        .iter()
+        .any(|existing| crate::overlay::creation_path::same(existing, &identity).unwrap_or(true))
+    {
+        return false;
+    }
+    paths.push(identity);
+    true
+}
+
+#[cfg(all(test, windows))]
+mod ordinal_tests {
+    use super::reserve_output;
+
+    #[test]
+    fn missing_output_reservations_detect_non_ascii_case_aliases() {
+        let mut paths = Vec::new();
+        assert!(reserve_output(
+            &mut paths,
+            "C:\\creation\\rÉsumÉ.glb".to_string()
+        ));
+        assert!(!reserve_output(
+            &mut paths,
+            "C:\\creation\\résumé.GLB".to_string()
+        ));
+        assert!(reserve_output(
+            &mut paths,
+            "C:\\creation\\different.glb".to_string()
+        ));
+    }
 }
 
 pub(super) fn save_store(path: &Path, store: &DeliveryStore) -> Result<(), String> {

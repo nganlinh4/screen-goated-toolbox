@@ -13,13 +13,99 @@ import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveSessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.GeminiLiveWireFormat
 import kotlinx.coroutines.awaitCancellation
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.ArrayDeque
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.atomic.AtomicLong
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.OkHttpClient
+import okio.ForwardingSource
+import okio.buffer
 
 class GeminiTtsProviderTest {
+    @Test
+    fun `completed provider turn without audio is a playback failure`() {
+        val trace = mutableListOf<String>()
+        val ready = FakeReadySession(trace, "text", acceptText = true)
+        val connected = FakeConnectedSession { _, _ -> ready }
+        val provider = testProvider(ArrayDeque(listOf(connected)), trace)
+        val sink = LinkedBlockingDeque<ProviderAudioEvent>()
+        provider.stream(API_KEY, request(), isStale = { false }, sink = sink)
+        assertEquals(ProviderAudioEvent.End, sink.poll())
+        assertTrue(sink.isEmpty())
+        var stopped = false
+        val result = finishTtsPlayback(false, drain = { error("No audio to drain") }, stop = { stopped = true })
+        assertEquals(TtsCompletionStatus.FAILED, result)
+        assertTrue(stopped)
+    }
+
+    @Test
+    fun `retired session cannot send text after setup`() {
+        val trace = mutableListOf<String>()
+        val ready = FakeReadySession(trace, "text", acceptText = true)
+        val connected = FakeConnectedSession { _, _ -> ready }
+        val provider = testProvider(ArrayDeque(listOf(connected)), trace)
+        val sink = LinkedBlockingDeque<ProviderAudioEvent>()
+
+        var dispatches = 0
+        provider.stream(API_KEY, request().copy(runIfCurrent = { effect ->
+            if (dispatches++ == 0) { effect(); true } else false
+        }), isStale = { false }, sink = sink)
+
+        assertEquals(listOf("open-1"), trace)
+        assertEquals(1, ready.closeCount)
+        assertTrue(sink.isEmpty())
+    }
+
+    @Test
+    fun `retired session cannot send request specific setup`() {
+        val trace = mutableListOf<String>()
+        val ready = FakeReadySession(trace, "text", acceptText = true)
+        val connected = FakeConnectedSession { _, _ -> trace += "setup"; ready }
+        val provider = testProvider(ArrayDeque(listOf(connected)), trace)
+        provider.stream(API_KEY, request().copy(runIfCurrent = { false }), isStale = { false }, LinkedBlockingDeque())
+        assertEquals(listOf("open-1"), trace)
+        assertEquals(1, connected.closeCount)
+    }
+
+    @Test
+    fun `late http response is closed after abandoned handoff`() {
+        val request = Request.Builder().url("https://example.invalid/").build()
+        val call = OkHttpClient().newCall(request)
+        var closed = false
+        val original = "audio".toResponseBody()
+        val source = object : ForwardingSource(original.source()) {
+            override fun close() { closed = true; super.close() }
+        }.buffer()
+        val body = object : ResponseBody() {
+            override fun contentType() = original.contentType()
+            override fun contentLength() = original.contentLength()
+            override fun source() = source
+        }
+        val response = Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+            .code(200).message("OK").body(body).build()
+        val handoff = TtsHttpResponseHandoff()
+
+        handoff.abandon()
+        handoff.onResponse(call, response)
+
+        assertTrue(closed)
+    }
+
+    @Test
+    fun `stale dispatch does not invoke transport`() {
+        var sent = false
+        val result = dispatchTtsPayload(request(), { true }) { sent = true; true }
+        assertEquals(null, result)
+        assertFalse(sent)
+    }
+
     @Test
     fun `stale warm setup retries one fresh transport before text`() {
         val trace = mutableListOf<String>()
@@ -146,7 +232,9 @@ class GeminiTtsProviderTest {
     @Test
     fun `stale request cancels setup activation and closes warm transport`() {
         val trace = mutableListOf<String>()
+        val activationStarted = java.util.concurrent.atomic.AtomicBoolean(false)
         val warm = FakeConnectedSession { _, _ ->
+            activationStarted.set(true)
             try {
                 awaitCancellation()
             } finally {
@@ -155,13 +243,12 @@ class GeminiTtsProviderTest {
         }
         val provider = testProvider(ArrayDeque(listOf(warm)), trace)
         val sink = LinkedBlockingDeque<ProviderAudioEvent>()
-        var staleChecks = 0
 
         provider.warmUp(API_KEY)
         provider.stream(
             API_KEY,
             request(),
-            isStale = { ++staleChecks >= 4 },
+            isStale = activationStarted::get,
             sink = sink,
         )
 
@@ -216,7 +303,11 @@ class GeminiTtsProviderTest {
         override suspend fun activate(
             setupPayload: String,
             timeoutMs: Long,
-        ): GeminiLiveReadySession = activateResult(setupPayload, timeoutMs)
+            dispatchSetup: ((() -> Boolean) -> Boolean)?,
+        ): GeminiLiveReadySession {
+            if (dispatchSetup != null && !dispatchSetup { true }) error("Setup rejected")
+            return activateResult(setupPayload, timeoutMs)
+        }
 
         override fun close() {
             closeCount++

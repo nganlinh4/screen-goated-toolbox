@@ -30,7 +30,7 @@ internal class PhoneControlProtectedCheckpointHandoff(
     private var token: PhoneControlProtectedCheckpointToken? = null
     private var navigationDeadlineMs = 0L
     private var postGoalDeadlineMs = 0L
-    private var boundaryDeadlineMs = 0L
+    private var sealedDeadlineMs = 0L
     private var navigationAttempt = 0
     private var lastReadiness = "checkpoint_not_ready"
     private var structuralObserver: Closeable? = null
@@ -56,12 +56,17 @@ internal class PhoneControlProtectedCheckpointHandoff(
             }
             val now = SystemClock.elapsedRealtime()
             if (token != null) {
-                if (now >= boundaryDeadlineMs) {
+                if (phoneControlProtectedSealedDeadlineReached(now, sealedDeadlineMs)) {
                     PhoneControlLog.w(
                         TAG,
-                        "protected_checkpoint_boundary accepted=false reason=owned_action_pending",
+                        "protected_checkpoint_boundary accepted=false reason=sealed_deadline",
                     )
-                    boundaryDeadlineMs = now + BOUNDARY_WARNING_MS
+                    val sealed = token
+                    phoneControlFailSealedCheckpoint(
+                        reportFailure = { failNavigation(provider, "sealed_deadline") },
+                        abandon = { sealed?.let { checkpoint.abandon(it, runtime(), "sealed_deadline") } },
+                    )
+                    return
                 }
                 schedule(FALLBACK_CHECK_MS)
                 return
@@ -146,7 +151,8 @@ internal class PhoneControlProtectedCheckpointHandoff(
     }
 
     override fun close() {
-        cancelMonitor("service_destroyed")
+        // The service ends any checkpoint itself while it is destroyed.
+        cancelMonitor("service_destroyed", endCheckpoint = false)
     }
 
     private fun seal(provider: String) {
@@ -163,7 +169,7 @@ internal class PhoneControlProtectedCheckpointHandoff(
         }
         token = checkpointToken
         lastReadiness = "structural_evidence"
-        boundaryDeadlineMs = SystemClock.elapsedRealtime() + BOUNDARY_WARNING_MS
+        sealedDeadlineMs = SystemClock.elapsedRealtime() + SEALED_DEADLINE_MS
         PhoneControlLog.i(
             TAG,
             "protected_checkpoint_detected provider=$provider goal_id=${goalId ?: -1L}",
@@ -228,10 +234,18 @@ internal class PhoneControlProtectedCheckpointHandoff(
         handler.postDelayed(readinessCheck, delayMs)
     }
 
-    private fun cancelMonitor(reason: String) {
+    private fun cancelMonitor(reason: String, endCheckpoint: Boolean = true) {
         if (providerId == null) return
         PhoneControlLog.i(TAG, "protected_checkpoint_monitor ended=true reason=$reason")
+        if (endCheckpoint) abandonCheckpoint(reason)
         clearMonitorState()
+    }
+
+    /** A sealed checkpoint the monitor still owns must end with the monitor, never outlive it. */
+    private fun abandonCheckpoint(reason: String) {
+        val sealed = token ?: return
+        token = null
+        checkpoint.abandon(sealed, runtime(), reason)
     }
 
     private fun clearMonitorState() {
@@ -244,7 +258,7 @@ internal class PhoneControlProtectedCheckpointHandoff(
         token = null
         navigationDeadlineMs = 0L
         postGoalDeadlineMs = 0L
-        boundaryDeadlineMs = 0L
+        sealedDeadlineMs = 0L
         navigationAttempt = 0
         lastReadiness = "checkpoint_not_ready"
     }
@@ -255,9 +269,22 @@ internal class PhoneControlProtectedCheckpointHandoff(
         const val FALLBACK_CHECK_MS = 500L
         const val POST_GOAL_SETTLE_MS = 1_000L
         const val NAVIGATION_TIMEOUT_MS = 120_000L
-        const val BOUNDARY_WARNING_MS = 120_000L
+        const val SEALED_DEADLINE_MS = 120_000L
         const val MAX_NAVIGATION_ATTEMPTS = 4
     }
+}
+
+/** A sealed checkpoint whose owned action never reached its boundary ends instead of re-arming. */
+internal fun phoneControlProtectedSealedDeadlineReached(nowMs: Long, sealedDeadlineMs: Long): Boolean =
+    sealedDeadlineMs > 0L && nowMs >= sealedDeadlineMs
+
+/**
+ * A sealed checkpoint that fails reports the navigation failure first; only then
+ * does the abandon resume evidence and release any pending external goal.
+ */
+internal inline fun phoneControlFailSealedCheckpoint(reportFailure: () -> Unit, abandon: () -> Unit) {
+    reportFailure()
+    abandon()
 }
 
 internal enum class PhoneControlProtectedNavigationDecision {

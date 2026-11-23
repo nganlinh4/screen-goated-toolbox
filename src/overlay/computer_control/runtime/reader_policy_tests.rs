@@ -20,13 +20,13 @@ fn any_new_user_turn_cancels_pending_work_and_starts_fresh() {
         ..Reader::default()
     };
 
-    assert!(apply_user_turn_policy(&mut state, "new turn"));
+    assert!(apply_user_turn_policy(&mut state));
     assert!(cancel.load(Ordering::SeqCst));
     assert!(state.pending.cancelled);
     assert!(state.active);
     assert!(state.recovery_owed);
     assert!(state.ignore_stale_boundary);
-    assert!(state.reconciliation_required);
+    assert!(state.reconciliation.required());
     assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
 }
 
@@ -47,13 +47,7 @@ fn concurrent_tool_call_is_not_run_and_waits_behind_its_owner() {
         turn_id: 1,
     };
 
-    assert!(guard_tool_call(
-        &mut state,
-        "later",
-        "list_files",
-        &serde_json::json!({"path": "C:\\absolute"}),
-        action,
-    ));
+    assert!(guard_tool_call(&mut state, "later", "list_files", action,));
 
     assert_eq!(state.pending.id.as_deref(), Some("owner"));
     assert_eq!(state.immediate_tool_responses.len(), 1);
@@ -74,7 +68,7 @@ fn prior_turn_tool_call_waits_for_reconciliation_instead_of_running_or_claiming_
             cancelled: true,
             ..Pending::default()
         },
-        reconciliation_required: true,
+        reconciliation: super::super::reconciliation::Reconciliation::Unknown,
         ..Reader::default()
     };
     let action = telemetry::ActionTrace {
@@ -82,13 +76,7 @@ fn prior_turn_tool_call_waits_for_reconciliation_instead_of_running_or_claiming_
         turn_id: 5,
     };
 
-    assert!(guard_tool_call(
-        &mut state,
-        "new-done",
-        "done",
-        &serde_json::json!({"summary": "stale"}),
-        action,
-    ));
+    assert!(guard_tool_call(&mut state, "new-done", "done", action,));
     let response = &state.immediate_tool_responses[0].2;
     assert_eq!(response["status"], "blocked_prior_action_settling");
     assert_eq!(response["error"]["code"], "prior_action_settling");
@@ -106,7 +94,7 @@ fn new_user_turn_discards_buffered_responses_from_superseded_generation() {
         ..Reader::default()
     };
 
-    apply_user_turn_policy(&mut state, "new turn");
+    apply_user_turn_policy(&mut state);
 
     assert!(state.immediate_tool_responses.is_empty());
 }
@@ -162,33 +150,92 @@ fn transport_uncertainty_allows_observation_but_blocks_effects_and_done() {
         turn_id: 1,
     };
     let mut state = Reader {
-        reconciliation_required: true,
+        reconciliation: super::super::reconciliation::Reconciliation::Unknown,
         ..Reader::default()
     };
 
-    assert!(!guard_tool_call(
-        &mut state,
-        "read-id",
-        "observe",
-        &serde_json::json!({}),
-        action,
-    ));
+    assert!(!guard_tool_call(&mut state, "read-id", "observe", action,));
     assert!(guard_tool_call(
         &mut state,
         "write-id",
         "edit_text_file",
-        &serde_json::json!({}),
         action,
     ));
-    assert!(guard_tool_call(
-        &mut state,
-        "done-id",
-        "done",
-        &serde_json::json!({}),
-        action,
-    ));
+    assert!(guard_tool_call(&mut state, "done-id", "done", action,));
     assert_eq!(state.immediate_tool_responses.len(), 2);
-    assert!(state.reconciliation_required);
+    assert!(state.reconciliation.required());
+}
+
+#[test]
+fn policy_releases_matching_no_dispatch_after_browser_settles() {
+    let token = Arc::new(AtomicBool::new(false));
+    let mut state = Reader {
+        pending: Pending {
+            id: Some("owner".into()),
+            tool: Some("edit_text_file".into()),
+            cancel: Some(token.clone()),
+            ..Pending::default()
+        },
+        ..Reader::default()
+    };
+    state.reconciliation.require_pending(&state.pending);
+    state.turn_outcomes.record_transport_interruption_for(
+        "edit_text_file",
+        super::super::reconciliation::JobIdentity::from_pending(&state.pending),
+    );
+    assert!(
+        state
+            .reconciliation
+            .settle("owner", &token, true, true)
+            .is_none()
+    );
+    state.pending = Pending::default();
+    let action = telemetry::ActionTrace {
+        action_id: 1,
+        turn_id: 1,
+    };
+    assert!(guard_tool_call_with_browser(
+        &mut state,
+        "waiting",
+        "edit_text_file",
+        action,
+        true
+    ));
+    assert!(state.reconciliation.required());
+    assert!(!state.reconciliation.unresolved());
+    assert!(!guard_tool_call_with_browser(
+        &mut state,
+        "next",
+        "edit_text_file",
+        action,
+        false
+    ));
+    assert!(!state.reconciliation.required());
+    assert!(!state.turn_outcomes.has_transport_uncertainty());
+}
+
+#[test]
+fn browser_synchronization_does_not_create_a_reconciliation_obligation() {
+    let mut state = Reader::default();
+    let action = telemetry::ActionTrace {
+        action_id: 1,
+        turn_id: 1,
+    };
+    assert!(guard_tool_call_with_browser(
+        &mut state,
+        "waiting",
+        "edit_text_file",
+        action,
+        true
+    ));
+    assert!(!state.reconciliation.required());
+    assert!(!guard_tool_call_with_browser(
+        &mut state,
+        "next",
+        "edit_text_file",
+        action,
+        false
+    ));
 }
 
 #[test]
@@ -197,7 +244,6 @@ fn new_user_turn_retires_terminal_latch_and_guards_one_stale_boundary() {
         active: true,
         awaiting: true,
         reasoning: "old generation".to_string(),
-        thinking: "old thought".to_string(),
         ..Reader::default()
     };
     begin_terminal_drain(&mut state, true, false);
@@ -205,9 +251,8 @@ fn new_user_turn_retires_terminal_latch_and_guards_one_stale_boundary() {
     assert!(state.terminal_accepted);
     assert!(!state.active);
     assert!(state.reasoning.is_empty());
-    assert!(state.thinking.is_empty());
 
-    apply_user_turn_policy(&mut state, "new user turn");
+    apply_user_turn_policy(&mut state);
     assert!(state.terminal_drain);
     assert!(state.active);
     assert!(state.awaiting);
@@ -267,17 +312,13 @@ fn selected_capability_sets_lifecycle_without_parsing_user_language() {
         last_user_text: request.to_string(),
         ..Reader::default()
     };
-    apply_user_turn_policy(&mut state, request);
+    apply_user_turn_policy(&mut state);
     assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
-    refine_turn_mode(
-        &mut state,
-        "Perform the requested interface action",
-        "click_target",
-    );
+    refine_turn_mode(&mut state, "click_target");
     assert_eq!(state.turn_mode, turn_policy::TurnMode::Action);
 
     let mut observation = Reader::default();
-    refine_turn_mode(&mut observation, "", "browser_read_page");
+    refine_turn_mode(&mut observation, "browser_read_page");
     assert_eq!(observation.turn_mode, turn_policy::TurnMode::Conversation);
 }
 
@@ -289,13 +330,12 @@ fn done_reaches_the_terminal_tool_without_a_language_gate() {
         turn_mode: turn_policy::TurnMode::Conversation,
         ..Reader::default()
     };
-    refine_turn_mode(&mut state, "", "done");
+    refine_turn_mode(&mut state, "done");
     assert_eq!(state.turn_mode, turn_policy::TurnMode::Conversation);
     assert!(!guard_tool_call(
         &mut state,
         "done-id",
         "done",
-        &serde_json::json!({"summary": "answered"}),
         telemetry::ActionTrace {
             action_id: 1,
             turn_id: 1,

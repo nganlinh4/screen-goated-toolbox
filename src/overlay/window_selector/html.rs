@@ -6,9 +6,11 @@ pub fn generate_html(
     is_dark: bool,
     text: &SelectorText,
 ) -> String {
-    let entries_json = serde_json::to_string(entries)
-        .unwrap_or_else(|_| "[]".to_string())
-        .replace("</", "<\\/");
+    // Window titles come from other applications, so the data must not be
+    // able to change how the HTML parser ends this script element.
+    let entries_json = crate::overlay::utils::inline_script_json(
+        &serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string()),
+    );
 
     format!(
         r##"<!DOCTYPE html>

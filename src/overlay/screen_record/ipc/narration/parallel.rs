@@ -85,7 +85,6 @@ pub(super) fn run_gemini_subtitle_narration_parallel(
                     grouping,
                     &snapshot,
                     group_result,
-                    profile.language_code_override.as_deref(),
                 );
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -130,7 +129,6 @@ fn apply_narration_group_result(
     grouping: &SubtitleNarrationGroupingRequest,
     snapshot: &Arc<Mutex<SubtitleNarrationJobSnapshot>>,
     group_result: ParallelNarrationGroupResult,
-    language_code_override: Option<&str>,
 ) {
     let ParallelNarrationGroupResult {
         group_index,
@@ -165,19 +163,18 @@ fn apply_narration_group_result(
         ),
     }
 
+    // Silence snapping scans the whole take; do it before taking the snapshot
+    // lock that status polls wait on.
+    let result = result.map(|(path, audio, _attempts)| {
+        let split = split_group_audio_ranges(&group, &audio, grouping.vad_search_radius_sec);
+        (path, audio, split)
+    });
     let _ = update_snapshot(snapshot, |state| {
         state.completed_items += group.items.len();
         state.progress = state.completed_items as f64 / total_items.max(1) as f64;
         match result {
-            Ok((path, audio, _attempts)) => {
+            Ok((path, audio, split)) => {
                 let duration = audio.duration_ms as f64 / 1000.0;
-                let split = align_group_audio_ranges(
-                    &group,
-                    &path,
-                    &audio,
-                    language_code_override,
-                    grouping.vad_search_radius_sec,
-                );
                 let alignment_mode = split.mode.to_string();
                 let take_id = format!("{job_id}-{}", group.id);
                 for (item, range) in group.items.iter().zip(split.ranges) {

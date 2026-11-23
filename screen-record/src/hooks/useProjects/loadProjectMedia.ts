@@ -9,6 +9,7 @@ export interface LoadProjectVideoParams {
   project: Project;
   isTimelineOnlyProject: boolean;
   rawVideoPath: string;
+  isLatestRequest: () => boolean;
 }
 
 export interface LoadProjectAudioParams {
@@ -37,10 +38,12 @@ export async function loadProjectVideo({
   project,
   isTimelineOnlyProject,
   rawVideoPath,
+  isLatestRequest,
 }: LoadProjectVideoParams): Promise<string | undefined> {
   let videoObjectUrl: string | undefined;
   if (!isTimelineOnlyProject && rawVideoPath) {
     const mediaUrl = await getMediaServerUrl(rawVideoPath);
+    if (!isLatestRequest()) throw new DOMException("Video load superseded", "AbortError");
     videoObjectUrl = await controller?.loadVideo({
       videoUrl: mediaUrl,
       initialTime: project.segment.trimStart,

@@ -102,7 +102,7 @@ internal fun DonateSection(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(ShellSpacing.itemGap)) {
                     ExpressiveSettingsButton(
-                        text = "Sao chép STK",
+                        text = locale.donateActions.copyAccount,
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
                                 as ClipboardManager
@@ -111,7 +111,7 @@ internal fun DonateSection(
                         accent = accent,
                     )
                     ExpressiveSettingsButton(
-                        text = "Mở mã VietQR",
+                        text = locale.donateActions.openQr,
                         onClick = {
                             runCatching {
                                 context.startActivity(

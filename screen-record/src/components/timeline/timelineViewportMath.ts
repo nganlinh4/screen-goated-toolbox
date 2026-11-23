@@ -16,6 +16,7 @@ export const MIN_SCROLLBAR_THUMB_PX = 36;
 export interface TimelineWheelAnchor {
   anchorTime: number;
   pointerContentX: number;
+  zoom: number;
 }
 
 export function getVisibleContentWidth(viewport: HTMLDivElement): number {

@@ -90,6 +90,8 @@ export interface BakedWebcamFrame {
   roundnessPx: number;
   shadowPx: number;
   mirror: boolean;
+  /** Output pixels per preview pixel (resolveRenderScale). */
+  renderScale: number;
 }
 
 export interface ExportOptions {
@@ -112,7 +114,6 @@ export interface ExportOptions {
   segment?: VideoSegment;
   backgroundConfig?: BackgroundConfig;
   mousePositions?: MousePosition[];
-  onProgress?: (progress: number) => void;
   audio?: HTMLAudioElement;
   webcamVideo?: HTMLVideoElement;
   webcamConfig?: WebcamConfig;

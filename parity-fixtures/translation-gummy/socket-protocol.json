@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "setupBuffer": { "maxFrames": 64, "maxBytes": 1048576, "includesFirstAck": true, "overflow": "fail" },
   "setupComplete": {
     "payload": {
       "setupComplete": {}
@@ -19,6 +20,27 @@
       "setupComplete": false,
       "error": "setupComplete failed before session start"
     }
+  },
+  "setupCompleteWithContent": {
+    "payload": {
+      "setupComplete": {},
+      "serverContent": { "inputTranscription": { "text": "hello" } }
+    },
+    "expected": { "setupComplete": true, "inputTranscript": "hello", "deliveries": 1 }
+  },
+  "setupCompleteWithError": {
+    "payload": {
+      "setupComplete": {},
+      "error": { "code": 403, "message": "denied" }
+    },
+    "expected": { "acceptSetup": false }
+  },
+  "contentBeforeSetupComplete": {
+    "payloads": [
+      { "serverContent": { "inputTranscription": { "text": "first" } } },
+      { "setupComplete": {}, "serverContent": { "inputTranscription": { "text": "second" } } }
+    ],
+    "expected": { "inputTranscripts": ["first", "second"] }
   },
   "audioStreamEnd": {
     "expectedRoot": "realtimeInput",

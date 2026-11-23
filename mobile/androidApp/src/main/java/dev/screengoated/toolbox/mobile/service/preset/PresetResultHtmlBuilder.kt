@@ -2,7 +2,6 @@ package dev.screengoated.toolbox.mobile.service.preset
 
 import android.content.Context
 import dev.screengoated.toolbox.mobile.service.overlay.overlayFontCss
-import org.json.JSONObject
 
 internal data class PresetResultHtmlSettings(
     val isDark: Boolean,
@@ -16,26 +15,14 @@ internal class PresetResultHtmlBuilder(
     private val themeCssLight by lazy { asset("windows_markdown_theme_light.css") }
     private val fitScript by lazy { asset("windows_markdown_fit.js") }
     private val gridCss by lazy { asset("windows_gridjs.css") }
+    private val gridLibCss by lazy { asset("windows_gridjs_lib.css") }
+    private val gridLibJs by lazy { asset("windows_gridjs_lib.js") }
+    private val resultDomPatch by lazy { asset("windows_result_dom_patch.js") }
     private val gridInitScript by lazy { asset("windows_gridjs_init.js") }
-    val m3eCacheDir: java.io.File by lazy {
-        val dir = context.cacheDir.resolve("m3e_scripts")
-        dir.mkdirs()
-        val libFile = dir.resolve("m3e_loading_indicator.js")
-        val initFile = dir.resolve("m3e_loading_init.js")
-        if (!libFile.exists() || libFile.length() == 0L) {
-            libFile.writeText(asset("m3e_loading_indicator_1.js") + asset("m3e_loading_indicator_2.js") + "\nwindow.RoundedPolygon=RoundedPolygon;window.Morph=Morph;\n")
-        }
-        if (!initFile.exists() || initFile.length() == 0L) {
-            initFile.writeText(asset("m3e_loading_init.js"))
-        }
-        dir
+    private val loadingLib by lazy {
+        asset("m3e_loading_indicator_1.js") + asset("m3e_loading_indicator_2.js")
     }
-
-    private val gridUrls by lazy {
-        JSONObject(asset("windows_gridjs_urls.json")).let { payload ->
-            payload.getString("cssUrl") to payload.getString("jsUrl")
-        }
-    }
+    private val loadingInit by lazy { asset("m3e_loading_init.js") }
 
     fun build(settings: PresetResultHtmlSettings): String {
         val replacements = linkedMapOf(
@@ -43,8 +30,12 @@ internal class PresetResultHtmlBuilder(
             "THEME_CSS" to if (settings.isDark) themeCssDark else themeCssLight,
             "WINDOW_CHROME_CSS" to presetResultCss(settings.isDark),
             "MARKDOWN_CSS" to markdownCss,
-            "GRIDJS_CSS_URL" to gridUrls.first,
-            "GRIDJS_JS_URL" to gridUrls.second,
+            "GRIDJS_LIB_CSS" to gridLibCss,
+            "GRIDJS_LIB_JS" to gridLibJs,
+            "RESULT_DOM_PATCH_JS" to resultDomPatch,
+            "M3E_LIB_JS" to loadingLib,
+            "M3E_INIT_JS" to loadingInit,
+            "M3E_IS_DARK" to settings.isDark.toString(),
             "GRIDJS_CSS" to gridCss,
             "GRIDJS_INIT_SCRIPT" to gridInitScript,
             "FIT_SCRIPT" to fitScript,

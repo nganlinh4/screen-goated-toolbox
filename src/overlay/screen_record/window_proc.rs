@@ -11,6 +11,15 @@ use super::{
     cleanup_on_app_exit, push_settings_to_webview,
 };
 
+const WM_APP_SAFE_CLOSE: u32 = WM_USER + 114;
+thread_local! {
+    static CLOSE_ATTEMPT: std::cell::Cell<Option<super::close_show::CloseAttempt>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn take_close_attempt() -> Option<super::close_show::CloseAttempt> {
+    CLOSE_ATTEMPT.with(|attempt| attempt.take())
+}
+
 pub(super) unsafe extern "system" fn sr_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -20,6 +29,10 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
     unsafe {
         match msg {
             WM_APP_SHOW => {
+                if super::close_show::defer_show_if_closing() {
+                    return LRESULT(0);
+                }
+                super::shutdown::reopen_recording_admission();
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
                 let _ = SetFocus(Some(hwnd));
@@ -39,9 +52,92 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                 LRESULT(1) // Suppress -- WebView covers full client area
             }
             WM_CLOSE => {
-                crate::log_info!("[ScreenRecord] WM_CLOSE received; destroying window");
-                cleanup_on_app_exit();
-                let _ = DestroyWindow(hwnd);
+                let Some(attempt) = super::close_show::begin_close(hwnd.0 as isize) else {
+                    if wparam.0 != 0 {
+                        let _ = super::post_script(format!(
+                            "window.dispatchEvent(new CustomEvent('sr-shutdown-failed',{{detail:{{subtitleOverrideId:{}}}}}));",
+                            wparam.0
+                        ));
+                    }
+                    return LRESULT(0);
+                };
+                CLOSE_ATTEMPT.with(|current| current.set(Some(attempt)));
+                let override_id = wparam.0;
+                let spawned = std::thread::Builder::new()
+                    .name("recorder-close".into())
+                    .spawn(move || match super::shutdown::prepare(override_id) {
+                        Ok(owner) => {
+                            if !super::close_show::mark_prepared(attempt, owner) {
+                                super::shutdown::cancel_prepared_owner(owner);
+                                return;
+                            }
+                            if PostMessageW(
+                                Some(HWND(attempt.hwnd as *mut _)),
+                                WM_APP_SAFE_CLOSE,
+                                WPARAM(attempt.id),
+                                LPARAM(0),
+                            )
+                            .is_err()
+                            {
+                                super::shutdown::cancel_prepared_owner(owner);
+                                if matches!(super::close_show::finish_close(attempt), Some((true, _))) { super::show_screen_record(); }
+                            }
+                        }
+                        Err(error) => {
+                            crate::log_info!("[ScreenRecord] close canceled: {error:#}");
+                            let show = matches!(super::close_show::finish_close(attempt), Some((true, _)));
+                            let _ = super::post_script(format!(
+                                "window.dispatchEvent(new CustomEvent('sr-shutdown-failed',{{detail:{{subtitleOverrideId:{override_id}}}}}));"
+                            ));
+                            if show { super::show_screen_record(); }
+                        }
+                    });
+                if spawned.is_err() {
+                    let show = matches!(super::close_show::finish_close(attempt), Some((true, _)));
+                    let _ = super::post_script(format!(
+                        "window.dispatchEvent(new CustomEvent('sr-shutdown-failed',{{detail:{{subtitleOverrideId:{override_id}}}}}));"
+                    ));
+                    if show {
+                        super::show_screen_record();
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_APP_SAFE_CLOSE => {
+                let current = CLOSE_ATTEMPT.with(std::cell::Cell::get);
+                if let Some(attempt) = current
+                    .filter(|attempt| attempt.hwnd == hwnd.0 as isize && attempt.id == wparam.0)
+                    && let Some(owner) = super::close_show::prepared_owner(attempt)
+                {
+                    if super::shutdown::commit_prepared_owner(owner) {
+                        cleanup_on_app_exit();
+                        if DestroyWindow(hwnd).is_err() {
+                            super::shutdown::release_closed_window_owner(owner);
+                            if IsWindow(Some(hwnd)).as_bool() {
+                                super::shutdown::reopen_recording_admission();
+                            }
+                            let show =
+                                matches!(super::close_show::finish_close(attempt), Some((true, _)));
+                            let _ = super::post_script(
+                                "window.dispatchEvent(new Event('sr-shutdown-failed'));"
+                                    .to_string(),
+                            );
+                            if show {
+                                super::show_screen_record();
+                            }
+                        }
+                    } else {
+                        super::shutdown::release_closed_window_owner(owner);
+                        let show =
+                            matches!(super::close_show::finish_close(attempt), Some((true, _)));
+                        let _ = super::post_script(
+                            "window.dispatchEvent(new Event('sr-shutdown-failed'));".to_string(),
+                        );
+                        if show {
+                            super::show_screen_record();
+                        }
+                    }
+                }
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -79,10 +175,10 @@ pub(super) unsafe extern "system" fn sr_wnd_proc(
                     let _ = GetWindowRect(hwnd, &mut rect);
                     let w = (rect.right - rect.left).max(800);
                     let h = (rect.bottom - rect.top).max(500);
-                    {
-                        let mut app = crate::APP.lock().unwrap();
-                        app.config.screen_record_window_size = (w, h);
-                        crate::config::save_config(&app.config);
+                    if let Err(error) = super::worker_settings::notify(
+                        sgt_recorder_protocol::SettingsChange::WindowSize((w, h)),
+                    ) {
+                        crate::log_info!("[ScreenRecord] could not persist window size: {error:#}");
                     }
                 }
                 LRESULT(0)

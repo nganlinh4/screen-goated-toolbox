@@ -92,7 +92,7 @@ impl SessionCleanup {
     fn teardown(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(cancel) = self.pending_cancel.take() {
-            cancel.store(true, Ordering::SeqCst);
+            super::super::executor::request_job_cancel(&cancel);
         }
         self.executor_sender.take();
         for (name, worker) in self.workers.drain(..) {

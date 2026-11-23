@@ -2,6 +2,7 @@ package dev.screengoated.toolbox.mobile.phonecontrol.tools
 
 import dev.screengoated.toolbox.mobile.phonecontrol.capability.CapabilityState
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.PhoneControlArtifactStore
+import dev.screengoated.toolbox.mobile.phonecontrol.provider.readArtifactFileBounded
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityProviderResult
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AccessibilityTextOutcome
 import dev.screengoated.toolbox.mobile.phonecontrol.provider.accessibility.AndroidSurfaceIdentity
@@ -49,7 +50,7 @@ internal class ArtifactStoreTextResolver(
             if (file.length() > MAX_TEXT_ARTIFACT_BYTES) {
                 return TextArtifactResolution.Failure("artifact_too_large", "The text artifact is too large.")
             }
-            runCatching { file.readBytes() }.getOrElse {
+            runCatching { readArtifactFileBounded(file, MAX_TEXT_ARTIFACT_BYTES.toInt()) }.getOrElse {
                 return TextArtifactResolution.Failure("artifact_read_failed", "The text artifact could not be read.")
             }
         }

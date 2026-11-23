@@ -13,7 +13,7 @@ pub(super) struct RecordingPaths {
 }
 
 pub(super) fn prepare_recording_paths() -> std::io::Result<RecordingPaths> {
-    let app_data_dir = crate::paths::app_local_data_dir().join("recordings");
+    let app_data_dir = crate::paths::app_runtime_local_data_dir().join("recordings");
 
     std::fs::create_dir_all(&app_data_dir)?;
 
@@ -29,6 +29,10 @@ pub(super) fn prepare_recording_paths() -> std::io::Result<RecordingPaths> {
     let webcam_video_path =
         video_path.with_file_name(format!("{}_webcam.mp4", recording_stem(&video_path),));
 
+    for path in [&video_path, &mic_audio_path, &webcam_video_path] {
+        crate::overlay::screen_record::recording_journal::track(path)
+            .map_err(std::io::Error::other)?;
+    }
     Ok(RecordingPaths {
         video_path,
         mic_audio_path,

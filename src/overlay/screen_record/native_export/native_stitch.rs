@@ -32,10 +32,28 @@ pub(crate) struct StitchConfig {
     pub bitrate_kbps: u32,
 }
 
+/// Caller hooks polled once per stitched frame.
+pub(crate) struct StitchObserver<'a> {
+    pub cancelled: &'a dyn Fn() -> bool,
+    /// Receives the written fraction of all target frames, in `0.0..=1.0`.
+    pub progress: &'a dyn Fn(f64),
+}
+
+impl StitchObserver<'_> {
+    pub(crate) const UNOBSERVED: StitchObserver<'static> = StitchObserver {
+        cancelled: &|| false,
+        progress: &|_| {},
+    };
+}
+
+pub(crate) const STITCH_CANCELLED: &str = "Stitch cancelled";
+const PROGRESS_REPORT_FRAMES: u64 = 15;
+
 pub(crate) fn stitch_clips_to_mp4(
     clips: &[StitchClip<'_>],
     output_path: &Path,
     config: &StitchConfig,
+    observer: &StitchObserver<'_>,
 ) -> Result<(), String> {
     if clips.is_empty() {
         return Err("No clips to stitch".to_string());
@@ -90,12 +108,17 @@ pub(crate) fn stitch_clips_to_mp4(
     let mut frames_written = 0u64;
     let mut audio_cursor_100ns = 0i64;
     let mut timeline_cursor_100ns = 0i64;
+    let total_target_frames: u64 = clips
+        .iter()
+        .map(|clip| clip_target_frames(clip, config.framerate))
+        .sum::<u64>()
+        .max(1);
 
     for (clip_index, clip) in clips.iter().enumerate() {
         if !clip.path.exists() {
             return Err(format!("Clip source missing: {}", clip.path.display()));
         }
-        let target_frames = (clip.duration_sec.max(0.0) * config.framerate as f64).round() as u64;
+        let target_frames = clip_target_frames(clip, config.framerate);
         if target_frames == 0 {
             continue;
         }
@@ -118,6 +141,9 @@ pub(crate) fn stitch_clips_to_mp4(
         let mut clip_frames_written = 0u64;
 
         while clip_frames_written < target_frames {
+            if (observer.cancelled)() {
+                return Err(STITCH_CANCELLED.to_string());
+            }
             let Some(frame) = next_video_frame_in_presentation_order(
                 &video_decoder,
                 &mut reorder_queue,
@@ -146,6 +172,8 @@ pub(crate) fn stitch_clips_to_mp4(
                         clip_trim_start_sec: clip.trim_start_sec,
                         clip_duration_sec: clip.duration_sec,
                         clip_timeline_start_100ns: timeline_cursor_100ns,
+                        clip_end_100ns: timeline_cursor_100ns
+                            + target_frames as i64 * frame_duration_100ns,
                         audio_cursor_100ns: &mut audio_cursor_100ns,
                     },
                     video_timestamp_100ns,
@@ -168,6 +196,9 @@ pub(crate) fn stitch_clips_to_mp4(
             )?;
             frames_written += 1;
             clip_frames_written += 1;
+            if frames_written.is_multiple_of(PROGRESS_REPORT_FRAMES) {
+                (observer.progress)((frames_written as f64 / total_target_frames as f64).min(1.0));
+            }
         }
 
         let clip_end_100ns = timeline_cursor_100ns + target_frames as i64 * frame_duration_100ns;
@@ -181,6 +212,7 @@ pub(crate) fn stitch_clips_to_mp4(
                     clip_trim_start_sec: clip.trim_start_sec,
                     clip_duration_sec: clip.duration_sec,
                     clip_timeline_start_100ns: timeline_cursor_100ns,
+                    clip_end_100ns,
                     audio_cursor_100ns: &mut audio_cursor_100ns,
                 },
                 clip_end_100ns,
@@ -205,6 +237,7 @@ pub(crate) fn stitch_clips_to_mp4(
     }
 
     encoder.finalize()?;
+    (observer.progress)(1.0);
     println!(
         "[NativeStitch] Wrote {} frames in {:.3}s → {}",
         frames_written,
@@ -212,6 +245,10 @@ pub(crate) fn stitch_clips_to_mp4(
         output_path.display()
     );
     Ok(())
+}
+
+fn clip_target_frames(clip: &StitchClip<'_>, framerate: u32) -> u64 {
+    (clip.duration_sec.max(0.0) * framerate as f64).round() as u64
 }
 
 fn open_stitch_audio_decoder(path: &str, trim_start_sec: f64) -> Option<MfAudioDecoder> {
@@ -314,7 +351,39 @@ struct StitchAudioDrain<'a> {
     clip_trim_start_sec: f64,
     clip_duration_sec: f64,
     clip_timeline_start_100ns: i64,
+    /// Audio never extends past the clip's last video frame; the next clip
+    /// starts exactly here.
+    clip_end_100ns: i64,
     audio_cursor_100ns: &'a mut i64,
+}
+
+/// Which sample frames of one decoded chunk land inside the clip.
+#[derive(Debug, PartialEq, Eq)]
+struct ChunkPlacement {
+    /// Leading frames already covered by earlier audio; dropped instead of
+    /// pushing the rest of the chunk late.
+    skip_frames: u64,
+    write_frames: u64,
+}
+
+fn frames_in_100ns(duration_100ns: i64) -> u64 {
+    (duration_100ns.max(0) as u64 * AUDIO_SAMPLE_RATE as u64) / 10_000_000
+}
+
+fn place_chunk(
+    chunk_frames: u64,
+    desired_start_100ns: i64,
+    audio_cursor_100ns: i64,
+    clip_end_100ns: i64,
+) -> ChunkPlacement {
+    let skip_frames = frames_in_100ns(audio_cursor_100ns - desired_start_100ns).min(chunk_frames);
+    let start_100ns = audio_cursor_100ns.max(desired_start_100ns);
+    let write_frames =
+        (chunk_frames - skip_frames).min(frames_in_100ns(clip_end_100ns - start_100ns));
+    ChunkPlacement {
+        skip_frames,
+        write_frames,
+    }
 }
 
 fn drain_audio_until(context: StitchAudioDrain<'_>, target_100ns: i64) -> Result<(), String> {
@@ -326,6 +395,7 @@ fn drain_audio_until(context: StitchAudioDrain<'_>, target_100ns: i64) -> Result
         clip_trim_start_sec,
         clip_duration_sec,
         clip_timeline_start_100ns,
+        clip_end_100ns,
         audio_cursor_100ns,
     } = context;
     while let Some((pcm, timestamp_100ns)) = pending_audio.take() {
@@ -339,10 +409,24 @@ fn drain_audio_until(context: StitchAudioDrain<'_>, target_100ns: i64) -> Result
             let relative_100ns =
                 ((source_time_sec - clip_trim_start_sec) * 10_000_000.0).round() as i64;
             let desired_start_100ns = clip_timeline_start_100ns + relative_100ns.max(0);
-            write_silence_until(stream, encoder, desired_start_100ns, audio_cursor_100ns)?;
+            write_silence_until(
+                stream,
+                encoder,
+                desired_start_100ns.min(clip_end_100ns),
+                audio_cursor_100ns,
+            )?;
 
             if *audio_cursor_100ns <= target_100ns {
-                write_audio_chunk(stream, encoder, &pcm, audio_cursor_100ns)?;
+                let bytes_per_frame = AUDIO_CHANNELS as usize * 4;
+                let placement = place_chunk(
+                    (pcm.len() / bytes_per_frame) as u64,
+                    desired_start_100ns,
+                    *audio_cursor_100ns,
+                    clip_end_100ns,
+                );
+                let start = placement.skip_frames as usize * bytes_per_frame;
+                let end = start + placement.write_frames as usize * bytes_per_frame;
+                write_audio_chunk(stream, encoder, &pcm[start..end], audio_cursor_100ns)?;
             } else {
                 *pending_audio = Some((pcm, timestamp_100ns));
                 break;
@@ -404,3 +488,7 @@ fn write_silence_until(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "native_stitch_tests.rs"]
+mod tests;

@@ -1,16 +1,41 @@
 use super::child::CARDS;
-use super::protocol::HostCommand;
+use super::protocol::{HostCommand, SceneCard};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 pub(super) fn apply(command: &HostCommand) -> bool {
-    let mut cards = CARDS.lock().unwrap();
+    apply_to(
+        command,
+        &CARDS,
+        super::button_input::cancel_removed_card,
+        super::button_input::cancel_missing_cards,
+    )
+}
+
+fn apply_to(
+    command: &HostCommand,
+    state: &Mutex<HashMap<isize, SceneCard>>,
+    cancel_removed: impl FnOnce(isize),
+    cancel_missing: impl FnOnce(&HashMap<isize, SceneCard>),
+) -> bool {
+    if let HostCommand::Remove { id } = command {
+        // Cancellation can call native APIs that dispatch nested UI messages.
+        // Preserve its original ordering before the card is removed.
+        cancel_removed(*id);
+        state.lock().unwrap().remove(id);
+        return true;
+    }
+    if let HostCommand::Snapshot { cards } = command {
+        let snapshot: HashMap<_, _> = cards.iter().cloned().map(|card| (card.id, card)).collect();
+        *state.lock().unwrap() = snapshot.clone();
+        cancel_missing(&snapshot);
+        return true;
+    }
+    let mut cards = state.lock().unwrap();
     match command {
         HostCommand::CaptureExclusion { .. } => {}
         HostCommand::Processing { effects } => super::processing::apply(effects),
-        HostCommand::Snapshot { cards: snapshot } => {
-            cards.clear();
-            cards.extend(snapshot.iter().cloned().map(|card| (card.id, card)));
-            super::button_input::cancel_missing_cards(&cards);
-        }
+        HostCommand::Snapshot { .. } | HostCommand::Remove { .. } => unreachable!(),
         HostCommand::Upsert { card } => {
             cards.insert(card.id, card.clone());
         }
@@ -74,7 +99,6 @@ pub(super) fn apply(command: &HostCommand) -> bool {
                 }
             }
         }
-        HostCommand::ExternalDrag { active } => super::button_input::set_external_drag(*active),
         HostCommand::Theme { theme } => {
             for appearance in &theme.cards {
                 if let Some(card) = cards.get_mut(&appearance.id) {
@@ -87,18 +111,68 @@ pub(super) fn apply(command: &HostCommand) -> bool {
                 card.stack_order = *stack_order;
             }
         }
-        HostCommand::Remove { id } => {
-            super::button_input::cancel_removed_card(*id);
-            cards.remove(id);
-        }
-        HostCommand::NavigateBack { .. }
-        | HostCommand::SourceImage { .. }
+        HostCommand::SourceImage { .. }
         | HostCommand::SourceImageStatus { .. }
-        | HostCommand::NavigateForward { .. }
+        | HostCommand::ExternalDrag { .. }
         | HostCommand::Opacity { .. }
         | HostCommand::RefineText { .. }
+        | HostCommand::Locale { .. }
         | HostCommand::ApplyRevision { .. }
         | HostCommand::Shutdown => {}
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card(id: isize) -> SceneCard {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "rect": {"x": 0, "y": 0, "width": 10, "height": 10},
+            "body": "result", "document": null, "refining": false,
+            "background": "#fff", "opacity": 100, "visible": true
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn removed_card_cancellation_runs_unlocked_before_removal() {
+        let state = Mutex::new(HashMap::from([(7, card(7))]));
+        assert!(apply_to(
+            &HostCommand::Remove { id: 7 },
+            &state,
+            |id| {
+                let during = state
+                    .try_lock()
+                    .expect("cancellation must not hold the card lock");
+                assert!(during.contains_key(&id));
+            },
+            |_| panic!("unexpected snapshot callback")
+        ));
+        assert!(!state.lock().unwrap().contains_key(&7));
+    }
+
+    #[test]
+    fn snapshot_cancellation_runs_unlocked_after_snapshot_is_installed() {
+        let state = Mutex::new(HashMap::from([(7, card(7))]));
+        assert!(apply_to(
+            &HostCommand::Snapshot {
+                cards: vec![card(8)]
+            },
+            &state,
+            |_| panic!("unexpected removal callback"),
+            |snapshot| {
+                let during = state
+                    .try_lock()
+                    .expect("cancellation must not hold the card lock");
+                assert_eq!(
+                    during.keys().collect::<Vec<_>>(),
+                    snapshot.keys().collect::<Vec<_>>()
+                );
+                assert!(during.contains_key(&8));
+                assert!(!during.contains_key(&7));
+            }
+        ));
+    }
 }

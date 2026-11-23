@@ -1,97 +1,86 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use crate::gui::locale::LocaleText;
-use crate::gui::theme::AppTheme;
-use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 
+use super::component_row::{ComponentState, RowAction, RowOperations, render_component_row};
 use super::utils::{
-    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache, tool_card,
+    cached_probe, cached_u64, format_size, invalidate_probe_cache, invalidate_u64_cache,
+    start_install, start_removal, tool_card,
 };
 
 const PROBE_RECORDER: &str = "downloaded-tools:screen-recorder";
 const VALUE_RECORDER_SIZE: &str = "downloaded-tools:screen-recorder-size";
-static REMOVING: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn render_recorder_card(ui: &mut egui::Ui, text: &LocaleText) {
+    use crate::component_registry::recorder;
+
     let managed = &text.auxiliary.managed_tools;
-    let download_title = crate::component_registry::recorder::download_title();
     tool_card(ui, |ui| {
-        let theme = AppTheme::from_ui(ui);
         ui.heading(managed.tool_screen_recorder_card);
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(managed.tool_screen_recorder_payload).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let downloading = REALTIME_STATE
-                    .lock()
-                    .map(|state| state.is_downloading && state.download_title == download_title)
-                    .unwrap_or(false);
-                if REMOVING.load(Ordering::Acquire) {
-                    ui.label(managed.tool_status_removing);
-                    ui.spinner();
-                } else if downloading {
-                    let progress = REALTIME_STATE
-                        .lock()
-                        .map(|state| state.download_progress)
-                        .unwrap_or(0.0);
-                    ui.label(format!("{progress:.0}%"));
-                    ui.spinner();
-                } else if cached_probe(
-                    PROBE_RECORDER,
-                    crate::component_registry::recorder::is_installed,
-                ) {
-                    if ui
-                        .button(
-                            egui::RichText::new(text.auxiliary.managed_tools.tool_action_delete)
-                                .color(theme.danger_text()),
-                        )
-                        .clicked()
-                        && REMOVING
-                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                            .is_ok()
-                    {
-                        std::thread::spawn(|| {
-                            let _ = crate::component_registry::recorder::remove_from_manager();
-                            invalidate_probe_cache(PROBE_RECORDER);
-                            invalidate_u64_cache(VALUE_RECORDER_SIZE);
-                            REMOVING.store(false, Ordering::Release);
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(format_size(cached_u64(
-                            VALUE_RECORDER_SIZE,
-                            crate::component_registry::recorder::installed_size,
-                        )))
-                        .color(theme.success()),
-                    );
-                } else if !crate::component_registry::recorder::delivery_available() {
-                    ui.label(
-                        egui::RichText::new(managed.tool_status_unavailable)
-                            .color(theme.danger_text()),
-                    );
-                } else {
-                    if ui
-                        .button(text.auxiliary.managed_tools.tool_action_download)
-                        .clicked()
-                    {
-                        std::thread::spawn(|| {
-                            let _ = crate::component_registry::recorder::download_from_manager(
-                                Arc::new(AtomicBool::new(false)),
-                                true,
-                            );
-                            invalidate_probe_cache(PROBE_RECORDER);
-                            invalidate_u64_cache(VALUE_RECORDER_SIZE);
-                        });
-                    }
-                    ui.label(
-                        egui::RichText::new(text.auxiliary.managed_tools.tool_status_missing)
-                            .color(egui::Color32::GRAY),
-                    );
-                }
-            });
-        });
+        let state = if cached_probe(PROBE_RECORDER, recorder::is_installed) {
+            ComponentState::Installed {
+                summary: format_size(cached_u64(VALUE_RECORDER_SIZE, recorder::installed_size)),
+            }
+        } else if !recorder::delivery_available() {
+            ComponentState::Unavailable
+        } else {
+            ComponentState::Missing
+        };
+        let operations = RowOperations {
+            install: Some(recorder::BUNDLE_ID),
+            removal: PROBE_RECORDER,
+        };
+        match render_component_row(
+            ui,
+            text,
+            managed.tool_screen_recorder_payload,
+            operations,
+            state,
+        ) {
+            Some(RowAction::Install) => start_install(recorder::BUNDLE_ID, || {
+                let _ = recorder::download_from_manager(Arc::new(AtomicBool::new(false)), true);
+                invalidate_caches();
+            }),
+            Some(RowAction::Remove) => start_removal(
+                PROBE_RECORDER,
+                managed.tool_screen_recorder_card.to_string(),
+                recorder::remove_all,
+                invalidate_caches,
+            ),
+            None => {}
+        }
         ui.label(managed.tool_desc_screen_recorder);
     });
+}
+
+fn invalidate_caches() {
+    invalidate_probe_cache(PROBE_RECORDER);
+    invalidate_u64_cache(VALUE_RECORDER_SIZE);
+}
+
+#[cfg(test)]
+mod tests {
+    /// Removal start/outcome notifications have one owner, the shared
+    /// Downloaded Tools removal worker; the registry only removes.
+    #[test]
+    fn recorder_removal_is_announced_only_by_the_shared_removal_worker() {
+        let registry = include_str!("../../../../component_registry/recorder.rs");
+        for template in [
+            "removing_component_fmt",
+            "component_removed_fmt",
+            "component_remove_failed_fmt",
+        ] {
+            assert!(
+                !registry.contains(template),
+                "component_registry/recorder.rs still announces removal via {template}"
+            );
+        }
+        let row = include_str!("recorder.rs");
+        let render = &row[..row.find("#[cfg(test)]").unwrap()];
+        assert!(render.contains("start_removal("));
+        assert!(render.contains("recorder::remove_all"));
+    }
 }

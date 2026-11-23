@@ -13,18 +13,30 @@ window.__SGT_CONTROL_PLACEMENT__ = (function() {
     return window.__SGT_SOURCE_GEOMETRY__(members, scale);
   }
 
-  function workArea(anchor, monitors, fallback) {
-    // Keep a point exactly on a monitor seam on the content side of the seam.
-    const point = { x: right(anchor) - 0.01, y: bottom(anchor) - 0.01 };
+  function monitorAt(anchor, monitors) {
+    // Select the last physical pixel within the anchor, including at a monitor seam.
+    const pixel = 1 / (window.devicePixelRatio || 1);
+    const point = { x: anchor.x + Math.max(anchor.w, pixel) - pixel,
+      y: anchor.y + Math.max(anchor.h, pixel) - pixel };
     let chosen = null, nearest = Infinity;
     for (const monitor of monitors) {
       if (!valid(monitor.bounds) || !valid(monitor.work)) continue;
       const d = distance(point, monitor.bounds);
-      if (d < nearest) { chosen = monitor.work; nearest = d; }
+      if (d < nearest) { chosen = monitor; nearest = d; }
       if (point.x >= monitor.bounds.x && point.x < right(monitor.bounds)
-          && point.y >= monitor.bounds.y && point.y < bottom(monitor.bounds)) return monitor.work;
+          && point.y >= monitor.bounds.y && point.y < bottom(monitor.bounds)) return monitor;
     }
-    return chosen || fallback;
+    return chosen;
+  }
+
+  function workArea(anchor, monitors, fallback) {
+    return monitorAt(anchor, monitors)?.work || fallback;
+  }
+
+  function monitorScale(anchor, monitors) {
+    const dpi = Number(monitorAt(anchor, monitors)?.dpi);
+    const deviceScale = window.devicePixelRatio || 1;
+    return Number.isFinite(dpi) && dpi > 0 ? dpi / (96 * deviceScale) : 1 / deviceScale;
   }
 
   function preferred(anchor, size, direction) {
@@ -66,5 +78,5 @@ window.__SGT_CONTROL_PLACEMENT__ = (function() {
     return { ...(stable || best), work };
   }
 
-  return { sourceGeometry, workArea, place };
+  return { sourceGeometry, workArea, monitorScale, place };
 })();

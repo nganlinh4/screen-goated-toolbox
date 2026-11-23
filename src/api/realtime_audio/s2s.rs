@@ -10,8 +10,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 #[cfg(not(feature = "recorder-worker"))]
-use std::sync::atomic::AtomicU64;
-#[cfg(not(feature = "recorder-worker"))]
 use windows::Win32::Foundation::HWND;
 
 use crate::APP;
@@ -45,7 +43,7 @@ use super::capture::{start_mic_capture_resilient, start_per_app_capture};
 #[cfg(not(feature = "recorder-worker"))]
 use super::state::SharedRealtimeState;
 #[cfg(not(feature = "recorder-worker"))]
-use super::utils::{update_overlay_text, update_translation_text};
+use super::utils::{notify_transcript_changed, notify_translation_changed};
 #[cfg(not(feature = "recorder-worker"))]
 use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 
@@ -103,8 +101,8 @@ fn grouped_hard_timeout_ms(source_audio_ms: u128, final_attempt: bool) -> u128 {
 }
 
 #[cfg(not(feature = "recorder-worker"))]
-static S2S_PLAYBACK_COUNTER: AtomicU64 = AtomicU64::new(1);
-
+#[path = "s2s/backlog.rs"]
+pub(crate) mod backlog;
 #[path = "s2s/context.rs"]
 mod context;
 use context::{S2sContextMemory, S2sContextSnapshot};

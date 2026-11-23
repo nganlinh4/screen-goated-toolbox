@@ -2,21 +2,31 @@
 // Screen recording overlay with WebView interface.
 
 pub(crate) mod bg_download;
+mod close_show;
+mod diagnostics;
 mod embedded_assets;
 mod ipc;
 pub(crate) use ipc::run_gt_narration_test_cli;
+mod owned_file;
 mod raw_video;
+mod recording_journal;
+mod runtime_paths;
+mod shutdown;
 mod startup_trace;
+mod thumbnail;
 mod webview_setup;
 mod window_proc;
-mod worker_control;
 mod worker_audio_decode;
+mod worker_control;
+mod worker_settings;
 
 use crate::win_types::HwndWrapper;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Once, OnceLock};
+#[cfg(debug_assertions)]
+use std::sync::OnceLock;
+use std::sync::{LazyLock, Once};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -37,11 +47,12 @@ mod mf_encode;
 pub mod native_export;
 mod webcam_capture;
 mod window_capture_eligibility;
+mod window_responsiveness;
 pub mod window_selection;
 
 // Re-exports
-pub(crate) use ipc::capture_window_thumbnail;
 use ipc::handle_ipc_command;
+pub(crate) use thumbnail::capture_window_thumbnail;
 pub(crate) use worker_control::run as run_worker;
 
 // --- CONSTANTS ---
@@ -97,8 +108,10 @@ pub(crate) struct VideoDropAction {
     pub action: String,
 }
 
+#[cfg(debug_assertions)]
 static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
 
+#[cfg(debug_assertions)]
 fn is_repo_root(path: &Path) -> bool {
     path.join("Cargo.toml").exists()
         && path.join("screen-record").exists()
@@ -106,20 +119,23 @@ fn is_repo_root(path: &Path) -> bool {
 }
 
 pub(crate) fn repo_root() -> Option<PathBuf> {
-    REPO_ROOT_CACHE
-        .get_or_init(|| {
-            let mut dir = std::env::current_dir().ok()?;
-            for _ in 0..8 {
-                if is_repo_root(&dir) {
-                    return Some(dir);
+    #[cfg(debug_assertions)]
+    {
+        REPO_ROOT_CACHE
+            .get_or_init(|| {
+                let configured = PathBuf::from(std::env::var_os("SGT_RECORDER_DEV_ASSET_ROOT")?);
+                if !configured.is_absolute() {
+                    return None;
                 }
-                if !dir.pop() {
-                    break;
-                }
-            }
-            None
-        })
-        .clone()
+                let root = configured.canonicalize().ok()?;
+                is_repo_root(&root).then_some(root)
+            })
+            .clone()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
 }
 
 /// Resolve the dist/public mirror pair for a relative cursor asset path.
@@ -138,7 +154,7 @@ pub(crate) fn cursor_asset_target_paths(repo_root: &Path, rel: &str) -> [PathBuf
     ]
 }
 
-/// Serve downloaded background images from %LOCALAPPDATA%/screen-goated-toolbox/backgrounds/
+/// Serve downloaded background images from the active recorder state root.
 /// Path format: /bg-downloaded/{filename}  e.g. /bg-downloaded/warm-abstract.png
 fn try_read_downloaded_bg(path: &str) -> Option<(Vec<u8>, &'static str)> {
     let prefix = "/bg-downloaded/";
@@ -153,9 +169,7 @@ fn try_read_downloaded_bg(path: &str) -> Option<(Vec<u8>, &'static str)> {
     if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
         return None;
     }
-    let dir = dirs::data_local_dir()?
-        .join("screen-goated-toolbox")
-        .join("backgrounds");
+    let dir = runtime_paths::optional_local_data_dir()?.join("backgrounds");
     let file_path = dir.join(rel);
     let bytes = std::fs::read(&file_path).ok()?;
     let mime = if rel.ends_with(".jpg") || rel.ends_with(".jpeg") {
@@ -227,10 +241,16 @@ fn wnd_http_response(
 pub fn show_screen_record() {
     startup_trace::log("worker-show-received");
     crate::log_info!("[ScreenRecord] show_screen_record requested");
-    let capability = crate::runtime_support::require_webview2("Screen record");
+    let capability = crate::runtime_support::require_webview2(
+        crate::runtime_support::WebViewFeature::ScreenRecord,
+    );
     if !capability.is_supported() {
         crate::log_info!("[ScreenRecord] WebView2 capability unavailable");
         crate::runtime_support::notify_capability_issue(&capability);
+        return;
+    }
+
+    if close_show::defer_show_if_closing() {
         return;
     }
 
@@ -249,8 +269,14 @@ pub fn show_screen_record() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
                     if IS_WARMED_UP && !hwnd_wrapper.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                        close_show::show_or_defer(|| {
+                            let _ = PostMessageW(
+                                Some(hwnd_wrapper.0),
+                                WM_APP_SHOW,
+                                WPARAM(0),
+                                LPARAM(0),
+                            );
+                        });
                         return;
                     }
                 }
@@ -260,12 +286,17 @@ pub fn show_screen_record() {
 
         let hwnd_wrapper = std::ptr::addr_of!(SR_HWND).read();
         if !hwnd_wrapper.is_invalid() {
-            let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+            close_show::show_or_defer(|| {
+                let _ = PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+            });
         }
     }
 }
 
 pub(crate) fn is_screen_record_visible() -> bool {
+    if close_show::is_closing() {
+        return false;
+    }
     unsafe {
         let hwnd = std::ptr::addr_of!(SR_HWND).read();
         IS_WARMED_UP && !hwnd.is_invalid() && IsWindowVisible(hwnd.0).as_bool()
@@ -328,6 +359,8 @@ pub fn update_settings() {
     }
 }
 
+/// The one way to run a script in the recorder WebView. The boxed script is
+/// reclaimed when the post fails, so a closed window never leaks it.
 pub fn post_script(script: String) -> bool {
     unsafe {
         let hwnd = std::ptr::addr_of!(SR_HWND).read();
@@ -342,7 +375,7 @@ pub fn post_script(script: String) -> bool {
             WPARAM(0),
             LPARAM(raw_script as isize),
         ) {
-            println!("[ScreenRecord][MediaReset] dispatch failed: {error:?}");
+            println!("[ScreenRecord] script dispatch failed: {error:?}");
             let _ = Box::from_raw(raw_script);
             return false;
         }
@@ -373,21 +406,23 @@ pub fn cleanup_on_app_exit() {
     native_export::staging::clear_all();
     ipc::cancel_all_jobs();
     capture_border::hide_capture_border();
-    compatibility_capture::abort();
+    shutdown::with_recording_cleanup(|| {
+        compatibility_capture::abort();
 
-    engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
-    engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
-    ipc::recording_state::release_recording_state();
-    engine::ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+        engine::SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+        engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
+        ipc::recording_state::release_recording_state();
+        engine::ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
 
-    input_capture::stop_capture_and_drain();
+        input_capture::stop_capture_and_drain();
 
-    if let Some(control) = engine::ACTIVE_CAPTURE_CONTROL.lock().take() {
-        control.stop();
-    }
-    if let Some(control) = engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
-        let _ = control.stop();
-    }
+        if let Some(control) = engine::ACTIVE_CAPTURE_CONTROL.lock().take() {
+            control.stop();
+        }
+        if let Some(control) = engine::EXTERNAL_CAPTURE_CONTROL.lock().take() {
+            let _ = control.stop();
+        }
+    });
 }
 
 fn push_settings_to_webview() {
@@ -421,3 +456,7 @@ fn push_settings_to_webview() {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "worker_source_tests.rs"]
+mod worker_source_tests;

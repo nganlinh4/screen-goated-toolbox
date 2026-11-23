@@ -288,7 +288,6 @@ pub(super) fn human_type(
     };
 
     let mut prev: Option<char> = None;
-    let mut buf = [0u16; 2];
     for ch in text.chars() {
         if cancel.load(Ordering::Relaxed) {
             return Outcome::Aborted;
@@ -312,16 +311,34 @@ pub(super) fn human_type(
         }
         // Press the key (UTF-16 units) with a per-key dwell.
         let dwell = rng.normal(77.0, 22.0).clamp(35.0, 150.0) as u64;
-        for &unit in ch.encode_utf16(&mut buf).iter() {
-            if !down(unit) {
-                return Outcome::Aborted;
-            }
+        if type_utf16_char(ch, cancel, down, up, || {
             sleep(Duration::from_millis(dwell));
-            if !up(unit) {
-                return Outcome::Aborted;
-            }
+        }) == Outcome::Aborted
+        {
+            return Outcome::Aborted;
         }
         prev = Some(ch);
+    }
+    Outcome::Done
+}
+
+fn type_utf16_char(
+    ch: char,
+    cancel: &AtomicBool,
+    down: &dyn Fn(u16) -> bool,
+    up: &dyn Fn(u16) -> bool,
+    dwell: impl Fn(),
+) -> Outcome {
+    let mut buf = [0u16; 2];
+    for &unit in ch.encode_utf16(&mut buf).iter() {
+        if cancel.load(Ordering::Relaxed) || !down(unit) {
+            return Outcome::Aborted;
+        }
+        dwell();
+        // Release an admitted key even if cancellation arrived during dwell.
+        if !up(unit) {
+            return Outcome::Aborted;
+        }
     }
     Outcome::Done
 }
@@ -366,7 +383,30 @@ fn hand(c: char) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn cancellation_between_surrogates_releases_first_and_stops() {
+        let cancel = AtomicBool::new(false);
+        let events = RefCell::new(Vec::new());
+        let result = type_utf16_char(
+            '😀',
+            &cancel,
+            &|unit| {
+                events.borrow_mut().push((unit, false));
+                cancel.store(true, Ordering::Relaxed);
+                true
+            },
+            &|unit| {
+                events.borrow_mut().push((unit, true));
+                true
+            },
+            || {},
+        );
+        assert_eq!(result, Outcome::Aborted);
+        assert_eq!(*events.borrow(), vec![(0xD83D, false), (0xD83D, true)]);
+    }
 
     #[test]
     fn move_reaches_target_and_is_continuous() {

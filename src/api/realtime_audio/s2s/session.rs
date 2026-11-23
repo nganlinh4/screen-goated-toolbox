@@ -309,6 +309,9 @@ fn spawn_hedged_attempt(request: HedgedAttemptRequest, resources: HedgedAttemptR
         race_tx,
     } = resources;
     std::thread::spawn(move || {
+        if stop_signal.load(Ordering::SeqCst) || cancel_signal.load(Ordering::SeqCst) {
+            return;
+        }
         let (attempt_tx, attempt_rx) = mpsc::channel::<S2sEvent>();
         let forward_tx = race_tx.clone();
         let forwarder = std::thread::spawn(move || {
@@ -322,32 +325,37 @@ fn spawn_hedged_attempt(request: HedgedAttemptRequest, resources: HedgedAttemptR
             }
         });
 
-        let outcome = match open_fresh_socket_session(
-            session_index,
-            generation,
-            &settings,
-            &context,
-            &stop_signal,
-            Some(&cancel_signal),
-        ) {
-            Ok(mut session) => {
-                let result = process_segment(
-                    &mut session,
-                    &segment,
-                    ProcessSegmentParams {
-                        mode: settings.mode,
-                        session_index,
-                        generation,
-                        event_tx: &attempt_tx,
-                        stop_signal: &stop_signal,
-                        cancel_signal: Some(&cancel_signal),
-                        final_attempt,
-                    },
-                );
-                let _ = session.close();
-                result
+        let outcome = if stop_signal.load(Ordering::SeqCst) || cancel_signal.load(Ordering::SeqCst)
+        {
+            Ok(SegmentOutcome::RetryFresh)
+        } else {
+            match open_fresh_socket_session(
+                session_index,
+                generation,
+                &settings,
+                &context,
+                &stop_signal,
+                Some(&cancel_signal),
+            ) {
+                Ok(mut session) => {
+                    let result = process_segment(
+                        &mut session,
+                        &segment,
+                        ProcessSegmentParams {
+                            mode: settings.mode,
+                            session_index,
+                            generation,
+                            event_tx: &attempt_tx,
+                            stop_signal: &stop_signal,
+                            cancel_signal: Some(&cancel_signal),
+                            final_attempt,
+                        },
+                    );
+                    let _ = session.close();
+                    result
+                }
+                Err(err) => Err(err),
             }
-            Err(err) => Err(err),
         };
         drop(attempt_tx);
         let _ = forwarder.join();

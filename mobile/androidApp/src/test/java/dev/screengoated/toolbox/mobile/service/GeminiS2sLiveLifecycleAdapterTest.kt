@@ -336,6 +336,7 @@ class GeminiS2sLiveLifecycleAdapterTest {
         override suspend fun activate(
             setupPayload: String,
             timeoutMs: Long,
+            dispatchSetup: ((() -> Boolean) -> Boolean)?,
         ): GeminiLiveReadySession {
             assertEquals(SETUP_PAYLOAD, setupPayload)
             val activated = activation(setupPayload, timeoutMs)

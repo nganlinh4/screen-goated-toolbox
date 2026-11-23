@@ -7,7 +7,7 @@ use crate::api::client::{UREQ_RESPONSE_AGENT, record_usage_simple};
 use crate::model_config::get_model_by_id;
 use crate::overlay::screen_record::ipc::subtitles::types::SubtitleGenerationMethod;
 
-use super::groq_diagnostics::GroqTranscriptDiagnostics;
+use super::groq_diagnostics::{GroqTranscriptDiagnostics, quality_retry_model};
 use super::{
     SubtitleBackend, SubtitleBackendProgress, SubtitleBackendRequest, ends_sentence,
     join_word_tokens, normalize_groq_language_hint, normalize_subtitle_text,
@@ -214,6 +214,7 @@ fn transcribe_groq_split_attempt(
         GROQ_SILENCE_SEARCH_RADIUS_SEC,
     );
     let total_parts = chunk_ranges.len();
+    let retry_model = quality_retry_model(model_name);
     let mut all_segments = Vec::new();
     for (part_index, (start_frame, end_frame)) in chunk_ranges.into_iter().enumerate() {
         if cancel_token.load(Ordering::SeqCst) {
@@ -246,32 +247,31 @@ fn transcribe_groq_split_attempt(
         let diagnostics = transcript_diagnostics(&response);
         diagnostics.log(model_name, part_index + 1, total_parts);
 
-        // Retry a suspicious Turbo chunk once with the accurate model. Keep the
+        // Retry a suspicious chunk once on the catalog's quality model. Keep the
         // original successful transcript if the diagnostic retry itself fails.
-        if model_name == "whisper-large-v3-turbo" && diagnostics.should_retry() {
+        if let Some(retry_model) = retry_model.as_deref()
+            && diagnostics.should_retry()
+        {
             if cancel_token.load(Ordering::SeqCst) {
                 return Err(GroqRequestError::Other(
                     "Groq subtitle generation cancelled".to_string(),
                 ));
             }
             crate::log_info!(
-                "[SubtitleGen][Groq] part-retry {}/{} reason=quality model=whisper-large-v3",
+                "[SubtitleGen][Groq] part-retry {}/{} reason=quality model={}",
                 part_index + 1,
-                total_parts
+                total_parts,
+                retry_model
             );
             match transcribe_with_groq_verbose(
                 api_key,
-                "whisper-large-v3",
+                retry_model,
                 chunk_wav,
                 language_hint,
                 vocabulary,
             ) {
                 Ok(accurate) => {
-                    transcript_diagnostics(&accurate).log(
-                        "whisper-large-v3",
-                        part_index + 1,
-                        total_parts,
-                    );
+                    transcript_diagnostics(&accurate).log(retry_model, part_index + 1, total_parts);
                     response = accurate;
                 }
                 Err(error) => crate::log_info!(

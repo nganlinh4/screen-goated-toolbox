@@ -81,7 +81,10 @@ impl AudioStream {
 
         crate::log_info!(
             "[AudioStream] Added AAC stream idx={}, {}Hz {}ch @ {}kbps",
-            stream_index, config.sample_rate, config.channels, config.bitrate_kbps
+            stream_index,
+            config.sample_rate,
+            config.channels,
+            config.bitrate_kbps
         );
 
         Ok(Self { stream_index })

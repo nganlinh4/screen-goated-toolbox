@@ -19,6 +19,8 @@ internal data class PresetResultWindowRuntimeState(
     val historyBaseIndex: Int = 0,
     val isBrowsing: Boolean = false,
     val isRawHtml: Boolean = false,
+    /** The raw document currently loaded in the window, or null for the Markdown surface. */
+    val loadedRawHtml: String? = null,
     val isMarkdown: Boolean = true,
     val copySuccess: Boolean = false,
     val disabledActions: Set<String> = emptySet(),

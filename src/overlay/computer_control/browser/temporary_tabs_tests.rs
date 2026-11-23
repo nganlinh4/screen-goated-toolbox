@@ -184,10 +184,20 @@ fn moved_restore_target_is_rejected_without_changing_close_policy() {
 
 #[test]
 fn cleanup_capability_requires_complete_exact_tab_cdp_fallback() {
-    assert!(cleanup_capability_available(true, false, false));
-    assert!(cleanup_capability_available(false, true, true));
-    assert!(!cleanup_capability_available(false, true, false));
-    assert!(!cleanup_capability_available(false, false, true));
+    use super::super::capabilities::{
+        CDP, CDP_EXPLICIT_TAB, TABS_REMOVE, test_scope, unsupported_from,
+    };
+    let missing = |names: &[&str]| {
+        let _scope = test_scope::advertise(names);
+        require_cleanup_capability()
+            .err()
+            .map(|error| unsupported_from(&error).map(str::to_string))
+    };
+    assert_eq!(missing(&[TABS_REMOVE]), None);
+    assert_eq!(missing(&[CDP, CDP_EXPLICIT_TAB]), None);
+    assert_eq!(missing(&[CDP]), Some(Some(CDP_EXPLICIT_TAB.to_string())));
+    assert_eq!(missing(&[CDP_EXPLICIT_TAB]), Some(Some(CDP.to_string())));
+    assert_eq!(missing(&[]), Some(Some(CDP.to_string())));
 }
 
 #[test]

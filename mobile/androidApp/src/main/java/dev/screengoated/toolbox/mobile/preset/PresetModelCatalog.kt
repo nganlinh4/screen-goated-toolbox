@@ -3,6 +3,9 @@ package dev.screengoated.toolbox.mobile.preset
 import dev.screengoated.toolbox.mobile.shared.preset.BlockType
 
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.Collections
 
 enum class PresetModelProvider {
     GOOGLE,
@@ -13,8 +16,6 @@ enum class PresetModelProvider {
     GEMINI_LIVE,
     OLLAMA,
     QRSERVER,
-    PARAKEET,
-    MOONSHINE,
     TAALAS,
 }
 
@@ -28,8 +29,6 @@ internal fun PresetModelProvider.displayName(): String = when (this) {
     PresetModelProvider.GOOGLE_GTX -> "Google Translate"
     PresetModelProvider.OLLAMA -> "Ollama"
     PresetModelProvider.QRSERVER -> "QR"
-    PresetModelProvider.PARAKEET -> "Local"
-    PresetModelProvider.MOONSHINE -> "Moonshine"
     PresetModelProvider.TAALAS -> "Taalas"
 }
 
@@ -134,6 +133,7 @@ data class PresetModelDescriptor(
     }
 }
 
+/** Row type of the generated `GeneratedPresetModelCatalogData.knownEndpoints`. */
 internal data class KnownPresetEndpoint(
     val provider: PresetModelProvider,
     val fullName: String,
@@ -141,12 +141,19 @@ internal data class KnownPresetEndpoint(
     val enabled: Boolean,
 )
 
+internal fun snapshotCustomModels(models: List<CustomPresetModelDefinition>): List<CustomPresetModelDefinition> =
+    Collections.unmodifiableList(ArrayList(models))
+
 object PresetCustomModelRegistry {
     @Volatile
     private var customModels: List<CustomPresetModelDefinition> = emptyList()
+    private val mutableRevision = MutableStateFlow(0L)
+    internal val revision = mutableRevision.asStateFlow()
 
+    @Synchronized
     fun set(models: List<CustomPresetModelDefinition>) {
-        customModels = models
+        customModels = snapshotCustomModels(models)
+        mutableRevision.value += 1
     }
 
     fun definitions(): List<CustomPresetModelDefinition> = customModels
@@ -191,10 +198,8 @@ object PresetModelCatalog {
                     (it.fullName to it.modelType) in offered
             }
         }
-    private val selectableModels: List<PresetModelDescriptor>
-        get() = allModels.filter { it.provider != PresetModelProvider.PARAKEET }
     val models: List<PresetModelDescriptor>
-        get() = selectableModels.sortedWith(displayComparator)
+        get() = allModels.sortedWith(displayComparator)
 
     private val byId: Map<String, PresetModelDescriptor>
         get() = rawModels.associateBy { it.id }
@@ -222,13 +227,18 @@ object PresetModelCatalog {
     }
 
     fun dialogModels(): List<PresetModelDescriptor> = models
-    fun runtimeModels(): List<PresetModelDescriptor> = selectableModels
+    fun runtimeModels(): List<PresetModelDescriptor> = allModels
 
     fun isNonLlm(id: String): Boolean = getById(id)?.isNonLlm == true
 
     fun supportsSearchById(id: String): Boolean = getById(id)?.let {
         it.supportsSearchOverride ?: supportsSearch(it.provider, it.fullName)
     } ?: false
+
+    internal fun supportsTextSearch(model: PresetModelDescriptor): Boolean =
+        model.modelType == PresetModelType.TEXT &&
+            model.provider in setOf(PresetModelProvider.GOOGLE, PresetModelProvider.GROQ) &&
+            (model.supportsSearchOverride ?: supportsSearch(model.provider, model.fullName))
 
     fun searchToolEnabledByDefaultById(id: String): Boolean =
         getById(id)?.searchToolEnabledByDefault == true

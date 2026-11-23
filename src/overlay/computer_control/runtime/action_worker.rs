@@ -57,7 +57,8 @@ pub(super) fn executor_loop(
         brain.begin_job(action.turn_id, source_frame.clone(), inherit_evidence);
         let queue_ms = queued_at.elapsed().as_millis();
         let action_started = std::time::Instant::now();
-        let (response, frame) = if cancel.load(Ordering::SeqCst) {
+        let not_dispatched = cancel.load(Ordering::SeqCst);
+        let (response, frame) = if not_dispatched {
             brain.interrupt_turn(action.turn_id);
             cancelled("before_dispatch", EffectStatus::ProvenNoEffect)
         } else if name == "done" {
@@ -342,7 +343,7 @@ pub(super) fn executor_loop(
                 "injection": super::super::executor::input_injection(&response),
             }),
         );
-        let done: Done = (id, name, response, frame, cancel, action);
+        let done: Done = (id, name, response, frame, cancel, action, not_dispatched);
         if tx.send(done).is_err() {
             break;
         }

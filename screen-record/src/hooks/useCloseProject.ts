@@ -1,3 +1,5 @@
+import { closeNarrationProject } from './narrationProjectOwnership';
+import { assertAudioImportWriteAllowed } from '@/lib/audioImportWriteFence';
 import {
   useCallback,
   type Dispatch,
@@ -42,6 +44,7 @@ interface CloseProjectOptions {
   >;
   projects: {
     setCurrentProjectId: (projectId: string | null) => void;
+    cancelPendingProjectLoad?: () => void;
   };
   rawSetComposition: Dispatch<SetStateAction<ProjectComposition | null>>;
   rawSetSegment: Dispatch<SetStateAction<VideoSegment | null>>;
@@ -98,6 +101,13 @@ export function useCloseProject({
   const { t } = useSettings();
   return useCallback(async () => {
     if (isRecording || isProcessing) return false;
+    try {
+      assertAudioImportWriteAllowed(currentProjectIdRef.current ?? currentProjectId ?? '', true);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+    projects.cancelPendingProjectLoad?.();
     beginProjectInteractionShield();
     try {
       if (currentProjectId) {
@@ -115,6 +125,15 @@ export function useCloseProject({
       endProjectInteractionShield();
       return false;
     }
+    try {
+      assertAudioImportWriteAllowed(currentProjectIdRef.current ?? currentProjectId ?? '', true);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      endProjectInteractionShield();
+      return false;
+    }
+    // A new load may have started while the current project was being saved.
+    projects.cancelPendingProjectLoad?.();
     [currentVideo, currentAudio, currentMicAudio, currentWebcamVideo].forEach((url) => {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
     });
@@ -133,7 +152,7 @@ export function useCloseProject({
       setCurrentProjectData(null);
     });
     currentProjectDataRef.current = null;
-    currentProjectIdRef.current = null;
+    closeNarrationProject(currentProjectIdRef);
     projects.setCurrentProjectId(null);
     historyProjectResetRef.current = null;
     editorHistory.resetHistory({

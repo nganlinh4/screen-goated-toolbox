@@ -1,50 +1,55 @@
 //! Windows transaction boundary for exact text edits.
 
-use sha2::{Digest, Sha256};
+use crate::crypto::sha256_hex;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT,
-};
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, DELETE, FILE_DISPOSITION_INFO, FILE_GENERIC_READ,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileDispositionInfo,
-    GetFileInformationByHandle, REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
-    SetFileInformationByHandle,
+    DELETE, FILE_GENERIC_READ, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
 };
-use windows::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 use windows::core::PCWSTR;
 
-const MUTEX_WAIT_MS: u32 = 30_000;
+#[path = "text_file_cleanup.rs"]
+mod cleanup;
+use cleanup::{remove_backup, remove_if_identity};
+#[path = "text_file_mutex.rs"]
+mod path_mutex;
+use path_mutex::NamedMutexGuard;
 
-pub(super) struct EditGuard {
+pub(in crate::overlay::computer_control) struct CommitOptions<'a> {
+    pub(in crate::overlay::computer_control) max_bytes: u64,
+    pub(in crate::overlay::computer_control) cancel: &'a std::sync::atomic::AtomicBool,
+}
+
+pub(in crate::overlay::computer_control) struct EditGuard {
     _mutex: NamedMutexGuard,
     source: Option<File>,
     identity: FileIdentity,
 }
 
-pub(super) struct CurrentPathGuard {
+pub(in crate::overlay::computer_control) struct CurrentPathGuard {
     _file: File,
 }
 
-pub(super) struct StagedFile {
+pub(in crate::overlay::computer_control) struct StagedFile {
     path: PathBuf,
     file: Option<File>,
     identity: FileIdentity,
     cleanup_on_drop: bool,
 }
 
-pub(super) enum CommitOutcome {
+pub(in crate::overlay::computer_control) enum CommitOutcome {
     Verified {
         retained_backup: Option<PathBuf>,
     },
     NoEffect {
         error: String,
+        retained_staging: Option<PathBuf>,
     },
     Ambiguous {
         error: String,
@@ -52,16 +57,17 @@ pub(super) enum CommitOutcome {
         external_change_detected: bool,
         recovery_backup: Option<PathBuf>,
         recovery_sha256: Option<String>,
+        retained_staging: Option<PathBuf>,
     },
 }
 
 #[derive(Debug)]
-pub(super) struct ConcurrentChange {
-    pub(super) actual_hash: Option<String>,
+pub(in crate::overlay::computer_control) struct ConcurrentChange {
+    pub(in crate::overlay::computer_control) actual_hash: Option<String>,
 }
 
 #[derive(Debug)]
-pub(super) enum TransactionFailure {
+pub(in crate::overlay::computer_control) enum TransactionFailure {
     Busy(String),
     Missing,
     NotFile,
@@ -70,7 +76,9 @@ pub(super) enum TransactionFailure {
 }
 
 impl EditGuard {
-    pub(super) fn acquire(path: &Path) -> Result<Self, TransactionFailure> {
+    pub(in crate::overlay::computer_control) fn acquire(
+        path: &Path,
+    ) -> Result<Self, TransactionFailure> {
         let mutex = NamedMutexGuard::acquire(path)?;
         let source = open_transaction_handle(path)?;
         let identity = file_identity(&source)?;
@@ -81,7 +89,14 @@ impl EditGuard {
         })
     }
 
-    pub(super) fn read_bounded(&mut self, max_bytes: u64) -> Result<Vec<u8>, TransactionFailure> {
+    pub(in crate::overlay::computer_control) fn identity(&self) -> FileIdentity {
+        self.identity
+    }
+
+    pub(in crate::overlay::computer_control) fn read_bounded(
+        &mut self,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, TransactionFailure> {
         read_file_bounded(
             self.source
                 .as_mut()
@@ -90,15 +105,14 @@ impl EditGuard {
         )
     }
 
-    pub(super) fn validate_current(
+    pub(in crate::overlay::computer_control) fn validate_current(
         &self,
         path: &Path,
         original: &[u8],
         max_bytes: u64,
     ) -> Result<CurrentPathGuard, ConcurrentChange> {
-        let mut current = open_transaction_handle(path).map_err(|_| ConcurrentChange {
-            actual_hash: std::fs::read(path).ok().map(|bytes| sha256_hex(&bytes)),
-        })?;
+        let mut current =
+            open_transaction_handle(path).map_err(|_| ConcurrentChange { actual_hash: None })?;
         let identity =
             file_identity(&current).map_err(|_| ConcurrentChange { actual_hash: None })?;
         if identity != self.identity {
@@ -118,8 +132,8 @@ impl EditGuard {
         Ok(CurrentPathGuard { _file: current })
     }
 
-    pub(super) fn commit_audited(
-        mut self,
+    pub(in crate::overlay::computer_control) fn commit_audited(
+        self,
         path: &Path,
         current: CurrentPathGuard,
         staged: StagedFile,
@@ -127,15 +141,60 @@ impl EditGuard {
         edited: &[u8],
         max_bytes: u64,
     ) -> CommitOutcome {
+        self.commit_inner(path, current, staged, original, edited, (max_bytes, None))
+    }
+
+    pub(in crate::overlay::computer_control) fn commit_cancellable(
+        self,
+        path: &Path,
+        current: CurrentPathGuard,
+        staged: StagedFile,
+        original: &[u8],
+        edited: &[u8],
+        options: CommitOptions<'_>,
+    ) -> CommitOutcome {
+        self.commit_inner(
+            path,
+            current,
+            staged,
+            original,
+            edited,
+            (options.max_bytes, Some(options.cancel)),
+        )
+    }
+
+    fn commit_inner(
+        mut self,
+        path: &Path,
+        current: CurrentPathGuard,
+        staged: StagedFile,
+        original: &[u8],
+        edited: &[u8],
+        settings: (u64, Option<&std::sync::atomic::AtomicBool>),
+    ) -> CommitOutcome {
+        let (max_bytes, cancel) = settings;
         // ReplaceFileW rejects live handles to its operands on supported Windows
         // versions even when all share flags are present. Close only after both
         // identities and byte sequences have been captured; the atomic backup
         // below is the commit-time audit record for intervening writers.
         drop(current);
         drop(self.source.take());
+        let backup = match unique_sibling(path, "backup") {
+            Ok(path) => path,
+            Err(error) => {
+                return no_effect(error.to_string(), staged);
+            }
+        };
         let (staged_path, staged_identity) = staged.close_for_replace();
-        let backup = unique_sibling(path, "backup");
-        let replacement = replace_file(path, &staged_path, Some(&backup));
+        let replacement =
+            crate::overlay::computer_control::executor::with_job_admission(cancel, || {
+                replace_file(path, &staged_path, Some(&backup))
+            })
+            .unwrap_or_else(|| {
+                Err(windows::core::Error::from_hresult(
+                    windows::core::HRESULT::from_win32(1223),
+                ))
+            });
         if let Err(error) = replacement {
             let target_snapshot = snapshot(path, max_bytes).ok();
             let backup_snapshot = snapshot(&backup, max_bytes).ok();
@@ -156,11 +215,16 @@ impl EditGuard {
                         current.identity != self.identity || current.bytes != original
                     }
                 });
-            let _ = remove_if_identity(&staged_path, staged_identity);
-            return if unchanged {
-                let _ = remove_if_identity(&backup, self.identity);
+            let retained_staging = remove_if_identity(&staged_path, staged_identity)
+                .err()
+                .map(|_| staged_path.clone());
+            let backup_retained = unchanged
+                && backup.try_exists().unwrap_or(true)
+                && remove_backup(&backup, self.identity, original, max_bytes).is_err();
+            return if unchanged && !backup_retained {
                 CommitOutcome::NoEffect {
                     error: format!("atomic replacement failed before changing the target: {error}"),
+                    retained_staging,
                 }
             } else {
                 CommitOutcome::Ambiguous {
@@ -173,6 +237,7 @@ impl EditGuard {
                     recovery_sha256: backup_snapshot
                         .as_ref()
                         .map(|snapshot| sha256_hex(&snapshot.bytes)),
+                    retained_staging,
                 }
             };
         }
@@ -192,7 +257,7 @@ impl EditGuard {
             .as_ref()
             .is_some_and(|current| current.identity == staged_identity && current.bytes == edited);
         if old_was_validated && new_is_staged {
-            let retained_backup = remove_if_identity(&backup, self.identity)
+            let retained_backup = remove_backup(&backup, self.identity, original, max_bytes)
                 .err()
                 .and_then(|_| existing_path(&backup));
             return CommitOutcome::Verified { retained_backup };
@@ -212,6 +277,7 @@ impl EditGuard {
             external_change_detected: true,
             recovery_backup: existing_path(&backup),
             recovery_sha256,
+            retained_staging: None,
         }
     }
 }
@@ -226,72 +292,70 @@ impl Drop for StagedFile {
 }
 
 impl StagedFile {
+    pub(in crate::overlay::computer_control) fn publish_new(
+        mut self,
+        parent: &File,
+        path: &Path,
+        expected: &[u8],
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> CommitOutcome {
+        let file = self.file.as_ref().expect("owned staged file");
+        let publication =
+            crate::overlay::computer_control::executor::with_job_admission(cancel, || {
+                crate::overlay::computer_control::native_file::publish_new(
+                    file,
+                    parent,
+                    path,
+                    windows::Win32::Storage::FileSystem::VOLUME_NAME_DOS,
+                )
+            })
+            .unwrap_or_else(|| Err(anyhow::anyhow!("artifact publication cancelled")));
+        if let Err(error) = publication {
+            return no_effect(error.to_string(), self);
+        }
+        self.cleanup_on_drop = false;
+        // Retain the publishing handle: its sharing denies writes until
+        // the exact installed object and its bytes have been checked.
+        match snapshot(path, expected.len() as u64) {
+            Ok(current) if current.identity == self.identity && current.bytes == expected => {
+                CommitOutcome::Verified {
+                    retained_backup: None,
+                }
+            }
+            _ => CommitOutcome::Ambiguous {
+                error: "published file could not be verified".into(),
+                tool_mutated_file: true,
+                external_change_detected: true,
+                recovery_backup: None,
+                recovery_sha256: None,
+                retained_staging: None,
+            },
+        }
+    }
+
+    pub(in crate::overlay::computer_control) fn discard(mut self) -> std::io::Result<()> {
+        drop(self.file.take());
+        let result = remove_if_identity(&self.path, self.identity);
+        self.cleanup_on_drop = false;
+        result
+    }
+
     fn close_for_replace(mut self) -> (PathBuf, FileIdentity) {
         drop(self.file.take());
         self.cleanup_on_drop = false;
         (self.path.clone(), self.identity)
     }
 
-    #[cfg(test)]
-    pub(super) fn path(&self) -> &Path {
+    pub(in crate::overlay::computer_control) fn path(&self) -> &Path {
         &self.path
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct FileIdentity {
-    volume: u32,
-    index: u64,
-}
+pub(in crate::overlay::computer_control) use crate::overlay::computer_control::native_file::Identity as FileIdentity;
 
 struct Snapshot {
     identity: FileIdentity,
     bytes: Vec<u8>,
-}
-
-struct NamedMutexGuard {
-    handle: HANDLE,
-}
-
-impl NamedMutexGuard {
-    fn acquire(path: &Path) -> Result<Self, TransactionFailure> {
-        let normalized = path.to_string_lossy().replace('/', "\\").to_lowercase();
-        let digest = Sha256::digest(normalized.as_bytes());
-        let suffix: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-        let name: Vec<u16> = format!("Local\\SGT.CC.TextEdit.{suffix}")
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-        let handle = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }
-            .map_err(|error| TransactionFailure::Io(error.to_string()))?;
-        let wait = unsafe { WaitForSingleObject(handle, MUTEX_WAIT_MS) };
-        if wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED {
-            Ok(Self { handle })
-        } else {
-            unsafe {
-                let _ = CloseHandle(handle);
-            }
-            if wait == WAIT_TIMEOUT {
-                Err(TransactionFailure::Busy(
-                    "another exact edit still owns this path".to_string(),
-                ))
-            } else {
-                Err(TransactionFailure::Io(format!(
-                    "waiting for the path edit mutex failed with status {}",
-                    wait.0
-                )))
-            }
-        }
-    }
-}
-
-impl Drop for NamedMutexGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = ReleaseMutex(self.handle);
-            let _ = CloseHandle(self.handle);
-        }
-    }
 }
 
 fn open_transaction_handle(path: &Path) -> Result<File, TransactionFailure> {
@@ -334,34 +398,26 @@ fn read_file_bounded(file: &mut File, max_bytes: u64) -> Result<Vec<u8>, Transac
     Ok(bytes)
 }
 
-pub(super) fn file_identity(file: &File) -> Result<FileIdentity, TransactionFailure> {
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    unsafe {
-        GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info)
-            .map_err(|error| TransactionFailure::Io(error.to_string()))?;
-    }
-    Ok(FileIdentity {
-        volume: info.dwVolumeSerialNumber,
-        index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-    })
+pub(in crate::overlay::computer_control) fn file_identity(
+    file: &File,
+) -> Result<FileIdentity, TransactionFailure> {
+    FileIdentity::read(file).map_err(|error| TransactionFailure::Io(error.to_string()))
 }
 
-pub(super) fn write_synced_sibling(path: &Path, bytes: &[u8]) -> std::io::Result<StagedFile> {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    let parent = path
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("text");
+pub(in crate::overlay::computer_control) fn write_synced_sibling(
+    path: &Path,
+    bytes: &[u8],
+) -> std::io::Result<StagedFile> {
+    write_sibling_with(path, bytes, write_and_sync)
+}
+
+pub(in crate::overlay::computer_control) fn write_sibling_with(
+    path: &Path,
+    bytes: &[u8],
+    mut write: impl FnMut(&mut File, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<StagedFile> {
     for _ in 0..32 {
-        let nonce = NEXT.fetch_add(1, Ordering::SeqCst);
-        let temporary = parent.join(format!(
-            ".{name}.sgt-edit-{}-{nonce}.tmp",
-            std::process::id()
-        ));
+        let temporary = unique_sibling(path, "edit")?;
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -369,14 +425,22 @@ pub(super) fn write_synced_sibling(path: &Path, bytes: &[u8]) -> std::io::Result
             .open(&temporary)
         {
             Ok(mut file) => {
-                if let Err(error) = write_and_sync(&mut file, bytes) {
+                let identity = file_identity(&file).map_err(transaction_io_error)?;
+                let mut staged = StagedFile {
+                    path: temporary.clone(),
+                    file: None,
+                    identity,
+                    cleanup_on_drop: true,
+                };
+                if let Err(error) = write(&mut file, bytes) {
                     drop(file);
-                    let _ = std::fs::remove_file(&temporary);
                     return Err(error);
                 }
-                let identity = file_identity(&file).map_err(transaction_io_error)?;
                 drop(file);
-                let mut file = open_transaction_handle(&temporary).map_err(transaction_io_error)?;
+                let mut file = OpenOptions::new()
+                    .access_mode(FILE_GENERIC_READ.0 | DELETE.0)
+                    .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_DELETE.0)
+                    .open(&temporary)?;
                 let reopened_identity = file_identity(&file).map_err(transaction_io_error)?;
                 let readback = read_file_bounded(&mut file, bytes.len() as u64)
                     .map_err(transaction_io_error)?;
@@ -386,12 +450,8 @@ pub(super) fn write_synced_sibling(path: &Path, bytes: &[u8]) -> std::io::Result
                         "staged file identity or bytes changed before commit",
                     ));
                 }
-                return Ok(StagedFile {
-                    path: temporary,
-                    file: Some(file),
-                    identity,
-                    cleanup_on_drop: true,
-                });
+                staged.file = Some(file);
+                return Ok(staged);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
@@ -410,7 +470,10 @@ fn write_and_sync(file: &mut File, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-pub(super) fn atomic_replace(path: &Path, replacement: StagedFile) -> windows::core::Result<()> {
+pub(in crate::overlay::computer_control) fn atomic_replace(
+    path: &Path,
+    replacement: StagedFile,
+) -> windows::core::Result<()> {
     let (replacement_path, replacement_identity) = replacement.close_for_replace();
     let result = replace_file(path, &replacement_path, None);
     if result.is_err() {
@@ -458,47 +521,29 @@ fn snapshot(path: &Path, max_bytes: u64) -> Result<Snapshot, TransactionFailure>
     Ok(Snapshot { identity, bytes })
 }
 
-fn remove_if_identity(path: &Path, expected: FileIdentity) -> std::io::Result<()> {
-    let file = OpenOptions::new()
-        .access_mode(FILE_GENERIC_READ.0 | DELETE.0)
-        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0)
-        .open(path)?;
-    let actual = file_identity(&file).map_err(transaction_io_error)?;
-    if actual != expected {
-        return Err(std::io::Error::other(
-            "file identity changed before cleanup",
-        ));
-    }
-    let disposition = FILE_DISPOSITION_INFO { DeleteFile: true };
-    unsafe {
-        SetFileInformationByHandle(
-            HANDLE(file.as_raw_handle()),
-            FileDispositionInfo,
-            std::ptr::from_ref(&disposition).cast(),
-            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
-        )
-        .map_err(std::io::Error::other)?;
-    }
-    drop(file);
-    Ok(())
-}
-
 fn existing_path(path: &Path) -> Option<PathBuf> {
-    path.exists().then(|| path.to_path_buf())
+    path.try_exists()
+        .unwrap_or(true)
+        .then(|| path.to_path_buf())
 }
 
-fn unique_sibling(path: &Path, role: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(10_000);
+fn no_effect(error: String, staged: StagedFile) -> CommitOutcome {
+    let path = staged.path().to_owned();
+    let retained_staging = staged.discard().err().map(|_| path);
+    CommitOutcome::NoEffect {
+        error,
+        retained_staging,
+    }
+}
+
+fn unique_sibling(path: &Path, role: &str) -> std::io::Result<PathBuf> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("text");
-    let nonce = NEXT.fetch_add(1, Ordering::SeqCst);
-    parent.join(format!(
-        ".{name}.sgt-{role}-{}-{nonce}.tmp",
-        std::process::id()
-    ))
+    let mut nonce = [0u8; 16];
+    getrandom::fill(&mut nonce).map_err(std::io::Error::other)?;
+    Ok(parent.join(format!(
+        ".sgt-{role}-{:032x}.tmp",
+        u128::from_le_bytes(nonce)
+    )))
 }
 
 fn transaction_io_error(error: TransactionFailure) -> std::io::Error {
@@ -509,9 +554,4 @@ fn transaction_io_error(error: TransactionFailure) -> std::io::Error {
         TransactionFailure::Oversize(size) => format!("file is too large: {size} bytes"),
     };
     std::io::Error::other(message)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }

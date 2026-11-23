@@ -4,6 +4,7 @@ use std::time::Instant;
 use windows::Win32::Graphics::Direct3D12 as d3d12;
 
 use super::ComScope;
+use super::shared_slots::{PendingSurface, SubmissionGuard, receive_or_end, recycle_completed};
 use super::types::{DecodeOutput, RenderOutput, RenderThreadContext};
 
 pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), String> {
@@ -23,6 +24,7 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
         dec_keyed_mutexes,
         webcam_rx,
         webcam_gpu_recycle_tx,
+        webcam_cpu_recycle_tx,
         webcam_wgpu_textures,
         webcam_d3d12_fence,
         webcam_keyed_mutexes,
@@ -49,17 +51,22 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
     // Each entry is Some(ring_idx) for GPU-decode frames, None for CPU-decode frames.
     // GPU encode: one entry per frame, drained immediately after poll(Wait).
     // CPU encode: entries accumulate with pipelined readbacks and are drained together.
-    let mut dec_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
+    let mut dec_ring_recycle_queue: std::collections::VecDeque<Option<PendingSurface<'_>>> =
         std::collections::VecDeque::new();
-    let mut webcam_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
+    let mut webcam_ring_recycle_queue: std::collections::VecDeque<Option<PendingSurface<'_>>> =
         std::collections::VecDeque::new();
 
     let mut render_slow_count: u32 = 0;
+    // Frame index last uploaded per animated cursor slot; a tile upload also
+    // rebuilds its mip chain, so unchanged frames are not re-sent.
+    let mut uploaded_cursor_frames = vec![usize::MAX; config.animated_cursor_slots.len()];
+    let mut submitted_work = SubmissionGuard::new(compositor.failure_marker());
     loop {
+        compositor.check_health()?;
         let tw0 = Instant::now();
-        let msg = match rx.recv() {
-            Ok(m) => m,
-            Err(_) => break,
+        let msg = match receive_or_end(&rx, cancel_flag)? {
+            Some(m) => m,
+            None => break,
         };
         let wait_dur = tw0.elapsed().as_secs_f64();
         t_wait += wait_dur;
@@ -80,6 +87,7 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
         let source_time = msg.source_time();
         let source_step = msg.source_step();
         let frame_idx = msg.frame_idx();
+        submitted_work.begin();
 
         // 1. Upload video frame to GPU (GPU copy or CPU upload depending on decode path).
         //
@@ -94,13 +102,8 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
                 ..
             } => {
                 // Acquire keyed mutex on DX12 side (CPU ownership for shared texture).
-                if !dec_keyed_mutexes.is_empty() {
-                    unsafe {
-                        dec_keyed_mutexes[ring_idx]
-                            .AcquireSync(0, u32::MAX)
-                            .map_err(|e| format!("AcquireSync dec render[{ring_idx}]: {e}"))?;
-                    }
-                }
+                let mut surface =
+                    PendingSurface::acquire(dec_keyed_mutexes, ring_idx, cancel_flag)?;
 
                 // Wait on DX12 command queue for D3D11's fence Signal.
                 // This stalls DX12's GPU pipeline until D3D11 completes writing to the
@@ -108,18 +111,24 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
                 // DX12's L2 cache so subsequent reads get fresh VRAM data.
                 if let Some(fence) = dec_d3d12_fence {
                     unsafe {
-                        if let Some(hal_dev) = compositor.device().as_hal::<wgpu::hal::api::Dx12>()
-                        {
-                            let raw_queue: &d3d12::ID3D12CommandQueue =
-                                &*(hal_dev.raw_queue() as *const _);
-                            let _ = raw_queue.Wait(fence, fence_value);
-                        }
+                        let hal_dev = compositor
+                            .device()
+                            .as_hal::<wgpu::hal::api::Dx12>()
+                            .ok_or_else(|| {
+                                "DX12 queue unavailable for decoder fence".to_string()
+                            })?;
+                        let raw_queue: &d3d12::ID3D12CommandQueue =
+                            &*(hal_dev.raw_queue() as *const _);
+                        raw_queue
+                            .Wait(fence, fence_value)
+                            .map_err(|error| format!("DX12 decoder fence wait failed: {error}"))?;
                     }
                 }
 
+                surface.mark_submitted();
                 compositor.copy_frame_from_shared(&dec_wgpu_textures[ring_idx]);
 
-                dec_ring_recycle_queue.push_back(Some(ring_idx)); // recycled after poll(Wait)
+                dec_ring_recycle_queue.push_back(Some(surface)); // recycled only after completion
             }
             DecodeOutput::GpuHold { .. } => {
                 // Reuse the previously uploaded frame when the source PTS is held.
@@ -139,9 +148,8 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
         t_upload += tu0.elapsed().as_secs_f64();
 
         if let Some(webcam_rx) = webcam_rx.as_ref() {
-            let webcam_msg = webcam_rx
-                .recv()
-                .map_err(|_| "Webcam decode channel closed".to_string())?;
+            let webcam_msg = receive_or_end(webcam_rx, cancel_flag)?
+                .ok_or_else(|| "Webcam decode channel closed".to_string())?;
             if webcam_msg.frame_idx() != frame_idx {
                 return Err(format!(
                     "Webcam frame index mismatch: expected {}, got {}",
@@ -156,51 +164,69 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
                     fence_value,
                     ..
                 } => {
-                    if !webcam_keyed_mutexes.is_empty() {
-                        unsafe {
-                            webcam_keyed_mutexes[ring_idx]
-                                .AcquireSync(0, u32::MAX)
-                                .map_err(|e| {
-                                    format!("AcquireSync webcam render[{ring_idx}]: {e}")
-                                })?;
-                        }
-                    }
+                    compositor
+                        .validate_webcam_dimensions(webcam_render_width, webcam_render_height)?;
+                    let mut surface =
+                        PendingSurface::acquire(webcam_keyed_mutexes, ring_idx, cancel_flag)?;
                     if let Some(fence) = webcam_d3d12_fence {
                         unsafe {
-                            if let Some(hal_dev) =
-                                compositor.device().as_hal::<wgpu::hal::api::Dx12>()
-                            {
-                                let raw_queue: &d3d12::ID3D12CommandQueue =
-                                    &*(hal_dev.raw_queue() as *const _);
-                                let _ = raw_queue.Wait(fence, fence_value);
-                            }
+                            let hal_dev = compositor
+                                .device()
+                                .as_hal::<wgpu::hal::api::Dx12>()
+                                .ok_or_else(|| {
+                                    "DX12 queue unavailable for webcam fence".to_string()
+                                })?;
+                            let raw_queue: &d3d12::ID3D12CommandQueue =
+                                &*(hal_dev.raw_queue() as *const _);
+                            raw_queue.Wait(fence, fence_value).map_err(|error| {
+                                format!("DX12 webcam fence wait failed: {error}")
+                            })?;
                         }
                     }
+                    surface.mark_submitted();
                     compositor.copy_webcam_frame_from_shared(
                         &webcam_wgpu_textures[ring_idx],
                         webcam_render_width,
                         webcam_render_height,
                     );
-                    webcam_ring_recycle_queue.push_back(Some(ring_idx));
+                    webcam_ring_recycle_queue.push_back(Some(surface));
                 }
                 DecodeOutput::GpuHold { .. } | DecodeOutput::Inactive { .. } => {
                     webcam_ring_recycle_queue.push_back(None);
                 }
-                DecodeOutput::Cpu { .. } => {
-                    return Err("Unexpected CPU webcam decode output".to_string());
+                DecodeOutput::Cpu { bgra_video, .. } => {
+                    // CPU webcam fallback: PCIe upload into the overlay texture.
+                    compositor
+                        .validate_webcam_dimensions(webcam_render_width, webcam_render_height)?;
+                    compositor.upload_webcam_frame(
+                        &bgra_video,
+                        webcam_render_width,
+                        webcam_render_height,
+                    )?;
+                    if let Some(recycle) = webcam_cpu_recycle_tx.as_ref() {
+                        let _ = recycle.send(bgra_video);
+                    }
+                    webcam_ring_recycle_queue.push_back(None);
                 }
             }
         }
 
         // 1b. Update animated cursor atlas tiles based on current source time.
-        for slot in &config.animated_cursor_slots {
+        for (slot, uploaded) in config
+            .animated_cursor_slots
+            .iter()
+            .zip(uploaded_cursor_frames.iter_mut())
+        {
             if slot.frames.is_empty() || slot.loop_duration <= 0.0 {
                 continue;
             }
             let n = slot.frames.len();
             let t = source_time % slot.loop_duration;
             let idx = ((t / slot.loop_duration) * n as f64).floor() as usize % n;
-            compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[idx]);
+            if *uploaded != idx {
+                compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[idx]);
+                *uploaded = idx;
+            }
         }
 
         // 2. Render to output texture.
@@ -259,22 +285,18 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
         // 3. Output: GPU zero-copy or CPU readback.
         if use_gpu_encode {
             // GPU path: copy to shared VRAM texture, wait for GPU, send ring_idx.
-            let ring_idx = gpu_slot_rx
-                .recv()
-                .map_err(|_| "GPU slot recycle channel closed")?;
+            let ring_idx = match receive_or_end(&gpu_slot_rx, cancel_flag)? {
+                Some(index) => index,
+                None => break,
+            };
             let trb0 = Instant::now();
 
             // Acquire DX12-side keyed mutex before writing to the encode ring slot.
             // This cache-invalidates any stale D3D11 data and satisfies the DXGI
             // keyed-mutex contract for cross-API (DX12<->D3D11) sharing.
-            if !gpu_dx12_keyed_mutexes.is_empty() {
-                unsafe {
-                    gpu_dx12_keyed_mutexes[ring_idx]
-                        .AcquireSync(0, u32::MAX)
-                        .map_err(|e| format!("AcquireSync DX12 enc[{ring_idx}]: {e}"))?;
-                }
-            }
-
+            let mut output_surface =
+                PendingSurface::acquire(gpu_dx12_keyed_mutexes, ring_idx, cancel_flag)?;
+            output_surface.mark_submitted();
             compositor.copy_output_to_shared(&gpu_textures[ring_idx]);
 
             // Wait for all DX12 work to complete using on_submitted_work_done + poll.
@@ -283,39 +305,22 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
             compositor.queue().on_submitted_work_done(move || {
                 let _ = tx_done.send(());
             });
-            let _ = compositor
-                .device()
-                .poll(wgpu::PollType::wait_indefinitely());
-            let _ = rx_done.recv();
-
-            // Release DX12-side keyed mutex for this encode ring slot -- flushes DX12
-            // caches so D3D11 (MF encoder) sees the freshly written frame data.
-            if !gpu_dx12_keyed_mutexes.is_empty() {
-                unsafe {
-                    let _ = gpu_dx12_keyed_mutexes[ring_idx].ReleaseSync(0);
-                }
+            if let Err(error) = super::super::gpu_export::wait::wait_for_callback(
+                compositor.device(),
+                &rx_done,
+                cancel_flag,
+                || compositor.check_health(),
+            ) {
+                compositor.mark_unusable();
+                return Err(error);
             }
-
-            // Recycle decode ring slot -- GPU work is done (poll+on_submitted_work_done).
-            if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-                // Release decode keyed mutex so decode thread can re-acquire.
-                if !dec_keyed_mutexes.is_empty() {
-                    unsafe {
-                        let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                    }
-                }
-                let _ = dec_gpu_recycle_tx.send(idx);
-            }
-            if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
-                if !webcam_keyed_mutexes.is_empty() {
-                    unsafe {
-                        let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
-                    }
-                }
-                if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
-                    let _ = tx.send(idx);
-                }
-            }
+            output_surface.release_after_completion()?;
+            recycle_completed(&mut dec_ring_recycle_queue, Some(&dec_gpu_recycle_tx))?;
+            recycle_completed(
+                &mut webcam_ring_recycle_queue,
+                webcam_gpu_recycle_tx.as_ref(),
+            )?;
+            submitted_work.complete_one()?;
             t_readback += trb0.elapsed().as_secs_f64();
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
                 break;
@@ -336,26 +341,14 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
             if queued_readbacks >= 2 {
                 let trb0 = Instant::now();
                 let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
-                compositor.readback_output(&mut out_buf)?;
+                compositor.readback_output(&mut out_buf, cancel_flag)?;
                 // readback_output internally does poll(Wait) -- DX12 copy is done.
-                if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-                    if !dec_keyed_mutexes.is_empty() {
-                        unsafe {
-                            let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                        }
-                    }
-                    let _ = dec_gpu_recycle_tx.send(idx);
-                }
-                if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
-                    if !webcam_keyed_mutexes.is_empty() {
-                        unsafe {
-                            let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
-                        }
-                    }
-                    if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
-                        let _ = tx.send(idx);
-                    }
-                }
+                recycle_completed(&mut dec_ring_recycle_queue, Some(&dec_gpu_recycle_tx))?;
+                recycle_completed(
+                    &mut webcam_ring_recycle_queue,
+                    webcam_gpu_recycle_tx.as_ref(),
+                )?;
+                submitted_work.complete_one()?;
                 t_readback += trb0.elapsed().as_secs_f64();
                 queued_readbacks -= 1;
                 if tx
@@ -375,25 +368,13 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
     while queued_readbacks > 0 {
         let trb0 = Instant::now();
         let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
-        compositor.readback_output(&mut out_buf)?;
-        if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-            if !dec_keyed_mutexes.is_empty() {
-                unsafe {
-                    let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
-                }
-            }
-            let _ = dec_gpu_recycle_tx.send(idx);
-        }
-        if let Some(Some(idx)) = webcam_ring_recycle_queue.pop_front() {
-            if !webcam_keyed_mutexes.is_empty() {
-                unsafe {
-                    let _ = webcam_keyed_mutexes[idx].ReleaseSync(0);
-                }
-            }
-            if let Some(tx) = webcam_gpu_recycle_tx.as_ref() {
-                let _ = tx.send(idx);
-            }
-        }
+        compositor.readback_output(&mut out_buf, cancel_flag)?;
+        recycle_completed(&mut dec_ring_recycle_queue, Some(&dec_gpu_recycle_tx))?;
+        recycle_completed(
+            &mut webcam_ring_recycle_queue,
+            webcam_gpu_recycle_tx.as_ref(),
+        )?;
+        submitted_work.complete_one()?;
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;
         let _ = tx.send(RenderOutput::Cpu {
@@ -417,5 +398,5 @@ pub(super) fn run_render_thread(context: RenderThreadContext<'_>) -> Result<(), 
         t_wait / n * 1000.0,
     );
 
-    Ok(())
+    compositor.check_health()
 }

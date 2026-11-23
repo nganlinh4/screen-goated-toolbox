@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -27,44 +28,39 @@ import java.util.concurrent.ConcurrentHashMap
 internal data class DownloadExecutionResult(
     val filePath: String?,
     val contentUri: String? = null,
+    val quality: Int? = null,
 )
 
-internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: String) {
-    val current = _state.value.sessions.getOrNull(sessionIdx) ?: return
-    if (url == current.lastUrlAnalyzed) {
-        android.util.Log.d("SGT-DL", "analyzeUrl: SKIP same url already analyzed")
-        return
-    }
+internal suspend fun DownloaderRepository.analyzeUrl(sessionId: Int, generation: Long, url: String, control: AnalysisControl) {
+    val current = _state.value.sessions.firstOrNull { it.id == sessionId && it.analysisGeneration == generation && it.inputUrl == url } ?: return
     if (current.phase == DownloadPhase.DOWNLOADING) {
         android.util.Log.d("SGT-DL", "analyzeUrl: SKIP phase=DOWNLOADING")
         return
     }
 
     android.util.Log.d("SGT-DL", "analyzeUrl: START phase=${current.phase} formats=${current.availableFormats.size}")
-    updateSession(sessionIdx) {
-        val keepPhase = it.phase == DownloadPhase.DOWNLOADING
+    fun publish(transform: (DownloadSessionState) -> DownloadSessionState) = updateSessionById(sessionId) {
+        applyAnalysisIfCurrent(it, sessionId, generation, url, control, transform)
+    }
+    publish {
+        val keepPhase = it.phase != DownloadPhase.IDLE
         android.util.Log.d("SGT-DL", "analyzeUrl: updateSession START keepPhase=$keepPhase phase=${it.phase} formats=${it.availableFormats.size}")
         it.copy(
             isAnalyzing = true,
             phase = if (keepPhase) it.phase else DownloadPhase.ANALYZING,
-            analysisError = if (keepPhase) it.analysisError else null,
+            analysisError = null,
         )
     }
 
-    withContext(Dispatchers.IO) {
+    analysisPermits.withPermit { withContext(Dispatchers.IO) {
         try {
             android.util.Log.d("SGT-DL", "analyzeUrl: executing yt-dlp --dump-json")
             val request = YtDlpCommand(url)
             request.addOption("--dump-json")
             request.addOption("--no-download")
             request.addOption("--no-playlist")
-            val processId = "analysis_${current.id}_${System.nanoTime()}"
-            activeAnalysisProcessId = processId
-            val response = try {
-                executeYtDlp(request, processId)
-            } finally {
-                if (activeAnalysisProcessId == processId) activeAnalysisProcessId = null
-            }
+            val processId = "analysis_${current.id}_$generation"
+            val response = executeYtDlp(request, processId, analysis = control)
             val json = JSONObject(response.out)
 
             val heights = mutableSetOf<Int>()
@@ -74,8 +70,11 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
                     val fmt = formats.getJSONObject(i)
                     val vcodec = fmt.optString("vcodec", "none")
                     if (vcodec == "none" || vcodec == "images") continue
+                    // Labelled by the short side, as yt-dlp's `res` counts it.
+                    val w = fmt.optInt("width", 0)
                     val h = fmt.optInt("height", 0)
-                    if (h > 0) heights.add(h)
+                    val resolution = if (w > 0 && h > 0) minOf(w, h) else maxOf(w, h)
+                    if (resolution > 0) heights.add(resolution)
                 }
             }
             val resolutions = heights.sortedDescending().map { "${it}p" }
@@ -89,15 +88,15 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
             }
 
             android.util.Log.d("SGT-DL", "analyzeUrl: DONE resolutions=$resolutions")
-            updateSession(sessionIdx) {
-                val keepPhase = it.phase == DownloadPhase.DOWNLOADING
-                val newFormats = resolutions.ifEmpty { it.availableFormats }
+            publish {
+                val keepPhase = it.phase != DownloadPhase.ANALYZING
+                val newFormats = resolutions
                 android.util.Log.d("SGT-DL", "analyzeUrl: updateSession DONE keepPhase=$keepPhase phase=${it.phase} oldFormats=${it.availableFormats.size} newFormats=${newFormats.size}")
                 it.copy(
                     isAnalyzing = false,
                     phase = if (keepPhase) it.phase else DownloadPhase.IDLE,
                     availableFormats = newFormats,
-                    availableSubtitles = subtitles.ifEmpty { it.availableSubtitles },
+                    availableSubtitles = subtitles,
                     lastUrlAnalyzed = url,
                 )
             }
@@ -105,17 +104,17 @@ internal suspend fun DownloaderRepository.analyzeUrl(sessionIdx: Int, url: Strin
             return@withContext
         } catch (e: Exception) {
             android.util.Log.d("SGT-DL", "analyzeUrl: ERROR ${e.message}")
-            updateSession(sessionIdx) {
-                val keepPhase = it.phase == DownloadPhase.DOWNLOADING
+            publish {
+                val keepPhase = it.phase != DownloadPhase.ANALYZING
                 android.util.Log.d("SGT-DL", "analyzeUrl: updateSession ERROR keepPhase=$keepPhase phase=${it.phase} formats=${it.availableFormats.size}")
                 it.copy(
                     isAnalyzing = false,
                     phase = if (keepPhase) it.phase else DownloadPhase.IDLE,
-                    analysisError = if (keepPhase) it.analysisError else (e.message ?: "Analysis failed"),
+                    analysisError = e.message ?: "Analysis failed",
                 )
             }
         }
-    }
+    } }
 }
 
 // ── Download config ──
@@ -157,7 +156,7 @@ internal suspend fun DownloaderRepository.executeDownload(
     // Subtitles
     if (settings.useSubtitles) {
         request.addOption("--write-subs")
-        val lang = session.selectedSubtitle ?: settings.selectedSubtitle ?: "en.*,vi.*,ko.*"
+        val lang = session.selectedSubtitle ?: "en.*,vi.*,ko.*"
         request.addOption("--sub-langs", lang)
         request.addOption("--embed-subs")
     }
@@ -165,14 +164,12 @@ internal suspend fun DownloaderRepository.executeDownload(
     // Format
     when (session.downloadType) {
         DownloadType.VIDEO -> {
-            val fmt = session.selectedFormat ?: settings.lastVideoFormat
-            if (fmt != null) {
-                val height = fmt.removeSuffix("p")
-                request.addOption("-f", "bestvideo[height<=$height]+bestaudio/best[height<=$height]")
-            } else {
-                request.addOption("-f", "bestvideo+bestaudio/best")
-            }
+            request.addOption("-f", VIDEO_FORMAT_SELECTOR)
+            resolutionSort(session.selectedFormat)?.let { request.addOption("-S", it) }
             request.addOption("--merge-output-format", "mp4")
+            request.addOption("--print", COMPLETED_QUALITY_TEMPLATE)
+            request.addOption("--no-quiet")
+            request.addOption("--no-simulate")
         }
         DownloadType.AUDIO -> {
             request.addOption("-x")
@@ -182,7 +179,7 @@ internal suspend fun DownloaderRepository.executeDownload(
     }
 
     // Output path
-    request.addOption("-o", File(outputDir, "%(title)s.%(ext)s").absolutePath)
+    request.addOption("-o", File(outputDir, OUTPUT_TEMPLATE).absolutePath)
 
     // Execute with progress callback and process ID for cancellation
     var finalPath: String? = null
@@ -197,7 +194,7 @@ internal suspend fun DownloaderRepository.executeDownload(
             it.copy(progress = DownloadProgress(fraction, msg))
         }
         // Parse final filename from progress lines
-        if (line.isNotBlank()) {
+        if (line.isNotBlank() && !line.startsWith(COMPLETED_QUALITY_PREFIX)) {
             updateSession(sessionIdx) { it.copy(logs = it.logs + line) }
             val parsed = parseFilePath(line)
             if (parsed != null) {
@@ -222,10 +219,22 @@ internal suspend fun DownloaderRepository.executeDownload(
         throw Exception("Exit code: ${response.exitCode}")
     }
 
-    if (finalPath == null) return DownloadExecutionResult(null)
-    if (!usesPublicDefault) return DownloadExecutionResult(finalPath)
-    return publishToPublicDownloads(File(finalPath))
+    val quality = completedQuality(response.out)
+    if (finalPath == null || !usesPublicDefault) return DownloadExecutionResult(finalPath, quality = quality)
+    return publishToPublicDownloads(File(finalPath)).copy(quality = quality)
 }
+
+/** The title capped at 150 UTF-8 bytes: post-text titles overflow the 255-byte file name limit. */
+internal const val OUTPUT_TEMPLATE = "%(title).150B.%(ext)s"
+
+internal const val VIDEO_FORMAT_SELECTOR = "bv*+ba/b"
+
+/**
+ * A remembered quality such as "720p" as a yt-dlp preference, never a filter: a height filter fails on
+ * formats without a height and caps portrait video by its long side. `res` is the smaller dimension.
+ */
+internal fun resolutionSort(format: String?): String? =
+    format?.trim()?.removeSuffix("p")?.toIntOrNull()?.takeIf { it > 0 }?.let { "res:$it" }
 
 internal fun DownloaderRepository.getStagingDownloadDir(): File {
     return File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SGT")

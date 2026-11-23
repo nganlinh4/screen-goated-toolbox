@@ -18,6 +18,18 @@ impl std::fmt::Display for BrowserActionFailure {
 
 impl std::error::Error for BrowserActionFailure {}
 
+pub(super) fn disabled_select_failure(reason: &str) -> anyhow::Error {
+    BrowserActionFailure(serde_json::json!({
+        "ok": false,
+        "code": "ERR_BROWSER_SELECT_DISABLED",
+        "dispatch_ok": false,
+        "effect_may_have_occurred": false,
+        "error": "the select control or requested option is disabled; no selection was made",
+        "reason": reason,
+    }))
+    .into()
+}
+
 pub(super) fn stale_action_failure(
     tab_id: i64,
     selector: &str,
@@ -127,6 +139,16 @@ pub(in crate::overlay::computer_control::controller) fn step_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_selection_is_reported_as_no_effect() {
+        let error = disabled_select_failure("option_disabled");
+        let receipt = typed_value(&error).expect("typed disabled selection");
+        assert_eq!(receipt["code"], "ERR_BROWSER_SELECT_DISABLED");
+        assert_eq!(receipt["dispatch_ok"], false);
+        assert_eq!(receipt["effect_may_have_occurred"], false);
+        assert_eq!(receipt["reason"], "option_disabled");
+    }
 
     #[test]
     fn typed_stale_evidence_survives_anyhow_transport() {

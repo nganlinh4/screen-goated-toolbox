@@ -3,10 +3,6 @@ use super::arguments::StartupArgs;
 pub(super) const EXPORT_REPLAY_FLAG: &str = "--sr-export-replay";
 pub(super) const EXPORT_REPLAY_LAST_FLAG: &str = "--sr-export-replay-last";
 
-pub(crate) fn is_requested(args: &StartupArgs) -> bool {
-    args.has(EXPORT_REPLAY_FLAG) || args.has(EXPORT_REPLAY_LAST_FLAG)
-}
-
 pub(crate) fn run(args: &StartupArgs) -> Option<i32> {
     let replay_path = absolute_replay_path(&resolve_replay_path(args)?);
 

@@ -27,11 +27,25 @@ async function createCanvasVideoUrl(page: Page) {
       recorder.onstop = () => resolve();
     });
     recorder.start();
+    // Capture a frame after recording starts; the initial paint may precede
+    // the recorder's first sample when the page is under load.
+    context.fillStyle = "#ffffff";
+    context.fillText("CROP FRAME", 74, 120);
     await new Promise((resolve) => window.setTimeout(resolve, 250));
     recorder.stop();
     await stopped;
     stream.getTracks().forEach((track) => track.stop());
-    return URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
+    const url = URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
+    const video = document.createElement("video");
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("Synthetic video could not be decoded"));
+      video.src = url;
+    });
+    if (video.videoWidth !== 1280 || video.videoHeight !== 720) {
+      throw new Error("Synthetic video has unexpected dimensions");
+    }
+    return url;
   });
 }
 

@@ -45,7 +45,6 @@ internal data class CreationPendingStorageReservations(
 internal fun creationStorageRequirements(
     sourceSnapshotBytes: Long,
     resultBytes: Long,
-    managedDestination: Boolean,
     pendingInternalBytes: Long = 0L,
     pendingDestinationBytes: Long = 0L,
 ): CreationStorageRequirements {
@@ -53,17 +52,12 @@ internal fun creationStorageRequirements(
     require(resultBytes >= 0L)
     require(pendingInternalBytes >= 0L)
     require(pendingDestinationBytes >= 0L)
-    val staging = creationSaturatingBytes(sourceSnapshotBytes, resultBytes)
     return CreationStorageRequirements(
         internalBytes = creationSaturatingBytes(
             pendingInternalBytes,
-            if (managedDestination) creationSaturatingBytes(staging, resultBytes) else staging,
+            creationSaturatingBytes(sourceSnapshotBytes, resultBytes),
         ),
-        destinationBytes = if (managedDestination) {
-            pendingDestinationBytes
-        } else {
-            creationSaturatingBytes(pendingDestinationBytes, resultBytes)
-        },
+        destinationBytes = creationSaturatingBytes(pendingDestinationBytes, resultBytes),
     )
 }
 
@@ -214,7 +208,6 @@ internal fun creationPressurePruneBudget(
 internal fun maximumCreationResultBytes(tool: CreationTool): Long = when (tool) {
     CreationTool.IMAGE_TO_3D -> CreationContract.MAXIMUM_GLB_ARTIFACT_BYTES
     CreationTool.IMAGE_TO_SVG -> CreationContract.MAXIMUM_SVG_ARTIFACT_BYTES
-    CreationTool.IMAGE_CREATOR -> CreationContract.MAXIMUM_IMAGE_ARTIFACT_BYTES
 }
 
 internal fun creationExternalStorageAccepted(

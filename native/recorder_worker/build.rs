@@ -2,14 +2,8 @@
 mod creation_delivery;
 #[path = "../../build_support/delivery_channel.rs"]
 mod delivery_channel;
-#[path = "../../build_support/local_asr_delivery.rs"]
-mod local_asr_delivery;
 #[path = "../../build_support/model_catalog.rs"]
 mod model_catalog;
-#[path = "../../build_support/qwen_runtime_delivery.rs"]
-mod qwen_runtime_delivery;
-#[path = "../../build_support/vc_runtime_delivery.rs"]
-mod vc_runtime_delivery;
 #[path = "../../build_support/web_asset_delivery.rs"]
 mod web_asset_delivery;
 
@@ -25,11 +19,6 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     println!("cargo::rustc-check-cfg=cfg(nopack)");
     delivery_channel::configure_build();
-    delivery_channel::copy_selected_manifest(
-        repo,
-        "model-delivery/windows-v1.json",
-        &out.join("windows_model_delivery.json"),
-    );
     let model_catalog_output = out.join("model_catalog_generated.rs");
     model_catalog::generate(
         &repo.join("catalog/model_catalog.json"),
@@ -38,14 +27,21 @@ fn main() {
     );
     mark_host_only_catalog_items(&model_catalog_output);
     creation_delivery::generate(repo, &out);
-    local_asr_delivery::generate(repo, &out);
-    qwen_runtime_delivery::generate(repo, &out);
-    vc_runtime_delivery::generate(repo, &out);
     web_asset_delivery::generate(repo, &out);
     println!(
         "cargo:rerun-if-changed={}",
         repo.join("catalog/model_catalog.json").display()
     );
+    for generator in [
+        "model_catalog.rs",
+        "model_catalog_realtime.rs",
+        "model_catalog_retry.rs",
+    ] {
+        println!(
+            "cargo:rerun-if-changed={}",
+            repo.join("build_support").join(generator).display()
+        );
+    }
     println!(
         "cargo:rerun-if-changed={}",
         repo.join("component-catalog/catalog-v1.json").display()
@@ -61,8 +57,6 @@ fn mark_host_only_catalog_items(output: &Path) {
         "GEMINI_LIVE_AUDIO_MODEL_ID_2_5",
         "GEMINI_LIVE_AUDIO_MODEL_ID_3_1",
         "GEMINI_LIVE_TRANSLATE_MODEL_ID",
-        "QWEN3_ASR_0_6B_MODEL_ID",
-        "QWEN3_ASR_1_7B_MODEL_ID",
         "REALTIME_TRANSLATION_MODEL_GTX",
         "HELP_ASSISTANT_MODEL_CHAIN_IDS",
         "COMPUTER_CONTROL_GROUNDING_MODEL_CHAIN_IDS",

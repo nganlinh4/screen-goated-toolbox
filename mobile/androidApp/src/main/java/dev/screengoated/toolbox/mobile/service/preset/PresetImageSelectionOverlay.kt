@@ -161,9 +161,14 @@ internal class PresetImageSelectionOverlay(
         }
     }
 
-    fun destroy() {
+    fun destroy(): Boolean {
+        root.animate().cancel()
+        if (root.parent != null || root.isAttachedToWindow) {
+            runCatching { overlayWm.removeViewImmediate(root) }
+        }
+        if (root.parent != null || root.isAttachedToWindow) return false
         selectionView.destroy()
-        runCatching { overlayWm.removeViewImmediate(root) }
+        return true
     }
 
     private companion object {

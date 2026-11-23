@@ -1,8 +1,11 @@
 import copy
 import importlib.util
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "package_web_assets.py"
@@ -51,6 +54,26 @@ class VerifiedAssetReuseTest(unittest.TestCase):
 
         self.assertEqual(original, current)
         self.assertEqual("5.5.0", descriptor["version"])
+
+
+class OutputDirectoryTest(unittest.TestCase):
+    def test_default_output_is_a_managed_cache_job_not_the_checkout(self):
+        with tempfile.TemporaryDirectory() as cache, tempfile.TemporaryDirectory() as repo:
+            with mock.patch.dict(os.environ, {"SGT_DEV_CACHE_ROOT": cache}):
+                output = MODULE.resolve_output_dir(Path(repo), None)
+            jobs = Path(cache).resolve() / "packages" / "jobs" / "web-assets"
+            self.assertEqual(jobs, output.parent)
+            self.assertFalse(output.is_relative_to(Path(repo).resolve()))
+
+    def test_explicit_output_is_kept_inside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as cache, tempfile.TemporaryDirectory() as repo:
+            explicit = Path(cache) / "packages" / "release" / "sgt_web_assets"
+            with mock.patch.dict(os.environ, {"SGT_DEV_CACHE_ROOT": cache}):
+                self.assertEqual(
+                    explicit.resolve(), MODULE.resolve_output_dir(Path(repo), str(explicit))
+                )
+                with self.assertRaises(ValueError):
+                    MODULE.resolve_output_dir(Path(repo), str(Path(cache) / "elsewhere"))
 
 
 if __name__ == "__main__":

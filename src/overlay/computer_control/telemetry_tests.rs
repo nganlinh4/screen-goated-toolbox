@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn runtime_fields_cannot_supply_global_correlation_headers() {
+    let fields =
+        json!({"action_id": 987654321, "step_id": 987654321, "session_id": "private source"});
+    let unowned = event_record(
+        "observation",
+        "capture",
+        Privacy::Safe,
+        None,
+        fields.clone(),
+    );
+    assert!(unowned["action_id"].is_null());
+    let global = privacy::encode_records(&unowned, Privacy::Safe)
+        .global
+        .unwrap();
+    assert!(!global.contains("987654321"));
+    assert!(!global.contains("private source"));
+    let owned = event_record(
+        "observation",
+        "capture",
+        Privacy::Safe,
+        Some(ActionTrace {
+            action_id: 7,
+            turn_id: 8,
+        }),
+        fields,
+    );
+    assert_eq!(owned["action_id"], 7);
+    assert_eq!(owned["turn_id"], 8);
+}
+
+#[test]
 fn artifact_record_keeps_originating_action_context() {
     let trace = ActionTrace {
         action_id: 17,
@@ -41,4 +72,11 @@ fn serialized_write_stamp_replaces_a_producer_sample() {
 fn unit_test_events_do_not_initialize_the_customer_trace_writer() {
     write_jsonl(json!({"event": "unit_test"}), Privacy::Safe);
     assert!(WRITE_LOCK.get().is_none());
+}
+
+#[test]
+fn new_unit_session_uses_a_temporary_trace_root_without_creating_a_directory() {
+    let state = new_session_state();
+    assert!(state.trace_dir.starts_with(std::env::temp_dir()));
+    assert!(!state.trace_dir.exists());
 }

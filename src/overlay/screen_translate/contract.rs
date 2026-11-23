@@ -4,7 +4,6 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_CANDIDATES: usize = 240;
-pub(crate) const MAX_SOURCE_CANDIDATES: usize = 2;
 const MAX_TEXT_CHARS: usize = 16_000;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -65,7 +64,7 @@ pub(crate) enum MemberJoin {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DetectedTextRegion {
     pub id: u16,
-    pub bounds: NormalizedBounds,
+    pub bounds: super::source_bounds::SourceBounds,
     pub source_text: String,
     pub source_alternatives: Vec<String>,
     pub recognition: RecognitionEvidence,
@@ -134,7 +133,7 @@ pub(crate) fn prompt_with_instruction(
             let mut member = serde_json::json!({
                 "slot": slot,
                 "text": candidate.source_text,
-                "box_2d": <[u16; 4]>::from(candidate.bounds),
+                "box_2d": <[u16; 4]>::from(candidate.bounds.prompt()),
             });
             let alternatives = candidate
                 .source_alternatives
@@ -187,8 +186,24 @@ pub(crate) fn parse_response(
         .into_iter()
         .map(|(_, region)| region)
         .collect::<Vec<_>>();
-    regions.sort_by_key(|region| (region.bounds.top, region.bounds.left));
+    sort_regions(&mut regions, candidates);
     Ok(TranslationDocument { regions })
+}
+
+pub(super) fn sort_regions(regions: &mut [TranslationRegion], candidates: &[DetectedTextRegion]) {
+    let pixels = candidates
+        .iter()
+        .map(|candidate| (candidate.id, candidate.bounds.pixels()))
+        .collect::<std::collections::HashMap<_, _>>();
+    regions.sort_by_key(|region| {
+        region
+            .member_ids
+            .iter()
+            .filter_map(|id| pixels.get(id))
+            .fold((u32::MAX, u32::MAX), |(top, left), rect| {
+                (top.min(rect.y), left.min(rect.x))
+            })
+    });
 }
 
 pub(crate) fn parse_streamed_translation(
@@ -227,7 +242,7 @@ fn validated_translation(
         region_id: candidate.id,
         candidate_id: format!("r{}c0", candidate.id),
         source_text: candidate.source_text.clone(),
-        bounds: candidate.bounds,
+        bounds: candidate.bounds.prompt(),
     };
     let translation = clean_text(&response.translation, MAX_TEXT_CHARS)
         .context("translation is empty or too long")?;
@@ -241,7 +256,7 @@ fn validated_translation(
         semantic_role: SemanticRole::Standalone,
         source_text: candidate.source_text.clone(),
         translated_segments: vec![translation],
-        bounds: candidate.bounds,
+        bounds: candidate.bounds.prompt(),
         background_color: None,
         text_color: None,
     })
@@ -284,7 +299,13 @@ mod tests {
         vec![
             DetectedTextRegion {
                 id: 1,
-                bounds: [10, 10, 30, 200].into(),
+                bounds:
+                    crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                        [10, 10, 30, 200].into(),
+                        1000,
+                        1000,
+                    )
+                    .unwrap(),
                 source_text: "first line".into(),
                 source_alternatives: vec!["first line".into()],
                 recognition: Default::default(),
@@ -292,7 +313,13 @@ mod tests {
             },
             DetectedTextRegion {
                 id: 2,
-                bounds: [34, 10, 54, 200].into(),
+                bounds:
+                    crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                        [34, 10, 54, 200].into(),
+                        1000,
+                        1000,
+                    )
+                    .unwrap(),
                 source_text: "second line".into(),
                 source_alternatives: vec!["second line".into()],
                 recognition: Default::default(),
@@ -371,8 +398,20 @@ mod tests {
     #[test]
     fn text_acceptance_is_independent_of_other_units_in_the_request() {
         let mut candidates = candidates();
-        candidates[0].bounds = [0, 0, 200, 800].into();
-        candidates[1].bounds = [150, 200, 190, 500].into();
+        candidates[0].bounds =
+            crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [0, 0, 200, 800].into(),
+                1000,
+                1000,
+            )
+            .unwrap();
+        candidates[1].bounds =
+            crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                [150, 200, 190, 500].into(),
+                1000,
+                1000,
+            )
+            .unwrap();
         let response = r#"{"translations":{"0":"translated heading","1":"translated caption"}}"#;
         let together = parse_response(response, &candidates).unwrap();
         assert_eq!(together.regions.len(), 2);
@@ -381,7 +420,7 @@ mod tests {
             &candidates[..1],
         )
         .unwrap();
-        assert_eq!(together.regions[0].bounds, candidates[0].bounds);
+        assert_eq!(together.regions[0].bounds, candidates[0].bounds.prompt());
         assert_eq!(together.regions[0].bounds, alone.regions[0].bounds);
         assert_eq!(together.regions[0].member_ids, alone.regions[0].member_ids);
         assert_eq!(

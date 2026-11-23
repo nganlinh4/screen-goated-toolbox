@@ -1,9 +1,29 @@
 package dev.screengoated.toolbox.mobile.preset
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PresetRefineParityTest {
+    @Test
+    fun refineRequest_containsPreviousTextOnce() {
+        val previous = "PREVIOUS-RESULT-MARKER"
+        val request = presetRefineTextRequest(previous, "shorter")
+        // Every text provider sends prompt + blank line + inputText; Windows sends final_prompt only.
+        val wireText = "${request.prompt}\n\n${request.inputText}"
+
+        assertEquals(1, wireText.split(previous).size - 1)
+        assertEquals("", request.inputText)
+        assertEquals(
+            "Content:\n$previous\n\nInstruction:\nshorter\n\nOutput ONLY the result.",
+            request.prompt,
+        )
+    }
+
+    @Test
+    fun `unavailable original endpoint never redirects refinement to a cloud model`() {
+        assertNull(initialRefineModel("unavailable-saved-model", PresetRuntimeSettings(), ApiKeys(groqKey = "test")))
+    }
     @Test
     fun `refine starts with actual successful text endpoint`() {
         val model = initialRefineModel(

@@ -109,11 +109,11 @@ class VisionImageBudgetTest {
     }
 
     @Test
-    fun openRouterGemmaUsesNestedReasoningAndTextFirstInput() {
+    fun openRouterLingUsesNestedReasoningAndTextFirstInput() {
         val payload = openAiVisionPayload(
             model = requireNotNull(
                 PresetModelCatalog.getById(
-                    "openrouter-gemma-4-26b-a4b-vision",
+                    "openrouter-ling-3-2-flash-vision",
                 ),
             ),
             prompt = "Read this image",

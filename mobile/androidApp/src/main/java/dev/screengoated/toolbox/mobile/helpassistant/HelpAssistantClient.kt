@@ -148,9 +148,7 @@ internal const val HELP_ASSISTANT_TOP_K = 20
 internal data class ChunkEntry(val path: String, val text: String)
 
 internal fun rankHelpAssistantChunks(index: List<ChunkEntry>, question: String): List<ChunkEntry> {
-    val terms = question.lowercase()
-        .split(Regex("[^a-zA-Z0-9_]+"))
-        .filter { it.length >= 2 }
+    val terms = helpAssistantSearchTerms(question)
 
     if (terms.isEmpty()) return index.take(HELP_ASSISTANT_TOP_K)
 
@@ -169,6 +167,37 @@ internal fun rankHelpAssistantChunks(index: List<ChunkEntry>, question: String):
         .sortedWith(compareByDescending<IndexedHelpChunk> { it.score }.thenBy { it.index })
         .take(HELP_ASSISTANT_TOP_K)
         .map { it.chunk }
+}
+
+/**
+ * Mirrors Windows `search_chunks`: split the lowercased question on every code
+ * point that is not alphabetic, numeric or '_' (Rust `char::is_alphanumeric`),
+ * and keep terms of at least two UTF-8 bytes (Rust `str::len`).
+ */
+internal fun helpAssistantSearchTerms(question: String): List<String> {
+    val lower = question.lowercase()
+    val terms = mutableListOf<String>()
+    val current = StringBuilder()
+    fun flush() {
+        if (current.toString().encodeToByteArray().size >= 2) terms += current.toString()
+        current.setLength(0)
+    }
+    var offset = 0
+    while (offset < lower.length) {
+        val codePoint = lower.codePointAt(offset)
+        if (isHelpTermCodePoint(codePoint)) current.appendCodePoint(codePoint) else flush()
+        offset += Character.charCount(codePoint)
+    }
+    flush()
+    return terms
+}
+
+private fun isHelpTermCodePoint(codePoint: Int): Boolean {
+    if (codePoint == '_'.code || Character.isAlphabetic(codePoint)) return true
+    return when (Character.getType(codePoint).toByte()) {
+        Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER -> true
+        else -> false
+    }
 }
 
 private data class IndexedHelpChunk(

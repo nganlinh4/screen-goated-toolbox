@@ -329,7 +329,14 @@ fn list_changed_burst_coalesces_latest_dirty_state_and_ignores_old_client_events
 
 #[test]
 fn non_mcp_names_remain_available_to_native_dispatch() {
-    assert_eq!(try_dispatch("future_native_capability", &json!({})), None);
+    assert_eq!(
+        try_dispatch(
+            "future_native_capability",
+            &json!({}),
+            &Arc::new(AtomicBool::new(false))
+        ),
+        None
+    );
 }
 
 #[test]

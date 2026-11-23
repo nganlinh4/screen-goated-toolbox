@@ -17,6 +17,8 @@ internal class AndroidPhoneControlHandlerExecutor(
     resourceAuthorization: PhoneControlResourceAuthorizer =
         PhoneControlResourceAuthorization(context),
 ) : PhoneControlHandlerExecutor {
+    override fun close() = providers.close()
+
     private val providers = AndroidProviderToolHandlers(
         context,
         structuralAuthorization,

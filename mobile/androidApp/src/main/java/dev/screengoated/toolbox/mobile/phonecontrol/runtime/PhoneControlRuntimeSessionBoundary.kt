@@ -25,6 +25,7 @@ internal class PhoneControlRuntimeSessionBoundary(
         }
         transportReady.set(true)
         if (!becameReady) return
+        turnCoordinator.transportReady()
         if (!setupSession.inputAdmitted) setupSession.observeFreshSession()
         Log.i(TAG, "transport_ready generation=${connection.generation}")
         requestScreenRefresh()

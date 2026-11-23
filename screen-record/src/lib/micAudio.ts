@@ -1,5 +1,6 @@
 import type { MicAudioPoint } from "@/types/video";
 import { clamp } from "@/lib/mathUtils";
+import { getCurveVolumeAtTime } from "@/lib/volumeCurve";
 
 export const MIN_MIC_AUDIO_VOLUME = 0;
 export const MAX_MIC_AUDIO_VOLUME = 1;
@@ -29,26 +30,7 @@ export function getMicAudioVolumeAtTime(
   time: number,
   points: MicAudioPoint[] | undefined | null,
 ): number {
-  if (!points || points.length === 0) return DEFAULT_MIC_AUDIO_VOLUME;
-
-  const sorted = [...points].sort((a, b) => a.time - b.time);
-  const idx = sorted.findIndex((point) => point.time >= time);
-  if (idx === -1) {
-    return clampMicAudioVolume(sorted[sorted.length - 1].volume);
-  }
-  if (idx === 0) {
-    return clampMicAudioVolume(sorted[0].volume);
-  }
-
-  const left = sorted[idx - 1];
-  const right = sorted[idx];
-  const ratio = clamp(
-    (time - left.time) / Math.max(0.0001, right.time - left.time),
-    0,
-    1,
-  );
-  const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-  return clampMicAudioVolume(left.volume + (right.volume - left.volume) * cosT);
+  return getCurveVolumeAtTime(time, points, DEFAULT_MIC_AUDIO_VOLUME, clampMicAudioVolume);
 }
 
 export function normalizeMicAudioPoints(

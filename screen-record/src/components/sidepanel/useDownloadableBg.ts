@@ -189,12 +189,18 @@ export function useDownloadableBg(
     }
   }, [bg.id, ensurePrewarmed, setBackgroundConfig]);
 
-  const startDownload = useCallback(() => {
+  const startDownload = useCallback(async () => {
     if (state.status === 'downloading') return;
     pendingPostDownloadPrewarmRef.current = true;
     pendingAutoApplyRef.current = true;
     setState({ status: 'downloading', progress: 0 });
-    invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
+    try {
+      await invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
+    } catch (e) {
+      pendingPostDownloadPrewarmRef.current = false;
+      pendingAutoApplyRef.current = false;
+      setState({ status: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
   }, [bg.id, bg.downloadUrl, state.status]);
 
   const selectBg = useCallback(async () => {

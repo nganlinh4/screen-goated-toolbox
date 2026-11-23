@@ -64,7 +64,7 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
         .build()
 
     return if (useStreaming) {
-        val fullContent = StringBuilder()
+        val requestContext = coroutineContext
         httpClient.newPresetCall(request, model, streamingEnabled = true).execute().use { response ->
             ModelUsageStats.update(model.provider, model.fullName, response.headers)
             if (!response.isSuccessful) {
@@ -74,21 +74,12 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
             }
             val body = response.body
             body.charStream().buffered().useLines { lines ->
-                lines.forEach { rawLine ->
-                    coroutineContext.ensureActive()
-                    val line = rawLine.trim()
-                    if (!line.startsWith("data: ")) return@forEach
-                    val data = line.removePrefix("data: ").trim()
-                    if (data.isBlank() || data == "[DONE]") return@forEach
-                    val chunk = extractGeminiAudioDelta(data)
-                    if (chunk.isNotEmpty()) {
-                        fullContent.append(chunk)
-                        onChunk(chunk)
-                    }
+                consumeGeminiStream(lines.onEach { requestContext.ensureActive() }) { delta ->
+                    requestContext.ensureActive()
+                    if (delta.content.isNotEmpty()) onChunk(delta.content)
                 }
             }
         }
-        fullContent.toString()
     } else {
         httpClient.newCall(request).execute().use { response ->
             ModelUsageStats.update(model.provider, model.fullName, response.headers)
@@ -98,7 +89,7 @@ internal suspend fun AudioApiClient.transcribeWithGemini(
                 throw IOException(response.providerFailureMessage("Gemini audio request"))
             }
             val body = response.body.string().orEmpty()
-            extractGeminiAudioDelta(body)
+            parseGeminiCompletion(JSONObject(body))
         }
     }
 }
@@ -400,20 +391,6 @@ private fun buildGeminiAudioPayload(
     }
 
     return payload
-}
-
-private fun extractGeminiAudioDelta(payload: String): String {
-    val root = JSONObject(payload)
-    val candidates = root.optJSONArray("candidates") ?: return ""
-    val candidate = candidates.optJSONObject(0) ?: return ""
-    val parts = candidate.optJSONObject("content")?.optJSONArray("parts") ?: return ""
-    val result = StringBuilder()
-    for (index in 0 until parts.length()) {
-        val part = parts.optJSONObject(index) ?: continue
-        if (part.optBoolean("thought", false)) continue
-        result.append(part.optString("text"))
-    }
-    return result.toString()
 }
 
 internal sealed interface GeminiLiveInputEvent {

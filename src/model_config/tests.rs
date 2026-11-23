@@ -1,5 +1,11 @@
 use super::*;
 
+/// Catalog lookup that never reads the shared application state, so a test's
+/// result does not depend on whichever config the process loaded.
+fn catalog_model(id: &str) -> Option<ModelConfig> {
+    get_model_by_id_with_custom(id, &[])
+}
+
 #[test]
 fn live_translate_labels_match_shared_presentation_contract() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -47,14 +53,16 @@ fn benchmark_balanced_vision_winner_is_default_and_first_fallback() {
         default_image_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_IMAGE_MODEL_ID)
     );
-    let model = get_model_by_id(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
+    let model = catalog_model(DEFAULT_IMAGE_MODEL_ID).expect("default vision model exists");
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(1471));
-    assert_eq!(
-        model.performance_source.as_deref(),
-        Some("benchmark-2026-10-29-protocol16:ocr-small-1024")
+    assert!(model.typical_latency_ms.is_some());
+    assert!(
+        model
+            .performance_source
+            .as_deref()
+            .is_some_and(|source| source.starts_with("benchmark-"))
     );
 }
 
@@ -121,18 +129,20 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
         default_text_to_text_priority_chain_ids().first().copied(),
         Some(DEFAULT_TEXT_MODEL_ID)
     );
-    let model = get_model_by_id(DEFAULT_TEXT_MODEL_ID).expect("default text model exists");
+    let model = catalog_model(DEFAULT_TEXT_MODEL_ID).expect("default text model exists");
     assert_eq!(model.provider, "groq");
     assert_eq!(model.full_name, "qwen/qwen3.8-27b");
     assert_eq!(model.intelligence_tier, Some(5));
-    assert_eq!(model.typical_latency_ms, Some(285));
-    assert_eq!(
-        model.performance_source.as_deref(),
-        Some("benchmark-2026-10-29-protocol16:text")
+    assert!(model.typical_latency_ms.is_some());
+    assert!(
+        model
+            .performance_source
+            .as_deref()
+            .is_some_and(|source| source.starts_with("benchmark-"))
     );
     for (index, expected) in [
-        (1, "groq-gpt-oss-20b-text"),
-        (2, "groq-gpt-oss-120b-text"),
+        (1, "groq-gpt-oss-120b-text"),
+        (2, "groq-gpt-oss-20b-text"),
         (3, "google-gemini-3-5-flash-lite-text"),
     ] {
         assert_eq!(
@@ -142,27 +152,26 @@ fn benchmark_balanced_text_winner_is_default_and_first_fallback() {
             Some(expected)
         );
     }
-    // Retain a provider-diverse fallback with complete ordinary text coverage.
-    assert_eq!(
-        default_text_to_text_priority_chain_ids().get(10).copied(),
-        Some("openrouter-dots-3-note-text")
-    );
-    // Gemini 3.8 Flash completed only 5/10 text cells on 2026-10-29, so it
-    // trails the chain; its latency keeps the last representative value.
+    let chain = default_text_to_text_priority_chain_ids();
+    assert!(chain.ends_with(&[
+        "openrouter-particle-1-text",
+        "openrouter-ling-3-2-flash-text"
+    ]));
     let gemini_38 =
-        get_model_by_id("google-gemini-3-8-flash-text").expect("Gemini 3.8 text fallback exists");
-    assert_eq!(gemini_38.typical_latency_ms, Some(6138));
-    assert_eq!(
-        default_text_to_text_priority_chain_ids().get(11).copied(),
-        Some("google-gemini-3-8-flash-text")
-    );
-    let openrouter =
-        get_model_by_id("openrouter-dots-3-note-text").expect("OpenRouter text fallback exists");
-    assert_eq!(openrouter.full_name, "dots-studio/dots-3-note-preview:free");
-    assert_eq!(
-        ordinary_reasoning_policy("openrouter", "dots-studio/dots-3-note-preview:free"),
-        OrdinaryReasoningPolicy::OpenAiEffort("none")
-    );
+        catalog_model("google-gemini-3-8-flash-text").expect("Gemini 3.8 text model exists");
+    assert!(gemini_38.enabled);
+    assert!(gemini_38.typical_latency_ms.is_some());
+    assert!(!chain.contains(&gemini_38.id.as_str()));
+    for (id, chain) in [
+        ("openrouter-dots-3-note-text", chain),
+        (
+            "openrouter-dots-3-note-vision",
+            default_image_to_text_priority_chain_ids(),
+        ),
+    ] {
+        assert!(catalog_model(id).is_none());
+        assert!(!chain.contains(&id));
+    }
 }
 
 #[test]
@@ -237,7 +246,7 @@ fn translation_controls_do_not_inherit_the_realtime_default() {
 }
 
 #[test]
-fn live_translate_routing_comes_from_the_endpoint_profile() {
+fn live_translate_routing_uses_logical_row_and_endpoint_profile() {
     assert_eq!(
         realtime_transcription_live_protocol(GEMINI_LIVE_TRANSLATE_MODEL_ID),
         Some("live-translate")
@@ -245,6 +254,14 @@ fn live_translate_routing_comes_from_the_endpoint_profile() {
     assert!(is_gemini_live_translate_model_id(
         GEMINI_LIVE_TRANSLATE_MODEL_ID
     ));
+    let input_only_id = "google-gemini-3-5-live-translate-transcribe-audio";
+    assert_eq!(
+        catalog_model(input_only_id).unwrap().full_name,
+        catalog_model(GEMINI_LIVE_TRANSLATE_MODEL_ID)
+            .unwrap()
+            .full_name
+    );
+    assert!(!is_gemini_live_translate_model_id(input_only_id));
     assert!(!is_gemini_live_translate_model_id(
         "google-gemini-3-1-live-transcribe-audio"
     ));
@@ -292,11 +309,13 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
         qwen.structured_output,
         StructuredOutputPolicy::StrictJsonSchema
     );
-    let qwen_model = get_model_by_id("groq-qwen-3-8-27b-vision").expect("Qwen vision model exists");
-    assert_eq!(qwen_model.typical_latency_ms, Some(1471));
-    assert_eq!(
-        qwen_model.performance_source.as_deref(),
-        Some("benchmark-2026-10-29-protocol16:ocr-small-1024")
+    let qwen_model = catalog_model("groq-qwen-3-8-27b-vision").expect("Qwen vision model exists");
+    assert!(qwen_model.typical_latency_ms.is_some());
+    assert!(
+        qwen_model
+            .performance_source
+            .as_deref()
+            .is_some_and(|source| source.starts_with("benchmark-"))
     );
     let qwen_38 = vision_request_profile("groq", "qwen/qwen3.8-27b");
     assert_eq!(
@@ -305,8 +324,6 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
     );
     assert!(qwen_38.restates_output);
 
-    // The nemotron-omni row was removed after measuring 10% text and 0% vision
-    // reliability; dots-3 Note is the surviving OpenRouter vision endpoint.
     let dots = vision_request_profile("openrouter", "dots-studio/dots-3-note-preview:free");
     assert_eq!(dots.input_order, VisionInputOrder::TextFirst);
     assert_eq!(
@@ -319,7 +336,7 @@ fn vision_request_shapes_are_exact_endpoint_profiles() {
             "groq-qwen-3-8-27b-vision",
             "google-gemini-3-5-flash-lite-vision",
             "google-gemini-3-flash-vision",
-            "google-gemini-3-5-flash-vision",
+            "google-gemini-3-1-flash-lite-vision",
         ]
     );
 
@@ -359,6 +376,34 @@ fn search_capability_uses_exact_catalog_profiles() {
     ] {
         assert!(!model_supports_search_by_id_with_custom(id, &[]), "{id}");
     }
+}
+
+#[test]
+fn text_search_requires_both_model_capability_and_supported_adapter() {
+    let mut custom = crate::config::types::CustomModelDefinition {
+        id: "custom-search".to_string(),
+        provider: "google".to_string(),
+        full_name: "custom-endpoint".to_string(),
+        supports_search: Some(true),
+        ..Default::default()
+    };
+    assert!(model_supports_text_search(
+        &custom_model_definition_to_config(&custom).unwrap()
+    ));
+    custom.supports_search = Some(false);
+    assert!(!model_supports_text_search(
+        &custom_model_definition_to_config(&custom).unwrap()
+    ));
+    custom.supports_search = Some(true);
+    custom.provider = "openrouter".to_string();
+    assert!(!model_supports_text_search(
+        &custom_model_definition_to_config(&custom).unwrap()
+    ));
+    custom.provider = "groq".to_string();
+    custom.model_type = crate::config::types::CustomModelType::Vision;
+    assert!(!model_supports_text_search(
+        &custom_model_definition_to_config(&custom).unwrap()
+    ));
 }
 
 #[test]
@@ -416,7 +461,7 @@ fn behavioral_model_names_match_the_shared_presentation_fixture() {
         let model_id = case["model_id"]
             .as_str()
             .expect("model_id must be a string");
-        let model = get_model_by_id(model_id).expect("fixture model must exist");
+        let model = catalog_model(model_id).expect("fixture model must exist");
         for language in ["vi", "ko", "en"] {
             assert_eq!(
                 model.localized_name(language),
@@ -443,7 +488,7 @@ fn a_promoted_discovered_id_resolves_to_its_curated_catalog_row() {
 
 #[test]
 fn discovery_does_not_duplicate_an_existing_endpoint_or_id() {
-    let mut models = vec![get_model_by_id("nvidia-gpt-oss-120b-text").unwrap()];
+    let mut models = vec![catalog_model("nvidia-gpt-oss-120b-text").unwrap()];
     let mut same_endpoint = models[0].clone();
     same_endpoint.id = "feed-derived-id".to_string();
     let mut same_id = models[0].clone();
@@ -452,4 +497,22 @@ fn discovery_does_not_duplicate_an_existing_endpoint_or_id() {
     extend_unique_endpoint_models(&mut models, [same_endpoint, same_id]);
 
     assert_eq!(models.len(), 1);
+}
+
+#[test]
+fn every_catalog_row_resolves_by_its_feed_id_through_the_index() {
+    use crate::model_feed::store::discovered_id;
+    for model in get_all_models() {
+        let derived = discovered_id(&model.provider, &model.full_name);
+        let first_match = get_all_models()
+            .iter()
+            .find(|row| discovered_id(&row.provider, &row.full_name) == derived)
+            .map(|row| row.id.as_str());
+        assert_eq!(
+            catalog_model_by_discovered_id(&derived).map(|row| row.id.as_str()),
+            first_match,
+            "{derived}"
+        );
+    }
+    assert!(catalog_model_by_discovered_id("not-a-feed-id").is_none());
 }

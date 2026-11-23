@@ -5,6 +5,7 @@ import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRec
 import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRepository
 import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryRole
 import dev.screengoated.toolbox.mobile.phonecontrol.memory.PhoneControlMemoryTurnInput
+import dev.screengoated.toolbox.mobile.phonecontrol.memory.skipUnsupportedSchemaAtStartup
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -18,8 +19,7 @@ internal class PhoneControlMemoryStartup(
     fun recoverOnce(): Boolean {
         if (!recovered.compareAndSet(false, true)) return false
         return try {
-            repository.recoverStaleDrafts(clock())
-            true
+            skipUnsupportedSchemaAtStartup { repository.recoverStaleDrafts(clock()) }
         } catch (error: Throwable) {
             recovered.set(false)
             throw error

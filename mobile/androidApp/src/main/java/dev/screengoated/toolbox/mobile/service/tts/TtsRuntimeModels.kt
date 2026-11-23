@@ -33,6 +33,7 @@ enum class TtsCompletionStatus {
     COMPLETED,
     INTERRUPTED,
     FAILED,
+    PARTIAL,
 }
 
 data class TtsRequestSettingsSnapshot(
@@ -55,7 +56,15 @@ data class TtsRequest(
     val requestMode: TtsRequestMode,
     val settingsSnapshot: TtsRequestSettingsSnapshot,
     val ownerToken: String,
+    val isCurrent: (() -> Boolean)? = null,
+    val runIfCurrent: (((() -> Unit) -> Boolean))? = null,
+    val resumeAfterInterruption: TtsInterruption? = null,
+    val edgeVoiceOverride: String? = null,
 )
+
+internal fun TtsRequest.canDispatch(): Boolean = isCurrent?.invoke() != false
+internal fun TtsRequest.dispatchIfCurrent(action: () -> Unit): Boolean =
+    runIfCurrent?.invoke(action) ?: if (canDispatch()) { action(); true } else false
 
 data class TtsRuntimeState(
     val isPlaying: Boolean = false,
@@ -71,6 +80,7 @@ data class TtsPlaybackEvent(
     val consumer: TtsConsumer,
     val ownerToken: String,
     val completionStatus: TtsCompletionStatus,
+    val interruptedBy: TtsInterruption? = null,
 )
 
 @Serializable

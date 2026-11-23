@@ -55,9 +55,11 @@ pub struct GdiCapture {
     pub height: i32,
 }
 
-// Make it safe to send between threads (Handles are process-global in Windows GDI)
+// SAFETY: an HBITMAP is a process-global GDI handle, so the owning value may
+// move to another thread. It is deliberately not Sync: a bitmap can be selected
+// into only one device context at a time, so two threads must never read the
+// same capture through shared references concurrently.
 unsafe impl Send for GdiCapture {}
-unsafe impl Sync for GdiCapture {}
 
 impl Drop for GdiCapture {
     fn drop(&mut self) {
@@ -143,5 +145,53 @@ pub fn capture_screen_fast() -> anyhow::Result<GdiCapture> {
             width,
             height,
         })
+    }
+}
+
+/// Publishes `capture` as the selection overlay's background while `show`
+/// runs, then releases the full-virtual-screen bitmap on every exit path,
+/// a panic included, so the user's screen pixels are never retained.
+pub fn with_published_capture<R>(
+    capture: GdiCapture,
+    show: impl FnOnce() -> R,
+) -> anyhow::Result<R> {
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let mut app = crate::APP.lock().unwrap_or_else(|error| error.into_inner());
+            app.screenshot_handle = None;
+        }
+    }
+    crate::APP
+        .lock()
+        .map_err(|_| anyhow::anyhow!("settings unavailable"))?
+        .screenshot_handle = Some(capture);
+    let _release = Release;
+    Ok(show())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{capture_screen_fast, with_published_capture};
+
+    fn published() -> bool {
+        crate::APP
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .screenshot_handle
+            .is_some()
+    }
+
+    #[test]
+    fn a_published_capture_lives_exactly_as_long_as_its_overlay() {
+        let seen = with_published_capture(capture_screen_fast().unwrap(), published).unwrap();
+        assert!(seen, "the overlay must see the capture");
+        assert!(!published(), "the capture outlived its overlay");
+
+        let panicked = std::panic::catch_unwind(|| {
+            with_published_capture(capture_screen_fast().unwrap(), || panic!("overlay failed"))
+        });
+        assert!(panicked.is_err());
+        assert!(!published(), "a failed overlay kept the capture");
     }
 }

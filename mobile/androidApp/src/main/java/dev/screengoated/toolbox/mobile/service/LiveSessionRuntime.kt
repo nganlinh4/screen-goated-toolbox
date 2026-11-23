@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import dev.screengoated.toolbox.mobile.AppToastBus
+import dev.screengoated.toolbox.mobile.R
 import dev.screengoated.toolbox.mobile.capture.AudioCaptureController
 import dev.screengoated.toolbox.mobile.model.AndroidLiveSessionRepository
 import dev.screengoated.toolbox.mobile.model.RealtimeModelIds
@@ -12,18 +13,24 @@ import dev.screengoated.toolbox.mobile.service.tts.TtsRuntimeService
 import dev.screengoated.toolbox.mobile.shared.live.DisplayMode
 import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.shared.live.LiveTranslationModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.LiveTranslateParity
 import dev.screengoated.toolbox.mobile.shared.live.SessionPhase
 import dev.screengoated.toolbox.mobile.shared.live.SourceMode
 import dev.screengoated.toolbox.mobile.shared.live.TranscriptionMethod
 import dev.screengoated.toolbox.mobile.storage.ProjectionConsentStore
 import dev.screengoated.toolbox.mobile.ui.i18n.apiKeyErrorToastText
+import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,70 +52,78 @@ class LiveSessionRuntime(
     internal var translationIntervalMs: Long = TRANSLATION_INTERVAL_MS
     internal val audioCaptureController = AudioCaptureController(context, projectionConsentStore)
     internal val realtimeTtsCoordinator = RealtimeTtsCoordinator(ttsRuntimeService)
+    private val readReconcileLock = Any()
     internal val overlayController = OverlayController(
         context = context,
         repository = repository,
         overlaySupported = overlaySupported,
         stopRequested = stopRequested,
-        cancelDownloadRequested = { cancelActiveDownload() },
         restartRequested = { requestRestart() },
         sourceModeChanged = sourceModeChanged,
-        stopTextToSpeech = { realtimeTtsCoordinator.stop() },
+        stopTextToSpeech = { synchronized(readReconcileLock) { realtimeTtsCoordinator.stop() } },
+        resetTextToSpeech = { synchronized(readReconcileLock) { realtimeTtsCoordinator.stopAndReset() } },
+        setS2sPlaybackVisible = s2sClient::setPlaybackVisible,
         ttsRuntimeService = ttsRuntimeService,
     )
 
-    internal var sessionJob: Job? = null
+    @Volatile internal var sessionJob: Job? = null
     internal var hostScope: CoroutineScope? = null
-    internal var downloadCancelAction: (() -> Unit)? = null
-    internal var cancelInFlight = false
+    private val sessionEpoch = LiveSessionEpoch()
 
     fun start(scope: CoroutineScope) {
         hostScope = scope
+        val epoch = sessionEpoch.advance()
         scope.launch {
-            stopSession(keepOverlay = false)
+            if (!stopSession(keepOverlay = false, expectedEpoch = epoch)) return@launch
             // Delay before creating hardware-accelerated overlay windows. When the
             // service is started by ProjectionConsentProxyActivity, the activity's
             // surface is still tearing down. Chrome GPU crashes with a null-deref if
             // we attach WebViews during that compositor transition.
             delay(600)
-            launchSession(scope, preserveFrozenPrefix = false)
+            if (!sessionEpoch.isCurrent(epoch)) return@launch
+            launchSession(scope, preserveFrozenPrefix = false, expectedEpoch = epoch)
         }
     }
 
     fun stop() {
+        sessionEpoch.advance()
+        s2sClient.stopPlayback()
         sessionJob?.cancel()
         sessionJob = null
         lastTranslationAttemptAtMs = 0L
         translationIntervalMs = TRANSLATION_INTERVAL_MS
-        realtimeTtsCoordinator.stopAndReset()
+        synchronized(readReconcileLock) { realtimeTtsCoordinator.stopAndReset() }
         overlayController.hide()
     }
 
+    fun dispose() = realtimeTtsCoordinator.close()
+
     internal fun requestRestart() {
         val scope = hostScope ?: return
+        val epoch = sessionEpoch.advance()
         scope.launch {
             audioCaptureController.preserveConsentOnClose = true
-            stopSession(keepOverlay = true)
+            if (!stopSession(keepOverlay = true, expectedEpoch = epoch)) return@launch
             repository.freezeCurrentTranscript()
-            launchSession(scope, preserveFrozenPrefix = true)
+            launchSession(scope, preserveFrozenPrefix = true, expectedEpoch = epoch)
         }
     }
 
     internal suspend fun launchSession(
         scope: CoroutineScope,
         preserveFrozenPrefix: Boolean,
+        expectedEpoch: Long,
     ) {
+        if (!sessionEpoch.isCurrent(expectedEpoch)) return
         lastTranslationAttemptAtMs = 0L
         translationIntervalMs = TRANSLATION_INTERVAL_MS
         val config = repository.currentConfig()
         val apiKey = repository.currentApiKey()
         val modelId = config.transcriptionProvider.id
         val useGeminiS2s = RealtimeModelIds.isGeminiS2sModelId(modelId)
-        val useMoonshine = RealtimeModelIds.isOfflineTranscriptionModelId(modelId)
 
-        // Only the Gemini-backed transcription paths need a key: the offline engines
-        // never call out, and translation always has the keyless GTX fallback.
-        if (!useMoonshine && apiKey.isBlank()) {
+        // Transcription needs a Gemini key; translation always has the keyless GTX fallback.
+        if (RealtimeModelIds.requiresGeminiApiKey(modelId) && apiKey.isBlank()) {
             apiKeyErrorToastText("NO_API_KEY:google", repository.currentUiPreferences().uiLanguage)
                 ?.let(toastBus::show)
             repository.fail("Add your Gemini API key before starting live translate.")
@@ -120,104 +135,24 @@ class LiveSessionRuntime(
         }
 
         realtimeTtsCoordinator.stopAndReset()
-        if (config.transcriptionProvider.id == RealtimeModelIds.TRANSCRIPTION_PARAKEET) {
-            repository.fail("Parakeet is visible for Windows parity but is not available on Android yet.")
+        if (RealtimeModelIds.isUnavailableOnAndroid(modelId)) {
+            repository.fail("This transcription model is not available on Android.")
             return
         }
         Log.i(
             SESSION_TAG,
             "launch model_id=$modelId api_model=${config.transcriptionProvider.model} " +
-                "s2s=$useGeminiS2s moonshine=$useMoonshine source=${config.sourceMode} " +
+                "s2s=$useGeminiS2s source=${config.sourceMode} " +
                 "target=${config.targetLanguage}",
         )
 
-        sessionJob = scope.launch {
-            var nativeRuntimeLease: AutoCloseable? = null
+        val newSession = scope.launch(start = CoroutineStart.LAZY) {
+            if (!sessionEpoch.isCurrent(expectedEpoch)) return@launch
+            val sessionOwner = currentCoroutineContext()[Job] ?: error("Session job unavailable")
             repository.markStarting(preserveFrozenPrefix = preserveFrozenPrefix)
-
-            // Auto-download native runtimes on demand (all engines).
-            if (useMoonshine) {
-                val nativeLibMgr =
-                    dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.get(context)
-                downloadCancelAction = { nativeLibMgr.cancelAllDownloads() }
-                val isMoonshineModel = useMoonshine && (modelId.startsWith("moonshine-") || modelId == "moonshine")
-                val isZipformer = useMoonshine && (modelId == "zipformer" || modelId.startsWith("zipformer-"))
-
-                // Determine which engines are needed
-                val engines = mutableListOf<dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine>()
-                if (isMoonshineModel) {
-                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.ORT)
-                }
-                if (isMoonshineModel) {
-                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.MOONSHINE)
-                }
-                if (isZipformer) {
-                    engines.add(dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Engine.SHERPA)
-                }
-
-                // Download any missing engines
-                val missing = engines.filter { !nativeLibMgr.isInstalled(it) }
-                if (missing.isNotEmpty()) {
-                    overlayController.showDownloadModal("ASR Runtime")
-                    try {
-                        for (engine in missing) {
-                            val flow = nativeLibMgr.status(engine)
-                            nativeLibMgr.startDownload(engine)
-                            val progressJob = launch(Dispatchers.Main) {
-                                flow.collect { status ->
-                                    if (status is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Downloading) {
-                                        overlayController.updateDownloadProgress(
-                                            status.progress * 100,
-                                            engine.name,
-                                        )
-                                    }
-                                }
-                            }
-                            withContext(Dispatchers.IO) {
-                                while (
-                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Installed &&
-                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Error &&
-                                    flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.RemovalPending
-                                ) {
-                                    kotlinx.coroutines.delay(200)
-                                }
-                            }
-                            progressJob.cancel()
-                            if (flow.value !is dev.screengoated.toolbox.mobile.service.nativelibs.NativeLibManager.Status.Installed) {
-                                overlayController.hideDownloadModal()
-                                repository.fail("Failed to download ${engine.name} runtime.")
-                                return@launch
-                            }
-                        }
-                        overlayController.hideDownloadModal()
-                        downloadCancelAction = null
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        overlayController.hideDownloadModal()
-                        downloadCancelAction = null
-                        throw e
-                    }
-                }
-
-                val lease = nativeLibMgr.acquireLease(*engines.toTypedArray())
-                if (lease == null) {
-                    repository.fail("ASR runtime removal is pending. Restart or install it before retrying.")
-                    return@launch
-                }
-                // Keep every requested runtime leased until the ASR session has
-                // released its Java/native engine objects.
-                if (!nativeLibMgr.loadEngines(*engines.toTypedArray())) {
-                    lease.close()
-                    repository.fail("Failed to load ASR runtime libraries.")
-                    return@launch
-                }
-                nativeRuntimeLease = lease
-                currentCoroutineContext()[Job]?.invokeOnCompletion { lease.close() }
-            }
 
             if (useGeminiS2s) {
                 repository.setTranscriptionMethod(TranscriptionMethod.GEMINI_LIVE_S2S)
-            } else if (useMoonshine) {
-                repository.setTranscriptionMethod(TranscriptionMethod.MOONSHINE)
             } else if (
                 GeneratedLiveModelCatalog.endpointProfile(config.transcriptionProvider.model)
                     ?.protocol == "live-transcribe"
@@ -234,6 +169,11 @@ class LiveSessionRuntime(
                     runTranslationLoop()
                 }
             }
+            val readRevisionJob = if (useGeminiS2s) null else launch(Dispatchers.IO) {
+                repository.state.map { it.liveText.translationRevision }.distinctUntilChanged().collect {
+                    maybeSpeakCommittedText()
+                }
+            }
 
             try {
                 if (useGeminiS2s) {
@@ -242,8 +182,6 @@ class LiveSessionRuntime(
                         apiKey = apiKey,
                         model = config.transcriptionProvider.model,
                     )
-                } else if (useMoonshine) {
-                    runMoonshineSession()
                 } else {
                     runGeminiSession(
                         apiKey = apiKey,
@@ -254,12 +192,16 @@ class LiveSessionRuntime(
                 throw cancelled
             } catch (error: Throwable) {
                 Log.e("LiveSessionRuntime", "Transcription error", error)
-                repository.fail(error.message ?: "Live transcription stopped unexpectedly.")
+                if (sessionEpoch.isCurrent(expectedEpoch) && sessionJob === sessionOwner) {
+                    repository.fail(error.message ?: "Live transcription stopped unexpectedly.")
+                }
             } finally {
                 translationJob?.cancel()
-                nativeRuntimeLease?.close()
+                readRevisionJob?.cancel()
             }
         }
+        sessionJob = newSession
+        newSession.start()
     }
 
     internal suspend fun runGeminiS2sSession(
@@ -276,10 +218,17 @@ class LiveSessionRuntime(
                 apiKey = apiKey,
                 model = model,
                 sourceMode = captureConfig.sourceMode,
-                audioChunks = audioCaptureController.open(
+                audioChunks = audioCaptureController.openMapped(
                     config = captureConfig,
                     onRms = { rms -> overlayController.updateVolume(rms) },
-                ),
+                    captureGeneration = s2sClient.visibilityGate::captureGeneration,
+                ) {
+                    val epoch = s2sClient.visibilityGate.snapshot()
+                    val finish: (ShortArray) -> S2sCapturedAudio = { samples ->
+                        S2sCapturedAudio(samples, epoch.takeIf(s2sClient.visibilityGate::isCurrent))
+                    }
+                    finish
+                },
                 settingsProvider = {
                     val config = repository.currentConfig()
                     val global = repository.currentGlobalTtsSettings()
@@ -328,6 +277,7 @@ class LiveSessionRuntime(
                     config = repository.currentConfig(),
                     onRms = { rms -> overlayController.updateVolume(rms) },
                 ),
+                onAudioGap = { toastBus.show(context.uiLocalized().getString(R.string.live_audio_gap)) },
                 onTranscript = { transcript, isFinal ->
                     repository.markListening()
                     if (usesInterimTranscripts) {
@@ -387,13 +337,19 @@ class LiveSessionRuntime(
                     providerId = requestedProvider,
                     llmChain = repository.currentTextToTextChain(),
                     runtimeSettings = repository.currentPresetRuntimeSettings(),
+                    isCurrent = { LiveTranslateParity.isTranslationRequestCurrent(repository.state.value.liveText, request) },
                 )
+                ensureTranslationRequestCurrent { LiveTranslateParity.isTranslationRequestCurrent(repository.state.value.liveText, request) }
                 var usedProvider = result.providerId
                 var applied = repository.applyTranslationResponse(
                     request = request,
                     response = result.response,
                     nowMs = SystemClock.elapsedRealtime(),
                 )
+                if (!applied && !LiveTranslateParity.isTranslationRequestCurrent(repository.state.value.liveText, request)) {
+                    lastTranslationAttemptAtMs = 0L
+                    continue
+                }
                 if (!applied && usedProvider == requestedProvider) {
                     val fallbackProvider = fallbackTranslationProviderId(requestedProvider)
                     result = translationClient.translateWithExactProvider(
@@ -405,6 +361,7 @@ class LiveSessionRuntime(
                         providerId = fallbackProvider,
                         llmChain = repository.currentTextToTextChain(),
                         runtimeSettings = repository.currentPresetRuntimeSettings(),
+                        isCurrent = { LiveTranslateParity.isTranslationRequestCurrent(repository.state.value.liveText, request) },
                     )
                     usedProvider = result.providerId
                     applied = repository.applyTranslationResponse(
@@ -415,12 +372,6 @@ class LiveSessionRuntime(
                 }
                 if (!applied) {
                     error("Translation response was rejected by the current transcript state.")
-                }
-                // Only persist fallback switch if user hasn't changed the model during this request
-                if (usedProvider != requestedProvider &&
-                    repository.translationModelId() == requestedProvider
-                ) {
-                    repository.updateTranslationModel(usedProvider)
                 }
                 val latencyMs = SystemClock.elapsedRealtime() - startedAt
                 translationIntervalMs = computeAdaptiveTranslationIntervalMs(latencyMs)
@@ -440,7 +391,15 @@ class LiveSessionRuntime(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: StaleTranslationRequestException) {
+                currentCoroutineContext().ensureActive()
+                lastTranslationAttemptAtMs = 0L
             } catch (error: Throwable) {
+                currentCoroutineContext().ensureActive()
+                if (!LiveTranslateParity.isTranslationRequestCurrent(repository.state.value.liveText, request)) {
+                    lastTranslationAttemptAtMs = 0L
+                    continue
+                }
                 // Translation failure should not kill the session — retry next cycle
                 translationIntervalMs = (translationIntervalMs + 250L).coerceAtMost(TRANSLATION_INTERVAL_MAX_MS)
                 Log.w(
@@ -456,10 +415,11 @@ class LiveSessionRuntime(
         }
     }
 
-    internal fun maybeSpeakCommittedText() {
+    internal fun maybeSpeakCommittedText() = synchronized(readReconcileLock) {
+        if (sessionJob?.isActive != true) return@synchronized
         if (!overlayController.isTranslationVisible()) {
             realtimeTtsCoordinator.stop()
-            return
+            return@synchronized
         }
         val state = repository.state.value
         realtimeTtsCoordinator.update(
@@ -468,37 +428,22 @@ class LiveSessionRuntime(
             globalSettings = repository.currentGlobalTtsSettings(),
             realtimeSettings = repository.currentRealtimeTtsSettings(),
             translationVisible = true,
+            translationRevision = state.liveText.translationRevision,
         )
     }
 
-    internal suspend fun stopSession(keepOverlay: Boolean) {
-        sessionJob?.cancelAndJoin()
-        sessionJob = null
-        downloadCancelAction = null
-        cancelInFlight = false
-        lastTranslationAttemptAtMs = 0L
-        translationIntervalMs = TRANSLATION_INTERVAL_MS
-        realtimeTtsCoordinator.stopAndReset()
-        if (!keepOverlay) {
-            overlayController.hide()
-        }
-    }
-
-    internal fun cancelActiveDownload() {
-        if (cancelInFlight) {
-            return
-        }
-        val cancelAction = downloadCancelAction ?: return
-        val scope = hostScope ?: return
-        cancelInFlight = true
-        scope.launch {
-            try {
-                cancelAction()
-                stopSession(keepOverlay = false)
-                repository.stop()
-            } finally {
-                downloadCancelAction = null
-                cancelInFlight = false
+    internal suspend fun stopSession(
+        keepOverlay: Boolean, expectedJob: Job? = sessionJob, expectedEpoch: Long = sessionEpoch.current(),
+    ): Boolean {
+        if (!sessionEpoch.isCurrent(expectedEpoch) || sessionJob !== expectedJob) return false
+        s2sClient.stopPlayback()
+        return awaitLiveSessionStop(expectedJob, isCurrent = { sessionEpoch.isCurrent(expectedEpoch) && sessionJob === it }) {
+            sessionJob = null
+            lastTranslationAttemptAtMs = 0L
+            translationIntervalMs = TRANSLATION_INTERVAL_MS
+            realtimeTtsCoordinator.stopAndReset()
+            if (!keepOverlay) {
+                overlayController.hide()
             }
         }
     }
@@ -516,9 +461,6 @@ internal fun fallbackTranslationProviderId(providerId: String): String {
         LiveTranslationModelCatalog.PROVIDER_GTX
     }
 }
-
-// Offline-ASR sentence-boundary / silence-threshold commit logic now lives in the
-// shared, fixture-gated OfflineAsrStreamParity (commonMain) — see runSherpaSession.
 
 internal fun computeAdaptiveTranslationIntervalMs(latencyMs: Long): Long {
     return (latencyMs + 250L)

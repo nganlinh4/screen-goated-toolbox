@@ -6,13 +6,17 @@
 //! validate the same generation after a hook-thread barrier.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock, mpsc};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::Foundation::{
+    CloseHandle, HANDLE, HWND, LPARAM, WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
+};
+use windows::Win32::System::Threading::{
+    GetCurrentThreadId, OpenThread, THREAD_SYNCHRONIZE, WaitForSingleObject,
+};
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, GetMessageW,
@@ -24,10 +28,27 @@ const SYNC_MESSAGE: u32 = WM_APP + 0x53;
 const START_TIMEOUT: Duration = Duration::from_secs(1);
 const SYNC_TIMEOUT: Duration = Duration::from_millis(500);
 
-#[derive(Clone, Copy)]
-struct TrackerHandle {
-    thread_id: u32,
+mod lifecycle;
+use lifecycle::{Lifecycle, Owner, Prepared, ThreadLease, ThreadState};
+
+struct NativeThread(usize);
+impl ThreadLease for NativeThread {
+    fn state(&self) -> ThreadState {
+        match unsafe { WaitForSingleObject(HANDLE(self.0 as *mut _), 0) } {
+            WAIT_TIMEOUT => ThreadState::Alive,
+            WAIT_OBJECT_0 => ThreadState::Exited,
+            _ => ThreadState::Unknown,
+        }
+    }
 }
+impl Drop for NativeThread {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(HANDLE(self.0 as *mut _));
+        }
+    }
+}
+type TrackerHandle = Arc<Owner<NativeThread>>;
 
 #[derive(Clone, Copy, Debug)]
 struct Entry {
@@ -41,23 +62,32 @@ struct Entry {
 struct GenerationRegistry {
     next: u64,
     entries: HashMap<u64, Entry>,
+    exhausted: bool,
 }
 
 impl GenerationRegistry {
-    fn allocate(&mut self) -> u64 {
-        self.next = self.next.saturating_add(1).max(1);
-        self.next
+    fn allocate(&mut self) -> Result<u64> {
+        let Some(next) = self.next.checked_add(1) else {
+            self.exhausted = true;
+            self.entries.clear();
+            return Err(anyhow!("native window generation exhausted"));
+        };
+        self.next = next;
+        Ok(next)
     }
 
-    fn observe(&mut self, hwnd: u64, pid: u64) -> u64 {
+    fn observe(&mut self, hwnd: u64, pid: u64) -> Result<u64> {
+        if self.exhausted {
+            return Err(anyhow!("native window generation exhausted"));
+        }
         if let Some(entry) = self.entries.get(&hwnd)
             && entry.alive
             && entry.pid == pid
             && entry.observed
         {
-            return entry.generation;
+            return Ok(entry.generation);
         }
-        let generation = self.allocate();
+        let generation = self.allocate()?;
         self.entries.insert(
             hwnd,
             Entry {
@@ -67,14 +97,16 @@ impl GenerationRegistry {
                 observed: true,
             },
         );
-        generation
+        Ok(generation)
     }
 
     fn note_create(&mut self, hwnd: u64, pid: u64) {
         if !self.entries.contains_key(&hwnd) {
             return;
         }
-        let generation = self.allocate();
+        let Ok(generation) = self.allocate() else {
+            return;
+        };
         self.entries.insert(
             hwnd,
             Entry {
@@ -104,7 +136,8 @@ impl GenerationRegistry {
     }
 }
 
-static TRACKER: OnceLock<Option<TrackerHandle>> = OnceLock::new();
+static TRACKER: OnceLock<Mutex<Lifecycle<NativeThread>>> = OnceLock::new();
+static ACTIVE_HOOK: AtomicUsize = AtomicUsize::new(0);
 static REGISTRY: OnceLock<Mutex<GenerationRegistry>> = OnceLock::new();
 static WAITERS: OnceLock<Mutex<HashMap<u64, mpsc::SyncSender<()>>>> = OnceLock::new();
 static NEXT_WAITER: AtomicU64 = AtomicU64::new(1);
@@ -117,57 +150,97 @@ fn waiters() -> &'static Mutex<HashMap<u64, mpsc::SyncSender<()>>> {
     WAITERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn tracker_state() -> &'static Mutex<Lifecycle<NativeThread>> {
+    TRACKER.get_or_init(|| Mutex::new(Lifecycle::new()))
+}
+
 fn tracker() -> Result<TrackerHandle> {
-    TRACKER
-        .get_or_init(start_tracker)
-        .as_ref()
-        .copied()
-        .ok_or_else(|| anyhow!("native window lifecycle tracker is unavailable"))
+    tracker_state()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .acquire(
+            START_TIMEOUT,
+            start_tracker,
+            || set_active_hook(0),
+            set_active_hook,
+        )
 }
 
-fn start_tracker() -> Option<TrackerHandle> {
+fn set_active_hook(hook: usize) {
+    let mut state = registry().lock().unwrap_or_else(|e| e.into_inner());
+    ACTIVE_HOOK.store(0, Ordering::SeqCst);
+    state.entries.clear();
+    ACTIVE_HOOK.store(hook, Ordering::SeqCst);
+}
+
+fn start_tracker() -> Result<mpsc::Receiver<Option<Prepared<NativeThread>>>> {
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || unsafe {
-        let thread_id = GetCurrentThreadId();
-        let mut message = MSG::default();
-        let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
-        let hook = SetWinEventHook(
-            EVENT_OBJECT_CREATE,
-            EVENT_OBJECT_DESTROY,
-            None,
-            Some(window_event),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        let ready = !hook.0.is_null();
-        let _ = ready_tx.send(ready.then_some(TrackerHandle { thread_id }));
-        if !ready {
-            return;
-        }
-        while GetMessageW(&mut message, None, 0, 0).as_bool() {
-            if message.message == SYNC_MESSAGE {
-                signal_waiter(message.wParam.0 as u64);
-            } else {
-                let _ = TranslateMessage(&message);
-                DispatchMessageW(&message);
+    std::thread::Builder::new()
+        .name("sgt-window-tracker".into())
+        .spawn(move || unsafe {
+            let thread_id = GetCurrentThreadId();
+            let mut message = MSG::default();
+            let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
+            let hook = SetWinEventHook(
+                EVENT_OBJECT_CREATE,
+                EVENT_OBJECT_DESTROY,
+                None,
+                Some(window_event),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            );
+            if hook.0.is_null() {
+                let _ = ready_tx.send(None);
+                return;
             }
-        }
-        let _ = UnhookWinEvent(hook);
-    });
-    ready_rx.recv_timeout(START_TIMEOUT).ok().flatten()
+            let Ok(thread) = OpenThread(THREAD_SYNCHRONIZE, false, thread_id) else {
+                let _ = UnhookWinEvent(hook);
+                let _ = ready_tx.send(None);
+                return;
+            };
+            let (activate, activation) = mpsc::channel();
+            let ready = Prepared {
+                thread: NativeThread(thread.0 as usize),
+                thread_id,
+                hook: hook.0 as usize,
+                activate,
+            };
+            if ready_tx.send(Some(ready)).is_err()
+                || activation.recv_timeout(Duration::from_secs(2)).is_err()
+            {
+                let _ = UnhookWinEvent(hook);
+                return;
+            }
+            while GetMessageW(&mut message, None, 0, 0).0 > 0 {
+                if message.message == SYNC_MESSAGE {
+                    signal_waiter(message.wParam.0 as u64);
+                } else {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            let _ = UnhookWinEvent(hook);
+        })?;
+    Ok(ready_rx)
 }
 
-fn sync_events() -> Result<()> {
+fn sync_events() -> Result<TrackerHandle> {
     let handle = tracker()?;
-    let token = NEXT_WAITER.fetch_add(1, Ordering::Relaxed).max(1);
+    let token = NEXT_WAITER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            value.checked_add(1)
+        })
+        .map_err(|_| anyhow!("native window tracker barrier generation exhausted"))?;
+    let token_param = usize::try_from(token)
+        .map_err(|_| anyhow!("native window tracker barrier is not representable"))?;
     let (tx, rx) = mpsc::sync_channel(1);
     waiters().lock().unwrap().insert(token, tx);
     if let Err(error) = unsafe {
         PostThreadMessageW(
             handle.thread_id,
             SYNC_MESSAGE,
-            WPARAM(token as usize),
+            WPARAM(token_param),
             LPARAM(0),
         )
     } {
@@ -177,7 +250,30 @@ fn sync_events() -> Result<()> {
     rx.recv_timeout(SYNC_TIMEOUT).map_err(|_| {
         waiters().lock().unwrap().remove(&token);
         anyhow!("native window lifecycle tracker did not reach the validation barrier")
-    })
+    })?;
+    with_owner(&handle, |_| Ok(()))?;
+    Ok(handle)
+}
+
+fn with_owner<T>(
+    owner: &TrackerHandle,
+    apply: impl FnOnce(&mut GenerationRegistry) -> Result<T>,
+) -> Result<T> {
+    let lifecycle = tracker_state().lock().unwrap_or_else(|e| e.into_inner());
+    if !lifecycle.owns(owner) {
+        return Err(anyhow!("native window tracker was retired"));
+    }
+    let mut state = registry().lock().unwrap_or_else(|e| e.into_inner());
+    if ACTIVE_HOOK.load(Ordering::SeqCst) != owner.hook
+        || owner.thread.state() != ThreadState::Alive
+    {
+        return Err(anyhow!("native window tracker changed"));
+    }
+    let result = apply(&mut state)?;
+    if owner.thread.state() != ThreadState::Alive {
+        return Err(anyhow!("native window tracker exited during validation"));
+    }
+    Ok(result)
 }
 
 fn signal_waiter(token: u64) {
@@ -187,7 +283,7 @@ fn signal_waiter(token: u64) {
 }
 
 unsafe extern "system" fn window_event(
-    _hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
+    hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
     event: u32,
     hwnd: HWND,
     object_id: i32,
@@ -199,7 +295,11 @@ unsafe extern "system" fn window_event(
         return;
     }
     let raw = hwnd.0 as usize as u64;
-    let mut state = registry().lock().unwrap();
+    let mut state = registry().lock().unwrap_or_else(|e| e.into_inner());
+    let active_hook = ACTIVE_HOOK.load(Ordering::SeqCst);
+    if active_hook == 0 || active_hook != hook.0 as usize {
+        return;
+    }
     if event == EVENT_OBJECT_DESTROY {
         state.note_destroy(raw);
     } else if event == EVENT_OBJECT_CREATE {
@@ -226,32 +326,42 @@ fn verify_window(hwnd: u64, expected_pid: u64) -> Result<()> {
 }
 
 pub(super) fn observe(hwnd: u64, pid: u64) -> Result<u64> {
-    sync_events()?;
+    let owner = sync_events()?;
     verify_window(hwnd, pid)?;
-    Ok(registry().lock().unwrap().observe(hwnd, pid))
+    with_owner(&owner, |state| state.observe(hwnd, pid))
 }
 
 pub(super) fn current(hwnd: u64, pid: u64) -> Result<u64> {
-    sync_events()?;
+    let owner = sync_events()?;
     verify_window(hwnd, pid)?;
-    registry()
-        .lock()
-        .unwrap()
-        .current(hwnd, pid)
-        .ok_or_else(|| anyhow!("native window has no current observed generation"))
+    with_owner(&owner, |state| {
+        state
+            .current(hwnd, pid)
+            .ok_or_else(|| anyhow!("native window has no current observed generation"))
+    })
 }
 
 pub(super) fn known(hwnd: u64, pid: u64) -> Option<u64> {
-    registry().lock().unwrap().current(hwnd, pid)
+    let lifecycle = tracker_state().lock().unwrap_or_else(|e| e.into_inner());
+    let owner = lifecycle.current.as_ref()?;
+    if !lifecycle.owns(owner) {
+        return None;
+    }
+    let state = registry().lock().unwrap_or_else(|e| e.into_inner());
+    (ACTIVE_HOOK.load(Ordering::SeqCst) == owner.hook)
+        .then(|| state.current(hwnd, pid))
+        .flatten()
 }
 
 pub(super) fn validate(hwnd: u64, pid: u64, generation: u64) -> Result<()> {
-    sync_events()?;
+    let owner = sync_events()?;
     verify_window(hwnd, pid)?;
-    if !registry().lock().unwrap().validates(hwnd, pid, generation) {
-        anyhow::bail!("native window was recreated after the action's observation");
-    }
-    Ok(())
+    with_owner(&owner, |state| {
+        if !state.validates(hwnd, pid, generation) {
+            anyhow::bail!("native window was recreated after the action's observation");
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -261,20 +371,20 @@ mod tests {
     #[test]
     fn repeated_observation_keeps_one_live_generation() {
         let mut registry = GenerationRegistry::default();
-        let first = registry.observe(9, 4);
-        assert_eq!(registry.observe(9, 4), first);
+        let first = registry.observe(9, 4).unwrap();
+        assert_eq!(registry.observe(9, 4).unwrap(), first);
         assert!(registry.validates(9, 4, first));
     }
 
     #[test]
     fn same_hwnd_and_pid_after_recreation_rejects_old_generation() {
         let mut registry = GenerationRegistry::default();
-        let old = registry.observe(9, 4);
+        let old = registry.observe(9, 4).unwrap();
         registry.note_destroy(9);
         registry.note_create(9, 4);
         assert!(!registry.validates(9, 4, old));
         assert_eq!(registry.current(9, 4), None);
-        let fresh = registry.observe(9, 4);
+        let fresh = registry.observe(9, 4).unwrap();
         assert_ne!(fresh, old);
         assert!(registry.validates(9, 4, fresh));
     }
@@ -282,24 +392,45 @@ mod tests {
     #[test]
     fn pid_change_cannot_inherit_a_generation() {
         let mut registry = GenerationRegistry::default();
-        let old = registry.observe(9, 4);
-        let fresh = registry.observe(9, 7);
+        let old = registry.observe(9, 4).unwrap();
+        let fresh = registry.observe(9, 7).unwrap();
         assert_ne!(fresh, old);
         assert!(!registry.validates(9, 4, old));
         assert!(registry.validates(9, 7, fresh));
     }
 
     #[test]
+    fn hook_gap_invalidates_prior_observations_without_reusing_generation() {
+        let mut registry = GenerationRegistry::default();
+        let old = registry.observe(9, 4).unwrap();
+        registry.entries.clear();
+        assert!(!registry.validates(9, 4, old));
+        let fresh = registry.observe(9, 4).unwrap();
+        assert_ne!(fresh, old);
+    }
+
+    #[test]
+    fn exhausted_window_generations_fail_closed() {
+        let mut registry = GenerationRegistry {
+            next: u64::MAX,
+            ..GenerationRegistry::default()
+        };
+        assert!(registry.observe(9, 4).is_err());
+        assert!(registry.observe(10, 4).is_err());
+        assert!(registry.entries.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires an interactive foreground window"]
     fn live_tracker_round_trips_an_existing_foreground_window() {
         let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
-        if hwnd.0.is_null() {
-            return;
-        }
+        assert!(
+            !hwnd.0.is_null(),
+            "an interactive foreground window is required"
+        );
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-        if pid == 0 {
-            return;
-        }
+        assert_ne!(pid, 0, "the foreground window must have a process");
         let raw = hwnd.0 as usize as u64;
         let pid = u64::from(pid);
         let generation = observe(raw, pid).unwrap();

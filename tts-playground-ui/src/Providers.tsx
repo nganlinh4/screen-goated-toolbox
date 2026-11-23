@@ -1,7 +1,6 @@
 import { useTtsState } from "./state";
 import { ttsApi } from "./ipc";
-import { AudioEditPanel, S2SPanel } from "./Modes";
-import { ReferenceLibraryPanel } from "./ReferenceLibrary";
+import { S2SPanel } from "./Modes";
 import {
   Card,
   FormRow,
@@ -15,14 +14,13 @@ import type {
   TtsMethod,
   TtsMode,
 } from "./types";
+import { MaterialSymbol } from "./MaterialSymbol";
 
 /** Top-level switcher — picks the right panel by mode/method. */
 export function ProviderPanel({ forceMode }: { forceMode?: TtsMode } = {}) {
   const s = useTtsState();
   const mode = forceMode ?? s.mode;
-  if (mode === "AudioEdit") return <AudioEditPanel />;
   if (mode === "SpeechToSpeech") return <S2SPanel />;
-  if (mode === "ReferenceLibrary") return <ReferenceLibraryPanel />;
   switch (s.method as TtsMethod) {
     case "GeminiLive":
       return <GeminiPanel />;
@@ -30,16 +28,6 @@ export function ProviderPanel({ forceMode }: { forceMode?: TtsMode } = {}) {
       return <EdgePanel />;
     case "GoogleTranslate":
       return <GooglePanel />;
-    case "StepAudioEditX":
-      return <StepAudioPanel />;
-    case "MagpieMultilingual":
-      return <LocalProviderPanelView provider="magpie" />;
-    case "Kokoro":
-      return <LocalProviderPanelView provider="kokoro" />;
-    case "Supertonic":
-      return <LocalProviderPanelView provider="supertonic" />;
-    case "VieneuTts":
-      return <VieneuPanel />;
   }
 }
 
@@ -192,7 +180,6 @@ function EdgePanel() {
         />
       </FormRow>
       <VoicePerLanguage
-        variant="edge"
         voices={e.voices}
         voicesByLanguage={s.catalogs.edgeVoicesByLanguage}
         availableLanguages={s.catalogs.edgeAvailableLanguages}
@@ -217,139 +204,14 @@ function GooglePanel() {
   );
 }
 
-function StepAudioPanel() {
-  const s = useTtsState();
-  const refs = s.catalogs.stepAudioReferences.map((r) => ({
-    value: r.id,
-    label: r.name,
-  }));
-  return (
-    <Card
-      title={s.strings.methodStepAudio}
-      className="tts-panel-step-audio"
-      description={s.strings.stepAudioDesc}
-      action={
-        <SmallButton onClick={() => void ttsApi.resetProvider("stepAudio")}>
-          {s.strings.reset}
-        </SmallButton>
-      }
-    >
-      <FormRow label={s.strings.referenceVoice}>
-        <Select
-          value={s.stepAudio.reference}
-          options={refs}
-          onChange={(reference) => void ttsApi.patchStepAudio({ reference })}
-          placeholder="—"
-        />
-      </FormRow>
-    </Card>
-  );
-}
-
-function LocalProviderPanelView({
-  provider,
-}: {
-  provider: "magpie" | "kokoro" | "supertonic";
-}) {
-  const s = useTtsState();
-  const settings =
-    provider === "magpie"
-      ? s.magpie
-      : provider === "kokoro"
-      ? s.kokoro
-      : s.supertonic;
-  const title =
-    provider === "magpie"
-      ? s.strings.methodMagpie
-      : provider === "kokoro"
-      ? s.strings.methodKokoro
-      : s.strings.methodSupertonic;
-  const voicesByLang =
-    provider === "magpie"
-      ? s.catalogs.magpieVoicesByLanguage
-      : provider === "kokoro"
-      ? s.catalogs.kokoroVoicesByLanguage
-      : s.catalogs.supertonicVoicesByLanguage;
-  const availableLangs =
-    provider === "magpie"
-      ? s.catalogs.magpieAvailableLanguages
-      : provider === "kokoro"
-      ? s.catalogs.kokoroAvailableLanguages
-      : s.catalogs.supertonicAvailableLanguages;
-  const patch =
-    provider === "magpie"
-      ? ttsApi.patchMagpie
-      : provider === "kokoro"
-      ? ttsApi.patchKokoro
-      : ttsApi.patchSupertonic;
-  // Magpie backend (`MagpieSettings`) doesn't carry speed/threads knobs, so
-  // those rows only render for Kokoro + Supertonic where the backend honors
-  // them.
-  const showRuntimeKnobs = provider !== "magpie";
-  return (
-    <Card
-      title={title}
-      className={`tts-panel-${provider}`}
-      action={
-        <SmallButton onClick={() => void ttsApi.resetProvider(provider)}>
-          {s.strings.reset}
-        </SmallButton>
-      }
-    >
-      {showRuntimeKnobs && (
-        <FormRow label={s.strings.speedLabel}>
-          <NumberRange
-            value={settings.speed}
-            min={0.5}
-            max={2}
-            step={0.05}
-            onChange={(speed) => void patch({ speed })}
-          />
-        </FormRow>
-      )}
-      {showRuntimeKnobs && (
-        <FormRow label={s.strings.threadsLabel}>
-          <NumberRange
-            value={settings.threads}
-            min={1}
-            max={8}
-            step={1}
-            onChange={(threads) => void patch({ threads })}
-          />
-        </FormRow>
-      )}
-      {provider === "supertonic" && "steps" in settings && (
-        <FormRow label={s.strings.qualityStepsLabel}>
-          <NumberRange
-            value={settings.steps ?? 24}
-            min={1}
-            max={20}
-            step={1}
-            onChange={(steps) => void ttsApi.patchSupertonic({ steps })}
-          />
-        </FormRow>
-      )}
-      <VoicePerLanguage
-        variant="local"
-        voices={settings.voices}
-        voicesByLanguage={voicesByLang}
-        availableLanguages={availableLangs}
-        onChange={(voices) => void patch({ voices })}
-      />
-    </Card>
-  );
-}
-
 type VoicePerLanguageEntry = { language: string; voice: string };
 
 function VoicePerLanguage({
-  variant,
   voices,
   voicesByLanguage,
   availableLanguages,
   onChange,
 }: {
-  variant: "edge" | "local";
   voices: VoicePerLanguageEntry[];
   voicesByLanguage: Record<string, CatalogOption[]>;
   availableLanguages: CatalogOption[];
@@ -358,7 +220,7 @@ function VoicePerLanguage({
   const s = useTtsState();
   return (
     <div
-      className={`tts-voice-grid tts-voice-grid-${variant} flex flex-col gap-1.5`}
+      className="tts-voice-grid tts-voice-grid-edge flex flex-col gap-1.5"
     >
       <div className="tts-voice-grid-title text-xs font-medium uppercase tracking-wide text-muted">
         {s.strings.voicePerLanguage}
@@ -395,9 +257,7 @@ function VoicePerLanguage({
                 className="tts-voice-remove text-muted hover:text-danger"
                 aria-label="Remove"
               >
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor">
-                  <path d="M6.4 19L5 17.6l5.6-5.6L5 6.4L6.4 5l5.6 5.6L17.6 5L19 6.4L13.4 12l5.6 5.6l-1.4 1.4l-5.6-5.6z" />
-                </svg>
+                <MaterialSymbol name="close" className="h-3.5 w-3.5" />
               </button>
             </li>
           );
@@ -436,34 +296,5 @@ function AddLanguageRow({
         }}
       />
     </div>
-  );
-}
-
-function VieneuPanel() {
-  const s = useTtsState();
-  const refs = s.catalogs.vieneuReferences.map((r) => ({
-    value: r.id,
-    label: r.name,
-  }));
-  return (
-    <Card
-      title={s.strings.methodVieneu}
-      className="tts-panel-vieneu"
-      description={s.strings.vieneuDesc}
-      action={
-        <SmallButton onClick={() => void ttsApi.resetProvider("vieneu")}>
-          {s.strings.reset}
-        </SmallButton>
-      }
-    >
-      <FormRow label={s.strings.referenceVoice}>
-        <Select
-          value={s.vieneu.reference}
-          options={refs}
-          onChange={(reference) => void ttsApi.patchVieneu({ reference })}
-          placeholder="—"
-        />
-      </FormRow>
-    </Card>
   );
 }

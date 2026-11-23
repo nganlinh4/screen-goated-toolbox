@@ -9,32 +9,32 @@ import {
 } from './useDownloadableBg';
 
 /**
- * Shared trash-can overlay badge shown on hover for downloadable backgrounds
- * and recent-upload swatches. The exact class strings are passed in by the
- * caller so each swatch keeps its existing markup verbatim.
+ * Shared trash-can badge for downloadable backgrounds and recent-upload
+ * swatches. It is a real button rendered as a SIBLING of the swatch's select
+ * button (never nested inside it), so it is keyboard reachable and announced.
+ * The swatch wrapper carries the `group` class that reveals it on hover.
  */
 export function SwatchDeleteBadge({
   className,
   iconClassName,
   onClick,
-  title,
-  ariaLabel,
+  label,
 }: {
   className: string;
   iconClassName: string;
-  onClick: (e: React.MouseEvent) => void;
-  title: string;
-  ariaLabel?: string;
+  onClick: () => void;
+  label: string;
 }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
-      className={className}
-      title={title}
-      aria-label={ariaLabel}
+      className={`${className} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
+      title={label}
+      aria-label={label}
     >
       <Trash2 className={iconClassName} />
-    </div>
+    </button>
   );
 }
 
@@ -60,74 +60,73 @@ export function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig
       selectBg();
       setTimeout(() => setIsApplying(false), 0);
     } else if (state.status === 'idle' || state.status === 'error') {
-      startDownload();
+      void startDownload();
     }
-  };
-
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    deleteBg();
   };
 
   const isSelected = isDownloaded && backgroundConfig.backgroundType === 'custom'
     && backgroundConfig.customBackground?.includes(`/bg-downloaded/${bg.id}.`);
 
   return (
-    <button
-      onClick={handleClick}
-      title={
-        isDownloading ? t.backgroundDownloadingProgress.replace('{progress}', String(Math.round(progress)))
-        : isPrewarming ? t.backgroundPreparingExport
-        : isDownloaded ? bg.id
-        : state.status === 'error'
-          ? t.backgroundDownloadError.replace('{message}', (state as { status: 'error'; message: string }).message)
-        : t.backgroundClickToDownload
-      }
-      className={`downloadable-bg-btn ui-choice-tile aspect-square h-10 rounded-lg relative overflow-hidden group ${
-        isSelected
-          ? 'ui-choice-tile-active'
-          : ''
-      }`}
-    >
-      <img
-        src={bg.preview}
-        alt={bg.id}
-        className="absolute inset-0 w-full h-full object-cover"
-        draggable={false}
-      />
+    <div className="downloadable-bg-swatch aspect-square h-10 relative group">
+      <button
+        type="button"
+        onClick={handleClick}
+        aria-pressed={Boolean(isSelected)}
+        title={
+          isDownloading ? t.backgroundDownloadingProgress.replace('{progress}', String(Math.round(progress)))
+          : isPrewarming ? t.backgroundPreparingExport
+          : isDownloaded ? bg.id
+          : state.status === 'error'
+            ? t.backgroundDownloadError.replace('{message}', (state as { status: 'error'; message: string }).message)
+          : t.backgroundClickToDownload
+        }
+        className={`downloadable-bg-btn ui-choice-tile w-full h-full rounded-lg relative overflow-hidden ${
+          isSelected
+            ? 'ui-choice-tile-active'
+            : ''
+        }`}
+      >
+        <img
+          src={bg.preview}
+          alt={bg.id}
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+        />
+        {overlayOpacity > 0 && (
+          <div
+            className="downloadable-bg-overlay absolute inset-0 flex items-center justify-center transition-opacity duration-200"
+            style={{
+              backgroundColor: `rgba(0, 0, 0, ${0.18 * overlayOpacity})`,
+            }}
+          >
+            {isDownloading ? (
+              <div className="download-progress-ring relative w-5 h-5">
+                <svg viewBox="0 0 20 20" className="w-full h-full -rotate-90">
+                  <circle cx="10" cy="10" r="8" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+                  <circle
+                    cx="10" cy="10" r="8" fill="none" stroke="white" strokeWidth="2"
+                    strokeDasharray={`${(progress / 100) * 50.3} 50.3`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            ) : (isPrewarming || isApplying) ? (
+              <Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" />
+            ) : (
+              <Download className="w-3.5 h-3.5 text-white/80 drop-shadow-sm" />
+            )}
+          </div>
+        )}
+      </button>
       {isDownloaded && (
         <SwatchDeleteBadge
-          onClick={handleDelete}
-          className="downloadable-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-xs bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
+          onClick={() => void deleteBg()}
+          className="downloadable-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-xs bg-black/50 flex items-center justify-center transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
           iconClassName="w-2 h-2 text-white"
-          title={t.backgroundDeleteDownloadedFile}
+          label={t.backgroundDeleteDownloadedFile}
         />
       )}
-      {overlayOpacity > 0 && (
-        <div
-          className="downloadable-bg-overlay absolute inset-0 flex items-center justify-center transition-opacity duration-200"
-          style={{
-            backgroundColor: `rgba(0, 0, 0, ${0.18 * overlayOpacity})`,
-          }}
-        >
-          {isDownloading ? (
-            <div className="download-progress-ring relative w-5 h-5">
-              <svg viewBox="0 0 20 20" className="w-full h-full -rotate-90">
-                <circle cx="10" cy="10" r="8" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-                <circle
-                  cx="10" cy="10" r="8" fill="none" stroke="white" strokeWidth="2"
-                  strokeDasharray={`${(progress / 100) * 50.3} 50.3`}
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-          ) : (isPrewarming || isApplying) ? (
-            <Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" />
-          ) : (
-            <Download className="w-3.5 h-3.5 text-white/80 drop-shadow-sm" />
-          )}
-        </div>
-      )}
-    </button>
+    </div>
   );
 }

@@ -182,73 +182,23 @@ internal object DelimitedTextContract {
         )
     }
 
-    internal fun formatFor(file: File): DelimitedFormat? = DelimitedFormat.forFile(file)
-
-    internal fun rawCells(
-        text: String,
-        delimiter: Char,
-    ): List<DelimitedRawCell>? {
-        val cells = mutableListOf<DelimitedRawCell>()
-        var start = 0
-        var index = 0
-        var record = 0
-        var field = 0
-        var inQuotes = false
-        var recordStarted = false
-        while (index < text.length) {
-            val character = text[index]
-            if (inQuotes) {
-                if (character == '"') {
-                    if (text.getOrNull(index + 1) == '"') {
-                        index += 2
-                        continue
-                    }
-                    inQuotes = false
-                }
-                index += 1
-                continue
-            }
-            if (character == '"' && index == start) {
-                inQuotes = true
-                recordStarted = true
-                index += 1
-                continue
-            }
-            if (character == delimiter) {
-                cells += rawCell(text, record, field, start, index)
-                field += 1
-                recordStarted = true
-                index += 1
-                start = index
-                continue
-            }
-            if (character == '\r' || character == '\n') {
-                cells += rawCell(text, record, field, start, index)
-                if (character == '\r' && text.getOrNull(index + 1) == '\n') index += 1
-                index += 1
-                start = index
-                record += 1
-                field = 0
-                recordStarted = false
-                continue
-            }
-            recordStarted = true
-            index += 1
-        }
-        if (inQuotes) return null
-        if (recordStarted || start < text.length || field > 0) {
-            cells += rawCell(text, record, field, start, text.length)
-        }
-        return cells
-    }
-
     private fun parse(text: String, delimiter: Char): DelimitedProfile? {
         val records = mutableListOf<List<String>>()
         var record = mutableListOf<String>()
         val field = StringBuilder()
+        val formulas = mutableListOf<DelimitedFormulaCell>()
         var index = 0
+        var fieldStart = 0
         var inQuotes = false
         var recordStarted = false
+        fun finishField(end: Int) {
+            val value = field.toString()
+            if (value.trimStart().startsWith('=')) {
+                formulas += DelimitedFormulaCell(records.size, record.size, text.substring(fieldStart, end))
+            }
+            record += value
+            field.clear()
+        }
         while (index < text.length) {
             val character = text[index++]
             if (inQuotes) {
@@ -271,14 +221,14 @@ internal object DelimitedTextContract {
                     recordStarted = true
                 }
                 character == delimiter -> {
-                    record += field.toString()
-                    field.clear()
+                    finishField(index - 1)
+                    fieldStart = index
                     recordStarted = true
                 }
                 character == '\r' || character == '\n' -> {
+                    finishField(index - 1)
                     if (character == '\r' && text.getOrNull(index) == '\n') index += 1
-                    record += field.toString()
-                    field.clear()
+                    fieldStart = index
                     records += record
                     record = mutableListOf()
                     recordStarted = false
@@ -291,16 +241,8 @@ internal object DelimitedTextContract {
         }
         if (inQuotes) return null
         if (recordStarted || field.isNotEmpty() || record.isNotEmpty()) {
-            record += field.toString()
+            finishField(text.length)
             records += record
-        }
-        val formulas = mutableListOf<DelimitedFormulaCell>()
-        records.forEachIndexed { recordIndex, fields ->
-            fields.forEachIndexed { fieldIndex, value ->
-                if (value.trimStart().startsWith('=')) {
-                    formulas += DelimitedFormulaCell(recordIndex, fieldIndex, value)
-                }
-            }
         }
         return DelimitedProfile(
             records = records,
@@ -406,30 +348,6 @@ internal object DelimitedTextContract {
         .putLong(size.toLong())
         .array()
 
-    private fun rawCell(
-        text: String,
-        record: Int,
-        field: Int,
-        start: Int,
-        end: Int,
-    ): DelimitedRawCell {
-        val raw = text.substring(start, end)
-        return DelimitedRawCell(
-            record = record,
-            field = field,
-            start = start,
-            end = end,
-            formula = decodedField(raw).trimStart().startsWith('='),
-        )
-    }
-
-    internal fun decodedField(raw: String): String =
-        if (raw.length >= 2 && raw.first() == '"' && raw.last() == '"') {
-            raw.substring(1, raw.lastIndex).replace("\"\"", "\"")
-        } else {
-            raw
-        }
-
     private const val MAX_SHAPE_MISMATCHES = 16
 }
 
@@ -448,14 +366,6 @@ internal enum class DelimitedFormat(
         }
     }
 }
-
-internal data class DelimitedRawCell(
-    val record: Int,
-    val field: Int,
-    val start: Int,
-    val end: Int,
-    val formula: Boolean,
-)
 
 private data class DelimitedFormulaCell(
     val record: Int,

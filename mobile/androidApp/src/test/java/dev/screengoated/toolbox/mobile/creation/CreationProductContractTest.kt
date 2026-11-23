@@ -23,7 +23,7 @@ class CreationProductContractTest {
             .getValue("deliveredFeatures")
             .jsonArray
             .map { it.jsonPrimitive.content }
-        assertEquals(listOf("image_to_3d", "image_to_svg", "image_creator"), delivered)
+        assertEquals(listOf("image_to_3d", "image_to_svg"), delivered)
 
         val svg = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
             .objectAt("releaseAvailability")
@@ -32,21 +32,10 @@ class CreationProductContractTest {
         assertEquals("open_surface", svg.stringAt("entryBehavior"))
         assertTrue(svg.booleanAt("startsSurface"))
         assertTrue(svg.booleanAt("startsReadiness"))
-
-        val image = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
-            .objectAt("releaseAvailability")
-        assertFalse(image.booleanAt("enabled"))
-        assertFalse(image.booleanAt("entryVisible"))
-        assertEquals("hidden", image.stringAt("entryBehavior"))
-        assertFalse(image.booleanAt("startsSurface"))
-        assertFalse(image.booleanAt("startsReadiness"))
-
-        listOf(svg, image).forEach { release ->
-            assertEquals("optional_content_addressed_runtime", release.stringAt("packaging"))
-            assertTrue(release.booleanAt("compiledHostCode"))
-            assertTrue(release.booleanAt("embeddedFrontendAssets"))
-            assertTrue(release.booleanAt("runtimeCapabilityDelivered"))
-        }
+        assertEquals("optional_content_addressed_runtime", svg.stringAt("packaging"))
+        assertTrue(svg.booleanAt("compiledHostCode"))
+        assertTrue(svg.booleanAt("embeddedFrontendAssets"))
+        assertTrue(svg.booleanAt("runtimeCapabilityDelivered"))
     }
 
     @Test
@@ -59,13 +48,8 @@ class CreationProductContractTest {
             "integrityValidatedBeforeUse",
         )
         val fixtures = listOf(
-            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 73),
-            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 44),
-            Triple(
-                "parity-fixtures/image-creation-editing/state-contract.json",
-                "fixtureVersion",
-                68,
-            ),
+            Triple("parity-fixtures/image-to-3d/state-contract.json", "schemaVersion", 75),
+            Triple("parity-fixtures/image-to-svg/state-contract.json", "schemaVersion", 45),
         )
         fixtures.forEach { (path, versionField, version) ->
             val fixture = loadFixture(path)
@@ -89,6 +73,7 @@ class CreationProductContractTest {
         assertTrue(modelHistory.booleanAt("defaultResultsAreRetentionManaged"))
         assertFalse(modelHistory.booleanAt("selectedDestinationSupported"))
         assertTrue(model.objectAt("export").booleanAt("requiresExplicitUserAction"))
+        assertTrue(model.objectAt("export").booleanAt("rejectsChangedCommittedArtifactBeforeCopy"))
 
         val svgHistory = loadFixture("parity-fixtures/image-to-svg/state-contract.json")
             .objectAt("history")
@@ -102,7 +87,6 @@ class CreationProductContractTest {
         listOf(
             "parity-fixtures/image-to-3d/state-contract.json",
             "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
         ).forEach { path ->
             val readiness = loadFixture(path).objectAt("readiness")
             assertTrue(readiness.booleanAt("stateIsProductLevel"))
@@ -118,7 +102,6 @@ class CreationProductContractTest {
         listOf(
             "parity-fixtures/image-to-3d/state-contract.json",
             "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
         ).forEach { path ->
             assertEquals(
                 "newest_session_first",
@@ -134,41 +117,11 @@ class CreationProductContractTest {
         }
     }
 
-
-    @Test
-    fun `image reference upload targets only the active semantic control`() {
-        val upload = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
-            .objectAt("referenceUpload")
-
-        assertTrue(upload.booleanAt("actionableSemanticControlRequired"))
-        assertTrue(upload.booleanAt("visibleUploadSurfaceRequired"))
-        assertTrue(upload.booleanAt("hiddenImplementationInputEligible"))
-        assertTrue(upload.booleanAt("disconnectedOrDisabledInputRejected"))
-        assertTrue(upload.booleanAt("semanticallyUnownedInputRejected"))
-        assertTrue(upload.booleanAt("ambiguousInputRankingRejected"))
-        assertTrue(upload.booleanAt("localActivationRetryIsBounded"))
-        assertTrue(upload.booleanAt("activationRetryDoesNotNavigateOrSubmit"))
-        assertTrue(upload.booleanAt("visibleRetainedReferenceControlRequired"))
-        assertTrue(upload.booleanAt("selectedFileInputAloneIsInsufficient"))
-        assertTrue(upload.booleanAt("asynchronousRetentionWaitIsBounded"))
-        assertTrue(upload.booleanAt("retentionWaitIsIndependentFromControlDiscovery"))
-        assertTrue(upload.booleanAt("allRequestedReferencesRetainedBeforeSubmission"))
-        assertTrue(upload.booleanAt("duplicateReferenceNamesRequireRetainedMultiplicity"))
-        assertTrue(upload.booleanAt("aggregateRetentionWaitFitsWithinJobDeadline"))
-        assertTrue(upload.booleanAt("safeInformationalDialogsReconciledDuringRetentionWait"))
-
-        val quality = loadFixture("parity-fixtures/image-creation-editing/state-contract.json")
-            .objectAt("qualityControl")
-        assertTrue(quality.booleanAt("promptAcceptedByEditorStateBeforeSubmit"))
-        assertTrue(quality.booleanAt("semanticEditorReplacementBeforeCommitIsReacquired"))
-    }
-
     @Test
     fun `creation surfaces do no recurring work while idle`() {
         listOf(
             "parity-fixtures/image-to-3d/state-contract.json",
             "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
         ).forEach { path ->
             val activity = loadFixture(path).objectAt("surfaceActivity")
             assertTrue(activity.booleanAt("firstPaintPrecedesReadinessRequest"))
@@ -201,16 +154,11 @@ class CreationProductContractTest {
         assertTrue(recovery.booleanAt("artifactCommittedBeforeHostSuccess"))
         assertEquals(7 * 24, recovery.intAt("recoveryRetentionHours"))
 
-        listOf(
-            "parity-fixtures/image-to-svg/state-contract.json",
-            "parity-fixtures/image-creation-editing/state-contract.json",
-        ).forEach { path ->
-            assertTrue(
-                loadFixture(path)
-                    .objectAt("recovery")
-                    .booleanAt("workerCleanupPrecedesRecoveryRedispatch"),
-            )
-        }
+        assertTrue(
+            loadFixture("parity-fixtures/image-to-svg/state-contract.json")
+                .objectAt("recovery")
+                .booleanAt("workerCleanupPrecedesRecoveryRedispatch"),
+        )
     }
 
     @Test

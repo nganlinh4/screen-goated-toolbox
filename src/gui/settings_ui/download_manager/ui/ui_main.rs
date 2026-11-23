@@ -24,7 +24,7 @@ impl DownloadManager {
             let idx = self.active_idx();
 
             // --- URL INPUT ---
-            self.render_url_input(ui, ctx, text, idx);
+            self.render_url_input(ui, text, idx);
 
             ui.add_space(8.0);
 
@@ -156,10 +156,13 @@ impl DownloadManager {
         let gear_resp = ui
             .menu_button("    ", |ui| {
                 if ui
-                    .button(text.auxiliary.download.download_change_folder_btn)
+                    .add_enabled(
+                        self.folder_picker.available(),
+                        egui::Button::new(text.auxiliary.download.download_change_folder_btn),
+                    )
                     .clicked()
                 {
-                    self.change_download_folder();
+                    self.change_download_folder(ctx);
                     ui.close();
                 }
 
@@ -193,13 +196,7 @@ impl DownloadManager {
         );
     }
 
-    fn render_url_input(
-        &mut self,
-        ui: &mut egui::Ui,
-        ctx: &egui::Context,
-        text: &LocaleText,
-        idx: usize,
-    ) {
+    fn render_url_input(&mut self, ui: &mut egui::Ui, text: &LocaleText, idx: usize) {
         ui.label(egui::RichText::new(text.auxiliary.download.download_url_label).strong());
         let response = ui.add(
             egui::TextEdit::singleline(&mut self.sessions[idx].input_url)
@@ -213,28 +210,33 @@ impl DownloadManager {
         }
 
         if response.changed() {
-            self.sessions[idx].last_input_change = ctx.input(|i| i.time);
-            self.sessions[idx].available_formats.lock().unwrap().clear();
-            self.sessions[idx].selected_format = None;
+            self.sessions[idx].last_input_change = ui.input(|input| input.time);
+            self.sessions[idx].analysis.lock().unwrap().invalidate();
+            self.sessions[idx].selected_subtitle = None;
         }
 
-        // Auto-analyze Logic
-        let time_since_edit = ctx.input(|i| i.time) - self.sessions[idx].last_input_change;
-        let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
-        let url_changed =
-            self.sessions[idx].input_url.trim() != self.sessions[idx].last_url_analyzed;
-
-        if time_since_edit > 0.8
-            && url_changed
-            && !self.sessions[idx].input_url.trim().is_empty()
-            && !is_analyzing
+        let session = &self.sessions[idx];
+        let waiting_for_scan = {
+            let analysis = session.analysis.lock().unwrap();
+            let url = session.input_url.trim();
+            !url.is_empty() && !analysis.analyzing && url != analysis.last_url
+        };
+        if waiting_for_scan
+            && !matches!(
+                *session.download_state.lock().unwrap(),
+                super::super::types::DownloadState::Downloading(..)
+            )
         {
-            self.start_analysis();
+            if ui.input(|input| input.time) - session.last_input_change > 0.8 {
+                self.start_analysis(ui.ctx().clone());
+            }
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
 
     fn render_format_quality(&mut self, ui: &mut egui::Ui, text: &LocaleText, idx: usize) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new(text.auxiliary.download.download_format_label).strong());
             if ui
                 .radio_value(
@@ -266,10 +268,14 @@ impl DownloadManager {
     }
 
     fn render_video_quality(&mut self, ui: &mut egui::Ui, text: &LocaleText, idx: usize) {
-        let theme = AppTheme::from_ui(ui);
-        let formats = self.sessions[idx].available_formats.lock().unwrap().clone();
-        let error = self.sessions[idx].analysis_error.lock().unwrap().clone();
-        let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
+        let (formats, error, is_analyzing) = {
+            let analysis = self.sessions[idx].analysis.lock().unwrap();
+            (
+                analysis.formats.clone(),
+                analysis.error.clone(),
+                analysis.analyzing,
+            )
+        };
 
         if is_analyzing {
             ui.spinner();
@@ -278,32 +284,65 @@ impl DownloadManager {
                     .italics()
                     .size(11.0),
             );
-        } else if !formats.is_empty() {
-            ui.label(text.auxiliary.download.download_quality_label_text);
-            let best_text = text.auxiliary.download.download_quality_best.to_string();
-            let current_val = self.sessions[idx]
-                .selected_format
-                .clone()
-                .unwrap_or_else(|| best_text.clone());
-
-            crate::gui::widgets::combo("quality_combo")
-                .selected_text(&current_val)
-                .width(100.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.sessions[idx].selected_format, None, &best_text);
-                    for fmt in formats {
-                        ui.selectable_value(
-                            &mut self.sessions[idx].selected_format,
-                            Some(fmt.clone()),
-                            &fmt,
-                        );
+        }
+        let locale = &text.auxiliary.download;
+        let selected = self.sessions[idx].selected_format.as_deref();
+        let label = |quality: &str| locale.download_quality_prefer_fmt.replace("{}", quality);
+        let current = selected.map_or_else(|| locale.download_quality_best.to_owned(), label);
+        let can_scan = !is_analyzing
+            && !self.sessions[idx].input_url.trim().is_empty()
+            && !matches!(
+                *self.sessions[idx].download_state.lock().unwrap(),
+                super::super::types::DownloadState::Downloading(..)
+            );
+        let mut choice = None;
+        let mut scan = false;
+        ui.label(locale.download_quality_label_text);
+        crate::gui::widgets::combo("quality_combo")
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(selected.is_none(), locale.download_quality_best)
+                    .clicked()
+                {
+                    choice = Some(None);
+                }
+                for format in super::super::quality::choices(selected, &formats) {
+                    if ui
+                        .selectable_label(selected == Some(format.as_str()), label(&format))
+                        .clicked()
+                    {
+                        choice = Some(Some(format));
                     }
-                });
-
-            // Subtitle Selection
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        can_scan,
+                        egui::Button::new(locale.download_scan_formats_btn),
+                    )
+                    .clicked()
+                {
+                    scan = true;
+                    ui.close();
+                }
+            });
+        if let Some(choice) = choice {
+            super::super::analysis::choose_quality(
+                &mut self.last_video_format,
+                &mut self.sessions[idx].selected_format,
+                choice,
+            );
+            self.save_settings();
+        }
+        if scan {
+            self.start_analysis(ui.ctx().clone());
+        }
+        if !is_analyzing {
             self.render_subtitle_selection(ui, text, idx);
-        } else if error.is_some() {
-            let (icon_rect, _) = ui.allocate_exact_size(
+        }
+        if let Some(error) = error {
+            let (icon_rect, response) = ui.allocate_exact_size(
                 egui::vec2(crate::gui::icons::ICON_MD, crate::gui::icons::ICON_MD),
                 egui::Sense::hover(),
             );
@@ -311,8 +350,9 @@ impl DownloadManager {
                 ui.painter(),
                 icon_rect,
                 crate::gui::icons::Icon::Warning,
-                theme.danger_text(),
+                AppTheme::from_ui(ui).danger_text(),
             );
+            response.on_hover_text(error);
         }
     }
 
@@ -323,9 +363,10 @@ impl DownloadManager {
         }
 
         let manual_subs = self.sessions[idx]
-            .available_subs_manual
+            .analysis
             .lock()
             .unwrap()
+            .subtitles
             .clone();
 
         if !manual_subs.is_empty() {
@@ -455,7 +496,7 @@ impl DownloadManager {
                 .width(140.0)
                 .show_ui(ui, |ui| {
                     let mut selected_browser = None;
-                    for browser in &self.available_browsers {
+                    for browser in self.browser_discovery.available() {
                         let label = match browser {
                             super::super::types::CookieBrowser::None => text
                                 .auxiliary

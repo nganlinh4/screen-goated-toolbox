@@ -26,6 +26,7 @@ def build_shards(catalog: dict, requested_models: set[str], requested_suites: se
         raise ValueError(f"unknown suites: {sorted(unknown_suites)}")
     non_llm = set(catalog["non_llm_ids"])
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    matched_requests: set[str] = set()
     for model in catalog["models"]:
         if not model.get("enabled") or model["id"] in non_llm:
             continue
@@ -36,11 +37,19 @@ def build_shards(catalog: dict, requested_models: set[str], requested_suites: se
         profile = catalog["model_profiles"][f"{model['provider']}:{model['full_name']}"]
         if profile["search_tool_enabled_by_default"]:
             continue
-        if requested_models and not {model["id"], model["full_name"]}.intersection(requested_models):
-            continue
+        if requested_models:
+            matches = {model["id"], model["full_name"]}.intersection(requested_models)
+            if not matches:
+                continue
+            matched_requests.update(matches)
         provider = model["provider"]
         scope = provider if provider in PROVIDER_WIDE_SHARDS else model["full_name"]
         groups[(provider, scope)].append(model)
+
+    unmatched = requested_models.difference(matched_requests)
+    if unmatched:
+        # A typo or retired identifier must not silently shrink a focused run.
+        raise ValueError(f"requested models match no benchmarkable catalog model: {sorted(unmatched)}")
 
     shards = []
     for index, ((provider, scope), models) in enumerate(sorted(groups.items()), start=1):
@@ -80,7 +89,10 @@ def main() -> None:
     parser.add_argument("--suites", default="text,coordinate,ocr")
     args = parser.parse_args()
     catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
-    shards = build_shards(catalog, csv_values(args.models), csv_values(args.suites))
+    try:
+        shards = build_shards(catalog, csv_values(args.models), csv_values(args.suites))
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if not shards:
         raise SystemExit("no hosted benchmark shards matched")
     print(json.dumps({"include": shards}, separators=(",", ":")))

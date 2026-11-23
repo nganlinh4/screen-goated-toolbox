@@ -1,5 +1,7 @@
 use crate::config::ProcessingBlock;
-use crate::model_config::DEFAULT_TEXT_MODEL_ID;
+use crate::model_config::{
+    DEFAULT_IMAGE_MODEL_ID, DEFAULT_TEXT_MODEL_ID, PRESET_AUDIO_TRANSCRIBE_MODEL_ID,
+};
 use std::collections::HashMap;
 
 /// Node type for the processing chain
@@ -7,6 +9,10 @@ use std::collections::HashMap;
 pub enum ChainNode {
     /// Input node (audio/image/text source)
     Input {
+        #[serde(skip)]
+        original: Option<Box<ProcessingBlock>>,
+        #[serde(skip)]
+        source_index: Option<usize>,
         id: String,
         block_type: String, // "audio", "image", "text", "input_adapter"
         auto_copy: bool,
@@ -16,6 +22,10 @@ pub enum ChainNode {
     },
     /// Special Processing Node (First level processor, Presets)
     Special {
+        #[serde(skip)]
+        original: Option<Box<ProcessingBlock>>,
+        #[serde(skip)]
+        source_index: Option<usize>,
         id: String,
         block_type: String,
         model: String,
@@ -31,6 +41,10 @@ pub enum ChainNode {
     },
     /// Processing node (transforms text)
     Process {
+        #[serde(skip)]
+        original: Option<Box<ProcessingBlock>>,
+        #[serde(skip)]
+        source_index: Option<usize>,
         id: String,
         block_type: String,
         model: String,
@@ -49,6 +63,8 @@ pub enum ChainNode {
 impl Default for ChainNode {
     fn default() -> Self {
         ChainNode::Process {
+            original: None,
+            source_index: None,
             id: format!(
                 "{:x}",
                 std::time::SystemTime::now()
@@ -71,6 +87,48 @@ impl Default for ChainNode {
 }
 
 impl ChainNode {
+    /// A node that reads the preset's image or audio input itself, so it is
+    /// that kind of block and starts on that input's default model.
+    pub fn new_special(preset_type: &str) -> Self {
+        let (kind, default_model) = match preset_type {
+            "image" => ("image", DEFAULT_IMAGE_MODEL_ID),
+            "audio" => ("audio", PRESET_AUDIO_TRANSCRIBE_MODEL_ID),
+            _ => ("text", DEFAULT_TEXT_MODEL_ID),
+        };
+        let ChainNode::Process {
+            original,
+            source_index,
+            id,
+            prompt,
+            language_vars,
+            show_overlay,
+            streaming_enabled,
+            search_enabled,
+            render_mode,
+            auto_copy,
+            auto_speak,
+            ..
+        } = Self::default()
+        else {
+            unreachable!("the default node is a process node");
+        };
+        ChainNode::Special {
+            original,
+            source_index,
+            id,
+            block_type: kind.to_string(),
+            model: default_model.to_string(),
+            prompt,
+            language_vars,
+            show_overlay,
+            streaming_enabled,
+            search_enabled,
+            render_mode,
+            auto_copy,
+            auto_speak,
+        }
+    }
+
     pub fn is_input(&self) -> bool {
         matches!(self, ChainNode::Input { .. })
     }
@@ -81,6 +139,44 @@ impl ChainNode {
 
     /// Convert to ProcessingBlock for execution
     pub fn to_block(&self) -> ProcessingBlock {
+        let mut block = self.to_visible_block();
+        let original = match self {
+            ChainNode::Input { original, .. }
+            | ChainNode::Special { original, .. }
+            | ChainNode::Process { original, .. } => original.as_deref(),
+        };
+        let Some(original) = original else {
+            return block;
+        };
+        let role = if original.block_type == "input_adapter" {
+            "input"
+        } else {
+            "process"
+        };
+        let baseline = ChainNode::from_block(original, role).to_visible_block();
+        if block == baseline {
+            return original.clone();
+        }
+        if original.block_type == "input_adapter" && block.block_type == "input_adapter" {
+            block.model = original.model.clone();
+            block.prompt = original.prompt.clone();
+            block.selected_language = original.selected_language.clone();
+            block.language_vars = original.language_vars.clone();
+            block.streaming_enabled = original.streaming_enabled;
+            block.search_enabled = original.search_enabled;
+        } else if block.language_vars == baseline.language_vars {
+            block.language_vars = original.language_vars.clone();
+            block.selected_language = original.selected_language.clone();
+        } else if block.language_vars.get("language1") == baseline.language_vars.get("language1") {
+            block.selected_language = original.selected_language.clone();
+            if !original.language_vars.contains_key("language1") {
+                block.language_vars.remove("language1");
+            }
+        }
+        block
+    }
+
+    fn to_visible_block(&self) -> ProcessingBlock {
         match self {
             ChainNode::Input {
                 id,
@@ -89,6 +185,7 @@ impl ChainNode {
                 auto_speak,
                 show_overlay,
                 render_mode,
+                ..
             } => {
                 ProcessingBlock {
                     id: id.clone(),
@@ -117,6 +214,7 @@ impl ChainNode {
                 render_mode,
                 auto_copy,
                 auto_speak,
+                ..
             }
             | ChainNode::Process {
                 id,
@@ -130,6 +228,7 @@ impl ChainNode {
                 render_mode,
                 auto_copy,
                 auto_speak,
+                ..
             } => ProcessingBlock {
                 id: id.clone(),
                 block_type: block_type.clone(),
@@ -170,6 +269,9 @@ impl ChainNode {
                 };
 
                 ChainNode::Input {
+                    original: (block.block_type == "input_adapter")
+                        .then(|| Box::new(block.clone())),
+                    source_index: None,
                     id: block.id.clone(),
                     block_type: block.block_type.clone(),
                     auto_copy: block.auto_copy,
@@ -179,6 +281,8 @@ impl ChainNode {
                 }
             }
             "special" => ChainNode::Special {
+                original: Some(Box::new(block.clone())),
+                source_index: None,
                 id: block.id.clone(),
                 block_type: block.block_type.clone(),
                 model: block.model.clone(),
@@ -192,6 +296,8 @@ impl ChainNode {
                 auto_speak: block.auto_speak,
             },
             _ => ChainNode::Process {
+                original: Some(Box::new(block.clone())),
+                source_index: None,
                 id: block.id.clone(),
                 block_type: block.block_type.clone(),
                 model: block.model.clone(),
@@ -212,6 +318,37 @@ impl ChainNode {
             ChainNode::Input { id, .. }
             | ChainNode::Special { id, .. }
             | ChainNode::Process { id, .. } => id,
+        }
+    }
+
+    pub fn source_index(&self) -> Option<usize> {
+        match self {
+            ChainNode::Input { source_index, .. }
+            | ChainNode::Special { source_index, .. }
+            | ChainNode::Process { source_index, .. } => *source_index,
+        }
+    }
+
+    pub fn set_source(&mut self, index: usize, block: &ProcessingBlock) {
+        match self {
+            ChainNode::Input {
+                source_index,
+                original,
+                ..
+            }
+            | ChainNode::Special {
+                source_index,
+                original,
+                ..
+            }
+            | ChainNode::Process {
+                source_index,
+                original,
+                ..
+            } => {
+                *source_index = Some(index);
+                *original = Some(Box::new(block.clone()));
+            }
         }
     }
 

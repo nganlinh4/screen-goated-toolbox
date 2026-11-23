@@ -2,9 +2,16 @@ package dev.screengoated.toolbox.mobile.shared.live
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.withTimeoutOrNull
 import okio.ByteString.Companion.encodeUtf8
+import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,6 +19,47 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class GeminiLiveReadySessionTest {
+    @Test
+    fun `shared rejected frame sequences retain the active session and next content`() = runTest {
+        val relative = "parity-fixtures/phone-control/provider-frame-recovery.json"
+        val fixture = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .map { File(it, relative) }
+            .first { it.isFile }
+        val cases = Json.parseToJsonElement(fixture.readText(Charsets.UTF_8))
+            .jsonObject.getValue("wireSequences").jsonArray
+        for (case in cases) {
+            for (binary in listOf(false, true)) {
+                val fields = case.jsonObject
+                val connector = FakeConnector()
+                val session = openGeminiLiveReadySession(connector, SETUP_PAYLOAD)
+                val rejected = fields.getValue("rejected").jsonPrimitive.content
+                if (binary) connector.emitBinary(rejected) else connector.emitText(rejected)
+                connector.emitText(fields.getValue("next").jsonPrimitive.content)
+                assertTrue(session.receive() is GeminiLiveReceiveResult.Unparsed)
+                val following = session.receive() as GeminiLiveReceiveResult.Frame
+                assertEquals(fields.getValue("expectedInput").jsonPrimitive.content, following.frame.inputTranscript)
+                assertEquals(GeminiLiveSessionPhase.ACTIVE, session.phase)
+                assertTrue(session.trySend(AUDIO_PAYLOAD))
+                assertEquals(0, connector.socket.cancelCount)
+                assertEquals(0, connector.socket.closeCount)
+                session.close()
+            }
+        }
+    }
+
+    @Test
+    fun `retired owner prevents setup send before awaiting acknowledgement`() = runTest {
+        val connector = FakeConnector()
+        val connected = openGeminiLiveConnectedSession(connector)
+        try {
+            connected.activate(SETUP_PAYLOAD, dispatchSetup = { throw CancellationException("retired") })
+            fail("Expected retirement to cancel activation")
+        } catch (_: CancellationException) {
+        }
+        assertTrue(connector.socket.sentPayloads.isEmpty())
+        assertEquals(1, connector.socket.cancelCount)
+    }
+
     @Test
     fun `connected typestate sends nothing before one-time activation`() = runTest {
         val connector = FakeConnector()
@@ -150,6 +198,106 @@ class GeminiLiveReadySessionTest {
         assertEquals(GeminiLiveReceiveResult.TimedOut, session.receive(timeoutMs = 1L))
 
         session.close()
+    }
+
+    @Test
+    fun `setup observation frame limit preserves order at limit and fails beyond it`() = runTest {
+        val connector = FakeConnector(setupReply = null)
+        val connected = openGeminiLiveConnectedSession(connector)
+        repeat(MAX_SETUP_FRAMES - 1) { connector.emitText("""{"serverContent":{"inputTranscription":{"text":"$it"}}}""") }
+        connector.emitText("""{"setupComplete":{}}""")
+        val session = connected.activate(SETUP_PAYLOAD)
+        repeat(MAX_SETUP_FRAMES - 1) { index ->
+            val item = session.receive() as GeminiLiveReceiveResult.Frame
+            assertEquals(index.toString(), item.frame.inputTranscript)
+        }
+        session.close()
+
+        val overflowing = FakeConnector(setupReply = null)
+        val overflowConnection = openGeminiLiveConnectedSession(overflowing)
+        repeat(MAX_SETUP_FRAMES) { overflowing.emitText("{}") }
+        overflowing.emitText("""{"setupComplete":{}}""")
+        val error = expectSessionException { overflowConnection.activate(SETUP_PAYLOAD) }
+        assertEquals(GeminiLiveSessionFailure.Server("Gemini Live setup observation limit exceeded."), error.failure)
+    }
+
+    @Test
+    fun `setup observation byte budget counts combined utf8 payload`() = runTest {
+        val connector = FakeConnector(setupReply = null)
+        val connected = openGeminiLiveConnectedSession(connector)
+        val ack = """{"setupComplete":{}}"""
+        val textBytes = MAX_SETUP_BYTES - ack.toByteArray().size
+        connector.emitText("x".repeat(textBytes))
+        connector.emitText(ack)
+        val session = connected.activate(SETUP_PAYLOAD)
+        assertEquals(textBytes, (session.receive() as GeminiLiveReceiveResult.Unparsed).payload.length)
+        session.close()
+
+        val overflowing = FakeConnector(setupReply = null)
+        val overflowConnection = openGeminiLiveConnectedSession(overflowing)
+        overflowing.emitText("é".repeat(MAX_SETUP_BYTES / 2))
+        overflowing.emitText("x")
+        val error = expectSessionException { overflowConnection.activate(SETUP_PAYLOAD) }
+        assertEquals(GeminiLiveSessionFailure.Server("Gemini Live setup observation limit exceeded."), error.failure)
+    }
+
+    @Test
+    fun `unicode-heavy setup acknowledgement counts its utf8 bytes`() = runTest {
+        val connector = FakeConnector(setupReply = null)
+        val connected = openGeminiLiveConnectedSession(connector)
+        connector.emitText("""{"setupComplete":{},"padding":"${"é".repeat(MAX_SETUP_BYTES / 2)}"}""")
+        val error = expectSessionException { connected.activate(SETUP_PAYLOAD) }
+        assertEquals(GeminiLiveSessionFailure.Server("Gemini Live setup observation limit exceeded."), error.failure)
+    }
+
+    @Test
+    fun `active overflow takes precedence over pending pre-setup completion`() = runTest {
+        val connector = FakeConnector(setupReply = null)
+        val connected = openGeminiLiveConnectedSession(connector)
+        connector.emitText("""{"serverContent":{"turnComplete":true}}""")
+        connector.emitText("""{"setupComplete":{}}""")
+        val session = connected.activate(SETUP_PAYLOAD)
+        repeat(MAX_ACTIVE_FRAMES + 1) { connector.emitText("payload-$it") }
+        assertEquals(
+            GeminiLiveReceiveResult.Failed(GeminiLiveSessionFailure.Server("Gemini Live receive buffer limit exceeded; buffered events discarded.")),
+            session.receive(),
+        )
+        session.close()
+    }
+
+    @Test
+    fun `overlapping receives are rejected rather than stealing wakeups`() = runTest {
+        val session = openGeminiLiveReadySession(FakeConnector(), SETUP_PAYLOAD)
+        val first = async { session.receive() }
+        yield()
+        try {
+            session.receive()
+            fail("expected concurrent receive rejection")
+        } catch (_: IllegalStateException) {
+        } finally {
+            first.cancelAndJoin()
+            session.close()
+        }
+    }
+
+    @Test
+    fun `duplicate setup acknowledgements are coalesced before activation`() = runTest {
+        val core = GeminiLiveSessionCore()
+        core.listener.onOpen()
+        repeat(1_000) { core.listener.onText("""{"setupComplete":{}}""") }
+        assertEquals(GeminiLiveCoreEvent.Opened, core.receiveEvent())
+        assertTrue((core.receiveEvent() as GeminiLiveCoreEvent.Frame).frame.setupComplete)
+        assertEquals(null, withTimeoutOrNull(1) { core.receiveEvent() })
+        core.cancel()
+    }
+
+    @Test
+    fun `setup overflow is terminal before activation may succeed`() {
+        val core = GeminiLiveSessionCore()
+        core.listener.onOpen()
+        repeat(MAX_SETUP_FRAMES + 1) { core.listener.onText("{}") }
+        assertFalse(core.activate())
+        assertEquals(GeminiLiveSessionFailure.Server("Gemini Live setup observation limit exceeded."), core.failureBeforeReady())
     }
 
     @Test

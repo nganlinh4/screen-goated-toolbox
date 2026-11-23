@@ -1,0 +1,5 @@
+{
+  "shortStream": { "speed": 0.75, "samples": [1000, -1000, 500] },
+  "replacementStream": { "speed": 0.75, "samples": [-2000, 3000] },
+  "normalSpeed": 1.0
+}

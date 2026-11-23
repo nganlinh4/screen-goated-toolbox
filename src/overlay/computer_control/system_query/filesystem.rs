@@ -5,7 +5,15 @@ use serde_json::{Value, json};
 
 use super::{failure, ok};
 
+/// Upper bound on directory entries examined per query. Sorting needs every
+/// candidate, so a larger directory reports an incomplete listing instead.
+const MAX_SCANNED_ENTRIES: usize = 10_000;
+
 pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
+    list_directory_scanning(args, observed_at_ms, MAX_SCANNED_ENTRIES)
+}
+
+fn list_directory_scanning(args: &Value, observed_at_ms: u128, max_scanned: usize) -> Value {
     let Some(path) = args
         .get("path")
         .and_then(Value::as_str)
@@ -32,7 +40,11 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
         .filter_map(Value::as_str)
         .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
         .collect();
-    let path = std::fs::canonicalize(&path).unwrap_or(path);
+    // Canonical for symlink resolution, but spelled without the verbatim
+    // prefix so follow-up commands and the user can use the paths directly.
+    let path = std::fs::canonicalize(&path)
+        .map(|canonical| crate::verbatim_path::display_path(&canonical))
+        .unwrap_or(path);
     let directory = match std::fs::read_dir(&path) {
         Ok(directory) => directory,
         Err(error) => {
@@ -48,7 +60,12 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
     let mut total_entries = 0usize;
     let mut excluded_by_kind = 0usize;
     let mut excluded_by_extension = 0usize;
-    for entry in directory.filter_map(Result::ok) {
+    let mut scan_truncated = false;
+    for (scanned, entry) in directory.filter_map(Result::ok).enumerate() {
+        if scanned == max_scanned {
+            scan_truncated = true;
+            break;
+        }
         let Some(item) = entry_item(&entry.path()) else {
             continue;
         };
@@ -97,6 +114,11 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
         item["rank"] = json!(index + 1);
     }
     let mut warnings = Vec::new();
+    if scan_truncated {
+        warnings.push(format!(
+            "directory has more than {max_scanned} entries; only the first {max_scanned} were examined, so ordering and counts are partial"
+        ));
+    }
     if total > limit {
         warnings.push(format!("showing {limit} of {total} matching entries"));
     }
@@ -122,9 +144,10 @@ pub(super) fn list_directory(args: &Value, observed_at_ms: u128) -> Value {
     result["returned_count"] = json!(result["items"].as_array().map_or(0, Vec::len));
     result["excluded_by_kind"] = json!(excluded_by_kind);
     result["excluded_by_extension"] = json!(excluded_by_extension);
+    result["scan_truncated"] = json!(scan_truncated);
     result["content_coverage"] = json!({
         "status": "metadata_only",
-        "listing_complete": total <= limit,
+        "listing_complete": total <= limit && !scan_truncated,
         "returned_file_count": result["items"]
             .as_array()
             .map(|items| items.iter().filter(|item| item["kind"] == "file").count())
@@ -264,6 +287,52 @@ mod tests {
                 .is_some_and(|instruction| instruction.contains("read each in-scope file"))
         );
         assert_eq!(result["matched_count"], 2);
+    }
+
+    #[test]
+    fn reported_paths_use_the_ordinary_spelling_of_the_canonical_directory() {
+        let root = TestDir::new();
+        std::fs::write(root.0.join("note.md"), "note").unwrap();
+        assert!(
+            std::fs::canonicalize(&root.0)
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(r"\\?\")
+        );
+
+        let result = list_directory(&json!({"path": root.0}), 1);
+
+        let resolved = result["resolved_path"].as_str().unwrap();
+        let item = result["items"][0]["path"].as_str().unwrap();
+        for path in [resolved, item] {
+            assert!(!path.starts_with(r"\\?\"), "{path}");
+            assert!(Path::new(path).exists(), "{path}");
+        }
+        assert_eq!(
+            std::fs::canonicalize(resolved).unwrap(),
+            std::fs::canonicalize(&root.0).unwrap()
+        );
+        assert_eq!(result["scan_truncated"], false);
+    }
+
+    #[test]
+    fn oversized_directory_reports_a_partial_listing_instead_of_scanning_everything() {
+        let root = TestDir::new();
+        for name in ["a.md", "b.md", "c.md"] {
+            std::fs::write(root.0.join(name), name).unwrap();
+        }
+
+        let result = list_directory_scanning(&json!({"path": root.0}), 1, 2);
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["scan_truncated"], true);
+        assert_eq!(result["total_entry_count"], 2);
+        assert_eq!(result["content_coverage"]["listing_complete"], false);
+        assert!(
+            result["warnings"][0]
+                .as_str()
+                .is_some_and(|warning| warning.contains("only the first 2"))
+        );
     }
 
     #[test]

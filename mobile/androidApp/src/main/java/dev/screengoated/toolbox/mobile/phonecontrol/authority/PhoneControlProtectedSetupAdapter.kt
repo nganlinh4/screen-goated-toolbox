@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.phonecontrol.authority
 
 import android.content.Context
+import androidx.annotation.StringRes
 
 internal sealed interface PhoneControlProtectedSetupResult {
     data object Completed : PhoneControlProtectedSetupResult
@@ -36,6 +37,8 @@ internal data class PhoneControlProtectedSetupNavigationContract(
 internal interface PhoneControlProtectedSetupAdapter {
     val capturePolicy: PhoneControlProtectedCapturePolicy
     val navigationContract: PhoneControlProtectedSetupNavigationContract
+    @get:StringRes
+    val userStepGuidance: Int? get() = null
 
     fun checkpointReadiness(context: Context): PhoneControlProtectedCheckpointReadiness
 

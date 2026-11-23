@@ -258,12 +258,18 @@ mod tests {
         (7..=8)
             .map(|id| DetectedTextRegion {
                 id,
-                bounds: NormalizedBounds {
-                    left: 1,
-                    top: id * 10,
-                    right: 30,
-                    bottom: id * 10 + 4,
-                },
+                bounds:
+                    crate::overlay::screen_translate::source_bounds::SourceBounds::from_normalized(
+                        NormalizedBounds {
+                            left: 1,
+                            top: id * 10,
+                            right: 30,
+                            bottom: id * 10 + 4,
+                        },
+                        1000,
+                        1000,
+                    )
+                    .unwrap(),
                 source_text: format!("source {id}"),
                 source_alternatives: vec![format!("source {id}")],
                 recognition: Default::default(),

@@ -1,4 +1,5 @@
-import { useCallback, type MutableRefObject, type RefObject } from "react";
+import { useCallback, useRef, type MutableRefObject, type RefObject } from "react";
+import { activateNarrationProject } from './narrationProjectOwnership';
 import {
   BackgroundConfig,
   VideoSegment,
@@ -25,7 +26,7 @@ export interface UseProjectActionsParams {
     currentProjectId: string | null;
     showProjectsDialog: boolean;
     setShowProjectsDialog: (show: boolean) => void;
-    handleLoadProject: (id: string) => Promise<void>;
+    handleLoadProject: (id: string) => Promise<import('./useProjects').ProjectLoadResult>;
   };
   // From useProjectInteractionShield
   isProjectInteractionShieldVisible: boolean;
@@ -145,6 +146,7 @@ export function useProjectActions({
   setError,
 }: UseProjectActionsParams): UseProjectActionsResult {
   const { t } = useSettings();
+  const gridLoadSeq = useRef(0);
   const onProjectLoaded = useCallback(
     (project: Project) => {
       clearClipMediaCaches({
@@ -162,7 +164,7 @@ export function useProjectActions({
         backgroundConfig: cloneBackgroundConfig(project.backgroundConfig),
         webcamConfig: cloneWebcamConfig(project.webcamConfig),
       };
-      currentProjectIdRef.current = project.id;
+      activateNarrationProject(currentProjectIdRef, project.id);
       currentProjectDataRef.current = loadedProject;
       setCurrentProjectData(loadedProject);
       setCurrentRawMicAudioPath(project.rawMicAudioPath ?? "");
@@ -228,6 +230,7 @@ export function useProjectActions({
 
   const handleLoadProjectFromGrid = useCallback(
     async (projectId: string) => {
+      const request = ++gridLoadSeq.current;
       debugProject("grid-load:start", {
         targetProjectId: projectId,
         currentProjectId: projects.currentProjectId,
@@ -270,10 +273,17 @@ export function useProjectActions({
       }
       setLastCaptureFps(null);
       try {
-        await projects.handleLoadProject(projectId);
+        const applied = await projects.handleLoadProject(projectId);
+        if (applied === null) return;
+        if (!applied) {
+          if (request !== gridLoadSeq.current) return;
+          throw new Error("Project could not be loaded");
+        }
       } catch (err) {
+        if (request !== gridLoadSeq.current) return;
         isProjectTransitionRef.current = false;
         setIsProjectInteractionShieldVisible(false);
+        if (err instanceof DOMException && err.name === "AbortError") return;
         throw err;
       }
       debugProject("grid-load:done", { targetProjectId: projectId });

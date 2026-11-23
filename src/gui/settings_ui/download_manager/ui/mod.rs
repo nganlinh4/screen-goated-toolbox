@@ -19,6 +19,12 @@ fn should_render_dependency_gate(
             || !matches!(ytdlp_status, InstallStatus::Installed))
 }
 
+/// The Deno offer appears only once Deno is known to be absent; a status that
+/// is still being checked or installed says nothing about the saved choice.
+fn cookie_browser_needs_deno(browser: &CookieBrowser, deno: &InstallStatus) -> bool {
+    *browser != CookieBrowser::None && matches!(deno, InstallStatus::Missing)
+}
+
 impl DownloadManager {
     fn media_workflow_active(&self) -> bool {
         self.sessions.iter().any(|session| {
@@ -31,6 +37,11 @@ impl DownloadManager {
 
     fn has_deno_runtime(&self) -> bool {
         matches!(*self.deno_status.lock().unwrap(), InstallStatus::Installed)
+    }
+
+    fn saved_cookie_browser_needs_deno(&self) -> bool {
+        !self.show_cookie_deno_dialog
+            && cookie_browser_needs_deno(&self.cookie_browser, &self.deno_status.lock().unwrap())
     }
 
     pub(super) fn set_cookie_browser_with_deno_guard(&mut self, browser: CookieBrowser) {
@@ -82,6 +93,7 @@ impl DownloadManager {
 
     pub fn render(&mut self, ctx: &egui::Context, text: &LocaleText) {
         if !self.show_window {
+            self.folder_picker.retire();
             for s in &mut self.sessions {
                 s.initial_focus_set = false;
             }
@@ -90,13 +102,17 @@ impl DownloadManager {
             return;
         }
 
+        self.browser_discovery.update(ctx);
+        self.poll_folder_picker(text);
+
         self.apply_pending_cookie_browser_if_ready();
 
-        if self.cookie_browser != CookieBrowser::None && !self.has_deno_runtime() {
+        // Offer Deno without touching the saved choice: downloads that use
+        // cookies prepare Deno themselves, and only rejecting the dialog
+        // clears the preference.
+        if self.saved_cookie_browser_needs_deno() {
             self.pending_cookie_browser = Some(self.cookie_browser.clone());
-            self.cookie_browser = CookieBrowser::None;
             self.show_cookie_deno_dialog = true;
-            self.save_settings();
         }
 
         let theme = AppTheme::from_dark(ctx.global_style().visuals.dark_mode);
@@ -163,6 +179,7 @@ impl DownloadManager {
 
         if close_requested {
             self.show_window = false;
+            self.folder_picker.retire();
         }
     }
 
@@ -261,8 +278,33 @@ impl DownloadManager {
 
 #[cfg(test)]
 mod tests {
-    use super::should_render_dependency_gate;
-    use crate::gui::settings_ui::download_manager::types::InstallStatus;
+    use super::{cookie_browser_needs_deno, should_render_dependency_gate};
+    use crate::gui::settings_ui::download_manager::types::{CookieBrowser, InstallStatus};
+
+    #[test]
+    fn saved_cookie_browser_survives_an_unsettled_deno_status() {
+        for status in [
+            InstallStatus::Checking,
+            InstallStatus::Downloading(0.5),
+            InstallStatus::Extracting,
+            InstallStatus::Finalizing,
+            InstallStatus::Installed,
+            InstallStatus::Error("offline".to_string()),
+        ] {
+            assert!(
+                !cookie_browser_needs_deno(&CookieBrowser::Chrome, &status),
+                "{status:?}"
+            );
+        }
+        assert!(cookie_browser_needs_deno(
+            &CookieBrowser::Chrome,
+            &InstallStatus::Missing
+        ));
+        assert!(!cookie_browser_needs_deno(
+            &CookieBrowser::None,
+            &InstallStatus::Missing
+        ));
+    }
 
     #[test]
     fn active_media_workflow_does_not_reopen_dependency_gate() {

@@ -11,7 +11,8 @@ This was originally hosted at https://github.com/hasenbanck/egui_wgpu_backend
 
 ## SGT patch
 
-This vendored 0.34.3 copy adds in-process wgpu device-loss recovery for Screen Goated Toolbox.
+This vendored 0.36.1 copy adds in-process wgpu device-loss recovery for Screen Goated Toolbox.
 It recreates the painter's device-owned resources and restores live managed textures while keeping
-the existing winit event loop and application process alive. The upstream source remains licensed
+the existing winit event loop and application process alive. Native HLSL pipelines use explicit
+binding layouts, including the screenshot texture-copy pipeline. The upstream source remains licensed
 under MIT or Apache-2.0; see `LICENSE-MIT` and `LICENSE-APACHE`.

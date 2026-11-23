@@ -30,7 +30,6 @@ import dev.screengoated.toolbox.mobile.ui.i18n.uiLocalized
 import dev.screengoated.toolbox.mobile.SgtMobileApplication
 import dev.screengoated.toolbox.mobile.branding.MobileBrandAssets
 import dev.screengoated.toolbox.mobile.service.preset.PresetAudioForegroundMode
-import dev.screengoated.toolbox.mobile.service.preset.resumePendingAudioLaunch
 import dev.screengoated.toolbox.mobile.service.tts.toRuntimeSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,12 +56,19 @@ class BubbleService : Service() {
     private var opacityDecayJob: Job? = null
     private var recentInteractionUntilMs = 0L
     private var resetPositionOnDestroy = false
+    private var startupBlocked = false
     internal var currentAudioForegroundMode: PresetAudioForegroundMode = PresetAudioForegroundMode.NONE
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        val container = (application as SgtMobileApplication).appContainerOrNull
+        if (container == null) {
+            startupBlocked = true
+            stopForUnavailableSecureStore()
+            return
+        }
         ensureChannel()
         startBubbleForeground()
 
@@ -82,7 +88,7 @@ class BubbleService : Service() {
                 coordinateScaleOverride = 1f,
             )
             positionPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            val appContainer = (application as SgtMobileApplication).appContainer
+            val appContainer = container
             val density = resources.displayMetrics.density
             val sizePx = dp(currentBubbleSizeDp())
 
@@ -136,6 +142,7 @@ class BubbleService : Service() {
         }.onFailure {
             Log.e(TAG, "BubbleService failed to start", it)
             Toast.makeText(this, uiLocalized().getString(R.string.bubble_start_failed), Toast.LENGTH_SHORT).show()
+            presetOverlayController?.releaseAudioRecoveryOwner()
             stopSelf()
         }
     }
@@ -208,16 +215,17 @@ class BubbleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (startupBlocked || (application as SgtMobileApplication).appContainerOrNull == null) {
+            stopForUnavailableSecureStore(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
+                presetOverlayController?.releaseAudioRecoveryOwner()
                 resetPositionOnDestroy = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
-            }
-            ACTION_RESUME_PENDING_AUDIO_PRESET -> {
-                presetOverlayController?.resumePendingAudioLaunch()
-                return START_STICKY
             }
         }
         return START_STICKY
@@ -265,6 +273,7 @@ class BubbleService : Service() {
                         val hit = dismissBubble.hit(event.rawX, event.rawY, bubbleScreenBounds())
                         dismissBubble.resetTracking()
                         if (hit.committedAction() != DismissAction.NONE) {
+                            presetOverlayController?.releaseAudioRecoveryOwner()
                             // Swallow: shrink bubble into dismiss target
                             bubbleView.animate()
                                 .scaleX(0.2f).scaleY(0.2f).alpha(0f)
@@ -496,10 +505,8 @@ class BubbleService : Service() {
     companion object {
         private const val TAG = "BubbleService"
         const val CHANNEL_ID = "sgt_bubble"
-        const val NOTIFICATION_ID = 1002
+        const val NOTIFICATION_ID = ForegroundNotificationIds.BUBBLE
         const val ACTION_STOP = "dev.screengoated.toolbox.mobile.service.STOP_BUBBLE"
-        const val ACTION_RESUME_PENDING_AUDIO_PRESET =
-            "dev.screengoated.toolbox.mobile.service.RESUME_PENDING_AUDIO_PRESET"
 
         @Volatile
         var isRunning: Boolean = false
@@ -521,11 +528,5 @@ class BubbleService : Service() {
         private const val BUBBLE_INACTIVE_ALPHA = 80f / 255f
         private const val BUBBLE_ACTIVE_ALPHA = 1f
 
-        fun resumePendingAudioPreset(context: android.content.Context) {
-            context.startService(
-                Intent(context, BubbleService::class.java)
-                    .setAction(ACTION_RESUME_PENDING_AUDIO_PRESET),
-            )
-        }
     }
 }

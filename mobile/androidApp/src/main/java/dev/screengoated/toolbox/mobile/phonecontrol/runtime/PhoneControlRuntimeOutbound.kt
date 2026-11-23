@@ -28,6 +28,7 @@ internal class PhoneControlRuntimeOutbound(
     private val onInputSent: () -> Unit,
     private val onInputActivity: () -> Unit,
     private val onFreshScreenDelivered: () -> Unit,
+    private val onUserInterfaceGoalSent: (userRequest: String?) -> Unit = {},
 ) {
     fun flush(session: GeminiLiveReadySession): Boolean {
         visualEvidence.discardPending(screenFrames, controlPayloads)
@@ -102,8 +103,9 @@ internal class PhoneControlRuntimeOutbound(
             pendingWorkCount = pendingWorkCount(),
             userSpeaking = userSpeaking(),
             sender = sender,
-        ) {
+        ) { userRequest ->
             onInputSent()
+            onUserInterfaceGoalSent(userRequest)
             Log.i(TAG, "ui_goal_sent")
         }
 

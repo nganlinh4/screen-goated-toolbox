@@ -37,6 +37,7 @@ pub(super) fn collect_translation_models(config: &Config) -> Vec<ModelConfig> {
             &failed_model_ids,
             &blocked_providers,
             RetryChainKind::TextToText,
+            false,
             config,
         ) {
             if failed_model_ids

@@ -10,7 +10,7 @@ pub(super) fn validate_delivery(delivery: &LocalAsrDelivery) -> Result<()> {
         delivery.id,
         delivery.version,
         delivery.files,
-        &ComponentKind::from_id(delivery.id)?.dependencies(),
+        &dependencies(delivery.id)?,
     )
 }
 
@@ -20,7 +20,7 @@ pub(super) fn validate_delivery_status(delivery: &LocalAsrDelivery) -> Result<()
         delivery.id,
         delivery.version,
         delivery.files,
-        &ComponentKind::from_id(delivery.id)?.dependencies(),
+        &dependencies(delivery.id)?,
         file_size_matches,
     )
 }
@@ -68,8 +68,11 @@ fn validate_component_root(
 }
 
 pub(super) fn validate_exact_tree(root: &Path, files: &[LocalAsrFile]) -> Result<()> {
-    let mut actual = Vec::new();
-    staging::collect_regular_files(root, root, &mut actual, MAX_COMPONENT_FILES + 1)?;
+    let mut actual = crate::component_registry::owned_tree::regular_files(
+        root,
+        "local ASR component",
+        MAX_COMPONENT_FILES + 1,
+    )?;
     actual.retain(|path| path != Path::new(RECEIPT_NAME));
     if actual.len() != files.len()
         || actual

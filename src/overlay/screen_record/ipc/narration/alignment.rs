@@ -5,7 +5,6 @@ pub(super) struct CleanNarrationItem {
     pub(super) id: String,
     pub(super) text: String,
     pub(super) tts_text: String,
-    pub(super) aligner_text: String,
     pub(super) start_time: f64,
     pub(super) end_time: f64,
     pub(super) text_units: usize,
@@ -16,15 +15,6 @@ pub(super) struct NarrationRequestGroup {
     pub(super) id: String,
     pub(super) items: Vec<CleanNarrationItem>,
     pub(super) text: String,
-    pub(super) spans: Vec<NarrationGroupTextSpan>,
-}
-
-#[derive(Clone)]
-pub(super) struct NarrationGroupTextSpan {
-    subtitle_id: String,
-    text: String,
-    start_char: usize,
-    end_char: usize,
 }
 
 #[derive(Clone)]
@@ -37,44 +27,6 @@ pub(super) struct NarrationAlignedRange {
 pub(super) struct NarrationSplitResult {
     pub(super) ranges: Vec<NarrationAlignedRange>,
     pub(super) mode: &'static str,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct NarrationAlignerRequest<'a> {
-    audio_path: &'a str,
-    prompt_text: &'a str,
-    language_code: Option<&'a str>,
-    items: Vec<NarrationAlignerItem<'a>>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct NarrationAlignerItem<'a> {
-    subtitle_id: &'a str,
-    text: &'a str,
-    start_char: usize,
-    end_char: usize,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct NarrationAlignerResponse {
-    ranges: Vec<NarrationAlignerRange>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct NarrationAlignerRange {
-    subtitle_id: String,
-    source_in_point: f64,
-    source_out_point: f64,
-    #[serde(default = "default_alignment_confidence")]
-    confidence: f64,
-}
-
-pub(super) fn default_alignment_confidence() -> f64 {
-    1.0
 }
 
 pub(super) fn estimate_narration_speech_units(text: &str) -> usize {
@@ -140,48 +92,13 @@ pub(super) fn normalize_group_sentence(text: &str) -> String {
     }
 }
 
-pub(super) fn normalize_alignment_text(text: &str) -> String {
-    text.nfc()
-        .collect::<String>()
-        .split_whitespace()
+pub(super) fn build_group_text(items: &[CleanNarrationItem]) -> String {
+    items
+        .iter()
+        .map(|item| normalize_group_sentence(&item.tts_text))
+        .filter(|sentence| !sentence.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-pub(super) fn append_group_sentence(
-    text_parts: &mut Vec<String>,
-    spans: &mut Vec<NarrationGroupTextSpan>,
-    item: &CleanNarrationItem,
-    cursor: &mut usize,
-) {
-    let sentence = normalize_group_sentence(&item.tts_text);
-    if sentence.is_empty() {
-        return;
-    }
-    if !text_parts.is_empty() {
-        *cursor += 1;
-    }
-    let start_char = *cursor;
-    *cursor += sentence.chars().count();
-    spans.push(NarrationGroupTextSpan {
-        subtitle_id: item.id.clone(),
-        text: item.aligner_text.clone(),
-        start_char,
-        end_char: *cursor,
-    });
-    text_parts.push(sentence);
-}
-
-pub(super) fn build_group_text_and_spans(
-    items: &[CleanNarrationItem],
-) -> (String, Vec<NarrationGroupTextSpan>) {
-    let mut text_parts = Vec::new();
-    let mut spans = Vec::new();
-    let mut cursor = 0usize;
-    for item in items {
-        append_group_sentence(&mut text_parts, &mut spans, item, &mut cursor);
-    }
-    (text_parts.join(" "), spans)
 }
 
 pub(super) fn build_narration_groups(
@@ -206,12 +123,11 @@ pub(super) fn build_narration_groups(
             return;
         }
         let group_index = groups.len();
-        let (text, spans) = build_group_text_and_spans(current);
+        let text = build_group_text(current);
         groups.push(NarrationRequestGroup {
             id: format!("group-{group_index}"),
             items: std::mem::take(current),
             text,
-            spans,
         });
         *current_units = 0;
         *current_chars = 0;
@@ -402,102 +318,4 @@ pub(super) fn narration_pause_weight(text: &str) -> f64 {
         ',' | ';' | ':' => 0.45,
         _ => 0.0,
     }
-}
-
-pub(super) fn align_group_audio_ranges(
-    group: &NarrationRequestGroup,
-    audio_path: &str,
-    audio: &TtsCollectedAudio,
-    language_code: Option<&str>,
-    vad_search_radius_sec: f64,
-) -> NarrationSplitResult {
-    if let Some(aligned) = try_external_narration_aligner(group, audio_path, audio, language_code) {
-        return aligned;
-    }
-    split_group_audio_ranges(group, audio, vad_search_radius_sec)
-}
-
-pub(super) fn try_external_narration_aligner(
-    group: &NarrationRequestGroup,
-    audio_path: &str,
-    audio: &TtsCollectedAudio,
-    language_code: Option<&str>,
-) -> Option<NarrationSplitResult> {
-    let command = std::env::var(NARRATION_ALIGNER_ENV).ok()?;
-    let command = command.trim();
-    if command.is_empty() {
-        return None;
-    }
-
-    let items = group
-        .spans
-        .iter()
-        .map(|span| NarrationAlignerItem {
-            subtitle_id: &span.subtitle_id,
-            text: &span.text,
-            start_char: span.start_char,
-            end_char: span.end_char,
-        })
-        .collect();
-    let request = NarrationAlignerRequest {
-        audio_path,
-        prompt_text: &group.text,
-        language_code,
-        items,
-    };
-    let payload = serde_json::to_vec(&request).ok()?;
-    let mut child = std::process::Command::new(command)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    if let Some(stdin) = child.stdin.as_mut()
-        && stdin.write_all(&payload).is_err()
-    {
-        let _ = child.kill();
-        return None;
-    }
-    let output = child.wait_with_output().ok()?;
-    if !output.status.success() {
-        eprintln!(
-            "[Narration][Aligner] command failed status={:?} stderr={}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(600)
-                .collect::<String>()
-        );
-        return None;
-    }
-    let response: NarrationAlignerResponse = serde_json::from_slice(&output.stdout).ok()?;
-    if response.ranges.len() != group.items.len() {
-        return None;
-    }
-    let duration_sec = (audio.duration_ms as f64 / 1000.0).max(0.05);
-    let mut by_id = response
-        .ranges
-        .into_iter()
-        .map(|range| (range.subtitle_id.clone(), range))
-        .collect::<HashMap<_, _>>();
-    let mut previous_end = 0.0;
-    let mut ranges = Vec::with_capacity(group.items.len());
-    for item in &group.items {
-        let range = by_id.remove(&item.id)?;
-        let start = range
-            .source_in_point
-            .max(previous_end)
-            .clamp(0.0, duration_sec);
-        let end = range.source_out_point.max(start + 0.05).min(duration_sec);
-        previous_end = end;
-        ranges.push(NarrationAlignedRange {
-            start_sec: start,
-            end_sec: end,
-            confidence: range.confidence.clamp(0.0, 1.0),
-        });
-    }
-    Some(NarrationSplitResult {
-        ranges,
-        mode: "aligned",
-    })
 }

@@ -1,31 +1,23 @@
-use std::ffi::c_void;
+use crate::component_registry::{canonical_regular_dir, canonical_regular_file};
+use crate::process_job::{HelperCommand, Input, Output as ProcessOutput, OwnedProcess};
 use std::io::{BufReader, Write as _};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::os::windows::process::CommandExt as _;
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command as ProcessCommand, Stdio};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use super::DataRejection;
+use super::framing::read_bounded_line;
 use anyhow::{Context, Result, anyhow, bail};
 use sgt_computer_control_protocol::{
     Command, MAX_JSON_BYTES, MAX_RESPONSE_LINE_BYTES, Output, PROTOCOL_VERSION, RESPONSE_PREFIX,
     Request, Response, TOKEN_BYTES,
 };
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
-};
-use windows::core::PCWSTR;
 
-use super::framing::read_bounded_line;
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 const DROP_WAIT: Duration = Duration::from_millis(500);
+/// Bound for both the Shutdown reply and the clean exit that follows it.
+const SHUTDOWN_WAIT: Duration = Duration::from_millis(500);
 const ENGINE_VERSION: &str = "1.0.0";
 
 enum ResponseEvent {
@@ -33,31 +25,35 @@ enum ResponseEvent {
     Failed(String),
 }
 
+enum EngineReply {
+    Output(Output),
+    Rejected(String),
+}
+
 pub(super) struct EngineProcess {
-    child: Child,
-    stdin: ChildStdin,
+    pub(super) tool_declarations: std::collections::HashMap<String, serde_json::Value>,
+    child: OwnedProcess,
+    stdin: Input,
     responses: mpsc::Receiver<ResponseEvent>,
     token: String,
     next_request_id: u64,
-    job: OwnedHandle,
-    _component: crate::component_registry::computer_control::ComputerControlEngineUse,
 }
 
 impl EngineProcess {
     pub(super) fn launch(cancelled: &AtomicBool) -> Result<Self> {
         let component =
             crate::component_registry::computer_control::ensure_engine_with_badge(cancelled)?;
-        let executable = canonical_file(component.executable(), "engine")?;
+        let executable = canonical_regular_file(component.executable(), "Computer Control engine")?;
         let system_root = std::env::var_os("SystemRoot")
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
             .ok_or_else(|| anyhow!("SystemRoot is unavailable"))?;
-        let system32 = canonical_dir(&system_root.join("System32"), "Windows System32")?;
+        let system32 = canonical_regular_dir(&system_root.join("System32"), "Windows System32")?;
         let token = launch_token()?;
         let workspace = crate::component_registry::worker_workspace(
             crate::component_registry::computer_control::ID,
         )?;
-        let mut command = ProcessCommand::new(&executable);
+        let mut command = HelperCommand::new(&executable);
         command
             .arg("--stdio")
             .current_dir(workspace)
@@ -65,40 +61,32 @@ impl EngineProcess {
             .env("SystemRoot", &system_root)
             .env("WINDIR", &system_root)
             .env("PATH", &system32)
-            .env("SGT_CC_ENGINE_LAUNCH_TOKEN", &token)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW);
-        let mut child = command
-            .spawn()
+            .pipe_stdin()
+            .stderr_null();
+        crate::paths::configure_isolated_child_environment(&mut command)?;
+        command.env("SGT_CC_ENGINE_LAUNCH_TOKEN", &token);
+        let mut child = OwnedProcess::spawn_helper(&command, component)
             .with_context(|| format!("start Computer Control engine '{}'", executable.display()))?;
         let stdin = child
-            .stdin
-            .take()
+            .take_stdin()
             .context("Computer Control engine stdin missing")?;
         let stdout = child
-            .stdout
-            .take()
+            .take_stdout()
             .context("Computer Control engine stdout missing")?;
-        let job = match create_job(&child) {
-            Ok(job) => job,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.try_wait();
-                return Err(error);
-            }
-        };
+        child.resume()?;
         let responses = start_response_reader(stdout);
         let mut process = Self {
+            tool_declarations: std::collections::HashMap::new(),
             child,
             stdin,
             responses,
             token,
             next_request_id: 1,
-            job,
-            _component: component,
         };
+        // The host is the compatibility authority: it pins ENGINE_VERSION and
+        // the architecture below. `host_version` is a required, informational
+        // field of the frozen v1 wire contract that engine 1.0.0 deserializes
+        // strictly, so it stays on the wire and engines must not gate on it.
         match process.request(Command::Handshake {
             host_version: env!("CARGO_PKG_VERSION").to_string(),
         })? {
@@ -112,20 +100,13 @@ impl EngineProcess {
     }
 
     pub(super) fn request(&mut self, command: Command) -> Result<Output> {
-        let result = self.request_inner(command);
-        if result.is_err() {
-            terminate_job(&self.job);
-        }
-        result
+        self.request_within(command, REQUEST_TIMEOUT)
     }
 
-    fn request_inner(&mut self, command: Command) -> Result<Output> {
-        if let Some(status) = self.child.try_wait()? {
-            bail!("Computer Control engine exited with {status}");
-        }
-        command.validate().map_err(anyhow::Error::msg)?;
+    fn request_within(&mut self, command: Command, timeout: Duration) -> Result<Output> {
+        command.validate().map_err(DataRejection::request)?;
         let request_id = self.next_request_id;
-        self.next_request_id = self
+        let next_request_id = self
             .next_request_id
             .checked_add(1)
             .ok_or_else(|| anyhow!("Computer Control engine request id overflow"))?;
@@ -137,21 +118,46 @@ impl EngineProcess {
         };
         let body = serde_json::to_vec(&request)?;
         if body.len() > MAX_JSON_BYTES {
-            bail!("Computer Control engine request exceeds protocol limit");
+            return Err(DataRejection::request(
+                "Computer Control engine request exceeds protocol limit",
+            )
+            .into());
         }
-        self.stdin.write_all(&body)?;
+        // No request or ID is committed until local admission has succeeded.
+        self.next_request_id = next_request_id;
+        match self.request_inner(request_id, &body, timeout) {
+            Ok(EngineReply::Output(output)) => Ok(output),
+            Ok(EngineReply::Rejected(error)) => Err(DataRejection::application(error).into()),
+            Err(error) => {
+                let _ = self.child.terminate();
+                Err(error)
+            }
+        }
+    }
+
+    fn request_inner(
+        &mut self,
+        request_id: u64,
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<EngineReply> {
+        if let Some(status) = self.child.try_wait()? {
+            bail!("Computer Control engine exited with {status}");
+        }
+        self.stdin.write_all(body)?;
         self.stdin.write_all(b"\n")?;
         self.stdin.flush()?;
-        match self.responses.recv_timeout(REQUEST_TIMEOUT) {
+        match self.responses.recv_timeout(timeout) {
             Ok(ResponseEvent::Response(response)) => {
                 response
                     .validate(&self.token, request_id)
                     .map_err(anyhow::Error::msg)?;
                 if let Some(error) = response.error {
-                    bail!("{error}");
+                    return Ok(EngineReply::Rejected(error));
                 }
                 response
                     .output
+                    .map(EngineReply::Output)
                     .ok_or_else(|| anyhow!("Computer Control engine returned no output"))
             }
             Ok(ResponseEvent::Failed(error)) => bail!("{error}"),
@@ -164,25 +170,38 @@ impl EngineProcess {
         }
     }
 
-    pub(super) fn shutdown(&mut self) {
-        terminate_job(&self.job);
+    /// Ask the engine to exit through its protocol first, then always retire
+    /// the job so an engine that ignores the request cannot outlive the
+    /// session. Returns whether the engine acknowledged and exited on its own.
+    pub(super) fn shutdown(&mut self) -> bool {
+        let acknowledged = matches!(
+            self.request_within(Command::Shutdown, SHUTDOWN_WAIT),
+            Ok(Output::Shutdown)
+        ) && self.exited_within(SHUTDOWN_WAIT);
+        let _ = self.child.terminate();
+        acknowledged
+    }
+
+    fn exited_within(&mut self, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while !self.child.stopped() {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        true
     }
 }
 
 impl Drop for EngineProcess {
     fn drop(&mut self) {
-        terminate_job(&self.job);
-        let deadline = Instant::now() + DROP_WAIT;
-        while Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let _ = self.child.terminate();
+        let _ = self.child.stop_within(DROP_WAIT);
     }
 }
 
-fn start_response_reader(stdout: ChildStdout) -> mpsc::Receiver<ResponseEvent> {
+fn start_response_reader(stdout: ProcessOutput) -> mpsc::Receiver<ResponseEvent> {
     let (sender, receiver) = mpsc::sync_channel(8);
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -232,51 +251,6 @@ fn launch_token() -> Result<String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn create_job(child: &Child) -> Result<OwnedHandle> {
-    let raw = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
-        .context("create Computer Control engine job")?;
-    let job = unsafe { OwnedHandle::from_raw_handle(raw.0) };
-    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    unsafe {
-        SetInformationJobObject(
-            HANDLE(job.as_raw_handle()),
-            JobObjectExtendedLimitInformation,
-            (&raw const limits).cast::<c_void>(),
-            std::mem::size_of_val(&limits) as u32,
-        )
-        .context("configure Computer Control engine job")?;
-        AssignProcessToJobObject(HANDLE(job.as_raw_handle()), HANDLE(child.as_raw_handle()))
-            .context("contain Computer Control engine process")?;
-    }
-    Ok(job)
-}
-
-fn terminate_job(job: &OwnedHandle) {
-    let _ = unsafe { TerminateJobObject(HANDLE(job.as_raw_handle()), 1) };
-}
-
-fn canonical_file(path: &Path, label: &str) -> Result<PathBuf> {
-    let canonical = std::fs::canonicalize(path)
-        .with_context(|| format!("canonicalize Computer Control {label} '{}'", path.display()))?;
-    let metadata = std::fs::symlink_metadata(&canonical)?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
-        bail!("Computer Control {label} path is unsafe");
-    }
-    Ok(canonical)
-}
-
-fn canonical_dir(path: &Path, label: &str) -> Result<PathBuf> {
-    let canonical = std::fs::canonicalize(path)
-        .with_context(|| format!("canonicalize {label} directory '{}'", path.display()))?;
-    let metadata = std::fs::symlink_metadata(&canonical)?;
-    if !metadata.is_dir() || is_reparse_point(&metadata) {
-        bail!("{label} directory is unsafe");
-    }
-    Ok(canonical)
-}
-
-fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt as _;
-    metadata.file_attributes() & 0x400 != 0
-}
+#[cfg(test)]
+#[path = "process_native_tests.rs"]
+mod native_tests;
