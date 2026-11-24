@@ -1,24 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { syntheticVideoUrl } from "./fixtures/synthetic-video";
 
 async function loadVideoProject(page: Page) {
-  await page.evaluate(async () => {
+  const videoUrl = await syntheticVideoUrl(page, "1920x1080");
+  await page.evaluate(async (url) => {
     await window.__SGT_TEST__?.loadSyntheticProject("small");
-    const canvas = document.createElement("canvas");
-    canvas.width = 1920;
-    canvas.height = 1080;
-    canvas.getContext("2d")!.fillRect(0, 0, canvas.width, canvas.height);
-    const stream = canvas.captureStream(5);
-    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => chunks.push(event.data);
-    const stopped = new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
-    recorder.start();
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-    recorder.stop();
-    await stopped;
-    stream.getTracks().forEach((track) => track.stop());
-    window.__SGT_TEST__?.setCurrentVideoSource(URL.createObjectURL(new Blob(chunks, { type: "video/webm" })));
-  });
+    window.__SGT_TEST__?.setCurrentVideoSource(url);
+  }, videoUrl);
 }
 
 test("remembers volume view and export choices across reopening and restart", async ({ page }, testInfo) => {

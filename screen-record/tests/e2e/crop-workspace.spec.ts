@@ -1,59 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-
-async function createCanvasVideoUrl(page: Page) {
-  return page.evaluate(async () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1280;
-    canvas.height = 720;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas context unavailable");
-
-    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#176b87");
-    gradient.addColorStop(1, "#0e2435");
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#ffffff";
-    context.font = "700 72px sans-serif";
-    context.fillText("CROP FRAME", 74, 120);
-    context.fillStyle = "#f5b942";
-    context.fillRect(460, 190, 360, 360);
-
-    const stream = canvas.captureStream(5);
-    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => chunks.push(event.data);
-    const stopped = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-    });
-    recorder.start();
-    // Capture a frame after recording starts; the initial paint may precede
-    // the recorder's first sample when the page is under load.
-    context.fillStyle = "#ffffff";
-    context.fillText("CROP FRAME", 74, 120);
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-    recorder.stop();
-    await stopped;
-    stream.getTracks().forEach((track) => track.stop());
-    const url = URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
-    const video = document.createElement("video");
-    await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("Synthetic video could not be decoded"));
-      video.src = url;
-    });
-    if (video.videoWidth !== 1280 || video.videoHeight !== 720) {
-      throw new Error("Synthetic video has unexpected dimensions");
-    }
-    return url;
-  });
-}
+import { syntheticVideoUrl } from "./fixtures/synthetic-video";
 
 async function openCropWorkspace(page: Page) {
   await page.goto("/?sgtTestHarness=1");
   await expect(page.locator(".app-container")).toBeVisible();
   await page.evaluate(() => window.__SGT_TEST__?.loadSyntheticProject("small"));
-  const videoUrl = await createCanvasVideoUrl(page);
+  const videoUrl = await syntheticVideoUrl(page, "1280x720");
   await page.evaluate((url) => window.__SGT_TEST__?.setCurrentVideoSource(url), videoUrl);
   const cropButton = page.locator(".playback-crop-toggle-btn");
   await expect(cropButton).toBeVisible();
@@ -67,7 +19,7 @@ test("saves the composed canvas from a compact action beside Crop", async ({ pag
   await page.goto("/?sgtTestHarness=1");
   await expect(page.locator(".app-container")).toBeVisible();
   await page.evaluate(() => window.__SGT_TEST__?.loadSyntheticProject("small"));
-  const videoUrl = await createCanvasVideoUrl(page);
+  const videoUrl = await syntheticVideoUrl(page, "1280x720");
   await page.evaluate((url) => window.__SGT_TEST__?.setCurrentVideoSource(url), videoUrl);
 
   const cropButton = page.locator(".playback-crop-toggle-btn");

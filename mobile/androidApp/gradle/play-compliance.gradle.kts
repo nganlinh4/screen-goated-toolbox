@@ -224,6 +224,9 @@ tasks.register("verifyPlayReleaseCompliance") {
     group = "verification"
     description = "Verifies that the Play AAB keeps executable payloads out of its base module."
     dependsOn("bundlePlayRelease")
+    notCompatibleWithConfigurationCache(
+        "The Play bundle verifier reads its deliverable and tracked runtime contract at execution time.",
+    )
 
     doLast {
         val bundle = project.layout.buildDirectory
