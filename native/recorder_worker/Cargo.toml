@@ -26,7 +26,6 @@ serde_path_to_error = "0.1"
 anyhow = "1.0"
 base64 = "0.22"
 semver = "1.0.28"
-zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 byteorder = "1.5"
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
