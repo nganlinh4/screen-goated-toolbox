@@ -2,11 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { syntheticVideoUrl } from "./fixtures/synthetic-video";
 
 async function loadVideoProject(page: Page) {
+  await page.evaluate(() => window.__SGT_TEST__?.loadSyntheticProject("small"));
+  await expect(page.getByRole("button", { name: "Save current frame" })).toBeVisible();
   const videoUrl = await syntheticVideoUrl(page, "1920x1080");
-  await page.evaluate(async (url) => {
-    await window.__SGT_TEST__?.loadSyntheticProject("small");
-    window.__SGT_TEST__?.setCurrentVideoSource(url);
-  }, videoUrl);
+  await page.evaluate((url) => window.__SGT_TEST__?.setCurrentVideoSource(url), videoUrl);
 }
 
 test("remembers volume view and export choices across reopening and restart", async ({ page }, testInfo) => {
