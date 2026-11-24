@@ -191,18 +191,16 @@ class CreationFileCleanupContractTest {
 
     @Test
     fun `pre-journal job input crash is reclaimed only after grace`() {
-        val filesDir = createTempDirectory("creation-job-input-orphan").toFile()
+        val filesDir = createTempDirectory("creation-job-input-orphan").toFile().canonicalFile
         val root = File(filesDir, "creation/job-inputs").apply { mkdirs() }
         val orphan = File(root, "image_orphan").apply { mkdirs() }
         File(orphan, "0.img").writeBytes(byteArrayOf(1))
-        orphan.setLastModified(1)
+        val modifiedAt = orphan.lastModified()
+        assertTrue(modifiedAt > 0)
 
-        assertTrue(
-            reconcileCreationJobInputDirectories(
-                filesDir,
-                nowMs = JOB_INPUT_ORPHAN_GRACE_MS + 2,
-            ).not(),
-        )
+        reconcileCreationJobInputDirectories(filesDir, nowMs = modifiedAt + JOB_INPUT_ORPHAN_GRACE_MS - 1)
+        assertTrue(orphan.isDirectory)
+        reconcileCreationJobInputDirectories(filesDir, nowMs = modifiedAt + JOB_INPUT_ORPHAN_GRACE_MS)
         assertFalse(orphan.exists())
         filesDir.deleteRecursively()
     }

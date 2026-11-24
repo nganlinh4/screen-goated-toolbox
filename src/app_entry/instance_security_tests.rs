@@ -3,7 +3,9 @@ use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, ERROR_SUCCESS
 use windows::Win32::Security::Authorization::{
     ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT,
 };
-use windows::Win32::Security::{DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION};
+use windows::Win32::Security::{
+    DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION,
+};
 use windows::Win32::Storage::FileSystem::READ_CONTROL;
 use windows::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_ACCESS_RIGHTS};
 
@@ -12,6 +14,23 @@ const BASE: &str =
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
+}
+
+fn sddl_text(descriptor: PSECURITY_DESCRIPTOR, information: OBJECT_SECURITY_INFORMATION) -> String {
+    let mut text = PWSTR::null();
+    unsafe {
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            descriptor,
+            SDDL_REVISION_1,
+            information,
+            &mut text,
+            None,
+        )
+        .unwrap();
+        let applied = String::from_utf16(text.as_wide()).unwrap();
+        LocalFree(Some(HLOCAL(text.0.cast())));
+        applied
+    }
 }
 
 #[test]
@@ -95,25 +114,13 @@ fn singleton_grants_only_the_token_user_and_labels_medium_no_write_up() {
         )
     };
     assert_eq!(status, ERROR_SUCCESS);
-    let mut text = PWSTR::null();
-    let applied = unsafe {
-        ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            descriptor,
-            SDDL_REVISION_1,
-            information,
-            &mut text,
-            None,
-        )
-        .unwrap();
-        let applied = String::from_utf16(text.as_wide()).unwrap();
-        LocalFree(Some(HLOCAL(text.0.cast())));
+    let applied = sddl_text(descriptor, information);
+    unsafe {
         LocalFree(Some(HLOCAL(descriptor.0)));
         let _ = CloseHandle(reader);
-        applied
-    };
+    }
     // The kernel reports the label's SACL as auto-inherited; its ACE is unchanged.
-    assert_eq!(
-        applied,
-        format!("D:P(A;;0x100001;;;{sid})S:AI(ML;;NW;;;ME)")
-    );
+    let expected =
+        ObjectSecurity::from_sddl(&format!("D:P(A;;0x100001;;;{sid})S:AI(ML;;NW;;;ME)")).unwrap();
+    assert_eq!(applied, sddl_text(expected.0, information));
 }

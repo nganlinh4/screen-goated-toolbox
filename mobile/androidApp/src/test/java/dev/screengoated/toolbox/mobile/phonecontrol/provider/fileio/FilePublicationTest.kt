@@ -21,17 +21,18 @@ import org.junit.rules.TemporaryFolder
 class FilePublicationTest {
     @get:Rule val temporary = TemporaryFolder()
     private val io = NioTestFileTransactionIo()
-    private val destination get() = File(temporary.root, "destination.txt")
+    private val root get() = temporary.root.canonicalFile
+    private val destination get() = File(root, "destination.txt")
     private val output = "complete replacement".toByteArray()
 
     @Test fun `preparation freezes the baseline and creates no missing parents`() {
-        val path = File(temporary.root, "missing/inner/output.txt")
+        val path = File(root, "missing/inner/output.txt")
         prepare(path).use { target ->
             assertNull(target.originalBytes())
             assertFalse(requireNotNull(path.parentFile).exists())
             assertFalse(target.lease.existedBefore)
         }
-        assertTrue(temporary.root.listFiles()!!.isEmpty())
+        assertTrue(root.listFiles()!!.isEmpty())
     }
 
     @Test fun `create publishes complete bytes without retaining a consumed stage`() {
@@ -40,7 +41,7 @@ class FilePublicationTest {
         assertTrue(success.effectVerified)
         assertTrue(success.data.flag("atomic"))
         assertFalse(success.data.containsKey("retained_staging_path"))
-        assertEquals(listOf(destination), temporary.root.listFiles()!!.toList())
+        assertEquals(listOf(destination), root.listFiles()!!.toList())
     }
 
     @Test fun `verified exchange retains the exact original and reports its identity`() {
@@ -64,7 +65,7 @@ class FilePublicationTest {
             val failure = failure(commit(target), "ERR_FILE_TARGET_LEASE_CHANGED")
             assertEquals(EffectCertainty.PROVEN_NO_EFFECT, failure.effect)
             assertEquals("original", destination.readText())
-            assertEquals(1, temporary.root.listFiles()!!.size)
+            assertEquals(1, root.listFiles()!!.size)
         }
     }
 
@@ -191,7 +192,7 @@ class FilePublicationTest {
     @Test fun `replaced staging name is neither published nor deleted`() {
         destination.writeText("original")
         io.afterWrite = {
-            val stage = temporary.root.listFiles()!!.single { it.name.startsWith(".sgt-file-") }
+            val stage = root.listFiles()!!.single { it.name.startsWith(".sgt-file-") }
             stage.writeText("foreign")
             io.replaceIdentity(stage.path)
         }
@@ -203,7 +204,7 @@ class FilePublicationTest {
     }
 
     @Test fun `parent creation error reports attempted effects without claiming no effect`() {
-        val path = File(temporary.root, "missing/output.txt")
+        val path = File(root, "missing/output.txt")
         io.afterDirectoryCreate = { throw IOException("Uncertain mkdir result") }
         prepare(path).use { target ->
             val failure = failure(commit(target), "ERR_FILE_TRANSACTION_FAILED")

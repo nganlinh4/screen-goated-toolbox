@@ -65,7 +65,8 @@ fn pending_primary_and_companion_paths_reject_missing_unicode_aliases() {
 }
 
 fn root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
+    let temp = crate::verbatim_path::display_path(&std::env::temp_dir().canonicalize().unwrap());
+    temp.join(format!(
         "{}-{label}",
         crate::overlay::creation_identity::random_id("sgt-delivery-").unwrap()
     ))

@@ -31,7 +31,9 @@ impl Fixture {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let root = std::env::temp_dir().join(format!("sgt-startup-protection-{nonce}"));
+        let temp =
+            crate::verbatim_path::display_path(&std::env::temp_dir().canonicalize().unwrap());
+        let root = temp.join(format!("sgt-startup-protection-{nonce}"));
         std::fs::create_dir(&root).unwrap();
         let file = root.join("candidate.exe");
         let mut output = OpenOptions::new()

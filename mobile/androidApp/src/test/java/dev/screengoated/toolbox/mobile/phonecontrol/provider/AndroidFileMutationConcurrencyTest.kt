@@ -119,7 +119,7 @@ class AndroidFileMutationConcurrencyTest {
 
     @Test
     fun `authorized canonical target cannot drift before exact commit`() {
-        val parent = temporaryFolder.newFolder("approved-parent")
+        val parent = temporaryFolder.newFolder("approved-parent").canonicalFile
         val destination = File(parent, "document.txt").apply { writeText("base") }
         val moved = File(temporaryFolder.root, "moved-parent")
         val io = NioTestFileTransactionIo()

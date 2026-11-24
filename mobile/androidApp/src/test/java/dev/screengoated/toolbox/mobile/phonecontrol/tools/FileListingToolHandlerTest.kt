@@ -32,7 +32,7 @@ class FileListingToolHandlerTest {
 
     @Test
     fun `privileged listing protocol preserves arbitrary utf8 names`() {
-        val directory = temporary.newFolder("listing")
+        val directory = temporary.newFolder("listing").canonicalFile
         val entry = File(directory, "Résumé\n2026.txt")
         val encoded = Base64.getEncoder().encodeToString(
             entry.absolutePath.toByteArray(Charsets.UTF_8),
