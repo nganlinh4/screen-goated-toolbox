@@ -58,7 +58,7 @@ describe("video source loading", () => {
     const rejected = expect(first).rejects.toMatchObject({ name: "AbortError" });
     const second = controller.loadVideo({ videoUrl: "blob:new" });
     await rejected;
-    resolveFetch(new Response(new Blob(["old"])));
+    resolveFetch(new Response("old"));
     makeReady();
     await expect(second).resolves.toBe("blob:new");
     expect(video.getAttribute("src")).toBe("blob:new");
