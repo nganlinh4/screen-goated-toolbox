@@ -1,58 +1,58 @@
 {
   "schemaVersion": 1,
-  "version": "5.5.0",
+  "version": "5.7.0",
   "windows": {
     "architecture": "x64",
     "components": [
       {
-        "asset": "prompt-dj-web-5.5.0-9dcb177b39fbef63.zip",
-        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/prompt-dj-web-5.5.0-9dcb177b39fbef63.zip",
+        "id": "prompt-dj-web",
+        "asset": "prompt-dj-web-5.7.0-8c45dea0fca15905.zip",
+        "sizeBytes": 132319,
+        "sha256": "8c45dea0fca159053eb06891543c7be0b9d446658f9dc5a19b42a400ccfdd308",
+        "unpackedSizeBytes": 512915,
         "files": [
           {
             "path": "assets/index.css",
-            "sha256": "92b85ad327bd75a6f51582389808de8cf1dc03fc3f7f691e73912d7945ff93d8",
-            "sizeBytes": 11760
+            "sizeBytes": 11760,
+            "sha256": "92b85ad327bd75a6f51582389808de8cf1dc03fc3f7f691e73912d7945ff93d8"
           },
           {
             "path": "assets/index.js",
-            "sha256": "acdb3fe49d5085d223e4c4d06d8d0ff18d31d3be8978b6519ad892c452659ae9",
-            "sizeBytes": 478718
+            "sizeBytes": 500711,
+            "sha256": "225c4ac43c1d0ab5169bf0ab75b414eada24c95a834eef07f515ea9eb69cf0df"
           },
           {
             "path": "index.html",
-            "sha256": "ed9cca82880509fc68fef9cb2f0bf786bd5cac0c2fca03c64c0591d49f51de69",
-            "sizeBytes": 444
+            "sizeBytes": 444,
+            "sha256": "ed9cca82880509fc68fef9cb2f0bf786bd5cac0c2fca03c64c0591d49f51de69"
           }
         ],
-        "id": "prompt-dj-web",
-        "sha256": "9dcb177b39fbef63990880014eb81c84bbce9fcde521989fc9394561995506fd",
-        "sizeBytes": 125716,
-        "unpackedSizeBytes": 490922
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/prompt-dj-web-5.7.0-8c45dea0fca15905.zip"
       },
       {
-        "asset": "tts-playground-web-5.5.0-7f9fd31af6538d9e.zip",
-        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/tts-playground-web-5.5.0-7f9fd31af6538d9e.zip",
+        "id": "tts-playground-web",
+        "asset": "tts-playground-web-5.7.0-247bb4c3854b6af7.zip",
+        "sizeBytes": 63517,
+        "sha256": "247bb4c3854b6af776bf4d8c1acb10f23eb25439e7c83e0614dc4e0089318930",
+        "unpackedSizeBytes": 202663,
         "files": [
           {
             "path": "assets/index.css",
-            "sha256": "41ca2ecdae2732d0c4a68945380cb2f7e47eba807454ea378e0112c2ec30c416",
-            "sizeBytes": 14686
+            "sizeBytes": 14427,
+            "sha256": "ff437e9448f312fc5ab0f9b14b5f9e968602a42372c423bea408671b207b1f58"
           },
           {
             "path": "assets/index.js",
-            "sha256": "43091a54cc667747015a9a4360d4fc6b488b4addb5aec68d292c24384bc5ed98",
-            "sizeBytes": 180422
+            "sizeBytes": 187788,
+            "sha256": "4272dd67afd7927fa8031812b5ab677a12a2b006da72d50422977549ea5ad5e1"
           },
           {
             "path": "index.html",
-            "sha256": "573c8a4872b4a2d17318348ec877b7b8c3da2dc348601325a2d977b32e1aa0d0",
-            "sizeBytes": 448
+            "sizeBytes": 448,
+            "sha256": "573c8a4872b4a2d17318348ec877b7b8c3da2dc348601325a2d977b32e1aa0d0"
           }
         ],
-        "id": "tts-playground-web",
-        "sha256": "7f9fd31af6538d9e3c3b0817d6c289fe61cdf166645e004e5fa70408acbcecd1",
-        "sizeBytes": 59921,
-        "unpackedSizeBytes": 195556
+        "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/tts-playground-web-5.7.0-247bb4c3854b6af7.zip"
       }
     ]
   }

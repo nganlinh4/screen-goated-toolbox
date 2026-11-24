@@ -2742,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "sgt-recorder-worker"
-version = "5.6.0"
+version = "5.7.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

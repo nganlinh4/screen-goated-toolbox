@@ -1,15 +1,15 @@
 {
   "helpIndex": {
-    "asset": "help-index-v1-91c9f9b5339e4ec8.json.gz",
-    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/help-index-v1-91c9f9b5339e4ec8.json.gz",
-    "entryCount": 3,
-    "expandedSha256": "edf5e31a7d1a7aca3ac51f479d389493593ee08b93fdc7356c0a2e91033c878b",
-    "expandedSizeBytes": 8099,
-    "format": "json-gzip",
+    "asset": "help-index-v2-35b18b6865d80270.json.gz",
+    "downloadUrl": "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/help-index-v2-35b18b6865d80270.json.gz",
+    "entryCount": 10102,
+    "expandedSha256": "b2e0e981ecd896231f38c18d1820c6d9c70b2f69b3f9eb6a2503f21f77e3c49e",
+    "expandedSizeBytes": 46207657,
+    "format": "jsonl-gzip",
     "id": "help-index",
-    "sha256": "91c9f9b5339e4ec8aa24648b174c8cf96b9932395d5dcf38242a20e0c0de49cf",
-    "sizeBytes": 3188
+    "sha256": "35b18b6865d802707a2d8ab65deb94a2ccd9f09761dec955610ba91224749db4",
+    "sizeBytes": 15612454
   },
-  "schemaVersion": 1,
-  "version": "1"
+  "schemaVersion": 2,
+  "version": "2"
 }
