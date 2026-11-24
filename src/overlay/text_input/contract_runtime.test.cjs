@@ -1,11 +1,13 @@
 const assert = require('node:assert/strict');
+const {execFileSync} = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const {test} = require('node:test');
+const {after, before, test} = require('node:test');
 
 const root = path.resolve(__dirname, '../../..');
-const assets = path.join(root, 'mobile/androidApp/build/generated/presetOverlayAssets/preset_overlay');
+const assets = fs.mkdtempSync(path.join(os.tmpdir(), 'sgt-text-input-test-'));
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const asset = name => fs.readFileSync(path.join(assets, name), 'utf8');
 const fixture = JSON.parse(read('parity-fixtures/preset-system/text-input-overlay.json'));
@@ -13,6 +15,22 @@ const styles = read('src/overlay/text_input/styles.rs');
 const nativeCore = styles.match(/<script>([\s\S]*?)<\/script>/)[1].replaceAll('{{','{').replaceAll('}}','}');
 const shim = read('mobile/androidApp/src/main/java/dev/screengoated/toolbox/mobile/service/preset/PresetTextInputMobileShim.kt')
   .match(/= """([\s\S]*?)"""\.trimIndent\(\)/)[1];
+
+before(() => {
+  const [python, ...args] = process.platform === 'win32' ? ['py', '-3'] : ['python3'];
+  const generate = [
+    'import sys',
+    'from pathlib import Path',
+    'from generate_preset_overlay_assets import generate_text_input_assets',
+    'generate_text_input_assets(*map(Path, sys.argv[1:]))',
+  ].join('\n');
+  execFileSync(python, [...args, '-B', '-c', generate,
+    path.join(__dirname, 'styles.rs'),
+    path.join(root, 'src/overlay/html_components/icons.rs'), assets,
+  ], {cwd: path.join(root, 'mobile/scripts'), stdio: 'inherit'});
+});
+
+after(() => fs.rmSync(assets, {recursive: true, force: true}));
 
 test('generated Android document retains the exact canonical event runtime',()=>{
   const generated=asset('windows_text_input.html').match(/<script>([\s\S]*?)<\/script>/)[1]

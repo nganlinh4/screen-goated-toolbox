@@ -62,13 +62,18 @@ def extract_match_arm_asset(source_file: Path, arm_name: str) -> str:
     raise ValueError(f"Missing string asset match arm: {arm_name}")
 
 
+def generate_text_input_assets(styles: Path, icons: Path, output: Path) -> None:
+    from preset_overlay_text_input import generate as generate_text_input
+
+    generate_text_input(styles, output, extract_raw_string,
+                        lambda name: extract_match_arm_asset(icons, name), write)
+
+
 def generate(args: argparse.Namespace) -> None:
     output = args.output / "preset_overlay"
     output.mkdir(parents=True, exist_ok=True)
     if getattr(args, "text_input_source", None):
-        from preset_overlay_text_input import generate as generate_text_input
-        generate_text_input(args.text_input_source, output, extract_raw_string,
-                            lambda name: extract_match_arm_asset(args.icons_source, name), write)
+        generate_text_input_assets(args.text_input_source, args.icons_source, output)
     selection_source = getattr(args, "selection_source", None)
     if selection_source:
         selection = extract_raw_string(read(selection_source), "pub fn get_html(")

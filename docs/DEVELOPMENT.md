@@ -259,7 +259,8 @@ to the root README/agent guidance or this document and the release guide; it sti
 reports the gate. Repository branch protection should require `Development gate`.
 These jobs do not publish components or run release wrappers.
 
-Install the locked recorder dependencies for shared DOM/browser test fixtures:
+Install the locked recorder dependencies for shared DOM/browser test fixtures.
+The text-input unit tests use Python 3 to generate the Android overlay assets.
 
 ```powershell
 npm --prefix screen-record ci

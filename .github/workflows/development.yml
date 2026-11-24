@@ -116,6 +116,9 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: screen-record/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
       - run: npm --prefix screen-record ci --no-audit --no-fund
       - run: node scripts/test-javascript.mjs --suite unit
 
