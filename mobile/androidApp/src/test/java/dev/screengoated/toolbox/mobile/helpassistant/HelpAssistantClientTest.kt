@@ -1,6 +1,7 @@
 package dev.screengoated.toolbox.mobile.helpassistant
 
 import dev.screengoated.toolbox.mobile.preset.PresetModelCatalog
+import dev.screengoated.toolbox.mobile.shared.live.GeneratedLiveModelCatalog
 import dev.screengoated.toolbox.mobile.ui.i18n.MobileLocaleText
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -11,11 +12,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.json.JSONObject
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.Base64
 
 class HelpAssistantClientTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -36,6 +39,45 @@ class HelpAssistantClientTest {
         assertTrue(HelpAssistantClient.SYSTEM_PROMPT.contains("no made up information"))
         assertTrue(HelpAssistantClient.SYSTEM_PROMPT.contains("Do not mention \"Based on the source code\""))
         assertTrue(HelpAssistantClient.SYSTEM_PROMPT.contains("Markdown"))
+    }
+
+    @Test
+    fun sourceIndexFiltersPlatformAndRanksSignedVectors() {
+        val header = JSONObject()
+            .put("schemaVersion", 2)
+            .put("dimensions", HELP_SOURCE_DIMENSIONS)
+            .put("embeddingModel", GeneratedLiveModelCatalog.GEMINI_EMBEDDING_API_MODEL)
+            .put("sourceRevision", "a".repeat(40))
+        fun source(path: String, platform: String, sign: Byte): String = JSONObject()
+            .put("path", path)
+            .put("text", "feature")
+            .put("startLine", 7)
+            .put("platforms", listOf(platform))
+            .put("vector", Base64.getEncoder().encodeToString(ByteArray(HELP_SOURCE_DIMENSIONS) { sign }))
+            .toString()
+        val data = listOf(
+            header.toString(),
+            source("opposite.kt", "android", -1),
+            source("feature.kt", "android", 1),
+            source("windows.rs", "windows", 1),
+        ).joinToString("\n").encodeToByteArray()
+        val entries = parseHelpSourceIndex(data, "android", 3)
+        assertEquals(2, entries.size)
+        val ranked = rankHelpSourceChunks(entries, DoubleArray(HELP_SOURCE_DIMENSIONS) { 1.0 })
+        assertEquals("feature.kt", ranked.first().path)
+        assertEquals(7, ranked.first().line)
+        assertTrue(runCatching { parseHelpSourceIndex(data, "android", 2) }.isFailure)
+    }
+
+    @Test
+    fun generatedSourcePackageVerifiesAndLoads() {
+        val supplied = System.getenv("SGT_HELP_TEST_MANIFEST")
+        assumeTrue(!supplied.isNullOrBlank())
+        val manifest = Path.of(requireNotNull(supplied))
+        val delivery = parseDelivery(Files.readAllBytes(manifest))
+        assertTrue(delivery.sourceIndex)
+        val bytes = Files.readAllBytes(manifest.resolveSibling(delivery.asset))
+        assertTrue(parseDelivered(delivery, verifyAndExpand(delivery, bytes)).size > 128)
     }
 
     @Test

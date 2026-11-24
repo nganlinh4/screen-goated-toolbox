@@ -309,6 +309,7 @@ def generate_live_kotlin(manifest: dict, output_path: Path) -> None:
         ")",
         "",
         "object GeneratedLiveModelCatalog {",
+        f"    const val GEMINI_EMBEDDING_API_MODEL = {kotlin_string(constants['gemini_embedding_api_model'])}",
         "    val realtimeS2sModelIds: Set<String> = setOf(" + ", ".join(kotlin_string(item) for item in manifest["realtime_s2s_model_ids"]) + ")",
         f"    const val TRANSCRIPTION_GEMINI_2_5 = {kotlin_string(constants['gemini_live_audio_model_id_2_5'])}",
         f"    const val TRANSCRIPTION_GEMINI_3_1 = {kotlin_string(constants['gemini_live_audio_model_id_3_1'])}",

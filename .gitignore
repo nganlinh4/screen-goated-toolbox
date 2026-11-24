@@ -30,7 +30,7 @@ nul
 tmp-release-notes-*
 tmp-github-body.txt
 
-# Local-only release infra notes (embedding server / SSH details)
+# Local-only release and publishing setup
 docs/RELEASING.local.md
 
 # Google Play Developer API service-account key (NEVER commit)

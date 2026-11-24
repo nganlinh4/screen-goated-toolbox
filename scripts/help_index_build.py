@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the deterministic, delivery-ready Help Assistant data asset."""
+"""Build the content-addressed Help Assistant source index for a Git revision."""
 
 from __future__ import annotations
 
@@ -7,121 +7,117 @@ import argparse
 import gzip
 import hashlib
 import json
+import subprocess
+import tempfile
 from pathlib import Path
+
+from catalog_model_discovery import credential_pool, read_dotenv
+from help_index_corpus import collect
+from help_index_embeddings import DIMENSIONS, attach_embeddings
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CATALOG = ROOT / "docs" / "help" / "content-v1.json"
 PRODUCTION_PREFIX = (
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/"
     "sgt-runtime-bundles/"
 )
-MAX_DOCUMENT_BYTES = 128 * 1024
-MAX_TOTAL_BYTES = 4 * 1024 * 1024
-VALID_PLATFORMS = {"windows", "android"}
+MAX_EXPANDED_BYTES = 128 * 1024 * 1024
+MAX_COMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_ENTRIES = 131072
 
 
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def json_line(value: dict) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
 
 
-def read_catalog(path: Path) -> tuple[str, list[dict[str, object]]]:
-    root = json.loads(path.read_text(encoding="utf-8"))
-    if root.get("schemaVersion") != 1:
-        raise ValueError("help content catalog uses an unsupported schema")
-    version = root.get("contentVersion")
-    documents = root.get("documents")
-    if not isinstance(version, str) or not version:
-        raise ValueError("help content catalog has no contentVersion")
-    if not isinstance(documents, list) or not documents:
-        raise ValueError("help content catalog has no documents")
-    return version, documents
-
-
-def build_entries(catalog_path: Path, documents: list[dict[str, object]]) -> list[dict[str, object]]:
-    entries: list[dict[str, object]] = []
-    seen_ids: set[str] = set()
-    for document in documents:
-        identifier = document.get("id")
-        relative = document.get("path")
-        title = document.get("title")
-        platforms = document.get("platforms")
-        if not all(isinstance(value, str) and value for value in (identifier, relative, title)):
-            raise ValueError("help content document metadata is invalid")
-        if identifier in seen_ids:
-            raise ValueError(f"duplicate help content id: {identifier}")
-        if (
-            not isinstance(platforms, list)
-            or not platforms
-            or not all(platform in VALID_PLATFORMS for platform in platforms)
-        ):
-            raise ValueError(f"invalid platforms for help content {identifier}")
-        source = (catalog_path.parent / relative).resolve()
-        if source.parent != catalog_path.parent.resolve() or not source.is_file():
-            raise ValueError(f"help content path escapes its catalog: {relative}")
-        text = source.read_text(encoding="utf-8").strip()
-        size = len(text.encode("utf-8"))
-        if not text or size > MAX_DOCUMENT_BYTES:
-            raise ValueError(f"help content document has invalid size: {relative}")
-        seen_ids.add(identifier)
-        entries.append(
-            {
-                "id": identifier,
-                "path": f"docs/help/{relative}",
-                "title": title,
-                "platforms": sorted(set(platforms)),
-                "text": text,
-            }
-        )
-    return entries
-
-
-def write_package(output_dir: Path, version: str, entries: list[dict[str, object]]) -> None:
-    payload = json.dumps(
-        {"schemaVersion": 1, "entries": entries},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    if len(payload) > MAX_TOTAL_BYTES:
-        raise ValueError("expanded help index exceeds its delivery boundary")
-    compressed = gzip.compress(payload, compresslevel=9, mtime=0)
-    digest = sha256(compressed)
-    asset = f"help-index-v{version}-{digest[:16]}.json.gz"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    asset_path = output_dir / asset
-    asset_path.write_bytes(compressed)
-    manifest = {
-        "schemaVersion": 1,
-        "version": version,
-        "helpIndex": {
-            "id": "help-index",
-            "asset": asset,
-            "downloadUrl": f"{PRODUCTION_PREFIX}{asset}",
-            "format": "json-gzip",
-            "sizeBytes": len(compressed),
-            "sha256": digest,
-            "expandedSizeBytes": len(payload),
-            "expandedSha256": sha256(payload),
-            "entryCount": len(entries),
-        },
+def write_package(output_dir: Path, revision: str, model: str, entries: list[dict]) -> Path:
+    if not 1 <= len(entries) <= MAX_ENTRIES:
+        raise ValueError("Help index entry count exceeds its delivery bounds")
+    metadata = {
+        "schemaVersion": 2,
+        "embeddingModel": model,
+        "dimensions": DIMENSIONS,
+        "sourceRevision": revision,
     }
-    manifest_path = output_dir / "help-index-v1.package.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"Built {len(entries)} help documents")
-    print(f"Expanded: {len(payload)} bytes")
-    print(f"Asset: {asset_path}")
-    print(f"Package manifest: {manifest_path}")
+    expanded_hash = hashlib.sha256()
+    expanded_size = 0
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="help-index-", dir=output_dir) as temporary:
+        staging = Path(temporary) / "index.gz"
+        with staging.open("wb") as destination, gzip.GzipFile(
+            filename="", mode="wb", fileobj=destination, compresslevel=6, mtime=0
+        ) as gzip_file:
+            for record in (metadata, *entries):
+                line = json_line(record)
+                expanded_size += len(line)
+                if expanded_size > MAX_EXPANDED_BYTES:
+                    raise ValueError("Expanded help index exceeds its delivery bounds")
+                expanded_hash.update(line)
+                gzip_file.write(line)
+        compressed_size = staging.stat().st_size
+        if not 1 <= compressed_size <= MAX_COMPRESSED_BYTES:
+            raise ValueError("Compressed help index exceeds its delivery bounds")
+        with staging.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+        asset = f"help-index-v2-{digest[:16]}.json.gz"
+        staging.replace(output_dir / asset)
+        manifest = {
+            "schemaVersion": 2,
+            "version": "2",
+            "helpIndex": {
+                "id": "help-index",
+                "asset": asset,
+                "downloadUrl": PRODUCTION_PREFIX + asset,
+                "format": "jsonl-gzip",
+                "sizeBytes": compressed_size,
+                "sha256": digest,
+                "expandedSizeBytes": expanded_size,
+                "expandedSha256": expanded_hash.hexdigest(),
+                "entryCount": len(entries),
+            },
+        }
+        manifest_path = output_dir / "help-index-v2.package.json"
+        prepared_manifest = Path(temporary) / manifest_path.name
+        prepared_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        prepared_manifest.replace(manifest_path)
+    print(f"Built {len(entries)} chunks, {compressed_size:,} compressed bytes", flush=True)
+    print(f"Package manifest: {manifest_path}", flush=True)
+    return manifest_path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ref", default="HEAD")
+    parser.add_argument("--dotenv", type=Path, default=ROOT / ".env")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--embedding-cache", type=Path)
+    parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
-    catalog_path = args.catalog.resolve()
-    version, documents = read_catalog(catalog_path)
-    entries = build_entries(catalog_path, documents)
-    write_package(args.output_dir.resolve(), version, entries)
+    if not 1 <= args.workers <= 20:
+        parser.error("--workers must be between 1 and 20")
+    keys = credential_pool("GEMINI_API_KEY", read_dotenv(args.dotenv))
+    if not keys:
+        parser.error("Set GEMINI_API_KEY or configure the local Gemini key pool")
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{args.ref}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
+    catalog = json.loads(
+        subprocess.check_output(["git", "show", f"{revision}:catalog/model_catalog.json"], cwd=ROOT)
+    )
+    model = catalog["constants"]["gemini_embedding_api_model"]
+    entries, counts = collect(ROOT, revision)
+    print(
+        f"{revision[:12]}: {counts['files']} files, {len(entries)} chunks, "
+        f"{counts['source_chars']:,} source characters, "
+        f"{counts['credential_match']} files excluded by credential scan, "
+        f"{counts['redacted_url_credentials']} URL credentials redacted",
+        flush=True,
+    )
+    output = args.output_dir.resolve()
+    cache = args.embedding_cache or output / "embeddings.sqlite3"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    attach_embeddings(entries, model, keys, cache, min(args.workers, len(keys)))
+    write_package(output, revision, model, entries)
 
 
 if __name__ == "__main__":

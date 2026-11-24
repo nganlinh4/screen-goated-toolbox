@@ -1,29 +1,56 @@
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
+use base64::Engine;
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const DELIVERY_RAW: &str = include_str!(concat!(env!("OUT_DIR"), "/help_index_delivery.json"));
 const FORMAT: &str = "json-gzip";
-const MAX_COMPRESSED_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_EXPANDED_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_ENTRIES: usize = 128;
+const SOURCE_FORMAT: &str = "jsonl-gzip";
+const LEGACY_BYTES: u64 = 4 << 20;
+const SOURCE_COMPRESSED_BYTES: u64 = 64 << 20;
+const SOURCE_EXPANDED_BYTES: u64 = 128 << 20;
+const SOURCE_ENTRIES: usize = 131_072;
+pub(super) const SOURCE_DIMENSIONS: usize = 768;
 const PRODUCTION_PREFIX: &str =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-bundles/";
 const STAGING_PREFIX: &str =
     "https://github.com/nganlinh4/screen-goated-toolbox/releases/download/sgt-runtime-staging/";
 
-static MEMORY_CACHE: LazyLock<Mutex<Option<Vec<ChunkEntry>>>> = LazyLock::new(|| Mutex::new(None));
+static MEMORY_CACHE: LazyLock<Mutex<Option<Arc<[ChunkEntry]>>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub(super) struct ChunkEntry {
     pub(super) path: String,
     pub(super) text: String,
     platforms: Vec<String>,
+    #[serde(skip)]
+    pub(super) line: Option<u32>,
+    #[serde(skip)]
+    pub(super) vector: Vec<i8>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceIndexHeader {
+    schema_version: u32,
+    embedding_model: String,
+    dimensions: usize,
+    source_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceIndexEntry {
+    #[serde(flatten)]
+    chunk: ChunkEntry,
+    start_line: u32,
+    vector: String,
 }
 
 #[derive(Deserialize)]
@@ -55,16 +82,18 @@ struct HelpIndex {
     entries: Vec<ChunkEntry>,
 }
 
-pub(super) fn get_help_index() -> Result<Vec<ChunkEntry>, String> {
+pub(super) fn get_help_index() -> Result<Arc<[ChunkEntry]>, String> {
     if let Some(entries) = MEMORY_CACHE.lock().unwrap().as_ref() {
         return Ok(entries.clone());
     }
     let delivery = parse_delivery(DELIVERY_RAW)?;
-    let result = load_selected(&delivery).or_else(|download_error| {
-        load_last_good().map_err(|cache_error| {
-            format!("Failed to fetch help data: {download_error}; cached copy: {cache_error}")
-        })
-    })?;
+    let result: Arc<[_]> = load_selected(&delivery)
+        .or_else(|download_error| {
+            load_last_good().map_err(|cache_error| {
+                format!("Failed to fetch help data: {download_error}; cached copy: {cache_error}")
+            })
+        })?
+        .into();
     *MEMORY_CACHE.lock().unwrap() = Some(result.clone());
     Ok(result)
 }
@@ -79,10 +108,11 @@ fn load_selected(delivery: &Delivery) -> Result<Vec<ChunkEntry>, String> {
         return Ok(entries);
     }
     let bytes = download(delivery)?;
-    let entries = verify_and_parse(delivery, &bytes)?;
+    verify_compressed(delivery, &bytes)?;
+    let expanded = expand(delivery, &bytes)?;
+    let entries = parse_delivered(delivery, &expanded)?;
     fs::create_dir_all(&root).map_err(|error| format!("Help cache unavailable: {error}"))?;
     atomic_write(&asset_path, &bytes)?;
-    let expanded = expand(delivery, &bytes)?;
     atomic_write(&root.join("last-good.json"), &expanded)?;
     atomic_write(
         &root.join("last-good.sha256"),
@@ -97,7 +127,7 @@ fn load_last_good() -> Result<Vec<ChunkEntry>, String> {
     let size = fs::metadata(&path)
         .map_err(|error| format!("Help cache unavailable: {error}"))?
         .len();
-    if size == 0 || size > MAX_EXPANDED_BYTES {
+    if size == 0 || size > SOURCE_EXPANDED_BYTES {
         return Err("Help cache size is invalid".to_string());
     }
     let bytes = fs::read(path).map_err(|error| format!("Help cache unavailable: {error}"))?;
@@ -106,7 +136,11 @@ fn load_last_good() -> Result<Vec<ChunkEntry>, String> {
     if !valid_sha(&expected) || digest(&bytes) != expected {
         return Err("Help cache identity is invalid".to_string());
     }
-    parse_index(&bytes, None)
+    if bytes.starts_with(b"{\"schemaVersion\":2,") {
+        parse_source_index(&bytes, None)
+    } else {
+        parse_index(&bytes, None)
+    }
 }
 
 fn parse_delivery(raw: &str) -> Result<Delivery, String> {
@@ -120,10 +154,19 @@ fn parse_delivery(raw: &str) -> Result<Delivery, String> {
         PRODUCTION_PREFIX
     };
     let identities_are_valid = valid_sha(&delivery.sha256) && valid_sha(&delivery.expanded_sha256);
-    let valid = root.schema_version == 1
-        && !root.version.is_empty()
+    let (format, compressed_limit, expanded_limit, entries) = match root.schema_version {
+        1 => (FORMAT, LEGACY_BYTES, LEGACY_BYTES, 128),
+        2 => (
+            SOURCE_FORMAT,
+            SOURCE_COMPRESSED_BYTES,
+            SOURCE_EXPANDED_BYTES,
+            SOURCE_ENTRIES,
+        ),
+        _ => return Err("Unsupported help delivery schema".to_string()),
+    };
+    let valid = !root.version.is_empty()
         && delivery.id == "help-index"
-        && delivery.format == FORMAT
+        && delivery.format == format
         && identities_are_valid
         && delivery.asset
             == format!(
@@ -132,9 +175,9 @@ fn parse_delivery(raw: &str) -> Result<Delivery, String> {
                 &delivery.sha256[..16]
             )
         && delivery.download_url == format!("{prefix}{}", delivery.asset)
-        && (1..=MAX_COMPRESSED_BYTES).contains(&delivery.size_bytes)
-        && (1..=MAX_EXPANDED_BYTES).contains(&delivery.expanded_size_bytes)
-        && (1..=MAX_ENTRIES).contains(&delivery.entry_count);
+        && (1..=compressed_limit).contains(&delivery.size_bytes)
+        && (1..=expanded_limit).contains(&delivery.expanded_size_bytes)
+        && (1..=entries).contains(&delivery.entry_count);
     valid
         .then_some(delivery)
         .ok_or_else(|| "Invalid help delivery contract".to_string())
@@ -160,11 +203,23 @@ fn download(delivery: &Delivery) -> Result<Vec<u8>, String> {
 }
 
 fn verify_and_parse(delivery: &Delivery, bytes: &[u8]) -> Result<Vec<ChunkEntry>, String> {
+    verify_compressed(delivery, bytes)?;
+    parse_delivered(delivery, &expand(delivery, bytes)?)
+}
+
+fn verify_compressed(delivery: &Delivery, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 != delivery.size_bytes || digest(bytes) != delivery.sha256 {
         return Err("Help data compressed identity is invalid".to_string());
     }
-    let expanded = expand(delivery, bytes)?;
-    parse_index(&expanded, Some(delivery.entry_count))
+    Ok(())
+}
+
+fn parse_delivered(delivery: &Delivery, bytes: &[u8]) -> Result<Vec<ChunkEntry>, String> {
+    if delivery.format == SOURCE_FORMAT {
+        parse_source_index(bytes, Some(delivery.entry_count))
+    } else {
+        parse_index(bytes, Some(delivery.entry_count))
+    }
 }
 
 fn expand(delivery: &Delivery, bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -182,14 +237,14 @@ fn expand(delivery: &Delivery, bytes: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn parse_index(bytes: &[u8], expected_entries: Option<usize>) -> Result<Vec<ChunkEntry>, String> {
-    if bytes.len() as u64 > MAX_EXPANDED_BYTES {
+    if bytes.len() as u64 > LEGACY_BYTES {
         return Err("Help data exceeds its size boundary".to_string());
     }
     let root: HelpIndex =
         serde_json::from_slice(bytes).map_err(|error| format!("Invalid help data: {error}"))?;
     let valid = root.schema_version == 1
         && !root.entries.is_empty()
-        && root.entries.len() <= MAX_ENTRIES
+        && root.entries.len() <= 128
         && expected_entries.is_none_or(|count| count == root.entries.len())
         && root.entries.iter().all(valid_entry);
     if !valid {
@@ -200,6 +255,64 @@ fn parse_index(bytes: &[u8], expected_entries: Option<usize>) -> Result<Vec<Chun
         .into_iter()
         .filter(|entry| entry.platforms.iter().any(|platform| platform == "windows"))
         .collect())
+}
+
+fn parse_source_index(bytes: &[u8], expected: Option<usize>) -> Result<Vec<ChunkEntry>, String> {
+    let mut lines = std::str::from_utf8(bytes)
+        .map_err(|_| "Invalid help data encoding".to_string())?
+        .lines();
+    let invalid = || "Invalid help source index".to_string();
+    let header: SourceIndexHeader =
+        serde_json::from_str(lines.next().ok_or_else(invalid)?).map_err(|_| invalid())?;
+    if header.schema_version != 2
+        || header.dimensions != SOURCE_DIMENSIONS
+        || header.embedding_model != crate::model_config::GEMINI_EMBEDDING_API_MODEL
+        || header.source_revision.len() != 40
+        || !valid_revision(&header.source_revision)
+    {
+        return Err(invalid());
+    }
+    let mut entries = Vec::new();
+    let mut count = 0;
+    for line in lines {
+        count += 1;
+        if count > SOURCE_ENTRIES || line.len() > 32 * 1024 {
+            return Err(invalid());
+        }
+        let entry: SourceIndexEntry = serde_json::from_str(line).map_err(|_| invalid())?;
+        if !valid_entry(&entry.chunk) || entry.start_line == 0 {
+            return Err(invalid());
+        }
+        let vector = base64::engine::general_purpose::STANDARD
+            .decode(entry.vector)
+            .map_err(|_| invalid())?;
+        if vector.len() != SOURCE_DIMENSIONS || vector.iter().all(|value| *value == 0) {
+            return Err(invalid());
+        }
+        if entry
+            .chunk
+            .platforms
+            .iter()
+            .any(|platform| platform == "windows")
+        {
+            entries.push(ChunkEntry {
+                line: Some(entry.start_line),
+                vector: vector.into_iter().map(|value| value as i8).collect(),
+                ..entry.chunk
+            });
+        }
+    }
+    if count == 0 || expected.is_some_and(|expected| count != expected) {
+        return Err(invalid());
+    }
+    Ok(entries)
+}
+
+fn valid_revision(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn valid_entry(entry: &ChunkEntry) -> bool {
@@ -240,7 +353,7 @@ mod tests {
     fn selected_delivery_is_content_addressed() {
         let delivery = parse_delivery(DELIVERY_RAW).unwrap();
         assert!(delivery.asset.contains(&delivery.sha256[..16]));
-        assert_eq!(delivery.format, FORMAT);
+        assert!([FORMAT, SOURCE_FORMAT].contains(&delivery.format.as_str()));
     }
 
     #[test]
@@ -249,6 +362,44 @@ mod tests {
         let entries = parse_index(raw, Some(2)).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "shared");
+    }
+
+    #[test]
+    fn source_index_filters_platforms_and_rejects_an_incomplete_package() {
+        use serde_json::json;
+
+        let header = json!({
+            "schemaVersion": 2,
+            "embeddingModel": crate::model_config::GEMINI_EMBEDDING_API_MODEL,
+            "sourceRevision": "a".repeat(40),
+            "dimensions": SOURCE_DIMENSIONS,
+        });
+        let vector = base64::engine::general_purpose::STANDARD.encode([1_u8; SOURCE_DIMENSIONS]);
+        let windows = json!({
+            "path": "src/feature.rs", "text": "feature", "startLine": 5,
+            "platforms": ["windows"], "vector": &vector,
+        });
+        let android = json!({
+            "path": "mobile/feature.kt", "text": "feature", "startLine": 7,
+            "platforms": ["android"], "vector": &vector,
+        });
+        let input = format!("{header}\n{windows}\n{android}\n");
+        let entries = parse_source_index(input.as_bytes(), Some(2)).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].line, Some(5));
+        assert_eq!(entries[0].vector.len(), SOURCE_DIMENSIONS);
+        assert!(parse_source_index(input.as_bytes(), Some(3)).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires a local source package via SGT_HELP_TEST_MANIFEST"]
+    fn verifies_the_generated_source_candidate() {
+        let path = PathBuf::from(std::env::var_os("SGT_HELP_TEST_MANIFEST").unwrap());
+        let delivery = parse_delivery(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(delivery.format, SOURCE_FORMAT);
+        let bytes = fs::read(path.with_file_name(&delivery.asset)).unwrap();
+        let entries = verify_and_parse(&delivery, &bytes).unwrap();
+        assert!(entries.len() > 128);
     }
 
     #[test]
@@ -294,7 +445,7 @@ mod tests {
         );
         let bytes = download(&delivery).unwrap();
         let entries = verify_and_parse(&delivery, &bytes).unwrap();
-        assert_eq!(entries.len(), 2);
+        assert!(!entries.is_empty());
         assert!(
             entries
                 .iter()

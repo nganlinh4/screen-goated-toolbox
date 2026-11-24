@@ -2,6 +2,16 @@
   "version": 5,
   "cases": [
     {
+      "name": "source_index_semantic_retrieval",
+      "schema_version": 2,
+      "format": "jsonl-gzip",
+      "embedding_dimensions": 768,
+      "query_prefix": "task: question answering | query: ",
+      "top_k": 6,
+      "filter_current_platform": true,
+      "keyword_fallback": true
+    },
+    {
       "name": "help_index_context",
       "contract": "component-delivery/help-index-v1.json",
       "asset": "help-index-v1-91c9f9b5339e4ec8.json.gz",

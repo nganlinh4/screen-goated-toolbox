@@ -699,34 +699,54 @@ the tracked `scripts/i18n_scan_report.json` audit artifact.
 
 ## Help index
 
-The in-app Help Assistant consumes reviewed product guidance from `docs/help/`.
-When that corpus changes, build one deterministic content-addressed gzip asset
-in the managed development cache:
+Build the Help Assistant index with Gemini Embedding 2 over a committed SGT
+source revision. The corpus includes Windows and Android code, shared UI,
+build configuration, tests, and product docs. The builder excludes local
+credentials, generated output, vendor dependencies, and binary assets. It
+redacts credentials embedded in URLs before sending source chunks to Gemini.
+Put the build keys in the ignored root `.env` or set the same names in the
+environment. The pool uses `GEMINI_API_KEY` and numbered slots such as
+`GEMINI_API_KEY_2`.
 
 ```powershell
-$helpPackage = Join-Path $env:LOCALAPPDATA 'SGT-Development\cache\help-index\package'
-py -3 scripts/help_index_build.py --output-dir $helpPackage
-py -3 scripts/help_index_query.py --platform windows "question"
+$helpRevision = (git rev-parse HEAD).Trim()
+$helpRoot = Join-Path $env:LOCALAPPDATA 'SGT-Development\cache\help-index'
+$helpPackage = Join-Path $helpRoot 'package'
+$helpEmbeddings = Join-Path $helpRoot 'embeddings.sqlite3'
+py -3 scripts/help_index_build.py --ref $helpRevision --output-dir $helpPackage --embedding-cache $helpEmbeddings
 ```
 
-The builder has no model, API-key, or private-service dependency. It writes the
-compressed asset and `help-index-v1.package.json`; it never writes generated
-data into the repository root. Stage and test the candidate through the normal
-delivery flow:
+Reuse the same SQLite cache across revisions to embed only new or changed
+chunks. To resume an interrupted build, rerun the command with the same
+revision and cache. The builder writes a content-addressed gzip asset and
+`help-index-v2.package.json`. The asset header records the source revision.
+
+To spot-check retrieval during development, query the local package with a
+product question:
+
+```powershell
+$helpManifest = Get-Content "$helpPackage\help-index-v2.package.json" -Raw | ConvertFrom-Json
+$helpIndex = Join-Path $helpPackage $helpManifest.helpIndex.asset
+py -3 scripts/help_index_query.py --index $helpIndex --platform windows "How do I change which model is tried first?"
+```
+
+The package contains source text. Once the indexed source is public, stage it
+through the normal component delivery flow:
 
 ```powershell
 py -3 scripts/component_release.py stage `
-  --package-manifest "$helpPackage\help-index-v1.package.json" `
+  --package-manifest "$helpPackage\help-index-v2.package.json" `
   --tracked-manifest component-delivery/help-index-v1.json `
   --contract-relative component-delivery/help-index-v1.json `
   --asset-root $helpPackage
 ```
 
 Use `SGT_COMPONENT_DELIVERY_CHANNEL=staging` and the generated staging contract
-root for Windows or Android debug acceptance. After both clients verify, cache,
-and reuse the candidate, promote it through `component_release.py` and update
-the tracked contract. Do not rebuild this asset merely because the app version
-changes.
+root to verify that both Windows and Android load and cache the candidate.
+Then follow the [promotion checkpoint](RELEASING.md#promote-optional-component-candidates)
+to publish the verified bytes and update the tracked contract. The contract
+schema selects the index reader. Existing released hosts keep the contract
+compiled into their version.
 
 ## Documentation
 

@@ -13,6 +13,14 @@ git log <PREVIOUS_TAG>..HEAD --oneline
 - Read every commit since the previous tag.
 - Do not infer release notes from filenames alone.
 
+Start the [Help Assistant index build](DEVELOPMENT.md#help-index) in a separate
+shell as soon as you have a source commit for the release. Continue with version
+pins and release notes while Gemini embeds the source. Before packaging, confirm
+that the index covers the reviewed source commit. If the source changed, rerun
+the builder for the new commit with the same embedding cache. Stage and promote
+the verified index once the indexed source is public, before building the
+Windows and Android artifacts.
+
 ## 2. Bump version
 
 `[package].version` in `Cargo.toml` is the source of truth. Desktop and Android

@@ -10,6 +10,8 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 
@@ -48,10 +50,10 @@ internal class HelpIndexStore(
                 bytes
             }
         }
-        val entries = verifyAndParse(delivery, compressed)
+        val expanded = verifyAndExpand(delivery, compressed)
+        val entries = parseDelivered(delivery, expanded)
         cacheRoot().mkdirs()
         atomicWrite(selected, compressed)
-        val expanded = expand(delivery, compressed)
         atomicWrite(lastGoodFile(), expanded)
         atomicWrite(lastGoodDigestFile(), delivery.expandedSha256.encodeToByteArray())
         return entries
@@ -60,18 +62,7 @@ internal class HelpIndexStore(
     private fun verifyAndParse(
         delivery: HelpIndexDelivery,
         compressed: ByteArray,
-    ): List<ChunkEntry> {
-        require(compressed.size == delivery.sizeBytes && sha256(compressed) == delivery.sha256) {
-            "Invalid compressed help data identity"
-        }
-        val expanded = expand(delivery, compressed)
-        require(
-            JSONObject(expanded.toString(Charsets.UTF_8)).getJSONArray("entries").length() ==
-                delivery.entryCount,
-        ) { "Invalid help data entry count" }
-        val entries = parseHelpIndex(expanded, "android")
-        return entries
-    }
+    ): List<ChunkEntry> = parseDelivered(delivery, verifyAndExpand(delivery, compressed))
 
     private fun cacheRoot(): File = File(context.filesDir, "help-assistant")
 
@@ -81,13 +72,30 @@ internal class HelpIndexStore(
 
     private fun loadLastGood(): List<ChunkEntry> {
         val data = lastGoodFile()
-        require(data.isFile && data.length() in 1L..MAXIMUM_BYTES.toLong())
+        require(data.isFile && data.length() in 1L..SOURCE_EXPANDED_BYTES.toLong())
         val bytes = data.readBytes()
         val expected = lastGoodDigestFile().readText()
         require(expected.isSha256() && sha256(bytes) == expected) { "Invalid cached help data identity" }
-        return parseHelpIndex(bytes, "android")
+        return if (bytes.size >= SOURCE_HEADER.size &&
+            bytes.copyOf(SOURCE_HEADER.size).contentEquals(SOURCE_HEADER)
+        ) {
+            parseHelpSourceIndex(bytes, "android", null)
+        } else {
+            parseHelpIndex(bytes, "android")
+        }
     }
 }
+
+internal fun verifyAndExpand(delivery: HelpIndexDelivery, compressed: ByteArray): ByteArray {
+    require(compressed.size == delivery.sizeBytes && sha256(compressed) == delivery.sha256) {
+        "Invalid compressed help data identity"
+    }
+    return expand(delivery, compressed)
+}
+
+internal fun parseDelivered(delivery: HelpIndexDelivery, expanded: ByteArray): List<ChunkEntry> =
+    if (delivery.sourceIndex) parseHelpSourceIndex(expanded, "android", delivery.entryCount)
+    else parseHelpIndex(expanded, "android", delivery.entryCount)
 
 internal data class HelpIndexDelivery(
     val version: String,
@@ -98,11 +106,13 @@ internal data class HelpIndexDelivery(
     val expandedSizeBytes: Int,
     val expandedSha256: String,
     val entryCount: Int,
+    val sourceIndex: Boolean,
 )
 
 internal fun parseDelivery(bytes: ByteArray): HelpIndexDelivery {
     val root = JSONObject(bytes.toString(Charsets.UTF_8))
-    require(root.getInt("schemaVersion") == 1)
+    val schema = root.getInt("schemaVersion")
+    require(schema == 1 || schema == 2)
     val version = root.getString("version")
     val value = root.getJSONObject("helpIndex")
     val delivery = HelpIndexDelivery(
@@ -114,8 +124,10 @@ internal fun parseDelivery(bytes: ByteArray): HelpIndexDelivery {
         expandedSizeBytes = value.getInt("expandedSizeBytes"),
         expandedSha256 = value.getString("expandedSha256"),
         entryCount = value.getInt("entryCount"),
+        sourceIndex = schema == 2,
     )
-    require(value.getString("id") == "help-index" && value.getString("format") == "json-gzip")
+    val expectedFormat = if (delivery.sourceIndex) "jsonl-gzip" else "json-gzip"
+    require(value.getString("id") == "help-index" && value.getString("format") == expectedFormat)
     require(delivery.sha256.isSha256() && delivery.expandedSha256.isSha256())
     require(delivery.asset == "help-index-v$version-${delivery.sha256.take(16)}.json.gz")
     require(
@@ -123,18 +135,26 @@ internal fun parseDelivery(bytes: ByteArray): HelpIndexDelivery {
             BuildConfig.DEBUG &&
             ReleaseAssetUrl.matches(delivery.downloadUrl, ReleaseAssetUrl.STAGING_TAG, delivery.asset),
     )
-    require(delivery.sizeBytes in 1..MAXIMUM_BYTES)
-    require(delivery.expandedSizeBytes in 1..MAXIMUM_BYTES)
-    require(delivery.entryCount in 1..MAXIMUM_ENTRIES)
+    val maxCompressed = if (delivery.sourceIndex) SOURCE_COMPRESSED_BYTES else MAXIMUM_BYTES
+    val maxExpanded = if (delivery.sourceIndex) SOURCE_EXPANDED_BYTES else MAXIMUM_BYTES
+    val maxEntries = if (delivery.sourceIndex) SOURCE_MAXIMUM_ENTRIES else MAXIMUM_ENTRIES
+    require(delivery.sizeBytes in 1..maxCompressed)
+    require(delivery.expandedSizeBytes in 1..maxExpanded)
+    require(delivery.entryCount in 1..maxEntries)
     return delivery
 }
 
-internal fun parseHelpIndex(bytes: ByteArray, platform: String): List<ChunkEntry> {
+internal fun parseHelpIndex(
+    bytes: ByteArray,
+    platform: String,
+    expectedEntries: Int? = null,
+): List<ChunkEntry> {
     require(bytes.size <= MAXIMUM_BYTES)
     val root = JSONObject(bytes.toString(Charsets.UTF_8))
     require(root.getInt("schemaVersion") == 1)
     val raw = root.getJSONArray("entries")
     require(raw.length() in 1..MAXIMUM_ENTRIES)
+    require(expectedEntries == null || raw.length() == expectedEntries)
     return buildList {
         for (index in 0 until raw.length()) {
             val value = raw.getJSONObject(index)
@@ -171,20 +191,13 @@ private fun expand(delivery: HelpIndexDelivery, compressed: ByteArray): ByteArra
 
 private fun atomicWrite(target: File, bytes: ByteArray) {
     target.parentFile?.mkdirs()
-    val temporary = File(target.parentFile, "${target.name}.partial")
-    temporary.writeBytes(bytes)
-    if (!target.exists()) {
-        check(temporary.renameTo(target))
-        return
+    val temporary = Files.createTempFile(requireNotNull(target.parentFile).toPath(), target.name, ".partial")
+    try {
+        Files.write(temporary, bytes)
+        Files.move(temporary, target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+    } finally {
+        Files.deleteIfExists(temporary)
     }
-    val backup = File(target.parentFile, "${target.name}.previous")
-    backup.delete()
-    check(target.renameTo(backup))
-    if (!temporary.renameTo(target)) {
-        backup.renameTo(target)
-        error("Could not publish help data cache")
-    }
-    backup.delete()
 }
 
 private fun sha256(bytes: ByteArray): String =
@@ -197,3 +210,7 @@ private const val DELIVERY_ASSET = "help-assistant/delivery.json"
 private const val MAXIMUM_BYTES = 4 * 1024 * 1024
 private const val MAXIMUM_ENTRIES = 128
 private const val MAXIMUM_DOCUMENT_CHARS = 128 * 1024
+private const val SOURCE_COMPRESSED_BYTES = 64 * 1024 * 1024
+private const val SOURCE_EXPANDED_BYTES = 128 * 1024 * 1024
+internal const val SOURCE_MAXIMUM_ENTRIES = 131_072
+private val SOURCE_HEADER = "{\"schemaVersion\":2,".encodeToByteArray()

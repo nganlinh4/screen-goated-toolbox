@@ -4,7 +4,6 @@ use std::path::Path;
 use serde_json::Value;
 
 const DEFAULT_MANIFEST: &str = "component-delivery/help-index-v1.json";
-const MAXIMUM_BYTES: u64 = 4 * 1024 * 1024;
 
 pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     let selected = crate::delivery_channel::select(manifest_dir, DEFAULT_MANIFEST);
@@ -16,7 +15,11 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     });
     let root: Value = serde_json::from_str(&raw)
         .unwrap_or_else(|error| panic!("invalid help-index delivery: {error}"));
-    assert_eq!(root["schemaVersion"].as_u64(), Some(1));
+    let (format, bytes, expanded_bytes, entries) = match root["schemaVersion"].as_u64() {
+        Some(1) => ("json-gzip", 4 << 20, 4 << 20, 128),
+        Some(2) => ("jsonl-gzip", 64 << 20, 128 << 20, 131_072),
+        _ => panic!("unsupported help-index delivery schema"),
+    };
     let version = required_string(&root, "version");
     let delivery = root["helpIndex"]
         .as_object()
@@ -26,7 +29,7 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
     let sha256 = required_object_string(delivery, "sha256");
     let expanded_sha256 = required_object_string(delivery, "expandedSha256");
     assert_eq!(required_object_string(delivery, "id"), "help-index");
-    assert_eq!(required_object_string(delivery, "format"), "json-gzip");
+    assert_eq!(required_object_string(delivery, "format"), format);
     assert!(valid_sha(sha256) && valid_sha(expanded_sha256));
     assert_eq!(
         asset,
@@ -38,16 +41,16 @@ pub(crate) fn generate(manifest_dir: &Path, out_dir: &Path) {
         url,
         "help-index asset",
     );
-    for key in ["sizeBytes", "expandedSizeBytes"] {
+    for (key, maximum) in [("sizeBytes", bytes), ("expandedSizeBytes", expanded_bytes)] {
         assert!(
-            (1..=MAXIMUM_BYTES).contains(
+            (1..=maximum).contains(
                 &delivery[key]
                     .as_u64()
                     .unwrap_or_else(|| panic!("help-index delivery has invalid {key}"))
             )
         );
     }
-    assert!((1..=128).contains(&delivery["entryCount"].as_u64().unwrap_or_default()));
+    assert!((1..=entries).contains(&delivery["entryCount"].as_u64().unwrap_or_default()));
     fs::write(out_dir.join("help_index_delivery.json"), raw)
         .expect("failed to generate help-index delivery");
 }

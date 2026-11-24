@@ -77,6 +77,27 @@ pub fn embed(parts: &[EmbedPart], api_key: &str) -> Result<Vec<f32>> {
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("embed failed")))
 }
 
+pub(crate) fn embed_text(text: &str, api_key: &str, dimensions: usize) -> Result<Vec<f32>> {
+    let model = crate::model_config::GEMINI_EMBEDDING_API_MODEL;
+    let url =
+        format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent");
+    let values = try_embed(
+        &url,
+        api_key,
+        &json!({
+            "content": { "parts": [{ "text": text }] },
+            "outputDimensionality": dimensions,
+        }),
+    )?;
+    anyhow::ensure!(
+        values.len() == dimensions
+            && values.iter().all(|value| value.is_finite())
+            && values.iter().any(|value| *value != 0.0),
+        "invalid text embedding"
+    );
+    Ok(values)
+}
+
 fn try_embed(url: &str, api_key: &str, payload: &Value) -> Result<Vec<f32>> {
     let resp = UREQ_AGENT
         .post(url)
