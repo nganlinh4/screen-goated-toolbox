@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sequence": 16,
+  "sequence": 17,
   "channel": "stable",
   "minHostVersion": "5.7.0",
   "maxHostVersionExclusive": "5.8.0",
