@@ -128,7 +128,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         ("badge", include_str!("badge.rs"), 45),
         ("workspace", include_str!("workspace.rs"), 29),
         ("preset_basics", include_str!("preset_basics.rs"), 36),
-        ("desktop_settings", include_str!("desktop_settings.rs"), 41),
+        ("desktop_settings", include_str!("desktop_settings.rs"), 42),
         ("preset_editor", include_str!("preset_editor.rs"), 51),
         ("global_settings", include_str!("global_settings.rs"), 39),
         ("tts_playground", include_str!("tts_playground.rs"), 28),
@@ -161,7 +161,7 @@ fn locale_leaf_fields_have_one_section_owner() {
         }
     }
 
-    assert_eq!(owners.len(), 580);
+    assert_eq!(owners.len(), 581);
     assert_eq!(owners["history_write_failed"], "workspace");
     assert_eq!(owners["history_load_failed"], "workspace");
     for field in [

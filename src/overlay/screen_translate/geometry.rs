@@ -1,3 +1,4 @@
+#[cfg(any(debug_assertions, test))]
 use super::contract::NormalizedBounds;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub(super) fn processing_cells(
         .collect()
 }
 
+#[cfg(any(debug_assertions, test))]
 pub(crate) fn normalized_region(
     bounds: NormalizedBounds,
     image_width: u32,

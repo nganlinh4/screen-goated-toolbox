@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('../../screen-record/node_modules/playwright');
+const { chromium } = require('playwright');
 
 async function routeAssets(page) {
   const root = path.resolve(__dirname, '../dist');

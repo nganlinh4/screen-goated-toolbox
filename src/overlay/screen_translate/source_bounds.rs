@@ -87,6 +87,7 @@ impl SourceBounds {
     }
 
     /// Import a coordinate format whose only available geometry is normalized.
+    #[cfg(any(debug_assertions, test))]
     pub(crate) fn from_normalized(
         bounds: NormalizedBounds,
         width: u32,
@@ -128,6 +129,7 @@ impl SourceBounds {
         }
     }
 
+    #[cfg(any(debug_assertions, test))]
     pub(crate) fn rescale(self, width: u32, height: u32) -> Result<Self> {
         if self.image_size() == (width, height) {
             return Ok(self);

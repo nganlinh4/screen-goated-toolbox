@@ -178,6 +178,10 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.project }}/package-lock.json
       - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Install Chromium for PromptDJ browser tests
+        if: matrix.project == 'promptdj-midi'
+        run: npx --no-install playwright install chromium
       - name: Declared unit tests
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
@@ -187,7 +191,6 @@ jobs:
           } else {
             Write-Host 'No unit test script is declared; the typecheck/build gate still runs.'
           }
-      - run: npm run build
 
   recorder-ui:
     needs: scope
@@ -272,7 +275,9 @@ jobs:
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: |
+            17
+            21
           cache: gradle
           cache-dependency-path: |
             sgt/mobile/**/*.gradle.kts
@@ -289,7 +294,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Android SDK input installation failed' }
       - name: Full and Play JVM tests
         working-directory: sgt/mobile
-        run: ./gradlew.bat :androidApp:testFullDebugUnitTest :androidApp:testPlayDebugUnitTest --no-daemon --no-parallel --max-workers=1 --console=plain
+        run: ./gradlew.bat :androidApp:testFullDebugUnitTest :androidApp:testPlayDebugUnitTest '-Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64' --no-daemon --no-parallel --max-workers=1 --console=plain
 
   gate:
     name: Development gate

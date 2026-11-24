@@ -20,7 +20,7 @@ def run_pwsh(script: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=120,
         env={**base, **env},
     )
@@ -50,11 +50,12 @@ class AndroidToolchainTest(unittest.TestCase):
         (self.mobile / "local.properties").write_text(f"sdk.dir={escaped}\n", encoding="utf-8")
         result = self.resolve_sdk({})
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(str(self.sdk), result.stdout.strip())
+        self.assertTrue(self.sdk.samefile(result.stdout.strip()))
 
     def test_environment_sdk_wins_and_missing_sdk_is_a_clear_error(self):
         result = self.resolve_sdk({"ANDROID_HOME": str(self.sdk)})
-        self.assertEqual(str(self.sdk), result.stdout.strip(), result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(self.sdk.samefile(result.stdout.strip()))
         missing = self.resolve_sdk({})
         self.assertNotEqual(0, missing.returncode)
         self.assertIn("Android SDK not found", missing.stderr)
@@ -67,7 +68,8 @@ class AndroidToolchainTest(unittest.TestCase):
         self.assertIn("no bin", run_pwsh(script, {"JAVA_HOME": str(jdk)}).stderr)
         (jdk / "bin" / "java.exe").write_bytes(b"")
         result = run_pwsh(script, {"JAVA_HOME": str(jdk)})
-        self.assertEqual(str(jdk), result.stdout.strip(), result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(jdk.samefile(result.stdout.strip()))
 
 
 @unittest.skipUnless(PWSH, "PowerShell 7 is required")
