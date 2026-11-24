@@ -81,7 +81,7 @@ class HelpAssistantClientTest {
     }
 
     @Test
-    fun fixtureTracksCurrentHelpIndexContract() {
+    fun sharedFixtureMatchesHelpAssistantBehavior() {
         val cases = json.parseToJsonElement(Files.readAllBytes(fixturePath()).decodeToString())
             .jsonObject
             .getValue("cases")
@@ -92,12 +92,6 @@ class HelpAssistantClientTest {
             }
 
         val index = cases.getValue("help_index_context")
-        val contract = JSONObject(Files.readAllBytes(deliveryContractPath()).decodeToString())
-            .getJSONObject("helpIndex")
-        assertEquals(contract.getString("downloadUrl"), index.getValue("url").jsonPrimitive.content)
-        assertEquals(contract.getString("asset"), index.getValue("asset").jsonPrimitive.content)
-        assertEquals(contract.getInt("sizeBytes"), index.getValue("size_bytes").jsonPrimitive.content.toInt())
-        assertEquals(contract.getString("sha256"), index.getValue("sha256").jsonPrimitive.content)
         assertEquals(HELP_ASSISTANT_TOP_K, index.getValue("top_k").jsonPrimitive.content.toInt())
         assertTrue(index.getValue("empty_terms_use_first_chunks").jsonPrimitive.boolean)
         assertEquals(listOf("path", "text"), index.getValue("score_inputs").jsonArray.map { it.jsonPrimitive.content })

@@ -12,6 +12,8 @@
 - Read the app-selected `component-delivery/help-index-v1.json` contract, fetch
   its immutable content-addressed gzip asset, and verify compressed and expanded
   byte counts and SHA-256 identities before parsing it.
+  The delivery contract owns the current asset identity. The parity fixture
+  records behavior across index revisions.
 - Cache the verified compressed asset persistently. Reuse the selected cached
   asset without a network request, and retain it as the offline copy when a
   replacement download fails. Never read a mutable branch or staging URL from a
