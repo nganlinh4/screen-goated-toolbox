@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-25T00:49:27Z",
+ "generatedAt": "2026-11-25T11:24:30Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 739,
+   "p50_ms": 762,
    "success_rate": 1.0,
    "runs": 24
   }
