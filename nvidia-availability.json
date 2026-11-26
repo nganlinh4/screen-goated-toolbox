@@ -3,14 +3,14 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-26T04:11:10Z",
+ "generatedAt": "2026-11-26T13:57:52Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
    "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 232,
+   "p50_ms": 228,
    "success_rate": 1.0,
    "runs": 24
   },
