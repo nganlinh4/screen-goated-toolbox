@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-26T23:01:58Z",
+ "generatedAt": "2026-11-27T08:43:33Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -31,19 +31,19 @@
    "runs": 24
   },
   {
-   "id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
    "control": "effort-none",
-   "modality": "text",
-   "p50_ms": 750,
-   "success_rate": 1.0,
+   "modality": "vision",
+   "p50_ms": 407,
+   "success_rate": 0.833,
    "runs": 24
   },
   {
-   "id": "minimaxai/minimax-m3.1-flash",
-   "control": "plain",
+   "id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "control": "effort-none",
    "modality": "text",
-   "p50_ms": 4228,
-   "success_rate": 0.417,
+   "p50_ms": 794,
+   "success_rate": 1.0,
    "runs": 24
   }
  ]
