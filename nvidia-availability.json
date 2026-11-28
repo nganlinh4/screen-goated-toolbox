@@ -3,7 +3,7 @@
  "controlVersion": 1,
  "availabilityGateVersion": 1,
  "provider": "nvidia",
- "generatedAt": "2026-11-28T02:44:48Z",
+ "generatedAt": "2026-11-28T13:08:51Z",
  "note": "Eligibility measures endpoint availability, modality, and latency only. Durable quality comes from the catalog benchmark; clients should refine latency order using their own observations.",
  "models": [
   {
@@ -18,7 +18,7 @@
    "id": "poolside/laguna-xs-2.1",
    "control": "plain",
    "modality": "text",
-   "p50_ms": 221,
+   "p50_ms": 222,
    "success_rate": 1.0,
    "runs": 24
   },
@@ -34,7 +34,7 @@
    "id": "nvidia/nemotron-3.5-super-vl-120b-a12b",
    "control": "effort-none",
    "modality": "vision",
-   "p50_ms": 407,
+   "p50_ms": 372,
    "success_rate": 0.833,
    "runs": 24
   },
@@ -42,8 +42,16 @@
    "id": "nvidia/nemotron-3-ultra-550b-a55b",
    "control": "effort-none",
    "modality": "text",
-   "p50_ms": 794,
+   "p50_ms": 837,
    "success_rate": 1.0,
+   "runs": 24
+  },
+  {
+   "id": "mistralai/mistral-large-4-1t-a52b",
+   "control": "plain",
+   "modality": "text",
+   "p50_ms": 3141,
+   "success_rate": 0.5,
    "runs": 24
   }
  ]
